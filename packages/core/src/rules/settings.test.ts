@@ -47,10 +47,10 @@ describe('yahooDefaultSettings', () => {
     expect(yahooDefaultSettings(7).playoffs.teams).toBe(6);
   });
 
-  it('is valid with no warnings for every team count 7-12 and every preset', () => {
+  it('is valid with no warnings for every even team count 8-12 and every preset', () => {
     fc.assert(
       fc.property(
-        fc.integer({ min: 7, max: 12 }),
+        fc.constantFrom(8, 10, 12),
         fc.constantFrom('yahoo_standard', 'full_ppr', 'standard' as const),
         (n, preset) => {
           const result = parseLeagueSettings(leagueSettingsPreset(preset, n));
@@ -60,9 +60,17 @@ describe('yahooDefaultSettings', () => {
     );
   });
 
-  it('is valid for 4-6 teams (a short-season warning is not expected with 15 weeks)', () => {
-    for (const n of [4, 5, 6])
+  it('is valid for 4 and 6 teams (a short-season warning is not expected with 15 weeks)', () => {
+    for (const n of [4, 6])
       expect(parseLeagueSettings(yahooDefaultSettings(n))).toMatchObject({ ok: true, warnings: [] });
+  });
+
+  it('rejects every odd team count', () => {
+    for (const n of [5, 7, 9, 11]) {
+      const result = parseLeagueSettings(yahooDefaultSettings(n));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.issues.map((i) => i.code)).toContain('ODD_TEAM_COUNT');
+    }
   });
 
   it('supports a mid-season start week', () => {

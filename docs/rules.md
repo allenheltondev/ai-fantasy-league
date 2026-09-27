@@ -103,7 +103,7 @@ These values are our best understanding of Yahoo's defaults. Check them against 
 
 | Setting | Default |
 |---|---|
-| Team count | 8 (4-12 allowed) |
+| Team count | 8 (an even number from 4 to 12, so every team has an opponent each week) |
 | Slots | QB, WR×3, RB×2, TE, W/R/T, K, DEF, BN×6, IR×1 (16 active + 1 IR) |
 | Optional slots | Q/W/R/T (superflex), W/T, W/R, DL, LB, DB, IDP (any defensive player) |
 | IR-eligible statuses | IR, Out, PUP, NFI, COVID-19 (`roster.irEligibleStatuses`) |
