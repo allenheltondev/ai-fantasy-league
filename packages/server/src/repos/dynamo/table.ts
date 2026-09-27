@@ -9,8 +9,8 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 export const TABLE_KEYS = {
   pk: 'pk',
   sk: 'sk',
-  gsi1: { name: 'GSI1', pk: 'gsi1pk', sk: 'gsi1sk' },
-  gsi2: { name: 'GSI2', pk: 'gsi2pk', sk: 'gsi2sk' },
+  gsi1: { name: 'GSI1', pk: 'GSI1PK', sk: 'GSI1SK' },
+  gsi2: { name: 'GSI2', pk: 'GSI2PK', sk: 'GSI2SK' },
   ttl: 'ttl'
 } as const;
 

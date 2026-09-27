@@ -31,8 +31,8 @@ export const playerKey = (id: string) => ({ pk: `PLAYER#${id}`, sk: 'PROFILE' })
 export function playerItem(player: Player): Record<string, unknown> {
   return {
     ...playerKey(player.id),
-    gsi1pk: `PLAYERIDX#${player.position}`,
-    gsi1sk: `${normalizeName(player.name)}#${player.id}`,
+    GSI1PK: `PLAYERIDX#${player.position}`,
+    GSI1SK: `${normalizeName(player.name)}#${player.id}`,
     ...player
   };
 }

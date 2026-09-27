@@ -15,8 +15,8 @@ One table, `FantasyTable`, on-demand billing.
 | Attribute | Type | Purpose |
 |---|---|---|
 | `pk`, `sk` | S | Table key |
-| `gsi1pk`, `gsi1sk` | S | **GSI1**: alternate-key lookups (who is in which league, invite codes, the player name index) |
-| `gsi2pk`, `gsi2sk` | S | **GSI2**: time-ordered feeds keyed by something other than the partition (audit by principal, a player's stat and news history) |
+| `GSI1PK`, `GSI1SK` | S | **GSI1**: alternate-key lookups (who is in which league, invite codes, the player name index) |
+| `GSI2PK`, `GSI2SK` | S | **GSI2**: time-ordered feeds keyed by something other than the partition (audit by principal, a player's stat and news history) |
 | `ttl` | N | TTL (epoch seconds) for idempotency records and other expiring items |
 
 Both GSIs project `ALL`. The table has no LSIs, so no item collection has a 10 GB limit.
@@ -71,12 +71,12 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 
 Players are resolved by name everywhere (`search_players`, `get_player`, and every operation that takes `player`). DynamoDB has no text search, and the fantasy-relevant universe is small (roughly 2,000 to 3,000 players), so:
 
-1. GSI1 holds a **name index sharded by position**: `gsi1pk = PLAYERIDX#QB` (RB, WR, TE, K, DEF), `gsi1sk = <normalized name>#<id>`. There are six shards, so no one partition is hot.
+1. GSI1 holds a **name index sharded by position**: `GSI1PK = PLAYERIDX#QB` (RB, WR, TE, K, DEF), `GSI1SK = <normalized name>#<id>`. There are six shards, so no one partition is hot.
 2. The server loads the index (six paginated queries, a few hundred KB) into memory in each Lambda container and caches it for 10 minutes on `ctx.clock` (`PlayerDirectory`). A position filter reads a single shard.
 3. Matching runs in-process (`players/match.ts`): exact name or alias ("CMC"), last name, prefix, per-token prefix, then small typos (edit distance). A team or position word in the query ("mccaffrey sf") becomes a filter. Ties are broken by rank.
 4. Resolution returns one player, `AMBIGUOUS_PLAYER` with the top-tier candidates, or `PLAYER_NOT_FOUND` with a fix.
 
-Because `gsi1sk` starts with the normalized name, a later last-name prefix query (`begins_with`) is possible without a schema change if the universe ever outgrows the in-memory approach.
+Because `GSI1SK` starts with the normalized name, a later last-name prefix query (`begins_with`) is possible without a schema change if the universe ever outgrows the in-memory approach.
 
 ### Stats and projections
 

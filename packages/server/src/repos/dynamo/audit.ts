@@ -21,7 +21,7 @@ export function auditKeys(entry: AuditEntry) {
   const pk =
     entry.leagueId === null ? `AUDIT#DAY#${entry.at.slice(0, 10)}` : `AUDIT#LEAGUE#${entry.leagueId}`;
   const sk = `${entry.at}#${entry.id}`;
-  return { pk, sk, gsi2pk: `AUDIT#PRINCIPAL#${entry.principal}`, gsi2sk: sk };
+  return { pk, sk, GSI2PK: `AUDIT#PRINCIPAL#${entry.principal}`, GSI2SK: sk };
 }
 
 export class DynamoAuditRepository implements AuditRepository {
