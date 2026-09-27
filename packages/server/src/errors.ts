@@ -1,0 +1,76 @@
+/**
+ * Every failure the API reports is an `ApiError`. The REST adapter renders it as
+ * `{ error: { code, message, fix, details } }`, and agents receive the same object
+ * as their tool result, so `fix` is written for a model: say exactly what to change.
+ */
+
+export const ERROR_STATUS = {
+  INVALID_INPUT: 400,
+  INVALID_JSON: 400,
+  IDEMPOTENCY_KEY_REQUIRED: 400,
+  AMBIGUOUS_PLAYER: 400,
+  UNAUTHENTICATED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  ROUTE_NOT_FOUND: 404,
+  PLAYER_NOT_FOUND: 404,
+  LEAGUE_NOT_FOUND: 404,
+  CONFLICT: 409,
+  IDEMPOTENCY_IN_PROGRESS: 409,
+  PHASE_NOT_ALLOWED: 409,
+  IDEMPOTENCY_KEY_REUSED: 422,
+  INTERNAL: 500
+} as const;
+
+export type ErrorCode = keyof typeof ERROR_STATUS;
+export const ERROR_CODES = Object.keys(ERROR_STATUS) as ErrorCode[];
+
+export interface ApiErrorBody {
+  code: ErrorCode;
+  message: string;
+  fix: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ApiErrorOptions {
+  /** What the caller should do differently. Required: every error explains its fix. */
+  fix: string;
+  details?: Record<string, unknown>;
+  cause?: unknown;
+}
+
+export class ApiError extends Error {
+  readonly code: ErrorCode;
+  readonly status: number;
+  readonly fix: string;
+  readonly details: Record<string, unknown> | undefined;
+
+  constructor(code: ErrorCode, message: string, options: ApiErrorOptions) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = ERROR_STATUS[code];
+    if (options.fix.trim().length === 0) {
+      throw new TypeError(`ApiError ${code} needs a non-empty fix`);
+    }
+    this.fix = options.fix;
+    this.details = options.details;
+  }
+
+  toBody(): ApiErrorBody {
+    const body: ApiErrorBody = { code: this.code, message: this.message, fix: this.fix };
+    if (this.details !== undefined) body.details = this.details;
+    return body;
+  }
+}
+
+export function isApiError(value: unknown): value is ApiError {
+  return value instanceof ApiError;
+}
+
+export function internalError(cause?: unknown): ApiError {
+  return new ApiError('INTERNAL', 'The server hit an unexpected error.', {
+    fix: 'Retry the same request (reuse your Idempotency-Key for mutations). If it keeps failing, report it.',
+    cause
+  });
+}

@@ -4,6 +4,7 @@ package-lock.json
 packages/data/fixtures
 docs
 *.md
+packages/server/openapi.json
 app/test-results
 app/playwright-report
 .aws-sam
