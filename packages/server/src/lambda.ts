@@ -15,6 +15,7 @@ import { createApp } from './http/app.js';
 import { createLogger } from './log.js';
 import { registry } from './operations/index.js';
 import { createDynamoRepos } from './repos/dynamo/index.js';
+import { createDynamoReferenceStore } from './repos/dynamo/reference.js';
 import { createDocumentClient } from './repos/dynamo/table.js';
 import { createServices } from './services.js';
 
@@ -24,12 +25,14 @@ export type FunctionUrlEvent = Extract<LambdaEvent, { rawPath: string }>;
 export function createLambdaApp(env: Record<string, string | undefined> = process.env): Hono {
   const config = loadLambdaConfig(env);
   const log = createLogger({ level: config.logLevel });
-  const repos = createDynamoRepos({ doc: createDocumentClient(), tableName: config.tableName });
+  const table = { doc: createDocumentClient(), tableName: config.tableName };
+  const repos = createDynamoRepos(table);
   const services = createServices({
     clock: systemClock,
     repos,
     events: new EventBridgePublisher({ busName: config.eventBusName }),
-    log
+    log,
+    reference: createDynamoReferenceStore(table)
   });
   const verifier = createCognitoVerifier({
     userPoolId: config.userPoolId,

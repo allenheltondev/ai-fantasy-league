@@ -1,0 +1,62 @@
+name: Record fixtures
+
+# Records real Sleeper responses (trimmed to the fixture players) where
+# api.sleeper.app is reachable, and checks which news RSS feeds respond. Dev
+# sandboxes cannot reach either, so this is how fixtures and the feed list get
+# refreshed. Nothing is committed: download the artifact, copy
+# fixtures/sleeper/ into packages/data/fixtures/sleeper/, run
+# `npm test -w @fantasy/data`, and open a PR. No AWS credentials are used.
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: Season to record stats and projections for
+        required: false
+        type: string
+        default: '2025'
+      weeks:
+        description: Comma-separated weeks to record
+        required: false
+        type: string
+        default: '1,2'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  record:
+    name: Record Sleeper fixtures and check news feeds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Record Sleeper responses
+        env:
+          SEASON: ${{ inputs.season }}
+          WEEKS: ${{ inputs.weeks }}
+        run: |
+          # Start from the committed fixtures so the synthetic 900xx players are kept.
+          mkdir -p recorded
+          cp -R packages/data/fixtures recorded/fixtures
+          node scripts/record-fixtures.mjs --sleeper --season "$SEASON" --weeks "$WEEKS" --out recorded/fixtures
+      - name: Check news feeds
+        # A feed outage must not lose the recorded fixtures.
+        continue-on-error: true
+        run: node scripts/check-news-feeds.mjs --out recorded/news-feeds-report.json
+      - name: Upload recorded fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: recorded-fixtures-${{ github.run_id }}
+          path: |
+            recorded/fixtures/sleeper/
+            recorded/news-feeds-report.json
+          if-no-files-found: error
+          retention-days: 14

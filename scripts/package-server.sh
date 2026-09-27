@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
-# Bundles the API Lambda (packages/server/src/lambda.ts, export `handler`)
-# into a content-hashed zip for `make deploy-backend`.
+# Bundles the server's Lambda entrypoints into one content-hashed zip for
+# `make deploy-backend`:
 #
-# esbuild produces one ESM file, index.mjs, for Node 22 on arm64 (the
-# template's `Runtime: nodejs22.x`, `Handler: index.handler`). Everything is
+#   index.mjs  the API (packages/server/src/lambda.ts), Handler: index.handler
+#   jobs.mjs   the data jobs (packages/server/src/jobs/lambda.ts), Handler: jobs.handler
+#
+# esbuild produces ESM for Node 22 on arm64 (the template's `Runtime:
+# nodejs22.x`). Both functions deploy the same zip. Everything is
 # bundled, the AWS SDK included, so the deployed code runs exactly the
 # dependency versions the lockfile pins rather than whatever SDK the runtime
 # happens to ship.
@@ -24,6 +27,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENTRY="${SERVER_ENTRY:-${ROOT}/packages/server/src/lambda.ts}"
+JOBS_ENTRY="${SERVER_JOBS_ENTRY:-${ROOT}/packages/server/src/jobs/lambda.ts}"
 BUILD_DIR="${SERVER_BUILD_DIR:-${ROOT}/.build/server}"
 STAGING="${BUILD_DIR}/staging"
 
@@ -32,6 +36,11 @@ log() { printf '\033[1m==>\033[0m %s\n' "$*" >&2; }
 if [ ! -f "${ENTRY}" ]; then
   echo "package-server: the API entrypoint ${ENTRY#"${ROOT}"/} does not exist." >&2
   echo "                It must export \`handler\` (the Lambda handler the template names as index.handler)." >&2
+  exit 1
+fi
+if [ ! -f "${JOBS_ENTRY}" ]; then
+  echo "package-server: the data jobs entrypoint ${JOBS_ENTRY#"${ROOT}"/} does not exist." >&2
+  echo "                It must export \`handler\` (the template names it as jobs.handler)." >&2
   exit 1
 fi
 command -v zip >/dev/null || { echo "package-server: zip is required" >&2; exit 1; }
@@ -53,9 +62,10 @@ if [ "${SERVER_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
   done
 fi
 
-log "Bundling ${ENTRY#"${ROOT}"/} with esbuild"
+log "Bundling ${ENTRY#"${ROOT}"/} and ${JOBS_ENTRY#"${ROOT}"/} with esbuild"
+# `name=path` entries give each bundle a fixed file name (index.mjs, jobs.mjs).
 # The banner gives bundled CommonJS dependencies a `require` inside ESM.
-"${ROOT}/node_modules/.bin/esbuild" "${ENTRY}" \
+"${ROOT}/node_modules/.bin/esbuild" "index=${ENTRY}" "jobs=${JOBS_ENTRY}" \
   --bundle \
   --platform=node \
   --target=node22 \
@@ -65,7 +75,8 @@ log "Bundling ${ENTRY#"${ROOT}"/} with esbuild"
   --legal-comments=none \
   --main-fields=module,main \
   --banner:js="import { createRequire as __fantasyCreateRequire } from 'node:module'; const require = __fantasyCreateRequire(import.meta.url);" \
-  --outfile="${STAGING}/index.mjs" \
+  --outdir="${STAGING}" \
+  --out-extension:.js=.mjs \
   --log-level=warning
 
 UNZIPPED_KB="$(du -sk "${STAGING}" | cut -f1)"

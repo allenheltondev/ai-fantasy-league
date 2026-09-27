@@ -45,7 +45,9 @@ describe('generateOpenApi', () => {
       ['position', 'query'],
       ['team', 'query'],
       ['limit', 'query'],
-      ['detail', 'query']
+      ['detail', 'query'],
+      ['leagueId', 'query'],
+      ['availability', 'query']
     ]);
     expect(doc.paths['/api/v1/health']?.get?.security).toEqual([]);
   });
@@ -72,11 +74,18 @@ describe('generateMcpTools', () => {
   });
 
   it('covers the production registry', () => {
-    expect(generateMcpTools(registry).map((t) => t.name)).toEqual([
-      'get_health',
-      'get_me',
-      'get_player',
-      'search_players'
-    ]);
+    const names = generateMcpTools(registry).map((t) => t.name);
+    expect([...names].sort()).toEqual(registry.operations.map((op) => op.name).sort());
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'get_health',
+        'get_me',
+        'get_player',
+        'search_players',
+        'get_projections',
+        'get_trending_players',
+        'get_news'
+      ])
+    );
   });
 });

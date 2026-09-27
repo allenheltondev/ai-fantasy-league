@@ -3,6 +3,8 @@ import type { Services } from './context.js';
 import type { EventPublisher } from './events/publisher.js';
 import type { Logger } from './log.js';
 import { PlayerDirectory } from './players/directory.js';
+import { createInMemoryReferenceStore } from './repos/memory-reference.js';
+import type { ReferenceStore } from './repos/reference.js';
 import type { Repos } from './repos/types.js';
 
 /** Wires the per-container services every request shares. */
@@ -12,6 +14,8 @@ export function createServices(options: {
   events: EventPublisher;
   log: Logger;
   playerIndexTtlMs?: number;
+  /** Reference data (stats, projections, news, ...). Defaults to an in-memory store. */
+  reference?: ReferenceStore;
 }): Services {
   const players = new PlayerDirectory({
     repo: options.repos.players,
@@ -23,6 +27,6 @@ export function createServices(options: {
     repos: options.repos,
     events: options.events,
     log: options.log,
-    data: { players }
+    data: { players, reference: options.reference ?? createInMemoryReferenceStore(options.repos.players) }
   };
 }

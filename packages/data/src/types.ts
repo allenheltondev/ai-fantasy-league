@@ -37,6 +37,8 @@ export interface Player {
   age?: number;
   yearsExp?: number;
   number?: number;
+  /** Sleeper's consensus rank (lower is better). Absent when unranked. */
+  searchRank?: number;
   /** Lowercase, punctuation-free names used to resolve a player from free text. */
   searchNames: string[];
 }
