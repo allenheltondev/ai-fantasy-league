@@ -100,10 +100,33 @@ export async function main(argv = process.argv.slice(2)) {
   return 0;
 }
 
+/**
+ * True when the AWS CLI refused the listing call itself (the deploy role lacks bedrock:List*). That
+ * says nothing about whether the catalog is right, so it must not block a deploy; the agent runtime
+ * already falls back down each tier's model list, then to deterministic play, when a model is missing.
+ */
+export function isListingAccessDenied(error) {
+  const text = error instanceof Error ? `${error.message}\n${error.stderr ?? ''}` : String(error);
+  return /AccessDenied/.test(text) && /bedrock:List(InferenceProfiles|FoundationModels)/.test(text);
+}
+
+export function accessDeniedWarning() {
+  return (
+    '::warning title=Model catalog not verified::The deploy role cannot list Bedrock models ' +
+    '(bedrock:ListInferenceProfiles / bedrock:ListFoundationModels), so the catalog in ' +
+    'packages/core/src/agents/models.ts was not checked. Grant those two read-only actions to the ' +
+    'deploy role to turn this check back on.'
+  );
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().then(
     (code) => process.exit(code),
     (error) => {
+      if (isListingAccessDenied(error)) {
+        console.log(accessDeniedWarning());
+        process.exit(0);
+      }
       console.error(`verify-models: ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);
     }

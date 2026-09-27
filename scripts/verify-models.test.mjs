@@ -5,7 +5,9 @@ import {
   activeFoundationModelIds,
   activeProfileIds,
   findMissing,
+  accessDeniedWarning,
   formatReport,
+  isListingAccessDenied,
   sameVendorIds
 } from './verify-models.mjs';
 
@@ -74,5 +76,17 @@ describe('verify-models', () => {
     assert.match(report, /available anthropic ids: .*us\.anthropic\.claude-sonnet-5-20260801-v1:0/);
     const none = formatReport(catalog, findMissing(catalog, []), 'us-east-1', []);
     assert.match(none, /no moonshot ids are available/);
+  });
+
+  it('treats a denied listing call as unverifiable, not as a bad catalog', () => {
+    const denied = Object.assign(new Error('Command failed: aws bedrock list-inference-profiles'), {
+      stderr:
+        'An error occurred (AccessDeniedException) when calling the ListInferenceProfiles operation: ' +
+        'User: arn:aws:sts::1:assumed-role/Deploy/x is not authorized to perform: bedrock:ListInferenceProfiles'
+    });
+    assert.equal(isListingAccessDenied(denied), true);
+    assert.equal(isListingAccessDenied(new Error('network timeout')), false);
+    assert.equal(isListingAccessDenied(new Error('AccessDenied when calling bedrock:InvokeModel')), false);
+    assert.match(accessDeniedWarning(), /^::warning title=Model catalog not verified::/);
   });
 });
