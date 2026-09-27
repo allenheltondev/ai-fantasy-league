@@ -258,3 +258,77 @@ A league plays from `schedule.startWeek` through `schedule.regularSeasonEndWeek`
 Mid-season changes to the trade deadline have two more limits. The deadline can't move once it has passed, and a new deadline must fall after the current week.
 
 Every validation issue has a stable `code`, a `path`, a `message`, and a `fix`. The `fix` is written so that either a person or an agent can act on it.
+
+## Waiver processing
+
+`resolveWaivers(settings, claims, state)` in `packages/core/src/waivers/` resolves one batch of claims. A claim names a team, the player to add, an optional player to drop, a bid, the team's own ranking of the claim (`priority`, 1 first), and when it was made.
+
+Processing runs in rounds, the Yahoo way:
+
+1. Each team's **front claim** is its best-ranked claim that is still pending. A front claim that can no longer succeed fails, and the team's next claim moves up. A claim fails when:
+   - the player was already awarded in this run (`PLAYER_CLAIMED`) or is not available (`PLAYER_UNAVAILABLE`),
+   - the drop player is gone, for example because an earlier claim dropped him (`DROP_PLAYER_NOT_ON_ROSTER`),
+   - the bid is more than the FAAB left (`BID_EXCEEDS_BUDGET`), is not a whole non-negative dollar amount (`INVALID_BID`), or is $0 when the league disallows it (`ZERO_BID_NOT_ALLOWED`),
+   - the roster would be over the active limit with no drop (`ROSTER_FULL`; dropping an IR player does not free an active spot),
+   - the team has used `maxAcquisitionsPerWeek` (`ACQUISITION_LIMIT_REACHED`), or the team is unknown (`UNKNOWN_TEAM`).
+2. One front claim wins the round:
+   - **FAAB:** the highest bid. Equal bids go to `waivers.faabTiebreak`: `waiver_priority` (higher on the list), `reverse_standings` (worse record, from `state.reverseStandings`; the list is used if standings are missing), or `earliest_claim` (added by this stream). Anything still tied goes to the earliest claim, then the claim ID.
+   - **Rolling:** the team highest on the priority list. Bids and budgets are ignored.
+3. The winner pays its bid (FAAB), the player joins its bench, and its drop player is released. Under rolling waivers and the `waiver_priority` tiebreak, the winner moves to the back of the list (continual rolling). Under the other tiebreaks the list does not change.
+
+The result lists awarded and failed claims (each failure has a code, a message, and a fix), the new budgets, the new priority list, the new rosters, and one transaction per award. Property tests check four things: FAAB spent equals the sum of winning bids, no player is awarded twice, no budget goes negative, and no roster goes over the limit.
+
+**Waiver period** (`waiverClearsAt`). A dropped player clears waivers `waiverPeriodDays` days after the drop. If his game had already kicked off when he was dropped, the period starts when locks lift (`locksReleaseAt`, the weekly rollover) instead. `isOnWaivers(player, now)` is true until that time.
+
+## Trade lifecycle
+
+A trade (`packages/core/src/trades/`) is a structured object between two teams. `sides[0]` is the proposer and `sides[1]` the responder. Each side lists the players it sends and the players it drops to stay under the roster limit. The status moves through these states:
+
+```
+proposed ─┬─ countered   (the counter is a new proposed trade; counterOf/counterChain link it back)
+          ├─ rejected | withdrawn | expired
+          └─ accepted ─┬─ processed                       (review: none)
+                       └─ in_review ─┬─ processed | vetoed
+                                     └─ (accepted/in_review can also be voided → vetoed)
+```
+
+- Every transition is a pure function. An illegal one returns `ILLEGAL_TRADE_TRANSITION` with the allowed next states as the fix.
+- Only the responder can counter, accept, or reject. Only the proposer can withdraw.
+- **Validation** runs at proposal, at acceptance, and again at processing. It checks four things:
+  - The players are still on the listed rosters.
+  - The trade deadline: no trade processes after the deadline week, or in that week once its first game kicks off.
+  - Locked players: a player whose game has kicked off this week can't be traded or dropped.
+  - The active roster limit after the swap. At proposal, the responder's overflow is only a warning (`RESPONDER_MUST_DROP`), because the responder picks its drops when it accepts.
+- **Expiry:** `expiresAt` is the earlier of `offerExpiryHours` and the next lineup lock (when `expireAtNextLineupLock` is on).
+- **Review** begins with `startReview`, and the period is `reviewPeriodDays` long:
+  - **`league_vote`:** teams outside the trade vote to veto, one vote each. The trade is vetoed at `vetoVotesRequired(settings)`, and otherwise processes once the period ends.
+  - **`commissioner`:** the commissioner approves (the trade can process right away) or vetoes.
+  - **`none`:** accepted trades process directly.
+- If a trade fails validation at processing (for example, a player was dropped in the meantime), `voidTrade` moves it to `vetoed` and records the reason.
+- `applyTrade` swaps the players onto the receiving benches and releases the drops. A property test checks that no player is ever created or lost.
+
+## Valuation and the lineup optimizer
+
+These live in `packages/core/src/valuation/` and are the deterministic half of agent decisions.
+
+- **Projections:** `projectPoints` scores a projected stat line with `scorePlayer`. Projections are stored as player → week → points. A missing week, such as a bye, counts as 0.
+- **Player value** (`playerValue`, `valuePlayers`) is built up in steps:
+  - Start with rest-of-season points: the sum of weekly projections, each times the schedule-factor hook (default 1).
+  - Discount that for injury risk, using a per-status risk scaled by `riskTolerance` (default 0.5).
+  - Subtract the replacement level for the player's position.
+  - Multiply by the position weight.
+- **Recency:** `recencyBias` weights nearer weeks more. The weights are normalized to average 1, so the result stays on the points scale.
+- **Replacement level** (VORP) fills every team's starting slots from the pool by points. Single-position slots are filled first, then flex slots from most to least restrictive. The replacement level is the best player left at the position. A player counts at his first listed position.
+- **Archetypes** change value through `{ positionWeights, riskTolerance, recencyBias }`.
+- **`optimizeLineup`** solves slot assignment exactly (the Hungarian algorithm), so flex choices are optimal rather than greedy. It follows these rules:
+  - Locked players keep their slot.
+  - Players on IR stay on IR.
+  - Players on bye or with a will-not-play status are benched.
+  - When totals tie, the lineup that fills more slots wins.
+  - A slot is left empty only when no eligible player is left, or when every eligible player projects below 0.
+  - The result is checked with `validateLineup`, and the validation is returned alongside it.
+- **`tradeValue`** reports two numbers for each side:
+  - The change in best-lineup points, summed over the valuation weeks. Each week is solved separately, and statuses apply only to the first week.
+  - The change in total player value, where a negative value counts as 0 because the team can drop him.
+  
+  A trade is `lopsided` when the gap between the two sides' lineup gains is at least `threshold.lineupPoints`, or the gap between their value gains is at least `threshold.value`. Both default to 30. `favors` names the side with the larger combined gain. The agent-to-agent lopsided-trade guard uses this flag.

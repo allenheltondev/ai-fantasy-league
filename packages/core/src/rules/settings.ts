@@ -34,9 +34,10 @@ export const WaiverSettingsSchema = z.strictObject({
   waiverPeriodDays: z.int().min(0).max(7),
   /**
    * How equal FAAB bids are broken. `waiver_priority` uses the rolling priority list (the winner
-   * moves to the back); `reverse_standings` favours the team with the worse record.
+   * moves to the back); `reverse_standings` favours the team with the worse record; `earliest_claim`
+   * favours the claim submitted first.
    */
-  faabTiebreak: z.enum(['waiver_priority', 'reverse_standings']),
+  faabTiebreak: z.enum(['waiver_priority', 'reverse_standings', 'earliest_claim']),
   /** Initial order of the priority list: reverse of the draft order, or reset weekly by standings. */
   priorityOrder: z.enum(['reverse_draft_continual', 'reverse_standings_weekly']),
   /** Undrafted players after the draft go through waivers first (Yahoo default) or are free agents. */
