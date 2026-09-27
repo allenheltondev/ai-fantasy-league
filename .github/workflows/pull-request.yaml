@@ -184,6 +184,13 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           role-session-name: GitHubActions-AiFantasyLeague-StagingDeploy
           aws-region: us-east-1
+      # Every agent model id in packages/core/src/agents/models.ts must be available in the
+      # account before a deploy ships it. Needs bedrock:ListInferenceProfiles and
+      # bedrock:ListFoundationModels on the deploy role.
+      - name: Verify Bedrock model catalog
+        if: steps.gate.outputs.ready == 'true'
+        continue-on-error: false
+        run: node scripts/verify-models.mjs --region us-east-1
       # The same target a developer runs locally: one deploy definition.
       - name: Package and deploy the stack
         if: steps.gate.outputs.ready == 'true'
