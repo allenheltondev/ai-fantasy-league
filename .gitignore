@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.aws-sam/
+.build/
+*.log
+.env
+.env.*
+app/test-results/
+app/playwright-report/
+.DS_Store

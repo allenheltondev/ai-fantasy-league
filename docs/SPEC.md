@@ -56,7 +56,7 @@ Follows the same pattern as other rsc-core consumers (newsletter-service, Booked
 - **Workflows:** Step Functions for the weekly cycle (waivers → trade window → lineup lock → scoring → finalization).
 - **Scheduling:** rsc-core deferred-event scheduler for waiver processing, trade offer expiry, lineup locks, Thursday correction job.
 - **Realtime:** Momento Topics for group chat, live scores, and trade/transaction notifications.
-- **Frontend:** Next.js + `@readysetcloud/ui` (draft board, rosters, matchups, trades, chat surface).
+- **Frontend:** Vite React SPA on S3 + CloudFront + `@readysetcloud/ui` (draft board, rosters, matchups, trades, chat surface).
 - **Agents:** `@readysetcloud/agent` (Strands-TS on Bedrock AgentCore Runtime).
   - Each agent = a **session config stored as data** (persona, model, tools, difficulty, strategy) — tune without redeploying.
   - Autonomous decisions (waivers, trade evaluation, lineup setting) run as **in-Lambda agent tasks** using the existing idempotent, completion-event pattern.
@@ -123,10 +123,28 @@ Agents act only on triggers: draft turn, waiver window open, trade offer receive
 ### Season replay simulator (build early)
 Replay a completed season (2025) week by week from nflverse/Sleeper historical data to test agents and league logic in hours instead of waiting on real Sundays. Also a strong demo.
 
-## 10. Open questions
+## 10. Decisions (resolved 2026-09-27)
 
-- League format defaults: team count fixed at 8? PPR vs half-PPR? Roster slots? FAAB budget? Playoff weeks?
-- Does "models from rsc-core" also mean reusing shared data models from the rsc-core core table, or only the agent/model config? This affects DynamoDB layout.
-- Launch timing: live league this season (starts ~midseason) vs. build on 2025 replay and launch for 2026-27.
-- Trade veto rules (commissioner veto? none?).
-- Should external "bring your own agent" players be supported via MCP in v1 or later?
+These replace the open questions. `docs/ARCHITECTURE.md` turns them into concrete technical choices.
+
+- **Rules follow Yahoo defaults, and the commissioner can change them.** Every league setting (scoring, roster slots, waivers, trades, playoffs) starts at the Yahoo public-league standard, and the commissioner can edit it before the draft. After the draft, only the settings that are safe to change mid-season can be edited. Defaults:
+  - **Team count:** 8 by default, 4 to 12 allowed.
+  - **Scoring:** Yahoo standard half-PPR.
+  - **Roster:** QB, 3 WR, 2 RB, TE, W/R/T flex, K, DEF, 6 bench, 1 IR.
+  - **Waivers:** FAAB with a $100 budget. Yahoo-style rolling priority is a commissioner option. Waiver periods are 2 days, and the first $0 bid wins a tie on priority.
+  - **Trades:**
+    - **Review:** a 2-day review period, and the league votes. Agents vote through a tool, and a trade is vetoed if enough teams vote against it (Yahoo threshold). The commissioner can switch review to none or commissioner-only.
+    - **Lopsided-trade guard:** a guard built on the trade value math blocks obviously lopsided agent-to-agent trades.
+    - **Deadline:** the Yahoo default is the week 11 kickoff.
+    - **Offer expiry:** 48 hours or at the next lineup lock, whichever comes first.
+  - **Playoffs:** 6 teams (4 in leagues with 6 or fewer teams) in weeks 15–17, with byes for the top 2 seeds. Ties are broken by points for.
+  - **Lineup lock:** each player locks at his game's kickoff.
+- **Humans:** a league can have any number of human seats, from 1 up to the team count. The commissioner (the league creator) invites others by link or email, and people sign in with their Ready, Set, Cloud account (the shared Cognito pool). Every seat not filled by a human is played by an agent.
+- **Agents are ours only.** There is no bring-your-own-agent support. The MCP server is internal to our own agents (§6).
+- **Easy agent setup:** each agent seat is a card with a personality preset, a difficulty level, and a strategy archetype, plus "Randomize". An Advanced drawer exposes the model and the individual difficulty levers. The catalogs live in `packages/core/src/agents/` and are data, so tuning never needs a redeploy.
+  - **Difficulty tiers:** Rookie, Amateur, Pro, All-Pro, Hall of Famer. Each tier sets the model (Amazon Nova, Moonshot Kimi, or Anthropic Claude on Bedrock), research access, reasoning effort, how often the agent acts, and how many negotiation rounds it gets.
+  - **Personality presets:** 16 or more, each with its own voice and trash-talk style.
+- **Mid-season start:** a league can start in any week before the trade deadline. It drafts immediately, plays the remaining regular-season weeks, and the schedule is generated for those weeks.
+- **Data layout:** league data lives in its own DynamoDB table. The rsc-core core table is used only for what rsc-core already owns: badges, and agent sessions and tasks through `@readysetcloud/agent`.
+- **Hosting:** the app is at `fantasy.readysetcloud.io`: a Vite React SPA on S3 + CloudFront, with the API on the same origin (`/api/v1/*`). It follows the `allenheltondev/llm-eval-harness` pattern: PRs deploy to Staging, merges to `main` deploy to Production, and both use GitHub OIDC with the `AWS_DEPLOY_ROLE_ARN` environment secret. The API is a TypeScript Lambda.
+- **Agent chat:** agents join group chat through event-triggered tasks (mentions, chat moments), not through a long-lived WebSocket. League memory is stored per agent in the league table and injected into prompts.
