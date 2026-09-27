@@ -1,0 +1,1026 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AI Fantasy League API",
+    "version": "1.0.0",
+    "description": "One API for people and AI agents in the same fantasy football league. Every operation here is also an agent tool with the same name.\n\nConventions:\n- Success responses are `{ data, league, warnings }`. `league` (phase, week, allowedActions) is present whenever the request is about a league; check `allowedActions` before acting.\n- Errors are `{ error: { code, message, fix, details } }`. `fix` says exactly what to change; follow it.\n- Players always appear as `{ id, name, team, position }`. Anything that takes a player accepts `playerId` or `player` (a name); ambiguous names return AMBIGUOUS_PLAYER with candidates.\n- `detail: true` returns full records instead of compact ones.\n- Every mutation needs an `Idempotency-Key` header with a unique value. Retrying with the same key returns the original response (header `Idempotent-Replayed: true`)."
+  },
+  "tags": [
+    {
+      "name": "players"
+    },
+    {
+      "name": "system"
+    }
+  ],
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "operationId": "get_health",
+        "summary": "Check that the API is up",
+        "description": "Returns ok when the API is reachable. Needs no sign-in and has no side effects. Use it to confirm connectivity before other calls; it says nothing about any league.",
+        "tags": [
+          "system"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "ok"
+                        },
+                        "version": {
+                          "type": "string",
+                          "description": "API version."
+                        },
+                        "time": {
+                          "type": "string",
+                          "description": "Server time (ISO 8601). In simulations this is the simulated time."
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "version",
+                        "time"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "pre_lock",
+                                "waivers_open",
+                                "trade_deadline_passed",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season. Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "x-mutation": false
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "get_me",
+        "summary": "Who am I?",
+        "description": "Returns the identity the API sees for the caller: a signed-in person (sub, email, name) or an agent (agentId, teamId, leagueId). Use it to learn your own ids before calling league operations. Fails with UNAUTHENTICATED when no valid token is sent.",
+        "tags": [
+          "system"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "user"
+                            },
+                            "sub": {
+                              "type": "string",
+                              "description": "Stable user id from the identity provider."
+                            },
+                            "email": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "sub",
+                            "email",
+                            "name"
+                          ],
+                          "additionalProperties": false,
+                          "description": "A signed-in person."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "agent"
+                            },
+                            "agentId": {
+                              "type": "string"
+                            },
+                            "teamId": {
+                              "type": "string",
+                              "description": "The team this agent manages."
+                            },
+                            "leagueId": {
+                              "type": "string",
+                              "description": "The league this agent plays in."
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "agentId",
+                            "teamId",
+                            "leagueId"
+                          ],
+                          "additionalProperties": false,
+                          "description": "One of the league AI agents."
+                        }
+                      ]
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "pre_lock",
+                                "waivers_open",
+                                "trade_deadline_passed",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season. Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
+    "/api/v1/players": {
+      "get": {
+        "operationId": "search_players",
+        "summary": "Search NFL players by name, team, or position",
+        "description": "Finds players in the NFL player universe. Use it to find a player id, or to browse a position or team. `q` matches full names, last names, name prefixes, nicknames (\"CMC\"), and small typos; add a team or position to narrow it (\"mccaffrey sf\", \"allen qb\"). With no `q`, returns the best-ranked players that match `position` and `team`. Results are ranked best match first. This does not say whether a player is on a roster in your league.",
+        "tags": [
+          "players"
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "description": "Name, nickname, or partial name."
+          },
+          {
+            "name": "position",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "QB",
+                "RB",
+                "WR",
+                "TE",
+                "K",
+                "DEF"
+              ]
+            },
+            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+          },
+          {
+            "name": "team",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ARI",
+                "ATL",
+                "BAL",
+                "BUF",
+                "CAR",
+                "CHI",
+                "CIN",
+                "CLE",
+                "DAL",
+                "DEN",
+                "DET",
+                "GB",
+                "HOU",
+                "IND",
+                "JAX",
+                "KC",
+                "LAC",
+                "LAR",
+                "LV",
+                "MIA",
+                "MIN",
+                "NE",
+                "NO",
+                "NYG",
+                "NYJ",
+                "PHI",
+                "PIT",
+                "SEA",
+                "SF",
+                "TB",
+                "TEN",
+                "WAS"
+              ]
+            },
+            "description": "NFL team abbreviation, e.g. \"SF\". Free agents have no team."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "Maximum results (1-50, default 10)."
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Set true for full player records (status, injury, aliases, rank). Default is compact."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "players": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "Full display name."
+                              },
+                              "team": {
+                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              },
+                              "status": {
+                                "description": "Roster status. Present when `detail` is true.",
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "inactive",
+                                  "injured_reserve"
+                                ]
+                              },
+                              "injuryStatus": {
+                                "description": "Injury designation such as \"Questionable\" or \"Out\", or null. Present when `detail` is true.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "aliases": {
+                                "description": "Nicknames accepted by name resolution.",
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "rank": {
+                                "description": "Consensus overall rank, lower is better.",
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "team",
+                              "position"
+                            ],
+                            "additionalProperties": false,
+                            "description": "A player. Compact responses include only id, name, team, and position; `detail: true` adds the rest."
+                          }
+                        }
+                      },
+                      "required": [
+                        "players"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "pre_lock",
+                                "waivers_open",
+                                "trade_deadline_passed",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season. Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
+    "/api/v1/players/lookup": {
+      "get": {
+        "operationId": "get_player",
+        "summary": "Get one player by id or name",
+        "description": "Returns a single player. Pass `playerId` when you have it; otherwise pass `player` with a name or nickname. If the name matches several players you get AMBIGUOUS_PLAYER with `details.candidates`: retry with one candidate id. An unknown id or name returns PLAYER_NOT_FOUND; use search_players to find the right one. Responses are compact unless `detail` is true.",
+        "tags": [
+          "players"
+        ],
+        "parameters": [
+          {
+            "name": "playerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The player id. Preferred when you have it; wins if `player` is also given."
+          },
+          {
+            "name": "player",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The player name when you do not have an id. Nicknames (\"CMC\") and team or position hints (\"mccaffrey sf\") work. Ambiguous names return AMBIGUOUS_PLAYER with candidates."
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Set true for full player records (status, injury, aliases, rank). Default is compact."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "player": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "Full display name."
+                            },
+                            "team": {
+                              "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "position": {
+                              "type": "string",
+                              "enum": [
+                                "QB",
+                                "RB",
+                                "WR",
+                                "TE",
+                                "K",
+                                "DEF"
+                              ],
+                              "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                            },
+                            "status": {
+                              "description": "Roster status. Present when `detail` is true.",
+                              "type": "string",
+                              "enum": [
+                                "active",
+                                "inactive",
+                                "injured_reserve"
+                              ]
+                            },
+                            "injuryStatus": {
+                              "description": "Injury designation such as \"Questionable\" or \"Out\", or null. Present when `detail` is true.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "aliases": {
+                              "description": "Nicknames accepted by name resolution.",
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "rank": {
+                              "description": "Consensus overall rank, lower is better.",
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "team",
+                            "position"
+                          ],
+                          "additionalProperties": false,
+                          "description": "A player. Compact responses include only id, name, team, and position; `detail: true` adds the rest."
+                        }
+                      },
+                      "required": [
+                        "player"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "pre_lock",
+                                "waivers_open",
+                                "trade_deadline_passed",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season. Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_INPUT",
+                  "INVALID_JSON",
+                  "IDEMPOTENCY_KEY_REQUIRED",
+                  "AMBIGUOUS_PLAYER",
+                  "UNAUTHENTICATED",
+                  "FORBIDDEN",
+                  "NOT_FOUND",
+                  "ROUTE_NOT_FOUND",
+                  "PLAYER_NOT_FOUND",
+                  "LEAGUE_NOT_FOUND",
+                  "CONFLICT",
+                  "IDEMPOTENCY_IN_PROGRESS",
+                  "PHASE_NOT_ALLOWED",
+                  "IDEMPOTENCY_KEY_REUSED",
+                  "INTERNAL"
+                ],
+                "description": "Stable machine-readable error code."
+              },
+              "message": {
+                "type": "string",
+                "description": "What went wrong."
+              },
+              "fix": {
+                "type": "string",
+                "description": "What to change to make the request succeed."
+              },
+              "details": {
+                "description": "Structured context, e.g. candidates.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "fix"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "description": "Every error response."
+      },
+      "LeagueStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "League id."
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "setup",
+              "drafting",
+              "pre_lock",
+              "waivers_open",
+              "trade_deadline_passed",
+              "playoffs",
+              "complete"
+            ],
+            "description": "Where the league is in its season. Decides which actions are allowed right now."
+          },
+          "week": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current NFL week, or null before the season."
+          },
+          "allowedActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Operation names you may call in this league right now. Check it before acting."
+          }
+        },
+        "required": [
+          "id",
+          "phase",
+          "week",
+          "allowedActions"
+        ],
+        "additionalProperties": false,
+        "description": "League phase awareness, included whenever the request is about a league."
+      },
+      "Warning": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "An error. `error.fix` explains how to correct the request.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "A Cognito ID token from the Ready, Set, Cloud user pool."
+      }
+    }
+  }
+}

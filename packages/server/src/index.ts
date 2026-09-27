@@ -1,0 +1,22 @@
+// Public surface of @fantasy/server for other workspace packages (agents, sim).
+export * from './auth/principal.js';
+export type { TokenVerifier } from './auth/verifier.js';
+export type { Ctx, DataServices, Services } from './context.js';
+export { createContext } from './context.js';
+export * from './errors.js';
+export * from './events/publisher.js';
+export { createApp } from './http/app.js';
+export { generateMcpTools, toMcpTool, IDEMPOTENCY_ARGUMENT, type McpTool } from './mcp/tools.js';
+export { generateOpenApi, renderOpenApi } from './openapi/generate.js';
+export { operations, registry } from './operations/index.js';
+export { PlayerDirectory } from './players/directory.js';
+export * from './players/model.js';
+export type { LeagueStatus, Envelope, SuccessEnvelope, ErrorEnvelope } from './registry/envelope.js';
+export { executeOperation, type ExecuteResult } from './registry/execute.js';
+export { invokeTool, type ToolCall } from './registry/invoke.js';
+export * from './registry/operation.js';
+export { createRegistry, type Registry } from './registry/registry.js';
+export { createInMemoryRepos } from './repos/memory.js';
+export * from './repos/types.js';
+export { createServices } from './services.js';
+export { createLogger, silentLogger, type Logger } from './log.js';
