@@ -1,4 +1,5 @@
 import type { Repos } from '../types.js';
+import { DynamoAgentRepository } from './agents.js';
 import { DynamoAuditRepository } from './audit.js';
 import { DynamoIdempotencyRepository } from './idempotency.js';
 import { DynamoLeagueRepository } from './leagues.js';
@@ -10,8 +11,15 @@ export function createDynamoRepos(table: TableContext): Repos {
     idempotency: new DynamoIdempotencyRepository(table),
     audit: new DynamoAuditRepository(table),
     players: new DynamoPlayerRepository(table),
-    leagues: new DynamoLeagueRepository(table)
+    leagues: new DynamoLeagueRepository(table),
+    agents: new DynamoAgentRepository(table)
   };
 }
 
-export { DynamoAuditRepository, DynamoIdempotencyRepository, DynamoLeagueRepository, DynamoPlayerRepository };
+export {
+  DynamoAgentRepository,
+  DynamoAuditRepository,
+  DynamoIdempotencyRepository,
+  DynamoLeagueRepository,
+  DynamoPlayerRepository
+};

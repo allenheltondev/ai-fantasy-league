@@ -1,4 +1,5 @@
 import type { Player, Position } from '../players/model.js';
+import type { AgentRepository } from './agents.js';
 
 /**
  * Repository interfaces. Each has a DynamoDB implementation (single table, see
@@ -127,4 +128,6 @@ export interface Repos {
   audit: AuditRepository;
   players: PlayerRepository;
   leagues: LeagueRepository;
+  /** Agent seats, notes, task records, and usage rollups (repos/agents.ts). */
+  agents: AgentRepository;
 }

@@ -4,6 +4,10 @@ import {
   ARCHETYPES,
   AgentSeatConfigSchema,
   CUSTOM_FLAVOR_MAX,
+  DIFFICULTY_WEEKLY_BUDGET_USD,
+  LEAGUE_WEEKLY_BUDGET_CAP_USD,
+  LEAGUE_WEEKLY_BUDGET_FLOOR_USD,
+  leagueWeeklyBudgetUsd,
   DIFFICULTIES,
   DIFFICULTY_TIERS,
   MAX_RANDOM_SEATS,
@@ -291,5 +295,17 @@ describe('randomizeAgentSeats', () => {
 
   it.each([-1, 1.5, MAX_RANDOM_SEATS + 1])('rejects count %s', (count) => {
     expect(() => randomizeAgentSeats(count, 's')).toThrow(RangeError);
+  });
+});
+
+describe('league weekly budget', () => {
+  it('sums seat allowances and clamps to the floor and cap', () => {
+    expect(leagueWeeklyBudgetUsd([])).toBe(LEAGUE_WEEKLY_BUDGET_FLOOR_USD);
+    expect(leagueWeeklyBudgetUsd(['pro', 'all_pro'])).toBe(
+      DIFFICULTY_WEEKLY_BUDGET_USD.pro + DIFFICULTY_WEEKLY_BUDGET_USD.all_pro
+    );
+    expect(leagueWeeklyBudgetUsd(Array.from({ length: 11 }, () => 'hall_of_famer' as const))).toBe(
+      LEAGUE_WEEKLY_BUDGET_CAP_USD
+    );
   });
 });

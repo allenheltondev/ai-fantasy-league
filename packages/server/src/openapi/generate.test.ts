@@ -73,9 +73,13 @@ describe('generateMcpTools', () => {
 
   it('covers the production registry', () => {
     expect(generateMcpTools(registry).map((t) => t.name)).toEqual([
+      'configure_agent_seat',
+      'get_agent_activity',
+      'get_agent_seat',
       'get_health',
       'get_me',
       'get_player',
+      'randomize_agent_seats',
       'search_players'
     ]);
   });

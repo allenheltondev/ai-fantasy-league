@@ -100,7 +100,12 @@ describe('HTTP flows (dynalite)', () => {
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({
       data: { id: 'lg-flow', name: 'Dynasty' },
-      league: { id: 'lg-flow', phase: 'setup', week: null, allowedActions: ['pick_player', 'rename_league'] },
+      league: {
+        id: 'lg-flow',
+        phase: 'setup',
+        week: null,
+        allowedActions: ['configure_agent_seat', 'pick_player', 'randomize_agent_seats', 'rename_league']
+      },
       warnings: [{ code: 'RENAMED' }]
     });
     const replay = await h.request('/api/v1/leagues/lg-flow/name', init);

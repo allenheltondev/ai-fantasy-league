@@ -1,4 +1,5 @@
 import { leagueExists, staleLeague } from './errors.js';
+import { InMemoryAgentRepository } from './memory-agents.js';
 import type { Player, Position } from '../players/model.js';
 import type {
   AuditEntry,
@@ -149,6 +150,7 @@ export function createInMemoryRepos(options: { players?: readonly Player[] } = {
     idempotency: new InMemoryIdempotencyRepository(),
     audit: new InMemoryAuditRepository(),
     players: new InMemoryPlayerRepository(options.players ?? []),
-    leagues: new InMemoryLeagueRepository()
+    leagues: new InMemoryLeagueRepository(),
+    agents: new InMemoryAgentRepository()
   };
 }

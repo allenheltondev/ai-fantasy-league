@@ -58,7 +58,12 @@ describe('executeOperation', () => {
       replayed: false,
       body: {
         data: { id: 'lg-1', name: 'New' },
-        league: { id: 'lg-1', phase: 'setup', week: null, allowedActions: ['pick_player', 'rename_league'] },
+        league: {
+          id: 'lg-1',
+          phase: 'setup',
+          week: null,
+          allowedActions: ['configure_agent_seat', 'pick_player', 'randomize_agent_seats', 'rename_league']
+        },
         warnings: [{ code: 'RENAMED', message: 'League renamed to New.' }]
       }
     });
