@@ -36,11 +36,31 @@ export function findMissing(catalog, availableIds) {
   return catalog.filter((m) => !available.has(m.bedrockId));
 }
 
-export function formatReport(catalog, missing, region) {
+/** The vendor segment of a Bedrock id: `us.anthropic.claude-x` and `anthropic.claude-x` both give `anthropic`. */
+function vendorOf(id) {
+  const parts = id.split('.');
+  return parts.length > 2 && /^[a-z]{2,4}$/.test(parts[0]) ? parts[1] : parts[0];
+}
+
+/** Available ids from the same vendor as `id`, so a wrong guess can be corrected from the deploy log. */
+export function sameVendorIds(id, availableIds) {
+  const vendor = vendorOf(id);
+  return [...new Set(availableIds)].filter((a) => vendorOf(a) === vendor).sort();
+}
+
+export function formatReport(catalog, missing, region, availableIds = []) {
   if (missing.length === 0) {
     return `verify-models: all ${catalog.length} catalog ids are available in ${region}.`;
   }
-  const lines = missing.map((m) => `  - ${m.key}: ${m.bedrockId}`);
+  const lines = missing.flatMap((m) => {
+    const candidates = sameVendorIds(m.bedrockId, availableIds);
+    return [
+      `  - ${m.key}: ${m.bedrockId}`,
+      candidates.length > 0
+        ? `      available ${vendorOf(m.bedrockId)} ids: ${candidates.join(', ')}`
+        : `      no ${vendorOf(m.bedrockId)} ids are available in this account and region`
+    ];
+  });
   return [
     `verify-models: ${missing.length} of ${catalog.length} catalog ids are NOT available in ${region}:`,
     ...lines,
@@ -71,7 +91,7 @@ export async function main(argv = process.argv.slice(2)) {
   const models = aws(['bedrock', 'list-foundation-models', '--region', region]);
   const available = [...activeProfileIds(profiles), ...activeFoundationModelIds(models)];
   const missing = findMissing(MODEL_CATALOG, available);
-  const report = formatReport(MODEL_CATALOG, missing, region);
+  const report = formatReport(MODEL_CATALOG, missing, region, available);
   if (missing.length > 0) {
     console.error(report);
     return 1;
