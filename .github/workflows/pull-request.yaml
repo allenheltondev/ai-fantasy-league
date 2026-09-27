@@ -1,0 +1,310 @@
+name: Deploy to Staging via Pull Request
+
+# Every PR to main is validated and deployed to the Staging account (the
+# Staging environment's AWS_DEPLOY_ROLE_ARN, via GitHub OIDC). Forks never
+# receive environment secrets, so their deploy jobs are skipped rather than
+# failed confusingly; an environment without the secret yet skips with a
+# notice the same way.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: Force backend + frontend Staging deploy regardless of detected changes
+        required: false
+        type: boolean
+        default: true
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  # One shared Staging stack, so deploys queue rather than cancel: interrupting
+  # `sam deploy` strands the stack in UPDATE_IN_PROGRESS.
+  group: ai-fantasy-league-stage
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app_changed: ${{ steps.detect.outputs.app_changed }}
+      server_changed: ${{ steps.detect.outputs.server_changed }}
+      infra_changed: ${{ steps.detect.outputs.infra_changed }}
+      backend_changed: ${{ steps.detect.outputs.backend_changed }}
+      frontend_changed: ${{ steps.detect.outputs.frontend_changed }}
+      deploy_needed: ${{ steps.detect.outputs.deploy_needed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect changes
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          emit_all() {
+            for key in app_changed server_changed infra_changed backend_changed frontend_changed deploy_needed; do
+              echo "${key}=$1" >> "$GITHUB_OUTPUT"
+            done
+          }
+
+          # workflow_dispatch: honour the force_deploy input directly.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            emit_all "${{ inputs.force_deploy }}"
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            HEAD_SHA="${{ github.sha }}"
+            BASE_SHA="$(git rev-parse "${HEAD_SHA}^" 2>/dev/null || true)"
+          fi
+
+          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
+            emit_all true
+            exit 0
+          fi
+
+          # `git log --name-only` over BASE..HEAD rather than `git diff BASE HEAD`:
+          # the diff form has been seen to return empty on the runner for valid
+          # SHA pairs around merge commits; the log form lists files touched by
+          # every commit in the range.
+          changed_files="$(git log --name-only --pretty=format: "${BASE_SHA}..${HEAD_SHA}" 2>/dev/null | sort -u | grep -v '^$' || true)"
+
+          # Fail open: skipping a real change is worse than a no-op deploy.
+          if [[ -z "${changed_files}" && "${BASE_SHA}" != "${HEAD_SHA}" ]]; then
+            echo "WARNING: no files detected between ${BASE_SHA}..${HEAD_SHA}; forcing everything" >&2
+            emit_all true
+            exit 0
+          fi
+
+          app_changed=false
+          server_changed=false
+          infra_changed=false
+
+          while IFS= read -r file; do
+            [[ -z "${file}" ]] && continue
+            case "${file}" in
+              app/*|package.json|package-lock.json|tsconfig.base.json|eslint.config.js|.prettierrc.json|.prettierignore) app_changed=true ;;
+            esac
+            case "${file}" in
+              packages/*|package.json|package-lock.json|tsconfig.base.json|eslint.config.js|.prettierrc.json|.prettierignore|scripts/package-server.sh) server_changed=true ;;
+            esac
+            case "${file}" in
+              infra/*|Makefile|.github/workflows/*|scripts/deploy-smoke*) infra_changed=true ;;
+            esac
+          done <<< "${changed_files}"
+
+          # The backend deploy ships the API bundle plus the template; the
+          # frontend deploy builds the SPA against the stack.
+          backend_changed=false
+          if [[ "${server_changed}" == "true" || "${infra_changed}" == "true" ]]; then backend_changed=true; fi
+          frontend_changed="${app_changed}"
+          deploy_needed=false
+          if [[ "${backend_changed}" == "true" || "${frontend_changed}" == "true" ]]; then deploy_needed=true; fi
+
+          echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
+          echo "server_changed=${server_changed}" >> "$GITHUB_OUTPUT"
+          echo "infra_changed=${infra_changed}" >> "$GITHUB_OUTPUT"
+          echo "backend_changed=${backend_changed}" >> "$GITHUB_OUTPUT"
+          echo "frontend_changed=${frontend_changed}" >> "$GITHUB_OUTPUT"
+          echo "deploy_needed=${deploy_needed}" >> "$GITHUB_OUTPUT"
+
+  predeploy-validations:
+    name: Pre-deploy validations
+    needs: changes
+    if: needs.changes.outputs.deploy_needed == 'true'
+    uses: ./.github/workflows/pre-deploy-validation.yaml
+    with:
+      run_app: ${{ needs.changes.outputs.app_changed == 'true' }}
+      run_server: ${{ needs.changes.outputs.server_changed == 'true' }}
+      run_infra: ${{ needs.changes.outputs.infra_changed == 'true' }}
+      run_e2e: ${{ needs.changes.outputs.app_changed == 'true' || needs.changes.outputs.server_changed == 'true' }}
+
+  deploy-backend:
+    name: Deploy backend
+    needs: [changes, predeploy-validations]
+    if: |
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      needs.changes.outputs.backend_changed == 'true'
+    environment: Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      deployed: ${{ steps.gate.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v7
+      # Skips (green, with a notice) rather than failing when the environment
+      # has no deploy role yet or the API entrypoint has not landed.
+      - name: Check deploy prerequisites
+        id: gate
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          ready=true
+          if [ -z "${AWS_DEPLOY_ROLE_ARN}" ]; then
+            echo "::notice title=Staging deploy skipped::The Staging environment has no AWS_DEPLOY_ROLE_ARN secret. Add it (Settings > Environments > Staging) to deploy PRs."
+            ready=false
+          elif [ ! -f packages/server/src/lambda.ts ]; then
+            echo "::notice title=Staging deploy skipped::packages/server/src/lambda.ts does not exist yet, so there is no API to deploy."
+            ready=false
+          fi
+          echo "ready=${ready}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - if: steps.gate.outputs.ready == 'true'
+        run: npm ci
+      - uses: aws-actions/setup-sam@v3
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          use-installer: true
+      - name: Configure AWS credentials (OIDC)
+        if: steps.gate.outputs.ready == 'true'
+        uses: aws-actions/configure-aws-credentials@6.2.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: GitHubActions-AiFantasyLeague-StagingDeploy
+          aws-region: us-east-1
+      # The same target a developer runs locally: one deploy definition.
+      - name: Package and deploy the stack
+        if: steps.gate.outputs.ready == 'true'
+        run: make deploy-backend STACK_NAME=ai-fantasy-league DEPLOY_REGION=us-east-1
+
+      - name: Diagnose failed deploy
+        if: ${{ failure() && steps.gate.outputs.ready == 'true' }}
+        run: |
+          STACK=ai-fantasy-league
+          echo "Deploy failed. Dumping CloudFormation diagnostics for ${STACK}."
+          echo "==== describe-stacks ===="
+          aws cloudformation describe-stacks --stack-name "${STACK}" || true
+          echo "==== describe-stack-events (latest 50) ===="
+          aws cloudformation describe-stack-events --stack-name "${STACK}" \
+            --query "StackEvents[:50].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table || true
+          echo "==== list-change-sets (latest 5) ===="
+          aws cloudformation list-change-sets --stack-name "${STACK}" \
+            --query "sort_by(Summaries,&CreationTime)[-5:].[ChangeSetName,Status,ExecutionStatus,StatusReason,CreationTime]" \
+            --output table || true
+          LATEST=$(aws cloudformation list-change-sets --stack-name "${STACK}" \
+            --query "sort_by(Summaries,&CreationTime)[-1].ChangeSetName" --output text 2>/dev/null || true)
+          if [ -n "$LATEST" ] && [ "$LATEST" != "None" ]; then
+            echo "==== describe-change-set ($LATEST) ===="
+            aws cloudformation describe-change-set --stack-name "${STACK}" --change-set-name "$LATEST" || true
+          fi
+
+  deploy-frontend:
+    name: Deploy frontend
+    needs: [changes, predeploy-validations, deploy-backend]
+    if: |
+      always() &&
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      needs.predeploy-validations.result == 'success' &&
+      (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') &&
+      (needs.changes.outputs.frontend_changed == 'true' || needs.changes.outputs.backend_changed == 'true')
+    outputs:
+      # Published so the smoke job downstream can reach what was just deployed.
+      app_url: ${{ steps.deploy.outputs.app_url }}
+    environment:
+      name: Staging
+      # Surfaces on the PR / deployment as the link reviewers click through to.
+      url: ${{ steps.deploy.outputs.app_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check deploy prerequisites
+        id: gate
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          if [ -z "${AWS_DEPLOY_ROLE_ARN}" ]; then
+            echo "::notice title=Staging deploy skipped::The Staging environment has no AWS_DEPLOY_ROLE_ARN secret. Add it (Settings > Environments > Staging) to deploy PRs."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Configure AWS credentials (OIDC)
+        if: steps.gate.outputs.ready == 'true'
+        uses: aws-actions/configure-aws-credentials@6.2.2
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: GitHubActions-AiFantasyLeague-StagingDeploy
+          aws-region: us-east-1
+      # No SPA hosting until the backend has deployed once with the API.
+      - name: Check the stack hosts the SPA
+        id: stack
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks --stack-name ai-fantasy-league --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='AppBucket'].OutputValue" --output text 2>/dev/null || true)
+          if [ -z "${BUCKET}" ] || [ "${BUCKET}" = "None" ]; then
+            echo "::notice title=Frontend deploy skipped::Stack ai-fantasy-league has no AppBucket yet; the backend must deploy the API first."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build and publish the SPA
+        id: deploy
+        if: steps.stack.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          make deploy-frontend STACK_NAME=ai-fantasy-league DEPLOY_REGION=us-east-1 | tee deploy.log
+          echo "app_url=$(awk '/^Deployed: /{print $2}' deploy.log | tail -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Write deployment summary
+        if: steps.stack.outputs.ready == 'true'
+        run: |
+          {
+            echo "## Fantasy staging deploy"
+            echo
+            echo "- **App URL:** ${{ steps.deploy.outputs.app_url }}"
+            echo "- **Stack:** \`ai-fantasy-league\`"
+            echo "- **Region:** \`us-east-1\`"
+            echo "- **Commit:** \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    name: Smoke the deployed app
+    needs: [changes, deploy-frontend]
+    # Only when something was actually published. Deliberately carries **no**
+    # AWS credentials and no `id-token: write`: every check is an anonymous
+    # request against the public front door.
+    if: always() && needs.deploy-frontend.result == 'success' && needs.deploy-frontend.outputs.app_url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # No dependencies, so there is nothing to install before it runs.
+      - name: Smoke the deployed app
+        run: node scripts/deploy-smoke.mjs --url "${{ needs.deploy-frontend.outputs.app_url }}"

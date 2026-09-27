@@ -1,0 +1,48 @@
+import { Navigate, Route, Routes } from 'react-router';
+import { AuthProvider } from '@readysetcloud/ui/auth';
+import { ForgotPasswordPage, LoginPage, SignUpPage } from './auth/AuthScreens';
+import { RequireSignIn } from './auth/RequireSignIn';
+import { AppLayout } from './layout/AppLayout';
+import {
+  CreateLeaguePage,
+  HomePage,
+  LEAGUE_SECTIONS,
+  LeagueLayout,
+  LeagueSectionPage,
+  NotFoundPage
+} from './routes/pages';
+
+/** The route table. The router itself is supplied by the caller (main.tsx, tests). */
+export function App() {
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignUpPage />} />
+        <Route path="/signup/confirm" element={<SignUpPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route
+          element={
+            <RequireSignIn>
+              <AppLayout />
+            </RequireSignIn>
+          }
+        >
+          <Route index element={<HomePage />} />
+          <Route path="leagues/new" element={<CreateLeaguePage />} />
+          <Route path="leagues/:leagueId" element={<LeagueLayout />}>
+            <Route index element={<Navigate to="matchup" replace />} />
+            {LEAGUE_SECTIONS.map((section) => (
+              <Route
+                key={section.path}
+                path={section.path}
+                element={<LeagueSectionPage section={section.path} />}
+              />
+            ))}
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </AuthProvider>
+  );
+}
