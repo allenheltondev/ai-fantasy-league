@@ -4,4 +4,8 @@ package-lock.json
 packages/data/fixtures
 docs
 *.md
+app/test-results
+app/playwright-report
+.aws-sam
+.build
 .claude

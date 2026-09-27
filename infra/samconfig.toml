@@ -1,0 +1,16 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "ai-fantasy-league"
+# No `resolve_s3` here on purpose: the Makefile adds `--resolve-s3` itself
+# (SAM's managed bucket for the packaged template), and SAM rejects it
+# alongside an explicit `--s3-bucket`.
+capabilities = "CAPABILITY_IAM"
+region = "us-east-1"
+# Non-interactive so `make deploy-backend` / CI can run unattended.
+confirm_changeset = false
+fail_on_empty_changeset = false
+
+[default.validate.parameters]
+region = "us-east-1"
+lint = true
