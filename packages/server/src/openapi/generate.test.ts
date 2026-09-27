@@ -72,11 +72,33 @@ describe('generateMcpTools', () => {
   });
 
   it('covers the production registry', () => {
-    expect(generateMcpTools(registry).map((t) => t.name)).toEqual([
-      'get_health',
-      'get_me',
-      'get_player',
-      'search_players'
-    ]);
+    const names = generateMcpTools(registry).map((t) => t.name);
+    expect(names).toEqual(registry.operations.map((op) => op.name));
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'get_health',
+        'get_me',
+        'get_player',
+        'search_players',
+        'create_league',
+        'create_invite',
+        'delete_league',
+        'get_invite',
+        'get_league',
+        'get_league_state',
+        'get_matchup',
+        'get_standings',
+        'join_league',
+        'leave_league',
+        'list_invites',
+        'list_my_leagues',
+        'remove_member',
+        'rename_team',
+        'revoke_invite',
+        'set_seat_type',
+        'transfer_commissioner',
+        'update_league_settings'
+      ])
+    );
   });
 });

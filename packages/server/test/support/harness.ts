@@ -1,4 +1,4 @@
-import { FixedClock } from '@fantasy/core';
+import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
 import type { Hono } from 'hono';
 import { createCognitoVerifier } from '../../src/auth/verifier.js';
 import type { Services } from '../../src/context.js';
@@ -44,8 +44,12 @@ export function league(overrides: Partial<League> = {}): League {
     season: 2026,
     phase: 'setup',
     week: null,
-    commissionerSub: 'user-123',
-    teamCount: 8,
+    settings: yahooDefaultSettings(8),
+    commissionerId: 'user-123',
+    commissionerName: 'Allen',
+    createdBy: 'user-123',
+    scheduleSeed: 'seed-1',
+    deadlines: { draftStartsAt: null, nextLineupLockAt: null, nextWaiverRunAt: null, tradeDeadlineAt: null },
     createdAt: START,
     updatedAt: START,
     version: 1,

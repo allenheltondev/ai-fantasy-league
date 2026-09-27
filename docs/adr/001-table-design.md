@@ -34,10 +34,10 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 
 | Entity | `sk` | GSI keys | Notes |
 |---|---|---|---|
-| League (settings, phase, week, version) | `META` | none | `get_league_state` is one GetItem. The phase drives `allowedActions`. |
-| Member (a human seat holder) | `MEMBER#<sub>` | GSI1 `USER#<sub>` / `LEAGUE#<leagueId>` | Membership check is a GetItem. "My leagues" is a GSI1 query. |
-| Invite | `INVITE#<code>` | GSI1 `INVITE#<code>` / `INVITE` | Accepting a link looks up the code on GSI1. `ttl` expires unused invites. |
-| Team / seat | `TEAM#<teamId>` | none | Name, owner (`sub`, or `agent`), FAAB left, waiver priority. |
+| League (settings, phase, week, commissioner, deadlines, schedule seed, version) | `META` | GSI1 `CREATOR#<sub>` / `LEAGUE#<createdAt>#<leagueId>` | `get_league_state` is this GetItem plus the team query. The phase and sub-phase flags drive `allowedActions` (`league/phase.ts`). The creator index counts a user's active leagues for the league quota. |
+| Member (a human seat holder) | `MEMBER#<sub>` | GSI1 `USER#<sub>` / `LEAGUE#<leagueId>` | "My leagues" is a GSI1 query. The conditional put (`attribute_not_exists`) enforces one seat per person per league. Authorization reads the owner on the team items. |
+| Invite | `INVITE#<inviteId>` | GSI1 `INVITE#<sha256(token)>` / `INVITE` | Only the SHA-256 of the token is stored; the token is shown once. Accepting a link hashes the token and queries GSI1. Uses are counted with a `version` check. `ttl` is the expiry plus 30 days, so expired invites stay listable for a while. |
+| Team / seat | `TEAM#<teamId>` | none | Name, seat type (`human` or `agent`), owner `sub` (null for open and agent seats), agent config id, draft slot, FAAB left, waiver priority, roster (player ids, empty until the draft), `version`. Items carry `entity = team`, because `TEAM#<teamId>#AGENT` and `TEAM#<teamId>#MEMORY#...` share the prefix: the team list is one `begins_with(TEAM#)` query filtered on `entity`. |
 | Agent config (the seat card) | `TEAM#<teamId>#AGENT` | none | Personality, difficulty, archetype, model, levers. Stored as data, so tuning needs no redeploy. |
 | Agent memory | `TEAM#<teamId>#MEMORY#<ts>` | none | Per-agent league memory injected into prompts (SPEC §10). |
 | Draft state | `DRAFT` | none | Order, current pick, clock deadline, version. |
@@ -45,7 +45,7 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 | Roster | `ROSTER#<teamId>` | none | `get_roster` is a GetItem. All rosters are one `begins_with(ROSTER#)` query (at most 12 items). |
 | Player ownership lock | `OWN#<playerId>` | none | Holds `teamId`. Adds, claims, picks, and trades write it with a condition in the same transaction as the roster change, so a player can never be on two rosters. Free agent check is a GetItem. |
 | Lineup | `LINEUP#W05#<teamId>` | none | `set_lineup` puts one item. A week's lineups are one query. |
-| Matchup | `MATCHUP#W05#<matchupId>` | none | `get_matchup` is a query on `MATCHUP#W05#`, then filtered to the team (at most 6 items). |
+| Matchup | `MATCHUP#W05#<matchupId>` | none | `get_matchup` is a query on `MATCHUP#W05#`, then filtered to the team (at most 6 items). Matchup ids are `W05-<n>`. `startSeasonSchedule` writes the regular season with one batch write when the draft starts; scores and `status` are filled in as weeks are played. |
 | Standings snapshot | `STANDINGS#W05` | none | Written when a week goes final. `get_standings` reads the latest with a reverse `begins_with(STANDINGS#)` query, limit 1. |
 | Waiver claim | `WAIVER#W05#<claimId>` | none | `claim_waiver`, `cancel_waiver_claim`, and a team's claims come from one query. The waiver job resolves a week's claims in a single query. |
 | Trade | `TRADE#<tradeId>` | none | The state machine lives on the item (`status`, `version`, `expiresAt`). Offers per team come from `begins_with(TRADE#)` filtered by team; a season has a few dozen. Expiry uses the rsc-core scheduler, not a scan. |
@@ -101,8 +101,11 @@ Because `GSI1SK` starts with the normalized name, a later last-name prefix query
 | Pattern (SPEC §6 tool or job) | How |
 |---|---|
 | `get_league_state` | GetItem `LEAGUE#id` / `META` |
-| My leagues | GSI1 query `USER#<sub>` |
-| Accept an invite | GSI1 query `INVITE#<code>` |
+| My leagues | GSI1 query `USER#<sub>`, then GetItem each `META` |
+| League quota (active leagues a user created) | GSI1 query `CREATOR#<sub>` |
+| Accept or preview an invite | GSI1 query `INVITE#<sha256(token)>` |
+| League membership check | GetItem `META` plus a `begins_with(TEAM#)` query (at most 12 teams) |
+| Delete a league (setup only) | Query the partition's keys, then batch delete, `META` last so an interrupted delete can be retried |
 | `get_roster` | GetItem `ROSTER#<teamId>` |
 | `get_standings` | Query `STANDINGS#`, reverse, limit 1 |
 | `get_matchup`, `get_matchup_outlook` | Query `MATCHUP#W05#`, plus lineups and projections |
@@ -130,4 +133,5 @@ Because `GSI1SK` starts with the normalized name, a later last-name prefix query
 - A league partition holds the whole season's history. With at most 12 teams that is a few thousand items, far below any partition limit. Write throughput per league is tiny, and DynamoDB adaptive capacity covers the bursts (draft night, waiver processing).
 - The player name index costs one warm-up read per container every 10 minutes. It is eventually consistent with the sync job, which is fine for data that refreshes once or twice a day. `PlayerDirectory.invalidate()` exists for a sync that must be seen immediately.
 - The in-process DynamoDB used by tests and local dev (dynalite) supports this whole design, except `TransactWriteItems`, which the transactional repositories will need an in-memory fallback or a DynamoDB Local job to test.
+- The league lifecycle therefore uses ordered conditional writes instead of transactions. Creating a league writes the teams and the creator's membership before `META`, so nothing is visible until the league item exists. Joining claims the seat (version check), then adds the membership (`attribute_not_exists`), then counts the invite use (version check), and undoes the earlier writes if a later one loses a race.
 - Infra must create the table exactly as `tableDefinition()` describes (key names, `GSI1` and `GSI2` with `ALL` projection) and enable TTL on `ttl`.

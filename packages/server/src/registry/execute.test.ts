@@ -4,18 +4,13 @@ import { league, START } from '../../test/support/harness.js';
 import { testRegistry } from '../../test/support/test-ops.js';
 import { agentPrincipal, ANONYMOUS, type Principal } from '../auth/principal.js';
 import { createContext } from '../context.js';
+import { leagueAllowedActions, resolveActor } from '../league/phase.js';
 import { InMemoryEventPublisher } from '../events/publisher.js';
 import { createLogger } from '../log.js';
 import { fixturePlayers } from '../players/fixtures.js';
 import { createInMemoryRepos, InMemoryAuditRepository } from '../repos/memory.js';
 import { createServices } from '../services.js';
-import {
-  allowedActions,
-  executeOperation,
-  hashRequest,
-  IDEMPOTENCY_LOCK_MS,
-  IDEMPOTENCY_TTL_MS
-} from './execute.js';
+import { executeOperation, hashRequest, IDEMPOTENCY_LOCK_MS, IDEMPOTENCY_TTL_MS } from './execute.js';
 
 const USER: Principal = { type: 'user', sub: 'user-123', email: 'a@example.com', name: 'Allen' };
 const AGENT = agentPrincipal({ agentId: 'agent-1', teamId: 'team-2', leagueId: 'lg-1' });
@@ -48,6 +43,20 @@ async function setup(options: { phase?: 'setup' | 'playoffs' } = {}) {
 }
 
 const KEY = 'key-00000001';
+const NO_FLAGS = { waiversOpen: false, preLock: false, tradeDeadlinePassed: false };
+/** The commissioner (without a seat, in this fixture) during setup. */
+const COMMISSIONER_SETUP_ACTIONS = [
+  'create_invite',
+  'delete_league',
+  'pick_player',
+  'remove_member',
+  'rename_league',
+  'rename_team',
+  'revoke_invite',
+  'set_seat_type',
+  'transfer_commissioner',
+  'update_league_settings'
+];
 
 describe('executeOperation', () => {
   it('wraps output in the envelope with league status and warnings', async () => {
@@ -58,7 +67,13 @@ describe('executeOperation', () => {
       replayed: false,
       body: {
         data: { id: 'lg-1', name: 'New' },
-        league: { id: 'lg-1', phase: 'setup', week: null, allowedActions: ['pick_player', 'rename_league'] },
+        league: {
+          id: 'lg-1',
+          phase: 'setup',
+          week: null,
+          flags: NO_FLAGS,
+          allowedActions: COMMISSIONER_SETUP_ACTIONS
+        },
         warnings: [{ code: 'RENAMED', message: 'League renamed to New.' }]
       }
     });
@@ -224,8 +239,24 @@ describe('executeOperation', () => {
     expect(lines.some((l) => l.includes('does not match its schema'))).toBe(true);
   });
 
-  it('computes allowed actions from phases', () => {
-    expect(allowedActions(testRegistry, league({ phase: 'playoffs' }))).toEqual(['pick_player']);
+  it('computes allowed actions from the league rules and each operation phases', () => {
+    const playoffs = league({ phase: 'playoffs' });
+    const actor = resolveActor(playoffs, [], USER);
+    expect(leagueAllowedActions(testRegistry.operations, playoffs, actor, new Date(START))).toEqual([
+      'pick_player',
+      'rename_team',
+      'transfer_commissioner',
+      'update_league_settings'
+    ]);
+    const outsider = resolveActor(playoffs, [], { ...USER, sub: 'someone-else' } as Principal);
+    expect(leagueAllowedActions(testRegistry.operations, playoffs, outsider, new Date(START))).toEqual([]);
+  });
+
+  it('gives outsiders an empty allowedActions list in the envelope', async () => {
+    const { run } = await setup();
+    const other: Principal = { type: 'user', sub: 'stranger', email: null, name: 'S' };
+    const result = await run('rename_league', { leagueId: 'lg-1', name: 'Mine' }, other, KEY);
+    expect(result.body).toMatchObject({ league: { allowedActions: [] } });
   });
 
   it('hashes requests independent of key order and undefined fields', () => {

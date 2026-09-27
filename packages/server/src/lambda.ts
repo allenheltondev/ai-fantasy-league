@@ -16,6 +16,7 @@ import { createLogger } from './log.js';
 import { registry } from './operations/index.js';
 import { createDynamoRepos } from './repos/dynamo/index.js';
 import { createDocumentClient } from './repos/dynamo/table.js';
+import { limitsFromEnv } from './context.js';
 import { createServices } from './services.js';
 
 export type FunctionUrlEvent = Extract<LambdaEvent, { rawPath: string }>;
@@ -29,7 +30,8 @@ export function createLambdaApp(env: Record<string, string | undefined> = proces
     clock: systemClock,
     repos,
     events: new EventBridgePublisher({ busName: config.eventBusName }),
-    log
+    log,
+    limits: limitsFromEnv(env)
   });
   const verifier = createCognitoVerifier({
     userPoolId: config.userPoolId,

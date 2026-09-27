@@ -19,6 +19,7 @@ import { createLogger, parseLogLevel, type Logger } from './log.js';
 import { registry } from './operations/index.js';
 import { fixturePlayers } from './players/fixtures.js';
 import { createDynamoRepos } from './repos/dynamo/index.js';
+import { limitsFromEnv } from './context.js';
 import { createServices } from './services.js';
 
 export interface LocalServerOptions {
@@ -51,7 +52,13 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
   const repos = createDynamoRepos(table);
   await repos.players.putMany(fixturePlayers);
   const events = new InMemoryEventPublisher();
-  const services = createServices({ clock: options.clock ?? systemClock, repos, events, log });
+  const services = createServices({
+    clock: options.clock ?? systemClock,
+    repos,
+    events,
+    log,
+    limits: limitsFromEnv(env)
+  });
   const app = createApp({ registry, services, verifier: localVerifier(env) });
 
   const server = await new Promise<ReturnType<typeof serve>>((resolve) => {

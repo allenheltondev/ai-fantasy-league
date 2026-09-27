@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
+import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 
 /**
@@ -48,7 +49,8 @@ const CASES: Record<string, Case[]> = {
     { label: 'ambiguous', path: '/api/v1/players/lookup?player=williams', status: 400 },
     { label: 'not found', path: '/api/v1/players/lookup?playerId=nope', status: 404 },
     { label: 'no selector', path: '/api/v1/players/lookup', status: 400 }
-  ]
+  ],
+  ...LEAGUE_CASES
 };
 
 function findOperation(name: string): { path: string; method: string; responses: Record<string, Json> } {
@@ -89,6 +91,7 @@ function responseSchema(responses: Record<string, Json>, status: number): unknow
 let h: Harness;
 beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
+  await seedContractLeagues(h.repos);
 });
 afterAll(() => h.close());
 

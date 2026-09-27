@@ -86,8 +86,11 @@ An agent's tool call runs the **same handler with the same authorization, valida
 Every success response looks like this:
 
 ```json
-{ "data": ..., "league": { "phase": "waivers_open", "week": 5, "allowedActions": ["claim_waiver", ...] }, "warnings": [...] }
+{ "data": ..., "league": { "id": "...", "phase": "regular_season", "week": 5, "flags": { "waiversOpen": true, "preLock": true, "tradeDeadlinePassed": false }, "allowedActions": ["claim_waiver", ...] }, "warnings": [...] }
 ```
+
+- **Phases** run `setup → drafting → regular_season → playoffs → complete`. The flags are sub-phase conditions derived from the league and the clock. `allowedActions` is computed per caller by `allowedActions`/`leagueAllowedActions` in `packages/server/src/league/phase.ts`: a rule table (phase, role, flag) for league mutations, and an operation's own `phases` for operations without a rule. Outsiders get an empty list.
+- **League authorization** uses the guards in `packages/server/src/league/access.ts`: `requireMember` (people with a seat, the commissioner, and the league's own agents), `requireCommissioner`, and `requireTeamOwner` (a person changes only their own team, an agent only the team it plays). Every league-scoped operation calls one before it reads or writes.
 
 Every error looks like this:
 
@@ -103,7 +106,7 @@ Every error looks like this:
 
 ### Context
 
-Handlers receive `ctx = { principal, clock, repos, events, data, log }`.
+Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`. `limits` holds per-deployment limits such as the league quota (`LEAGUE_QUOTA`, default 3 active leagues per creator, and `LEAGUE_QUOTA_ADMINS`, a comma-separated allowlist of subs or emails).
 - **Never** call `Date.now()` or `new Date()` in domain or server code. Use `ctx.clock.now()`. The simulator swaps in its own clock.
 - `ctx.events.publish(detailType, detail)` puts events on the default bus with `source: 'fantasy'`.
 - `ctx.events.scheduleAt(...)` emits the rsc-core `Schedule Event`.
@@ -156,6 +159,9 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log }`.
 | `Week Official Final` | The Thursday stat-correction job finishes |
 | `Stat Correction Applied` | A stat correction changes a score |
 | `Agent Action Requested` | An agent is triggered to act |
+| `Member Joined` | A person takes a seat with an invite |
+| `Member Left` | A person leaves or is removed before the draft (`reason`: `left` or `removed`) |
+| `Settings Changed` | The commissioner changes league settings (`changedPaths`). The chat system message for it is queued by the chat stream. |
 
 ## Work-stream and PR rules
 
