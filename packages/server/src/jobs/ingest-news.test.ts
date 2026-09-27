@@ -65,6 +65,26 @@ async function setup() {
 }
 
 describe('ingestNews', () => {
+  it('drops items whose link is not an http(s) URL', async () => {
+    const deps = createTestJobDeps({ clock: new FixedClock(NOW) });
+    deps.news.list = [{ url: 'https://evil.example/rss', source: 'Evil' }];
+    deps.news.bodies.set(
+      'https://evil.example/rss',
+      rss([
+        {
+          title: 'Click me',
+          link: 'javascript:alert(document.cookie)',
+          date: 'Wed, 10 Sep 2025 09:00:00 GMT'
+        },
+        { title: 'Real story', link: 'https://news.example/real', date: 'Wed, 10 Sep 2025 09:00:00 GMT' }
+      ])
+    );
+    const result = await ingestNews(deps, deps.clock);
+    expect(result).toMatchObject({ added: 1 });
+    const recent = await deps.reference.news.listRecent({ limit: 10 });
+    expect(recent.map((i) => i.url)).toEqual(['https://news.example/real']);
+  });
+
   it('stores new items tagged to players and teams and alerts only for player items', async () => {
     const deps = await setup();
     const result = await ingestNews(deps, deps.clock);

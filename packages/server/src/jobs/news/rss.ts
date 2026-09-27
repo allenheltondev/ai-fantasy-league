@@ -128,6 +128,11 @@ const TRACKING_PARAMS = /^(utm_[a-z]+|fbclid|gclid|mc_cid|mc_eid|cmpid|ocid|ref|
  */
 export function normalizeArticleUrl(url: string): string {
   const parsed = new URL(url);
+  // Feeds are external input and these URLs are later rendered as links, so only web URLs are
+  // accepted: javascript:, data:, file: and the like are rejected (the caller skips the entry).
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`Unsupported article URL scheme: ${parsed.protocol}`);
+  }
   parsed.hash = '';
   parsed.hostname = parsed.hostname.toLowerCase();
   if (parsed.protocol === 'http:') parsed.protocol = 'https:';

@@ -119,6 +119,17 @@ describe('article urls', () => {
     expect(() => normalizeArticleUrl('not a url')).toThrow();
   });
 
+  it('rejects non-web URL schemes so they can never be stored or rendered as links', () => {
+    for (const bad of [
+      'javascript:alert(1)',
+      'data:text/html,<b>x</b>',
+      'file:///etc/passwd',
+      'ftp://x.com/a'
+    ]) {
+      expect(() => normalizeArticleUrl(bad)).toThrow(/Unsupported article URL scheme/);
+    }
+  });
+
   it('hashes the normalized url, so syndicated copies share an id', () => {
     const a = newsId('https://example.com/story?utm_source=feed1');
     expect(a).toMatch(/^[0-9a-f]{24}$/);
