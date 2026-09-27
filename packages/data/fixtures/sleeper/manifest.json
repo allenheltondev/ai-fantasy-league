@@ -1,0 +1,43 @@
+{
+  "source": "hand-authored",
+  "note": "Hand-authored in the Sleeper response shapes (api.sleeper.app was unreachable when these were made). Stats mirror real nflverse 2025 weeks 1-2; projections, trending, and DEF numbers are illustrative. Ids 900xx are synthetic. Refresh with scripts/record-fixtures.mjs.",
+  "season": 2025,
+  "files": {
+    "players.json": {
+      "endpoint": "/v1/players/nfl",
+      "capturedAt": "2025-09-03T12:00:00.000Z"
+    },
+    "state.json": {
+      "endpoint": "/v1/state/nfl",
+      "capturedAt": "2025-09-03T12:00:00.000Z"
+    },
+    "projections_regular_2025_1.json": {
+      "endpoint": "/v1/projections/nfl/regular/2025/1",
+      "capturedAt": "2025-09-03T12:00:00.000Z",
+      "week": 1
+    },
+    "projections_regular_2025_2.json": {
+      "endpoint": "/v1/projections/nfl/regular/2025/2",
+      "capturedAt": "2025-09-10T12:00:00.000Z",
+      "week": 2
+    },
+    "stats_regular_2025_1.json": {
+      "endpoint": "/v1/stats/nfl/regular/2025/1",
+      "recordedAt": "2025-09-11T12:00:00.000Z",
+      "week": 1
+    },
+    "stats_regular_2025_2.json": {
+      "endpoint": "/v1/stats/nfl/regular/2025/2",
+      "recordedAt": "2025-09-18T12:00:00.000Z",
+      "week": 2
+    },
+    "trending_add.json": {
+      "endpoint": "/v1/players/nfl/trending/add",
+      "capturedAt": "2025-09-09T12:00:00.000Z"
+    },
+    "trending_drop.json": {
+      "endpoint": "/v1/players/nfl/trending/drop",
+      "capturedAt": "2025-09-09T12:00:00.000Z"
+    }
+  }
+}
