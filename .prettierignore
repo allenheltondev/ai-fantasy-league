@@ -4,3 +4,4 @@ package-lock.json
 packages/data/fixtures
 docs
 *.md
+.claude
