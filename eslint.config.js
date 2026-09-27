@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -29,6 +30,16 @@ export default tseslint.config(
           message: 'Use ctx.clock.now() (see docs/ARCHITECTURE.md) so the simulator can control time.'
         }
       ]
+    }
+  },
+  {
+    // The SPA runs in the browser and follows the rules of hooks.
+    files: ['app/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn'
     }
   },
   {

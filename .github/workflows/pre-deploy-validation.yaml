@@ -1,0 +1,94 @@
+name: Pre-deployment validations
+
+# The gates in front of every deploy, one job per concern so they run in
+# parallel and the caller can skip the ones its change set does not touch.
+# Coverage thresholds are ratchets set at achieved numbers (each workspace's
+# vitest.config.ts); never lower them.
+
+on:
+  workflow_call:
+    inputs:
+      run_app:
+        required: false
+        type: boolean
+        default: true
+      run_server:
+        required: false
+        type: boolean
+        default: true
+      run_infra:
+        required: false
+        type: boolean
+        default: true
+      run_e2e:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  workspaces:
+    name: Workspaces
+    if: inputs.run_app || inputs.run_server
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:coverage
+      - run: npm run build
+      # The same bundle `make deploy-backend` ships, built without AWS: a
+      # bundling failure stops here instead of mid-deploy.
+      - name: Bundle the API Lambda
+        run: |
+          if [ -f packages/server/src/lambda.ts ]; then
+            make package-server
+          else
+            echo "::notice title=No API entrypoint yet::packages/server/src/lambda.ts does not exist; skipping the bundle check."
+          fi
+
+  infra:
+    name: Template
+    if: inputs.run_infra
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+      # cfn-lint via `sam validate --lint`; no AWS credentials needed.
+      - run: make validate-template
+      # The post-deploy smoke script's own tests (stdlib only, no install).
+      - run: npm run test:scripts
+
+  e2e:
+    name: E2E
+    if: inputs.run_e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+        working-directory: app
+      # No PLAYWRIGHT_BROWSERS_PATH here on purpose: Playwright's default cache
+      # is where `playwright install` just put Chromium.
+      - run: npx playwright test
+        working-directory: app

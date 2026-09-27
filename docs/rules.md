@@ -103,7 +103,7 @@ These values are our best understanding of Yahoo's defaults. Check them against 
 
 | Setting | Default |
 |---|---|
-| Team count | 8 (4-12 allowed) |
+| Team count | 8 (an even number from 4 to 12, so every team has an opponent each week) |
 | Slots | QB, WR×3, RB×2, TE, W/R/T, K, DEF, BN×6, IR×1 (16 active + 1 IR) |
 | Optional slots | Q/W/R/T (superflex), W/T, W/R, DL, LB, DB, IDP (any defensive player) |
 | IR-eligible statuses | IR, Out, PUP, NFI, COVID-19 (`roster.irEligibleStatuses`) |
@@ -189,6 +189,55 @@ Validation rules:
 - The trade deadline must be on or before the last regular-season week.
 - The league must start before the trade deadline.
 - A warning when the regular season has fewer weeks than a full round robin needs.
+
+### Regular-season schedule (`generateSchedule`)
+
+- The schedule is a round robin built with the circle method, from `schedule.startWeek` through `schedule.regularSeasonEndWeek`. Every team plays every week.
+- The team count must be even. `SCHEDULE_ODD_TEAMS` suggests adding or removing a team.
+- A season longer than one round robin (team count − 1 weeks) repeats the rotation, with home and away flipped on each repeat. A shorter season (for example, a mid-season start) cuts the rotation off. Either way, the number of times any two teams meet differs by at most one across all pairs.
+- No pairing repeats in back-to-back weeks, except in a 2-team league.
+- The team order is shuffled with a seed, so the same teams, weeks, and seed always produce the same schedule.
+
+### Mid-season start (`leagueWeeks`)
+
+A league plays from `schedule.startWeek` through `schedule.regularSeasonEndWeek`, then the playoff weeks. `leagueWeeks(settings)` returns those weeks. It fails with `START_AFTER_TRADE_DEADLINE` when the start week isn't before the trade deadline, and with `SEASON_HAS_NO_WEEKS` when no regular-season week is left. The latest legal start is the week before the trade deadline (week 10 by default).
+
+### Standings (`computeStandings`)
+
+- A matchup is a win, loss, or tie. Scores are compared to the cent, and equal scores are a tie (there are no fantasy overtimes).
+- Only regular-season weeks count. Playoff games never change the standings.
+- There are no divisions. Teams are ranked by win percentage, where a tie counts as half a win.
+- Teams with the same win percentage are separated by these tiebreakers, in order:
+  1. **Points for** (the default, from `playoffs.tiebreaker: 'points_for'`).
+  2. **Head-to-head** win percentage in games among only the tied teams. A team that hasn't played the others counts as .500.
+  3. **A coin flip**, which is deterministic: a hash of the league's seed and the team id.
+
+  With `playoffs.tiebreaker: 'head_to_head'`, head-to-head comes first and points for second.
+- When a tiebreaker splits a group of three or more teams, each smaller group that is still tied starts the list again. That way, head-to-head is recomputed among only the teams still tied.
+- Each row reports its record, points for and against, current streak, and `tiebreakerOverNext` (which tiebreaker placed the team above the team ranked just below it).
+
+### Playoff bracket (`seedPlayoffs`, `buildBracket`, `advanceBracket`)
+
+- Seeds are the top `playoffs.teams` teams in the final standings, so the standings tiebreakers also decide seeding.
+- The bracket is single elimination with one round per week, from `playoffs.startWeek` to `playoffs.endWeek`. It uses the standard order (1 v 8, 4 v 5, 2 v 7, 3 v 6), and the top seeds get the byes. For example, in the default 6-team bracket, 4 v 5 and 3 v 6 play in week 15, and seeds 1 and 2 enter in week 16.
+- **There is no reseeding.** The bracket is fixed when it's built, as on Yahoo.
+- The better seed is listed as home.
+- **A tie in a playoff game advances the better (lower-numbered) seed**, as on Yahoo. The game is marked `decidedBySeed`.
+- An **optional consolation bracket** (`{ consolation: true }`) is a single-elimination bracket for the teams that missed the playoffs. It ends in the same final week, and its top seeds get byes when the field isn't a power of two. If there are more teams than the playoff weeks can fit, the lowest seeds sit out.
+- `buildBracket` rejects a seed count that doesn't match `playoffs.teams`, a bye count other than the bracket needs, a number of weeks that doesn't match the number of rounds, duplicate teams or seeds, and a consolation bracket with fewer than 2 teams.
+
+## Draft
+
+- **Format:** a snake draft. The round-1 order reverses every other round.
+- **Rounds:** one per active roster spot (`draftRoundsFor`, 16 by default). IR isn't drafted.
+- **Pick clock:** `deadlineFor(draft, startedAt)` is `pickSeconds` after the previous pick, or after the draft start for the first pick. The server schedules the autopick at that time.
+- **Errors:**
+  - `NOT_YOUR_TURN` says how many picks until the team is on the clock.
+  - `PLAYER_ALREADY_DRAFTED` says who took the player, and in which round and pick.
+  - `ROSTER_POSITION_LIMIT` applies only when the draft sets per-team position maximums, counted by each player's primary position.
+  - `DRAFT_COMPLETE`.
+- **Autopick:** the best-ranked available player who fills an empty starting slot. A team never takes a bench player, such as a second K or DEF, while a starting slot is open. Once every starting slot is full, autopick takes the best-ranked player available. Players drafted earlier fill the most specific open slot first (a WR goes to WR before W/R/T). Unranked players come after ranked ones, and equal ranks are broken by player id.
+- **Traded picks:** a draft carries `tradedPicks` (round, original team, owner), and the order honours them. Trading picks isn't offered yet.
 
 ## Editability
 

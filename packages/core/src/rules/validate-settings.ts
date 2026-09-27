@@ -121,6 +121,16 @@ export function validateLeagueSettings(s: LeagueSettings): RuleIssue[] {
 
 function validateSchedule(s: LeagueSettings): RuleIssue[] {
   const issues: RuleIssue[] = [];
+  if (s.teamCount % 2 !== 0) {
+    issues.push(
+      ruleError(
+        'ODD_TEAM_COUNT',
+        'teamCount',
+        `${s.teamCount} teams is an odd number, so one team would have no opponent every week.`,
+        `Set teamCount to ${s.teamCount - 1} or ${s.teamCount + 1}; head-to-head leagues need an even number of teams.`
+      )
+    );
+  }
   const { startWeek, regularSeasonEndWeek } = s.schedule;
   if (startWeek > regularSeasonEndWeek) {
     issues.push(

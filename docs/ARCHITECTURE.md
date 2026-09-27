@@ -7,7 +7,8 @@ This is the contract every work stream builds against. The product is described 
 - **Language:** TypeScript everywhere. Node 22, ESM, `strict` mode, no `any` (use `unknown` and narrow). Validation is done with `zod`.
 - **Monorepo:** npm workspaces, one lockfile at the root.
 - **Backend:** AWS SAM (`infra/template.yaml`) in us-east-1:
-  - Lambda (arm64, Node 22) and API Gateway-free routing: CloudFront `/api/*` → Lambda Function URL (OAC), the same pattern as llm-eval-harness.
+  - Lambda (arm64, Node 22) and API Gateway-free routing: CloudFront `/api/*` → Lambda Function URL, the same pattern as llm-eval-harness. The SPA bucket is private behind CloudFront OAC. The Function URL is `AuthType NONE`, because OAC for Function URLs needs the viewer to send a body hash on POST/PUT, which browsers can't do. The API verifies the Cognito ID token on every route except health and OpenAPI.
+  - The SPA learns its Cognito app client at runtime from `/auth-config.json`, which `make deploy-frontend` writes from the stack outputs.
   - DynamoDB for data, EventBridge (the default bus shared with rsc-core), Step Functions for workflows, and the rsc-core deferred-event scheduler for timed events.
 - **Frontend:** a Vite + React 19 SPA in `app/`, served from S3 + CloudFront at `fantasy.readysetcloud.io` (Staging uses the CloudFront domain). It uses `@readysetcloud/ui` for components, tokens, the Tailwind preset, and auth (`@readysetcloud/ui/auth`).
 - **Identity:** the shared rsc-core Cognito pool (`/readysetcloud/auth/user-pool-id` from SSM). This stack creates its own app client in that pool. The API verifies ID tokens with `aws-jwt-verify`.

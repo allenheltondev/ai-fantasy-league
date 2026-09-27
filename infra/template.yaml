@@ -1,0 +1,486 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  AI Fantasy League -- the league table, the API Lambda (Function URL behind
+  CloudFront at /api/*), SPA hosting on S3 + CloudFront, and this app's client
+  in the shared Ready, Set, Cloud Cognito pool.
+
+Parameters:
+  # --------------------------------------------------------------------------
+  # The API (packages/server/src/lambda.ts, bundled by scripts/package-server.sh)
+  # --------------------------------------------------------------------------
+  ServerArtifactKey:
+    Type: String
+    Default: ''
+    Description: >
+      S3 key (within ArtifactBucket) of the API Lambda's zip. Empty (the
+      default) means the API is not deployed -- no Lambda, no app client, no
+      SPA bucket, no CloudFront -- and only the table and the artifact bucket
+      exist. `make deploy-backend` bootstraps the stack that way the first
+      time, uploads the bundle, then deploys again with the key.
+
+      The key MUST change whenever the code changes: CloudFormation only rolls
+      a Lambda when a property it can see changes, and for an S3-sourced
+      function that property is the key. `scripts/package-server.sh` therefore
+      emits a content-hashed key (server/<sha256>.zip).
+
+      CAUTION: a bare `sam deploy` after the API exists resets this to '' and
+      DELETES the function, the app client, the bucket and the distribution.
+      Always deploy through `make deploy-backend`.
+
+  ServerMemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 256
+    MaxValue: 10240
+    Description: Memory (MB) for the API Lambda. Lambda scales CPU with memory, so this is also a cold-start knob.
+
+  # --------------------------------------------------------------------------
+  # Shared Ready, Set, Cloud configuration (readysetcloud/rsc-core SSM)
+  # --------------------------------------------------------------------------
+  AuthUserPoolId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /readysetcloud/auth/user-pool-id
+    Description: >
+      SSM parameter holding the shared Ready, Set, Cloud user pool. This stack
+      adds its own app client to that pool; people sign in with their existing
+      RSC account.
+
+  SecretsParameterName:
+    Type: String
+    Default: /readysetcloud/secrets
+    Description: >
+      Name of the rsc-core SSM parameter whose value is the ARN of the Secrets
+      Manager secret holding shared API keys (the Momento key is its `momento`
+      field). The API reads the parameter, then the secret.
+
+  SecretsArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /readysetcloud/secrets
+    Description: >
+      The same parameter, resolved at deploy time, so the API's IAM policy can
+      name the secret exactly. Keep it pointing at SecretsParameterName.
+
+  # --------------------------------------------------------------------------
+  # Custom domain (Production only)
+  # --------------------------------------------------------------------------
+  AppDomainName:
+    Type: String
+    Default: ''
+    Description: >
+      Optional hostname for the app, e.g. fantasy.readysetcloud.io. With
+      AppHostedZoneId, the stack issues an ACM certificate for it (DNS
+      validated in that zone), adds it to the CloudFront distribution and
+      points A/AAAA alias records at the distribution. Empty (the default,
+      and every non-production deploy) serves on the *.cloudfront.net domain
+      only. CloudFront certificates must be in us-east-1, as this stack is.
+  AppHostedZoneId:
+    Type: String
+    Default: ''
+    Description: Route 53 hosted zone that holds AppDomainName's parent domain.
+
+Conditions:
+  DeployServer: !Not [!Equals [!Ref ServerArtifactKey, '']]
+  # Both halves are needed: the certificate validates, and the alias records
+  # live, in the hosted zone.
+  DeployCustomDomain: !And
+    - !Condition DeployServer
+    - !Not [!Equals [!Ref AppDomainName, '']]
+    - !Not [!Equals [!Ref AppHostedZoneId, '']]
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Data: one table (docs/ARCHITECTURE.md "Data"). The key design lives in
+  # docs/adr/001-table-design.md; the two overloaded GSIs are generic so the
+  # repositories can evolve without a table replacement. Retained so a stack
+  # delete never takes league history with it.
+  # ---------------------------------------------------------------------------
+  FantasyTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+        - AttributeName: GSI2PK
+          AttributeType: S
+        - AttributeName: GSI2SK
+          AttributeType: S
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI2
+          KeySchema:
+            - AttributeName: GSI2PK
+              KeyType: HASH
+            - AttributeName: GSI2SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # Deployable zips (server/<sha>.zip). Versioned; superseded versions expire.
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldArtifacts
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+
+  # ---------------------------------------------------------------------------
+  # The API: one Node 22 arm64 Lambda (Hono) behind a Function URL.
+  # ---------------------------------------------------------------------------
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      # Prebuilt and uploaded under a content-hashed key by `make
+      # deploy-backend` (scripts/package-server.sh bundles with esbuild), so
+      # there is nothing for `sam build` to do.
+      SkipBuild: true
+    Properties:
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: !Ref ServerMemorySize
+      # CloudFront waits at most 60s (OriginReadTimeout); long work belongs in
+      # event handlers and Step Functions, not in a request.
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FantasyTable
+          USER_POOL_ID: !Ref AuthUserPoolId
+          USER_POOL_CLIENT_ID: !Ref AuthClient
+          EVENT_BUS_NAME: default
+          SECRETS_PARAMETER_NAME: !Ref SecretsParameterName
+          # rsc-core's convention for the shared secret (functions read it with
+          # getSecret(process.env.SECRET_ID)).
+          SECRET_ID: !Ref SecretsArn
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        # Get/Put/Update/Delete/Query/Scan/Batch*/ConditionCheck on the table
+        # and its indexes.
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FantasyTable
+        - Version: '2012-10-17'
+          Statement:
+            # ctx.events.publish and ctx.events.scheduleAt (the rsc-core
+            # deferred-event scheduler listens on the same bus).
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+            # The Momento API key: the SSM parameter names the secret...
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SecretsParameterName}
+            # ...and the secret holds the key (AWS-managed KMS key, so no grant).
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref SecretsArn
+      # The Function URL stays AuthType NONE: CloudFront OAC for Lambda
+      # function URLs needs the *viewer* to send an x-amz-content-sha256 body
+      # hash on POST/PUT, which a browser cannot do (same finding as
+      # llm-eval-harness). The API itself is the gate: it verifies the Cognito
+      # ID token (aws-jwt-verify) on every route except health and openapi.
+      # AuthType is the literal NONE so SAM emits the public invoke permissions.
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: BUFFERED
+
+  # This stack's app client on the shared pool (rsc-core ui/AGENTS.md: one
+  # pool, one client per app). The SPA calls cognito-idp directly with
+  # USER_PASSWORD_AUTH; no Hosted UI and no secret.
+  AuthClient:
+    Type: AWS::Cognito::UserPoolClient
+    Condition: DeployServer
+    Properties:
+      ClientName: !Sub ${AWS::StackName}-app
+      UserPoolId: !Ref AuthUserPoolId
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      # An ID token lives an hour; the SPA refreshes it silently
+      # (getFreshIdToken) for as long as the refresh token lasts.
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  # ---------------------------------------------------------------------------
+  # SPA hosting: a private S3 bucket and one CloudFront distribution with two
+  # origins, so the browser sees a single origin for the app and the API (no
+  # CORS, relative /api/v1 paths).
+  # ---------------------------------------------------------------------------
+  AppBucket:
+    Type: AWS::S3::Bucket
+    Condition: DeployServer
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  AppOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Condition: DeployServer
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${AWS::StackName}-app-oac
+        Description: Signs CloudFront's reads of the SPA bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  AppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: DeployServer
+    Properties:
+      Bucket: !Ref AppBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${AppBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${AppDistribution}
+
+  # SPA fallback as a viewer-request rewrite on the default behavior only.
+  # Distribution-wide CustomErrorResponses would also turn the API's own
+  # 403/404s into a 200 carrying index.html; a function is per-behavior, so
+  # /api/* is left untouched.
+  SpaRouterFunction:
+    Type: AWS::CloudFront::Function
+    Condition: DeployServer
+    Properties:
+      Name: !Sub ${AWS::StackName}-spa-router
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Rewrite extensionless paths to /index.html for client-side routing
+        Runtime: cloudfront-js-2.0
+      # ES5-only (indexOf/substring) so it is valid under either runtime.
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          var last = uri.substring(uri.lastIndexOf('/') + 1);
+          if (last.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  # The custom domain (Production). CloudFormation writes the DNS validation
+  # record itself and waits for the certificate before the distribution uses it.
+  AppCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: DeployCustomDomain
+    Properties:
+      DomainName: !Ref AppDomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref AppDomainName
+          HostedZoneId: !Ref AppHostedZoneId
+
+  # A and AAAA: the distribution serves IPv6. Z2FDTNDATAQYW2 is CloudFront's
+  # fixed hosted zone id for alias targets.
+  AppDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: DeployCustomDomain
+    Properties:
+      HostedZoneId: !Ref AppHostedZoneId
+      Name: !Ref AppDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt AppDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
+
+  AppDnsRecordIpv6:
+    Type: AWS::Route53::RecordSet
+    Condition: DeployCustomDomain
+    Properties:
+      HostedZoneId: !Ref AppHostedZoneId
+      Name: !Ref AppDomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt AppDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
+
+  AppDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: DeployServer
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub Fantasy (${AWS::StackName}) -- SPA + API
+        HttpVersion: http2and3
+        Aliases: !If [DeployCustomDomain, [!Ref AppDomainName], !Ref AWS::NoValue]
+        ViewerCertificate: !If
+          - DeployCustomDomain
+          - AcmCertificateArn: !Ref AppCertificate
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: spa
+            DomainName: !GetAtt AppBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt AppOriginAccessControl.Id
+            # Required-but-empty when OAC is in use (it replaces the legacy OAI).
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - Id: api
+            # The Function URL is "https://<id>.lambda-url.<region>.on.aws/";
+            # CloudFront wants the bare host, the third slash-separated field.
+            DomainName: !Select [2, !Split ['/', !GetAtt ApiFunctionUrl.FunctionUrl]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: spa
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # Managed CachingOptimized. Vite emits content-hashed asset names;
+          # index.html and auth-config.json are invalidated by
+          # `make deploy-frontend`.
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          # Managed SecurityHeadersPolicy (HSTS, nosniff, frame options, ...).
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaRouterFunction.FunctionARN
+        CacheBehaviors:
+          # The API mounts at /api/v1, so the origin receives the path unchanged.
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            # Managed CachingDisabled.
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # Managed AllViewerExceptHostHeader: forwards every viewer header
+            # (Authorization, Idempotency-Key), cookie and query string, but
+            # lets CloudFront set Host to the Function URL's own domain.
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        # No CustomErrorResponses on purpose -- see SpaRouterFunction above.
+
+Outputs:
+  TableName:
+    Description: The league table (TABLE_NAME)
+    Value: !Ref FantasyTable
+  TableArn:
+    Description: The league table's ARN
+    Value: !GetAtt FantasyTable.Arn
+  TableStreamArn:
+    Description: The league table's stream (NEW_AND_OLD_IMAGES)
+    Value: !GetAtt FantasyTable.StreamArn
+  ArtifactBucket:
+    Description: Bucket the API zips (server/<sha>.zip) are uploaded to; `make deploy-backend` looks it up by this name.
+    Value: !Ref ArtifactBucket
+  ApiFunctionName:
+    Condition: DeployServer
+    Description: The API Lambda
+    Value: !Ref ApiFunction
+  ApiFunctionUrl:
+    Condition: DeployServer
+    Description: >
+      The API Lambda's Function URL, for curl-level debugging. The supported
+      front door is AppUrl, where the API is at /api/v1.
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  UserPoolId:
+    Condition: DeployServer
+    Description: The shared Ready, Set, Cloud user pool the API verifies ID tokens against
+    Value: !Ref AuthUserPoolId
+  UserPoolClientId:
+    Condition: DeployServer
+    Description: This stack's app client on that pool; `make deploy-frontend` publishes it in /auth-config.json
+    Value: !Ref AuthClient
+  AppUrl:
+    Condition: DeployServer
+    Description: >
+      The deployment's one public URL -- SPA at /, API at /api/v1. The custom
+      domain when one is configured, the CloudFront domain otherwise.
+    Value: !If
+      - DeployCustomDomain
+      - !Sub https://${AppDomainName}
+      - !Sub https://${AppDistribution.DomainName}
+  AppBucket:
+    Condition: DeployServer
+    Description: S3 bucket the built SPA is synced into (private; read only via CloudFront OAC)
+    Value: !Ref AppBucket
+  AppDistributionId:
+    Condition: DeployServer
+    Description: CloudFront distribution id (for `aws cloudfront create-invalidation`)
+    Value: !Ref AppDistribution
+  AppDistributionDomainName:
+    Condition: DeployServer
+    Description: The distribution's *.cloudfront.net domain (Staging's AppUrl)
+    Value: !GetAtt AppDistribution.DomainName
