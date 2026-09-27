@@ -37,6 +37,13 @@ describe('parseLeagueSettings: schema errors with fix hints', () => {
     expect(low?.fix).toBe('Set `teamCount` to at least 4.');
   });
 
+  it('rejects odd team counts, since head-to-head needs an opponent for every team', () => {
+    const issues = parseIssues(patched({ teamCount: 7 }));
+    const odd = issues.find((i) => i.code === 'ODD_TEAM_COUNT');
+    expect(odd).toMatchObject({ path: 'teamCount', severity: 'error' });
+    expect(odd?.fix).toContain('6 or 8');
+  });
+
   it('names valid keys for unknown settings', () => {
     const [issue] = parseIssues({ ...base, waivers: { ...base.waivers, budget: 100 } });
     expect(issue?.code).toBe('UNKNOWN_SETTING');
