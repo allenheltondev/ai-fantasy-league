@@ -178,10 +178,11 @@ export function LineupBoard(props: {
     setAnnouncement('Changes discarded.');
   };
 
-  const save = () => {
+  /** Saves the working copy, or `next` (the one-tap "Set my lineup"). */
+  const save = (next: Placement = placement) => {
     setSaving(true);
     setProblem(null);
-    api.setLineup(props.leagueId, props.teamId, data.week, movesFor(data.players, placement)).then(
+    api.setLineup(props.leagueId, props.teamId, data.week, movesFor(data.players, next)).then(
       (res) => {
         setSaving(false);
         setAnnouncement('Lineup saved.');
@@ -211,8 +212,37 @@ export function LineupBoard(props: {
   const irRoom = data.slots.find((s) => s.slot === 'IR')?.count ?? 0;
   const board = { rows, moving, attempt, moveTo, choose, selected, saving };
 
+  // Nobody starts (right after the draft, say): offer the optimizer's lineup as one tap.
+  const emptyLineup = !data.players.some((p) => isStarter(p.slot)) && pending.length === 0;
+
   return (
     <div className="space-y-4">
+      {emptyLineup && optimalPlacement !== null && !alreadyOptimal && (
+        <section
+          aria-label="Your lineup is empty"
+          data-testid="empty-lineup"
+          className="motion-pop flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning-500 bg-warning-50 p-3 sm:p-4"
+        >
+          <div className="min-w-0">
+            <h3 className="font-semibold">Your lineup is empty</h3>
+            <p className="text-sm">
+              Every player is on the bench, so this week would score 0.{' '}
+              {optimal?.basis === 'rank'
+                ? 'Start your best players by consensus rank (no projections yet), then adjust.'
+                : 'Start your highest-projected players, then adjust.'}
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            onClick={() => save(optimalPlacement)}
+            loading={saving}
+            loadingLabel="Saving…"
+            className="min-h-11 max-sm:w-full"
+          >
+            Set my lineup
+          </Button>
+        </section>
+      )}
       <LineupSummary
         data={data}
         total={total}
@@ -350,7 +380,7 @@ export function LineupBoard(props: {
           total={total}
           savedTotal={savedTotal}
           saving={saving}
-          onSave={save}
+          onSave={() => save()}
           onDiscard={discard}
         />
       )}
@@ -380,6 +410,7 @@ function LineupSummary(props: {
 }) {
   const { data } = props;
   const delta = Math.round((props.total - props.savedTotal) * 100) / 100;
+  const byRank = data.optimal?.basis === 'rank';
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-3 sm:p-4">
       <div className="min-w-0">
@@ -412,16 +443,22 @@ function LineupSummary(props: {
           disabled={!props.canOptimize}
           className="min-h-11"
         >
-          {props.canOptimize && props.optimalGain > 0.004
-            ? `Optimize lineup (${signed(props.optimalGain, 2)})`
-            : 'Optimize lineup'}
+          {!props.canOptimize
+            ? 'Optimize lineup'
+            : byRank
+              ? 'Optimize lineup (by rank)'
+              : props.optimalGain > 0.004
+                ? `Optimize lineup (${signed(props.optimalGain, 2)})`
+                : 'Optimize lineup'}
         </Button>
-        <span className="text-xs text-muted-foreground max-sm:text-center">
+        <span className="text-xs text-muted-foreground max-sm:text-center" data-testid="optimize-note">
           {data.optimal == null
-            ? `No projections for week ${data.week} yet.`
-            : props.canOptimize
-              ? 'Best projected lineup; locked, Out, and IR players stay put.'
-              : 'Your lineup is the best projected one.'}
+            ? 'No lineup suggestion is available.'
+            : byRank
+              ? `No projections for week ${data.week} yet: ranked by consensus rank instead.`
+              : props.canOptimize
+                ? 'Best projected lineup; locked, Out, and IR players stay put.'
+                : 'Your lineup is the best projected one.'}
         </span>
       </div>
     </div>

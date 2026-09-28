@@ -26,6 +26,7 @@ import { scheduleName } from '../events/schedule-name.js';
 import { rosterStatus, toPlayerRef, type Player } from '../players/model.js';
 import type { DraftRecord, League, Team } from '../repos/types.js';
 import { startLeagueSeason } from '../season/cycle.js';
+import { setDefaultLineups } from '../season/lineups.js';
 import { currentNflWeek } from './calendar.js';
 import { transitionPhase } from './phase.js';
 
@@ -311,6 +312,7 @@ export async function finishDraft(deps: DraftDeps, leagueId: string, record: Dra
   // The season loop takes over: the first week's lineup lock and its lock warnings. Only the move
   // to the regular season above retries on a conflict; a failure here is not swallowed.
   await startSeasonWithRetry(deps, started, now);
+  await defaultLineups(deps, started, now);
   const recap = await recapDraft(deps, leagueId, record.state);
   await deps.events.publish('Draft Completed', {
     leagueId,
@@ -364,6 +366,20 @@ async function recapDraft(
 }
 
 /** Starts the season loop, re-reading the league when another write got to it first. */
+/**
+ * Starts each human team with the optimizer's lineup for the first week, unless it already has one
+ * (#176). A failure is logged, not thrown: the draft is complete either way, and the roster page
+ * offers the same lineup with one tap.
+ */
+async function defaultLineups(deps: DraftDeps, league: League, now: Date): Promise<void> {
+  try {
+    const teams = await setDefaultLineups({ repos: deps.repos, reference: deps.data.reference }, league, now);
+    if (teams.length > 0) deps.log.info('default lineups set', { leagueId: league.id, teams });
+  } catch (error) {
+    deps.log.warn('default lineups failed', { leagueId: league.id, error: String(error) });
+  }
+}
+
 async function startSeasonWithRetry(deps: DraftDeps, league: League, now: Date): Promise<void> {
   const seasonDeps = {
     repos: deps.repos,

@@ -27,7 +27,7 @@ interface Row {
 interface RosterData {
   players: Row[];
   projectedPoints: number;
-  optimal: { projectedPoints: number; moves: { playerId: string; slot: string }[] } | null;
+  optimal: { basis: string; projectedPoints: number; moves: { playerId: string; slot: string }[] } | null;
 }
 
 const row = (roster: RosterData, id: string) => roster.players.find((p) => p.player.id === id);
@@ -117,6 +117,7 @@ describe('get_roster for the lineup editor', () => {
       const roster = data<RosterData>(await alice.get(`${L}/teams/team-1/roster`));
       expect(row(roster, 'fx-mahomes')).toMatchObject({ slot: 'BN', locked: true });
       expect(roster.optimal).toEqual({
+        basis: 'projections',
         projectedPoints: 45,
         moves: expect.arrayContaining([
           { playerId: 'fx-bhall', slot: 'RB' },
@@ -135,12 +136,21 @@ describe('get_roster for the lineup editor', () => {
     expect(put.status, JSON.stringify(put.body)).toBe(200);
     const after = data<RosterData>(await alice.get(`${L}/teams/team-1/roster`));
     expect(after.projectedPoints).toBe(50);
-    expect(after.optimal).toEqual({ projectedPoints: 50, moves: [] });
+    expect(after.optimal).toEqual({ basis: 'projections', projectedPoints: 50, moves: [] });
   });
 
-  it('has no optimal lineup without projections', async () => {
+  it('falls back to consensus rank without projections, and says so', async () => {
+    // Week 3 has no projections; it carries week 2's saved lineup (Mahomes at QB).
     const roster = data<RosterData>(await alice.get(`${L}/teams/team-1/roster?week=3`));
-    expect(roster.optimal).toBeNull();
     expect(roster.projectedPoints).toBe(0);
+    expect(roster.optimal).toMatchObject({ basis: 'rank', projectedPoints: 0 });
+    // Allen outranks Mahomes; Bijan is still Out, so he never starts.
+    expect(roster.optimal?.moves).toEqual(
+      expect.arrayContaining([
+        { playerId: 'fx-jallen', slot: 'QB' },
+        { playerId: 'fx-mahomes', slot: 'BN' }
+      ])
+    );
+    expect(roster.optimal?.moves.filter((m) => m.playerId === 'fx-bijan' && m.slot !== 'BN')).toEqual([]);
   });
 });

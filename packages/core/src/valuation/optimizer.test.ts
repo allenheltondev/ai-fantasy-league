@@ -17,7 +17,7 @@ import {
   type RosterSlot
 } from '../rules/positions.js';
 import { activeRosterSize, slotCount, yahooDefaultSettings, type LeagueSettings } from '../rules/settings.js';
-import { lineupDiff, startersProjection, optimizeLineup, solveAssignment } from './optimizer.js';
+import { lineupDiff, optimizeLineup, rankValues, solveAssignment, startersProjection } from './optimizer.js';
 
 const settings = yahooDefaultSettings();
 const withSlots = (slots: LeagueSettings['roster']['slots']): LeagueSettings => ({
@@ -240,6 +240,28 @@ describe('startersProjection and lineupDiff', () => {
     expect(startersProjection(roster, lineup, proj)).toBe(30.33);
     expect(startersProjection(roster, lineup, proj, { KC: { kickoff: '2026-10-04T17:00:00Z' } })).toBe(20.33);
     expect(startersProjection(roster, [], proj)).toBe(0);
+  });
+
+  it('ranks players by consensus rank when there are no projections', () => {
+    const values = rankValues([
+      { playerId: 'star', rank: 1 },
+      { playerId: 'depth', rank: 250 },
+      { playerId: 'deep', rank: 5000 },
+      { playerId: 'none', rank: null }
+    ]);
+    expect(values).toEqual({ star: 9.99, depth: 7.5, deep: 0.01, none: 0.01 });
+    const s = withSlots({ QB: 1, WR: 1, BN: 3 });
+    const roster = [p('qb', 'QB'), p('wr1', 'WR'), p('wr2', 'WR')];
+    const best = optimizeLineup(
+      s,
+      roster,
+      rankValues([
+        { playerId: 'qb', rank: null },
+        { playerId: 'wr1', rank: 80 },
+        { playerId: 'wr2', rank: 12 }
+      ])
+    );
+    expect(starters(best.lineup)).toEqual({ QB: ['qb'], WR: ['wr2'] });
   });
 
   it('lists the moves between two lineups, counting missing players as bench', () => {

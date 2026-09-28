@@ -247,8 +247,8 @@ export interface Roster {
   players: RosterEntry[];
   /** The starters' projection; starters on bye or ruled out count 0 (#176). */
   projectedPoints?: number;
-  /** The best legal lineup as set_lineup moves from this one, or null without projections (#176). */
-  optimal?: { projectedPoints: number; moves: LineupMove[] } | null;
+  /** The best legal lineup as set_lineup moves from this one, by projection or, with none, by rank (#176). */
+  optimal?: { basis?: 'projections' | 'rank'; projectedPoints: number; moves: LineupMove[] } | null;
 }
 
 export interface LineupMove {

@@ -338,7 +338,60 @@ describe('the lineup editor', () => {
     expect(screen.getByRole('region', { name: 'Unsaved changes' })).toBeInTheDocument();
   });
 
-  it('says when there are no projections to optimize with, and offers IR to a hurt player', async () => {
+  it('offers a one-tap lineup when nobody starts, ranked by consensus rank without projections', async () => {
+    const empty = () =>
+      roster(
+        [
+          entry('qb1', 'QB', 'BN', { projectedPoints: null }),
+          entry('wr1', 'WR', 'BN', { projectedPoints: null }),
+          entry('wr2', 'WR', 'BN', { projectedPoints: null })
+        ],
+        {
+          lineupSaved: false,
+          optimal: {
+            basis: 'rank',
+            projectedPoints: 0,
+            moves: [
+              { playerId: 'qb1', slot: 'QB' },
+              { playerId: 'wr1', slot: 'WR' },
+              { playerId: 'wr2', slot: 'W/R/T' }
+            ]
+          }
+        }
+      );
+    const setLineup = vi.fn(async () => ({ roster: empty(), warnings: [] }));
+    open({ getRoster: vi.fn(async () => empty()), setLineup });
+    const user = userEvent.setup();
+    const callout = await screen.findByRole('region', { name: 'Your lineup is empty' });
+    expect(callout).toHaveTextContent('by consensus rank (no projections yet)');
+    expect(screen.getByRole('button', { name: 'Optimize lineup (by rank)' })).toBeEnabled();
+    expect(screen.getByTestId('optimize-note')).toHaveTextContent(
+      'No projections for week 1 yet: ranked by consensus rank instead.'
+    );
+    await user.click(within(callout).getByRole('button', { name: 'Set my lineup' }));
+    await waitFor(() =>
+      expect(setLineup).toHaveBeenCalledWith('L1', 'team-1', 1, [
+        { playerId: 'qb1', slot: 'QB' },
+        { playerId: 'wr1', slot: 'WR' },
+        { playerId: 'wr2', slot: 'W/R/T' }
+      ])
+    );
+  });
+
+  it('prompts by projection when there are projections', async () => {
+    open({
+      getRoster: vi.fn(async () =>
+        roster([entry('qb1', 'QB', 'BN')], {
+          optimal: { basis: 'projections', projectedPoints: 10, moves: [{ playerId: 'qb1', slot: 'QB' }] }
+        })
+      )
+    });
+    expect(await screen.findByRole('region', { name: 'Your lineup is empty' })).toHaveTextContent(
+      'Start your highest-projected players'
+    );
+  });
+
+  it('says when there is no suggestion, and offers IR to a hurt player', async () => {
     open({
       getRoster: vi.fn(async () =>
         roster(
@@ -348,7 +401,7 @@ describe('the lineup editor', () => {
       )
     });
     const user = userEvent.setup();
-    expect(await screen.findByText('No projections for week 1 yet.')).toBeInTheDocument();
+    expect(await screen.findByText('No lineup suggestion is available.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Optimize lineup' })).toBeDisabled();
     expect(screen.getByText(/carried over from week 0/)).toBeInTheDocument();
     expect(screen.queryByText('Saved')).not.toBeInTheDocument();

@@ -25,7 +25,7 @@ const SEEDED = [
   ['fx-kwalker', 'BN']
 ].map(([playerId, slot]) => ({ playerId, slot }));
 
-async function restoreLineup(page: Page) {
+async function restoreLineup(page: Page, moves = SEEDED) {
   const status = await page.evaluate(async (moves) => {
     const res = await fetch('/api/v1/leagues/demo-season/teams/team-1/lineup', {
       method: 'PUT',
@@ -33,7 +33,7 @@ async function restoreLineup(page: Page) {
       body: JSON.stringify({ moves })
     });
     return res.status;
-  }, SEEDED);
+  }, moves);
   expect(status).toBe(200);
 }
 
@@ -134,4 +134,23 @@ test('a manager moves players from the keyboard and discards the change', async 
   await expect(page.getByRole('list', { name: 'Starters' }).getByText('Patrick Mahomes')).toBeVisible();
   await page.getByRole('button', { name: 'Discard' }).click();
   await expect(page.getByRole('list', { name: 'Starters' }).getByText('Josh Allen')).toBeVisible();
+});
+
+test('a manager whose whole team is on the bench sets a lineup with one tap', async ({ page }) => {
+  // As right after a draft: everyone on the bench.
+  await restoreLineup(
+    page,
+    SEEDED.map((m) => ({ ...m, slot: 'BN' }))
+  );
+  await page.reload();
+  const callout = page.getByRole('region', { name: 'Your lineup is empty' });
+  await expect(callout).toBeVisible();
+  await callout.getByRole('button', { name: 'Set my lineup' }).click();
+  await expect(callout).toBeHidden();
+  const starters = page.getByRole('list', { name: 'Starters' });
+  await expect(starters.getByText('Josh Allen')).toBeVisible();
+  await expect(starters.getByText('CeeDee Lamb')).toBeVisible();
+  await expect(page.getByTestId('lineup-projection')).toContainText('Saved');
+
+  await restoreLineup(page);
 });

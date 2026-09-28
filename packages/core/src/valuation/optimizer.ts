@@ -191,6 +191,17 @@ export function startersProjection(
 }
 
 /**
+ * Stand-in lineup values for a week without projections: each player's consensus overall rank as a
+ * score (rank 1 is worth the most; unranked players the least, but still above an empty slot).
+ * They order players for `optimizeLineup`; they are not points and must not be shown as points.
+ */
+export function rankValues(players: readonly { playerId: string; rank: number | null }[]): WeekProjections {
+  return Object.fromEntries(
+    players.map((p) => [p.playerId, p.rank === null ? 0.01 : Math.max(1000 - Math.max(p.rank, 1), 1) / 100])
+  );
+}
+
+/**
  * The `set_lineup` moves that turn `before` into `after`: one per player whose slot changed
  * (players missing from `before` count as BN), in `after`'s order.
  */
