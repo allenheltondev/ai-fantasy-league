@@ -247,3 +247,82 @@ export interface StandingsData {
   throughWeek: number | null;
   standings: StandingsRow[];
 }
+
+/** get_model_leaderboard (#76): which model wins the league. */
+export interface ModelLeaderboardRecord {
+  wins: number;
+  losses: number;
+  ties: number;
+  winRate: number | null;
+  pointsFor: number;
+  costUsd: number;
+}
+
+export interface ModelLeaderboardTeam extends ModelLeaderboardRecord {
+  teamId: string;
+  teamName: string;
+  seatType: SeatType;
+  rank: number;
+  modelKey: string;
+  modelName: string;
+  provider: string | null;
+  personality: string | null;
+  difficulty: string | null;
+}
+
+export interface ModelLeaderboardModel extends ModelLeaderboardRecord {
+  modelKey: string;
+  modelName: string;
+  provider: string | null;
+  teams: number;
+  bestRank: number;
+  pointsForPerTeam: number;
+  costPerWinUsd: number | null;
+}
+
+export interface ModelLeaderboard {
+  throughWeek: number | null;
+  teams: ModelLeaderboardTeam[];
+  models: ModelLeaderboardModel[];
+}
+
+/** get_agent_activity (#45, #77): the commissioner's view of the league's agents. */
+export interface AgentTaskRecord {
+  taskId: string;
+  teamId: string;
+  agentId: string;
+  kind: string;
+  week: number;
+  trigger: { detailType: string; eventId: string };
+  status: 'completed' | 'fallback' | 'failed' | 'skipped';
+  fallbackReason: string | null;
+  toolsCalled: { name: string; mutation: boolean; ok: boolean; errorCode: string | null }[];
+  finalAction: string;
+  reasoningSummary: string;
+  latencyMs: number;
+  usage: { modelKey: string; inputTokens: number; outputTokens: number; estimatedCostUsd: number }[];
+  costUsd: number;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface AgentSpend {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  tasks: number;
+}
+
+export interface AgentActivity {
+  tasks: AgentTaskRecord[];
+  budget: {
+    week: number;
+    ceilingUsd: number;
+    spentUsd: number;
+    remainingUsd: number;
+    exceeded: boolean;
+    byAgent: (AgentSpend & { agentId: string; teamId: string | null; allowanceUsd: number | null })[];
+    byModel: (AgentSpend & { modelKey: string })[];
+  };
+  killSwitch: { configured: boolean; engaged: boolean };
+}

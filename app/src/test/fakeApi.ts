@@ -252,6 +252,20 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     }),
     getMatchup: vi.fn(async () => ({ week: 1, teamId: 'team-1', matchup: null, lineups: null })),
     getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] })),
+    getModelLeaderboard: vi.fn(async () => ({ throughWeek: null, teams: [], models: [] })),
+    getAgentActivity: vi.fn(async () => ({
+      tasks: [],
+      budget: {
+        week: 0,
+        ceilingUsd: 0.25,
+        spentUsd: 0,
+        remainingUsd: 0.25,
+        exceeded: false,
+        byAgent: [],
+        byModel: []
+      },
+      killSwitch: { configured: false, engaged: false }
+    })),
     getRealtime: vi.fn(async () => ({
       enabled: false,
       token: null,

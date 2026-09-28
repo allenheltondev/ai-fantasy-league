@@ -3,6 +3,7 @@ import { EmptyState, LoadingPage } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { ModelLeaderboardPanel } from './ModelLeaderboardPanel';
 
 /** The Standings section (#58). */
 export function StandingsPage() {
@@ -52,6 +53,7 @@ export function StandingsPage() {
     <div data-testid="league-section-standings" className="space-y-4">
       <h2 className="text-xl font-semibold">Standings</h2>
       {body}
+      <ModelLeaderboardPanel leagueId={leagueId} />
     </div>
   );
 }

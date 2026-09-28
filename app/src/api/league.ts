@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import type { RealtimeInfo } from '../chat/api';
 import type { ApiFetch, ApiRequest } from './client';
 import type {
+  AgentActivity,
   AgentCatalog,
   AgentSeatConfig,
   AgentSeatView,
@@ -14,6 +15,7 @@ import type {
   LeagueState,
   LineupMove,
   MatchupData,
+  ModelLeaderboard,
   MyLeague,
   Roster,
   ScoringPreset,
@@ -87,6 +89,11 @@ export function createLeagueApi(api: ApiFetch) {
     },
     getMatchup: (id: string) => call<MatchupData>(`${league(id)}/matchup`),
     getStandings: (id: string) => call<StandingsData>(`${league(id)}/standings`),
+    /** get_model_leaderboard (#76). */
+    getModelLeaderboard: (id: string) => call<ModelLeaderboard>(`${league(id)}/model-leaderboard`),
+    /** get_agent_activity (#77): commissioner only. */
+    getAgentActivity: (id: string, query: { teamId?: string; limit?: number } = {}) =>
+      call<AgentActivity>(`${league(id)}/agent-activity`, { query }),
     /** get_realtime_token: a subscribe-only token for live league events, or `enabled: false`. */
     getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`)
   };
