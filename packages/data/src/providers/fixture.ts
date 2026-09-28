@@ -72,7 +72,7 @@ export async function loadFixtureArchive(dir: URL = DEFAULT_FIXTURES_DIR): Promi
       const raw = parseOrDrift(sleeperWeekStatsSchema, await readJson(dir, path), path);
       (archive.projections[meta.week] ??= []).push({
         capturedAt: captured,
-        data: normalizeWeekStats(raw, season, meta.week)
+        data: normalizeWeekStats(raw, season, meta.week, 'projections')
       });
     } else if (trending && captured) {
       const raw = parseOrDrift(sleeperTrendingSchema, await readJson(dir, path), path);

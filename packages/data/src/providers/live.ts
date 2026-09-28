@@ -102,7 +102,7 @@ export class LiveDataProvider implements DataProvider {
   }
 
   async getWeekProjections(season: number, week: number, _asOf: Date): Promise<ProjectionLine[]> {
-    return normalizeWeekStats(await this.#sleeper.weekProjections(season, week), season, week);
+    return normalizeWeekStats(await this.#sleeper.weekProjections(season, week), season, week, 'projections');
   }
 
   async getTrending(

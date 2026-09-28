@@ -118,7 +118,10 @@ node scripts/record-fixtures.mjs --nflverse  # nflverse only (works from the san
 ```
 
 The script trims responses to the fixture player set and keeps the synthetic `900xx` players.
-Re-run `npm test -w packages/data` afterwards; a few assertions pin hand-authored values.
+Re-run `npm test -w packages/data` afterwards; a few assertions pin hand-authored values. The
+Record fixtures workflow re-records these curated files only when its `curated` input is on; by
+default it records just the scoring validation sets (`sleeper/scoring/`, every player's weekly
+line with Sleeper's `pts_*`, checked by the scoring harness; see docs/rules.md).
 
 ## Tests
 

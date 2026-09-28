@@ -31,6 +31,7 @@ describe('scoring presets', () => {
       sack: 1,
       int: 2,
       fum_rec: 2,
+      def_st_fum_rec: 2,
       def_td: 6,
       safe: 2,
       blk_kick: 2

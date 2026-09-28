@@ -110,9 +110,12 @@ reachable instead:
 `api.sleeper.app` is blocked in the development sandbox. Tests use the recorded fixtures in
 `packages/data/fixtures/` through `FixtureDataProvider` and stub providers. To refresh the Sleeper
 fixtures, run the **Record fixtures** workflow (GitHub Actions, `workflow_dispatch`); it runs
-`node scripts/record-fixtures.mjs --sleeper` (and `--scoring` for the validation sets) on a GitHub
-runner, uploads the files as an artifact, and, unless `push_branch` is off, commits them to a
-`fixtures/run-<run id>` branch. Open a PR from that branch; CI runs the data tests, including the
+`node scripts/record-fixtures.mjs --scoring --sleeper` (the scoring validation sets in
+`fixtures/sleeper/scoring/`) on a GitHub runner, plus `--sleeper` for the curated unit-test
+fixtures (players, state, stats, projections, trending) only when its `curated` input is on,
+because a live recording moves the NFL state and the numbers those tests pin. It uploads the
+files as an artifact and, unless `push_branch` is off, commits them to a `fixtures/run-<run id>`
+branch. Open a PR from that branch; CI runs the data tests, including the
 scoring harness, against the new fixtures. Nothing is pushed to `main`.
 
 ## Configuration

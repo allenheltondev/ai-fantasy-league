@@ -1,9 +1,13 @@
 name: Record fixtures
 
-# Records real Sleeper responses (trimmed to the fixture players) where
-# api.sleeper.app is reachable, and checks which news RSS feeds respond. Dev
-# sandboxes cannot reach either, so this is how fixtures and the feed list get
-# refreshed. The recorded fixtures are uploaded as an artifact and, unless
+# Records real Sleeper responses where api.sleeper.app is reachable, and checks
+# which news RSS feeds respond. Dev sandboxes cannot reach either, so this is how
+# fixtures and the feed list get refreshed.
+#
+# By default only the scoring validation sets (fixtures/sleeper/scoring/) are
+# recorded. The curated fixtures the unit tests pin (players, state, stats,
+# projections, trending) are re-recorded only when `curated` is on: a live
+# recording moves the NFL state and the numbers, so expect to update tests. The recorded fixtures are uploaded as an artifact and, unless
 # `push_branch` is off, also committed to a `fixtures/run-<run id>` branch so a
 # PR can be opened from it without downloading anything. Nothing is pushed to
 # main. No AWS credentials are used.
@@ -26,6 +30,11 @@ on:
         required: false
         type: string
         default: '1,2'
+      curated:
+        description: Also re-record the curated unit-test fixtures (players, state, stats, projections, trending); tests pin their values
+        required: false
+        type: boolean
+        default: false
       push_branch:
         description: Commit the recorded Sleeper fixtures to a fixtures/run-<run id> branch
         required: false
@@ -50,15 +59,17 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - name: Record Sleeper responses
+      - name: Start from the committed fixtures
+        # Keeps the curated fixtures and the synthetic 900xx players unless `curated` is on.
+        run: |
+          mkdir -p recorded
+          cp -R packages/data/fixtures recorded/fixtures
+      - name: Record curated Sleeper fixtures
+        if: ${{ inputs.curated }}
         env:
           SEASON: ${{ inputs.season }}
           WEEKS: ${{ inputs.weeks }}
-        run: |
-          # Start from the committed fixtures so the synthetic 900xx players are kept.
-          mkdir -p recorded
-          cp -R packages/data/fixtures recorded/fixtures
-          node scripts/record-fixtures.mjs --sleeper --season "$SEASON" --weeks "$WEEKS" --out recorded/fixtures
+        run: node scripts/record-fixtures.mjs --sleeper --season "$SEASON" --weeks "$WEEKS" --out recorded/fixtures
       - name: Record Sleeper scoring validation sets
         # Every player's stat line with Sleeper's pts_ppr / pts_half_ppr / pts_std, written to
         # fixtures/sleeper/scoring/ for the scoring harness (#30, docs/rules.md).
@@ -86,6 +97,7 @@ jobs:
           SEASON: ${{ inputs.season }}
           WEEKS: ${{ inputs.weeks }}
           SCORING_WEEKS: ${{ inputs.scoring_weeks }}
+          CURATED: ${{ inputs.curated }}
         run: |
           rm -rf packages/data/fixtures/sleeper
           cp -R recorded/fixtures/sleeper packages/data/fixtures/sleeper
@@ -97,6 +109,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$BRANCH"
           git add packages/data/fixtures/sleeper
-          git commit -m "Record Sleeper fixtures (season $SEASON, weeks $WEEKS, scoring weeks $SCORING_WEEKS)"
+          if [ "$CURATED" = "true" ]; then WHAT="weeks $WEEKS, scoring weeks $SCORING_WEEKS"; else WHAT="scoring weeks $SCORING_WEEKS"; fi
+          git commit -m "Record Sleeper fixtures (season $SEASON, $WHAT)"
           git push origin "$BRANCH"
           echo "Pushed $BRANCH: open a PR from it into main." >> "$GITHUB_STEP_SUMMARY"

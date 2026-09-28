@@ -55,6 +55,7 @@ Missed field goals and extra points (`fgmiss_*`, `xpmiss`) score 0 by default. A
 | Fumble recoveries | `fum_rec` | 2 |
 | Defensive touchdowns | `def_td` | 6 |
 | Special teams (return) touchdowns | `def_st_td` | 6 |
+| Special teams fumble recoveries (a muffed punt or kick, recovered by the kicking team; Sleeper keeps these out of `fum_rec`) | `def_st_fum_rec` | 2 |
 | Two-point conversion returns | `def_2pt` | 2 |
 | Safeties | `safe` | 2 |
 | Blocked kicks | `blk_kick` | 2 |
@@ -92,32 +93,46 @@ These are not in the default settings. `withIdpScoring(scoring)` adds them, and 
 
 ### Values we are least sure match Yahoo exactly
 
-These values are our best understanding of Yahoo's defaults. Check them against Sleeper's precomputed `pts_half_ppr` totals during the first replay, and adjust them here and in code together:
+These values are our best understanding of Yahoo's defaults. Adjust them here and in code together:
 
-- `def_2pt` (a returned two-point conversion or extra point, worth 2).
-- The IDP table as a whole.
-- Return touchdowns are scored from `st_td` only. If Sleeper's individual stat lines also carry `kr_td`/`pr_td` for the same play, do not weight those as well, or the play counts twice.
-- Kicks of 50+ yards score from `fgm_50p` only. Do not also weight `fgm_50_59`/`fgm_60p`.
+- `def_2pt` (a returned two-point conversion or extra point, worth 2). No recorded Sleeper week has one yet.
+- The IDP table as a whole. Sleeper's default IDP weights differ (see [Scoring validation](#scoring-validation-validatescoring-the-phase-1-milestone)).
+
+Checked against Sleeper's recorded 2025 weeks 1-3 with no difference: two-point conversions (`pass_2pt`, `rush_2pt`, `rec_2pt`), individual return touchdowns (`st_td`; Sleeper's lines carry no separate `kr_td`/`pr_td`), team special-teams touchdowns (`def_st_td`), safeties, blocked kicks, and kicks of 50+ yards from `fgm_50p` only (the lines also carry `fgm_50_59`/`fgm_60p`; do not weight those as well). No recorded week has an offensive fumble-recovery touchdown (`fum_rec_td`) yet.
 
 ### Scoring validation (`validateScoring`, the Phase 1 milestone)
 
-The harness (`packages/core/src/scoring/validate.ts`, fed by `packages/data/src/validation/scoring-harness.ts`) scores recorded stat lines with the engine and requires every player's PPR, half-PPR, and standard total to match the source's own precomputed total within 0.01. It runs in CI over every set in `packages/data/fixtures/` (`scoring-harness.test.ts`), and `npm run validate-scoring -w @fantasy/data -- <files>` runs it on any Sleeper weekly stats JSON or nflverse `stats_player_week` CSV, such as a whole season.
+The harness (`packages/core/src/scoring/validate.ts`, fed by `packages/data/src/validation/scoring-harness.ts`) scores recorded stat lines with the engine and requires every player's PPR, half-PPR, and standard total to match the source's own precomputed total within 0.01, or to differ by exactly one of the intended differences below. It runs in CI in the data package tests (`scoring-harness.test.ts`) over every real recording in `packages/data/fixtures/` (`sleeper/scoring/*.json` and the nflverse CSVs), and `npm run validate-scoring -w @fantasy/data -- <files>` runs it on any Sleeper weekly stats JSON or nflverse `stats_player_week` CSV, such as a whole season.
 
-It checks against two references, each with its own reference scoring:
-
-| Source | Totals | Reference scoring |
+| Source | Totals | Compared with |
 |---|---|---|
-| Sleeper `/v1/stats/nfl/regular/{season}/{week}` | `pts_ppr`, `pts_half_ppr`, `pts_std` | `sleeperReferenceScoring`: our defaults plus -1 per missed FG (`fgmiss`) and missed XP (`xpmiss`) |
+| Sleeper `/v1/stats/nfl/regular/{season}/{week}` | `pts_ppr`, `pts_half_ppr`, `pts_std` | `sleeperReferenceScoring`: our `full_ppr`, `yahoo_standard`, and `standard` presets, unchanged. `sleeperDefaultDifference` explains the classes below. |
 | nflverse `stats_player_week` | `fantasy_points`, `fantasy_points_ppr` (half-PPR is their mean) | `nflverseReferenceScoring`: offense only, -2 per interception |
 
-**Results.** The full 2025 nflverse regular season (18,540 player-weeks, 55,620 comparisons) matches except for 36 player-weeks, and all 36 are the return-fumble difference below. The checked-in sample is all 2,180 regular-season player-weeks of 2025 weeks 1-2 (`fixtures/nflverse/scoring_sample_2025.csv`). The Sleeper stats fixtures match with no differences, but they are hand-authored in Sleeper's shape (the sandbox cannot reach `api.sleeper.app`). Replace them with real recordings from the *Record fixtures* workflow (`record-fixtures.mjs --scoring --sleeper`, which writes `fixtures/sleeper/scoring/`), and the test covers them with no code change.
+Sleeper lines go through the same normalization as the live provider first (a shutout gets `pts_allow: 0` back). Sleeper's team-total lines (`TEAM_KC`, a whole team's offense and defense summed) are skipped: no league rosters them.
 
-**Known, intentional differences:**
+**Results.** Sleeper, 2025 weeks 1-3 (`fixtures/sleeper/scoring/`, recorded by the *Record fixtures* workflow): 1,307 player lines and 3,917 comparisons, 0 unexplained. nflverse: the full 2025 regular season (18,540 player-weeks, 55,620 comparisons) matches except for 36 player-weeks, all of them the return-fumble difference below; the checked-in sample is all 2,180 regular-season player-weeks of weeks 1-2 (`fixtures/nflverse/scoring_sample_2025.csv`). The curated `fixtures/sleeper/stats_regular_*.json` are hand-authored, so their totals are not Sleeper's and are not validated.
 
-- **Missed kicks.** Our Yahoo default charges nothing for a missed field goal or extra point. Sleeper's precomputed totals charge -1 each. The engine is validated against Sleeper with the miss penalties added. League scoring keeps the Yahoo default, and a commissioner can add `fgmiss`/`xpmiss` weights.
+**Intended differences from Sleeper's default scoring** (`SLEEPER_DEFAULT_DIFFERENCES`). Each is Sleeper's points minus ours for the line; a mismatch is explained only when it is exactly their sum.
+
+| Class | Sleeper | Ours (Yahoo) | Lines in weeks 1-3 |
+|---|---|---|---|
+| `missed-kicks` | -1 per missed FG (`fgmiss`) and XP (`xpmiss`) | 0. A commissioner can add `fgmiss`/`xpmiss` weights. | 37 |
+| `idp` | Scores every individual defender: `idp_sack` 1, `idp_int` 2, `idp_fum_rec` 2, `idp_ff` 1, `idp_blk_kick` 2, `idp_def_td` 6, `idp_safe` 2 (tackles, QB hits, passes defended 0) | No IDP scoring by default; `withIdpScoring` adds the Yahoo IDP table | 225 |
+| `points-allowed-14-20` | 0 for allowing 14-20 points | 1 | 17 |
+| `def-forced-fumbles` | 1 per team forced fumble (`ff`) | 0 | 0 (see below) |
+| `def-special-teams-fumble-recoveries` | 1 per `def_st_fum_rec` | 2, like any fumble recovery | 3 |
+
+The other points-allowed bands match (0: 10, 1-6: 7, 7-13: 4, 21-27: 0, 28-34: -1, 35+: -4), and Sleeper's default has no yards-allowed tiers.
+
+**Early recordings.** The first scoring sets (2025 weeks 1-3) were recorded with an allow-list of stat keys that dropped `ff`, `st_ff`, and `st_fum_rec`, which Sleeper scores 1 each. In a set with none of those keys (`isEarlySleeperRecording`), a remainder of whole points in Sleeper's favor is explained as `missing-keys`: any number for a team defense, at most 1 for a player. That covers 38 lines: 33 team defenses, whose shortfall equals the team's forced fumbles in nflverse's `def_fumbles_forced` for 32 of them, and 5 special-teams players. The recorder now keeps every key but known noise; re-record weeks 1-3 (Record fixtures, `scoring_weeks: 1,2,3`) to retire this class, and the harness then scores `ff` through `def-forced-fumbles`.
+
+**nflverse differences:**
+
 - **Interceptions.** nflverse charges -2 per interception thrown, and Yahoo and Sleeper charge -1. Only the nflverse reference scoring uses -2.
-- **Fumbles lost on kick and punt returns.** nflverse's `fantasy_points` counts only sack, rushing, and receiving fumbles lost. We charge -2 for every lost fumble in `fum_lost` (nflverse `fumbles_lost_total`), including returns. The real Sleeper recordings will confirm whether Sleeper does the same. The harness explains these (`returnFumbleDifference`) instead of failing on them.
+- **Fumbles lost on kick and punt returns.** nflverse's `fantasy_points` counts only sack, rushing, and receiving fumbles lost. We charge -2 for every lost fumble in `fum_lost` (nflverse `fumbles_lost_total`), including returns, and so does Sleeper (its recorded totals match ours). The harness explains these (`returnFumbleDifference`) instead of failing on them.
 - **Kickers, team defense, and IDP.** nflverse does not score them, so those positions are checked only against Sleeper's totals.
+
 
 ## Roster
 

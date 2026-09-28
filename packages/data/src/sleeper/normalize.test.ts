@@ -3,12 +3,14 @@ import { fixtureJson } from '../../test/helpers.js';
 import { normalizeName, normalizeNameNoSuffix } from '../names.js';
 import {
   compareIds,
+  isTeamDefenseId,
   normalizeInjuryStatus,
   normalizePlayer,
   normalizePlayers,
   normalizeState,
   normalizeTrending,
-  normalizeWeekStats
+  normalizeWeekStats,
+  withShutout
 } from './normalize.js';
 import {
   sleeperPlayersSchema,
@@ -155,6 +157,30 @@ describe('normalizeWeekStats', () => {
     expect(lines.find((l) => l.playerId === 'KC')?.stats.pts_allow).toBe(27);
     const nulls = normalizeWeekStats({ '1': { pass_yd: null, rec: 3 } }, 2025, 2);
     expect(nulls).toEqual([{ playerId: '1', season: 2025, week: 2, stats: { rec: 3 } }]);
+  });
+
+  it("gives a shutout's team defense line its pts_allow back, in final stats only", () => {
+    // Sleeper leaves zero stats out, so a shutout has no pts_allow (2025 week 3, CAR 30-0 ATL).
+    const raw = {
+      CAR: { gp: 1, int: 2, pts_ppr: 23 },
+      ATL: { gp: 1, pts_allow: 30 },
+      TEAM_CAR: { gp: 1, rush_td: 2 },
+      '4046': { gp: 1, pass_td: 1 },
+      NYJ: { pts_allow: 17 }
+    };
+    const stats = normalizeWeekStats(raw, 2025, 3);
+    const byId = Object.fromEntries(stats.map((l) => [l.playerId, l.stats]));
+    expect(byId.CAR).toEqual({ gp: 1, int: 2, pts_ppr: 23, pts_allow: 0 });
+    expect(byId.ATL?.pts_allow).toBe(30);
+    expect(byId.TEAM_CAR).not.toHaveProperty('pts_allow');
+    expect(byId['4046']).not.toHaveProperty('pts_allow');
+    expect(normalizeWeekStats({ BUF: {} }, 2025, 3)).toEqual([]);
+    const projected = normalizeWeekStats({ CAR: { gp: 1, int: 1 } }, 2025, 3, 'projections');
+    expect(projected[0]?.stats).toEqual({ gp: 1, int: 1 });
+    expect(withShutout('KC', { gp: 0, sack: 1 })).toEqual({ gp: 0, sack: 1 });
+    expect(isTeamDefenseId('KC')).toBe(true);
+    expect(isTeamDefenseId('TEAM_KC')).toBe(false);
+    expect(isTeamDefenseId('4046')).toBe(false);
   });
 
   it('keeps precomputed totals consistent across formats', () => {
