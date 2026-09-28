@@ -737,10 +737,18 @@ Resources:
           NODE_OPTIONS: --enable-source-maps
       Policies:
         - AWSLambdaBasicExecutionRole
-        - DynamoDBCrudPolicy:
-            TableName: !Ref FantasyTable
         - Version: '2012-10-17'
           Statement:
+            # Reads agent seats, teams, and in-season leagues (GSI2), and reads and
+            # writes trigger state (cooldowns, once-per-week keys). Nothing else.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt FantasyTable.Arn
+                - !Sub ${FantasyTable.Arn}/index/*
             - Effect: Allow
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default

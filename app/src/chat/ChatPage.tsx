@@ -91,17 +91,7 @@ export function highlightMentions(text: string, teams: readonly ChatTeam[]): Rea
 }
 
 function MessageItem({ message, teams }: { message: ChatMessage; teams: readonly ChatTeam[] }) {
-  if (message.kind === 'system') {
-    return (
-      <li
-        data-kind="system"
-        className="self-center rounded-md bg-muted px-3 py-1 text-center text-sm italic text-muted-foreground"
-      >
-        <span className="sr-only">League: </span>
-        {message.text}
-      </li>
-    );
-  }
+  if (message.kind === 'system') return <SystemCard message={message} />;
   return (
     <li data-kind={message.kind} className="flex flex-col">
       <div className="flex items-baseline gap-2 text-sm">
@@ -117,6 +107,43 @@ function MessageItem({ message, teams }: { message: ChatMessage; teams: readonly
         </time>
       </div>
       <p className="whitespace-pre-wrap break-words">{highlightMentions(message.text, teams)}</p>
+    </li>
+  );
+}
+
+/** A league announcement as a card: what happened, the line, and the players it names. */
+function SystemCard({ message }: { message: ChatMessage }) {
+  const label = message.event?.detailType ?? 'League';
+  const players = message.players ?? [];
+  return (
+    <li
+      data-kind="system"
+      className="self-center w-full max-w-md rounded-md border border-border bg-muted px-3 py-2 text-sm"
+    >
+      <article aria-label={`League announcement: ${label}`}>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span className="sr-only">League: </span>
+          {label}
+        </p>
+        <p>{message.text}</p>
+        {players.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1" aria-label="Players">
+            {players.map((p) => (
+              <span
+                key={p.id}
+                data-testid="player-card"
+                className="inline-flex items-baseline gap-1 rounded border border-border bg-background px-2 py-0.5"
+              >
+                <span className="font-medium">{p.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {p.position}
+                  {p.team === null ? '' : ` · ${p.team}`}
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </article>
     </li>
   );
 }

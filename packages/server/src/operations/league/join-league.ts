@@ -101,7 +101,8 @@ export const joinLeague = defineOperation({
       leagueId: league.id,
       userId: principal.sub,
       teamId: team.id,
-      inviteId: invite.id
+      inviteId: invite.id,
+      name: principal.name
     });
     return { league: leagueSummary(league, principal.sub, team.id), team: teamDetail(team) };
   }

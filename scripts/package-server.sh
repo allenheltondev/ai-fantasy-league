@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 #
-# Bundles the server's Lambda entrypoints into one content-hashed zip for
-# `make deploy-backend`:
+# Bundles every Lambda entrypoint into one content-hashed zip for
+# `make deploy-backend`. All functions deploy the same zip, each with its own
+# handler:
 #
-#   index.mjs  the API (packages/server/src/lambda.ts), Handler: index.handler
-#   jobs.mjs   the data jobs (packages/server/src/jobs/lambda.ts), Handler: jobs.handler
-#   chat-events.mjs  system chat messages (packages/server/src/chat/lambda.ts)
-#   realtime.mjs     the Momento realtime publisher (packages/server/src/realtime/lambda.ts)
+#   index.mjs         the API (packages/server/src/lambda.ts), Handler: index.handler
+#   jobs.mjs          the data jobs (packages/server/src/jobs/lambda.ts), Handler: jobs.handler
+#   chat-events.mjs   system chat messages (packages/server/src/chat/lambda.ts)
+#   realtime.mjs      the Momento realtime publisher (packages/server/src/realtime/lambda.ts)
+#   agent-router.mjs  the agent trigger router (packages/agents/src/lambda/router.ts)
+#   agent-task.mjs    the agent task runner (packages/agents/src/lambda/task.ts)
 #
 # esbuild produces ESM for Node 22 on arm64 (the template's `Runtime:
-# nodejs22.x`). Both functions deploy the same zip. Everything is
-# bundled, the AWS SDK included, so the deployed code runs exactly the
-# dependency versions the lockfile pins rather than whatever SDK the runtime
-# happens to ship.
+# nodejs22.x`). Everything is bundled, the AWS SDK included, so the deployed
+# code runs exactly the dependency versions the lockfile pins rather than
+# whatever SDK the runtime happens to ship (the agent bundles leave out only
+# @aws-sdk/client-s3, an optional Strands import the runtime provides).
 #
 # The S3 key is content-hashed (server/<sha>.zip): CloudFormation only rolls a
 # Lambda when a property it can see changes, and for an S3-sourced function

@@ -14,7 +14,7 @@ import {
 import { createRelayDeps, handler } from './lambda.js';
 import { MomentoRealtime, createMomentoClients, type MomentoClients } from './momento.js';
 import { GLOBAL_TOPIC, InMemoryRealtime, leagueTopic } from './realtime.js';
-import { RELAYED_EVENTS, relayEvent } from './relay.js';
+import { RELAYED_EVENTS, TEAM_ONLY_EVENTS, relayEvent } from './relay.js';
 
 vi.mock('@gomomento/sdk', () => {
   class PublishError {
@@ -102,18 +102,19 @@ describe('InMemoryRealtime', () => {
 });
 
 describe('MomentoRealtime', () => {
-  it('issues subscribe-only tokens for the league and global topics, with a bounded ttl', async () => {
+  it('issues subscribe-only tokens for the league, team, and global topics, with a bounded ttl', async () => {
     const clients = fakeClients();
     const realtime = new MomentoRealtime({ clients, cacheName: 'cache', clock });
     const token = await realtime.issueSubscribeToken({
       leagueId: 'lg-1',
+      teamId: 'team-2',
       subscriber: 'user#a',
       ttlSeconds: 99_999
     });
     expect(clients.tokenRequests).toEqual([
       {
         cacheName: 'cache',
-        topics: ['fantasy.league.lg-1', 'fantasy.global'],
+        topics: ['fantasy.league.lg-1', 'fantasy.global', 'fantasy.team.lg-1.team-2'],
         ttlSeconds: 3600,
         tokenId: 'user#a'
       }
@@ -122,11 +123,21 @@ describe('MomentoRealtime', () => {
       token: 'tok',
       endpoint: null,
       cacheName: 'cache',
-      topics: { league: 'fantasy.league.lg-1', global: 'fantasy.global' },
+      topics: { league: 'fantasy.league.lg-1', global: 'fantasy.global', team: 'fantasy.team.lg-1.team-2' },
       expiresAt: '2026-09-10T13:00:00.000Z'
     });
-    await realtime.issueSubscribeToken({ leagueId: 'lg-1', subscriber: 'user#a', ttlSeconds: 1 });
+    const seatless = await realtime.issueSubscribeToken({
+      leagueId: 'lg-1',
+      teamId: null,
+      subscriber: 'user#a',
+      ttlSeconds: 1
+    });
     expect((clients.tokenRequests[1] as { ttlSeconds: number }).ttlSeconds).toBe(60);
+    expect((clients.tokenRequests[1] as { topics: string[] }).topics).toEqual([
+      'fantasy.league.lg-1',
+      'fantasy.global'
+    ]);
+    expect(seatless.topics.team).toBeNull();
   });
 
   it('uses the expiry Momento reports', async () => {
@@ -138,6 +149,7 @@ describe('MomentoRealtime', () => {
     });
     const token = await new MomentoRealtime({ clients, cacheName: 'c', clock }).issueSubscribeToken({
       leagueId: 'lg-1',
+      teamId: null,
       subscriber: 's',
       ttlSeconds: 600
     });
@@ -317,7 +329,7 @@ describe('LazyMomentoRealtime', () => {
       }
     });
     expect(
-      await realtime.issueSubscribeToken({ leagueId: 'lg-1', subscriber: 's', ttlSeconds: 600 })
+      await realtime.issueSubscribeToken({ leagueId: 'lg-1', teamId: null, subscriber: 's', ttlSeconds: 600 })
     ).toMatchObject({
       token: 'tok',
       cacheName: 'c'
@@ -344,7 +356,7 @@ describe('LazyMomentoRealtime', () => {
       clients: async () => fakeClients()
     });
     expect(
-      await realtime.issueSubscribeToken({ leagueId: 'lg-1', subscriber: 's', ttlSeconds: 600 })
+      await realtime.issueSubscribeToken({ leagueId: 'lg-1', teamId: null, subscriber: 's', ttlSeconds: 600 })
     ).toBeNull();
     expect(lines.join('\n')).toMatch(/realtime token unavailable/);
     await realtime.publish('t', { type: 'chat', leagueId: 'lg-1', message: {} });
@@ -417,6 +429,40 @@ describe('relayEvent', () => {
     expect(realtime.published[4]?.message).toMatchObject({ time: null, detail: {}, leagueId: null });
   });
 
+  it('sends each team its own waiver awards on its private topic', async () => {
+    const realtime = new InMemoryRealtime();
+    const awarded = [
+      { teamId: 'team-1', playerId: 'p1' },
+      { teamId: 'team-2', playerId: 'p2' },
+      { teamId: 'team-1', playerId: 'p3' },
+      null,
+      { playerId: 'p4' }
+    ];
+    const result = await relayEvent(
+      realtime,
+      silentLogger,
+      event('Waivers Processed', { leagueId: 'lg-1', week: 5, awarded })
+    );
+    expect(result.topics).toEqual([
+      'fantasy.league.lg-1',
+      'fantasy.team.lg-1.team-1',
+      'fantasy.team.lg-1.team-2'
+    ]);
+    expect(realtime.published[1]?.message).toMatchObject({
+      leagueId: 'lg-1',
+      detail: { teamId: 'team-1', week: 5, awarded: [awarded[0], awarded[2]] }
+    });
+    expect(
+      (
+        await relayEvent(
+          realtime,
+          silentLogger,
+          event('Waivers Processed', { leagueId: 'lg-1', awarded: 'x' })
+        )
+      ).topics
+    ).toEqual(['fantasy.league.lg-1']);
+  });
+
   it('ignores other events and other sources', async () => {
     const realtime = new InMemoryRealtime();
     expect(await relayEvent(realtime, silentLogger, event('League Created', { leagueId: 'x' }))).toEqual({
@@ -429,13 +475,23 @@ describe('relayEvent', () => {
     expect(RELAYED_EVENTS).toContain('Chat Message Posted');
   });
 
-  it('keeps pending trade offers off the league topic', async () => {
+  it('keeps pending trade offers off the league topic: only the two teams see them', async () => {
     const realtime = new InMemoryRealtime();
-    for (const detailType of ['Trade Proposed', 'Trade Countered', 'Trade Rejected', 'Trade Expired']) {
+    for (const detailType of TEAM_ONLY_EVENTS) {
       const detail = { leagueId: 'lg-1', tradeId: 't1', fromTeamId: 'team-1', toTeamId: 'team-2' };
-      expect(await relayEvent(realtime, silentLogger, event(detailType, detail))).toEqual({ topics: [] });
+      expect(await relayEvent(realtime, silentLogger, event(detailType, detail))).toEqual({
+        topics: ['fantasy.team.lg-1.team-1', 'fantasy.team.lg-1.team-2']
+      });
     }
-    expect(realtime.published).toEqual([]);
+    expect(realtime.published.some((p) => p.topic.startsWith('fantasy.league.'))).toBe(false);
+    expect(realtime.published[0]?.message).toMatchObject({ detailType: 'Trade Proposed', leagueId: 'lg-1' });
+    // Without a single league, or without team ids, an offer goes nowhere.
+    expect(
+      await relayEvent(realtime, silentLogger, event('Trade Proposed', { fromTeamId: 'team-1' }))
+    ).toEqual({ topics: [] });
+    expect(
+      await relayEvent(realtime, silentLogger, event('Trade Proposed', { leagueId: 'lg-1', toTeamId: '' }))
+    ).toEqual({ topics: [] });
     expect(await relayEvent(realtime, silentLogger, event('Trade Accepted', { leagueId: 'lg-1' }))).toEqual({
       topics: ['fantasy.league.lg-1']
     });

@@ -4,6 +4,8 @@
  * whose detail carries the event to publish later (rsc-core README, "Deferred events").
  */
 
+import type { EventDetailOf } from './details.js';
+
 export const EVENT_SOURCE = 'fantasy';
 export const SCHEDULE_EVENT = 'Schedule Event';
 export const CANCEL_SCHEDULED_EVENT = 'Cancel Scheduled Event';
@@ -43,10 +45,15 @@ export type FantasyEventType =
 
 export type EventDetail = Record<string, unknown>;
 
+/** An event to publish: its detail type and the detail the contract (`details.ts`) requires. */
+export type TypedEvent = {
+  [T in FantasyEventType]: { detailType: T; detail: EventDetailOf<T> };
+}[FantasyEventType];
+
 export interface ScheduleRequest {
   /** When to publish. A Date is sent as an ISO instant. */
   at: Date;
-  event: { detailType: FantasyEventType; detail: EventDetail };
+  event: TypedEvent;
   /** Idempotency key: re-scheduling with the same name moves the pending schedule. */
   name?: string;
   /** What to do when `at` has already passed. rsc-core defaults to `send`. */
@@ -62,7 +69,8 @@ export interface ScheduleEventDetail {
 }
 
 export interface EventPublisher {
-  publish(detailType: FantasyEventType, detail: EventDetail): Promise<void>;
+  /** The detail is typed per event type (`EVENT_DETAIL_SCHEMAS`), so emitters cannot drift. */
+  publish<T extends FantasyEventType>(detailType: T, detail: EventDetailOf<T>): Promise<void>;
   scheduleAt(request: ScheduleRequest): Promise<void>;
   cancelScheduled(name: string): Promise<void>;
 }
@@ -70,7 +78,11 @@ export interface EventPublisher {
 export function scheduleEventDetail(request: ScheduleRequest): ScheduleEventDetail {
   const detail: ScheduleEventDetail = {
     at: request.at.toISOString(),
-    event: { source: EVENT_SOURCE, detailType: request.event.detailType, detail: request.event.detail }
+    event: {
+      source: EVENT_SOURCE,
+      detailType: request.event.detailType,
+      detail: request.event.detail as EventDetail
+    }
   };
   if (request.name !== undefined) detail.name = request.name;
   if (request.whenPast !== undefined) detail.whenPast = request.whenPast;
@@ -87,8 +99,8 @@ export interface RecordedEvent {
 export class InMemoryEventPublisher implements EventPublisher {
   readonly events: RecordedEvent[] = [];
 
-  async publish(detailType: FantasyEventType, detail: EventDetail): Promise<void> {
-    this.events.push({ source: EVENT_SOURCE, detailType, detail });
+  async publish<T extends FantasyEventType>(detailType: T, detail: EventDetailOf<T>): Promise<void> {
+    this.events.push({ source: EVENT_SOURCE, detailType, detail: detail as EventDetail });
   }
 
   async scheduleAt(request: ScheduleRequest): Promise<void> {

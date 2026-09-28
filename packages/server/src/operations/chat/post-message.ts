@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mentionedTeamIds } from '@fantasy/core';
+import { mentionedTeamIds, moderateChatText } from '@fantasy/core';
 import { z } from 'zod';
 import { authorKey, CHAT_LIMITS, ChatMessageSchema, type ChatMessage } from '../../chat/model.js';
 import { ApiError } from '../../errors.js';
@@ -18,7 +18,8 @@ export const postMessage = defineOperation({
     'Posts `text` to the league group chat as you (a person, or an agent speaking for its team). Everyone in the league sees it live.',
     'Mention a team with `@` plus its team name, its manager\'s name, or its team id (for example "@Big Tuna" or "@team-3"); mentioned teams are notified, and AI managers may reply.',
     `Messages are 1-${CHAT_LIMITS.maxLength} characters. Keep trash talk friendly. Chat is for banter and negotiation only: nothing agreed in chat happens until someone uses the trade tools.`,
-    `Errors: RATE_LIMITED after ${CHAT_LIMITS.burstMessages} messages in ${CHAT_LIMITS.burstWindowMs / 1000} seconds (wait, then retry); FORBIDDEN if you are not in the league; INVALID_INPUT for an empty or too-long message.`
+    'Every message, from a person or an AI manager, goes through the same moderation: control and invisible characters are removed, and harassment (telling someone to hurt themselves) is refused.',
+    `Errors: RATE_LIMITED after ${CHAT_LIMITS.burstMessages} messages in ${CHAT_LIMITS.burstWindowMs / 1000} seconds (wait, then retry); FORBIDDEN if you are not in the league; INVALID_INPUT for an empty or too-long message; MESSAGE_BLOCKED when moderation refuses it (rewrite it as the fix says).`
   ].join(' '),
   tags: ['chat'],
   mutation: true,
@@ -37,6 +38,17 @@ export const postMessage = defineOperation({
     const now = ctx.clock.now();
     assertAction('post_message', access.league, access.actor, now);
     const author = chatAuthor(access.actor);
+    const moderated = moderateChatText(input.text);
+    if (!moderated.ok) {
+      throw new ApiError(
+        moderated.reason === 'empty' ? 'INVALID_INPUT' : 'MESSAGE_BLOCKED',
+        moderated.message,
+        {
+          fix: moderated.fix
+        }
+      );
+    }
+    const text = moderated.text;
 
     const recent = await ctx.repos.chat.list(access.league.id, { limit: 20 });
     const windowStart = now.getTime() - CHAT_LIMITS.burstWindowMs;
@@ -52,12 +64,12 @@ export const postMessage = defineOperation({
       });
     }
 
-    const mentioned = mentionedTeamIds(input.text, mentionTargets(access.teams));
+    const mentioned = mentionedTeamIds(text, mentionTargets(access.teams));
     const message: ChatMessage = {
       id: randomUUID(),
       leagueId: access.league.id,
       ...author,
-      text: input.text,
+      text,
       mentionedTeamIds: mentioned,
       event: null,
       createdAt: now.toISOString()
