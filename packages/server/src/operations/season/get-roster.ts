@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireMember, requireTeam } from '../../league/access.js';
 import { LeagueIdSchema, TeamIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
+import { detailFlag } from '../players.js';
 import { resolveLineup, rosterPlayers, toRosterPlayer } from '../../season/lineups.js';
 import {
   issueWarnings,
@@ -25,11 +26,17 @@ export const getRoster = defineOperation({
     "A player locks at his own game's kickoff: after that he cannot change slots until next week (set_lineup returns PLAYER_LOCKED).",
     'The week defaults to the current one. A week with no saved lineup shows the latest earlier lineup carried forward (`carriedFromWeek`); new players sit on the bench.',
     'Warnings flag starters on bye or ruled out and empty starting slots, so you can fix them with set_lineup before lock. `slots` lists how many of each slot the league uses.',
-    'Any member can read any team. Use get_league_state for your own teamId.'
+    'Any member can read any team. Use get_league_state for your own teamId.',
+    '`detail: true` adds each player’s full record (status, injury designation, rank) and the starting slots he can fill.'
   ].join(' '),
   tags: ['season'],
   mutation: false,
-  input: z.object({ leagueId: LeagueIdSchema, teamId: TeamIdSchema, week: LineupWeekSchema }),
+  input: z.object({
+    leagueId: LeagueIdSchema,
+    teamId: TeamIdSchema,
+    week: LineupWeekSchema,
+    detail: detailFlag
+  }),
   output: z.object({
     teamId: z.string(),
     teamName: z.string(),
@@ -69,7 +76,7 @@ export const getRoster = defineOperation({
       lineupSaved: lineup.saved,
       carriedFromWeek: lineup.carriedFromWeek,
       slots: slotCounts(league),
-      players: rosterEntries(lineup.entries, players, data, now)
+      players: rosterEntries(lineup.entries, players, data, now, input.detail ? league.settings : null)
     };
     return team.roster.length === 0 ? result : withWarnings(result, issueWarnings(check.warnings));
   }

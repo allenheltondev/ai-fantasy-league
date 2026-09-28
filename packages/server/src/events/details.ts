@@ -1,3 +1,4 @@
+import { ACHIEVEMENT_IDS } from '@fantasy/core';
 import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
 import { PlayerRefSchema } from '../players/model.js';
@@ -10,8 +11,8 @@ import type { EventDetail, FantasyEventType } from './publisher.js';
  * router) read the same types. The cross-stream contract suite (`packages/agents/test/contract`)
  * runs the real emitters and checks their details parse here and render in every consumer.
  *
- * Event types without a schema yet (the trade events, `Week Official Final`, `Stat Correction
- * Applied`, `Agent Action Requested`) take any object; add a schema when the emitter lands.
+ * Event types without a schema yet (the trade events, `Agent Action Requested`) take any object;
+ * add a schema when the emitter lands.
  */
 
 const id = z.string().min(1);
@@ -172,6 +173,57 @@ export const EVENT_DETAIL_SCHEMAS = {
     topScore: z.number().nullable(),
     blowout: BlowoutSchema.nullable(),
     finalizedAt: iso
+  }),
+  'Week Official Final': z.object({
+    leagueId: id,
+    season: z.number().int(),
+    week,
+    corrections: z.number().int().min(0).describe('Matchups whose score a stat correction changed.'),
+    flipped: z.number().int().min(0).describe('Matchups whose winner changed.'),
+    recap: z.string(),
+    matchups: z.array(ScoreLineSchema),
+    officialAt: iso
+  }),
+  'Stat Correction Applied': z.object({
+    leagueId: id,
+    season: z.number().int(),
+    week,
+    matchupId: id,
+    teamId: id.describe('The side whose score moved the most.'),
+    oldScore: z.number().nullable(),
+    newScore: z.number(),
+    before: z.object({ homeScore: z.number().nullable(), awayScore: z.number().nullable() }),
+    after: ScoreLineSchema,
+    resultFlipped: z.boolean(),
+    winnerTeamId: id.describe('After the correction (home on a tie).'),
+    loserTeamId: id,
+    winnerScore: z.number(),
+    loserScore: z.number()
+  }),
+  'Season Completed': z.object({
+    leagueId: id,
+    season: z.number().int(),
+    championTeamId: z.string().nullable(),
+    runnerUpTeamId: z.string().nullable(),
+    consolationChampionTeamId: z.string().nullable(),
+    completedAt: iso
+  }),
+  'Achievement Earned': z.object({
+    leagueId: id,
+    season: z.number().int(),
+    teamId: id,
+    achievementId: z.enum(ACHIEVEMENT_IDS),
+    name: z.string(),
+    reason: z.string(),
+    week: week.nullable().describe('Null for a season award.'),
+    awardedAt: iso
+  }),
+  'Track Activity': z.object({
+    id: id.describe('Idempotency key for the rsc-core badge engine.'),
+    userId: id.describe('The Cognito sub of the team owner.'),
+    action: z.string(),
+    service: z.literal('fantasy'),
+    value: id
   }),
   'Member Joined': z.object({
     leagueId: id,

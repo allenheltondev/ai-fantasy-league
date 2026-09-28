@@ -1,6 +1,7 @@
 import { InMemoryAgentRepository } from './memory-agents.js';
 import { InMemoryWaiverRepository } from './memory-waivers.js';
 import { InMemoryChatRepository } from './memory-chat.js';
+import { InMemoryHistoryRepository } from './memory-history.js';
 import { createInMemoryLeagueRepos } from './memory-league.js';
 import type { Player, Position } from '../players/model.js';
 import type {
@@ -125,9 +126,15 @@ export class InMemoryPlayerRepository implements PlayerRepository {
 
 export function createInMemoryRepos(options: { players?: readonly Player[] } = {}): Repos {
   const waivers = new InMemoryWaiverRepository();
-  // Waiver claims, the wire, and transactions share the league partition in DynamoDB, so deleting
-  // a league deletes them too.
-  const leagueRepos = createInMemoryLeagueRepos({ onDelete: (leagueId) => waivers.dropLeague(leagueId) });
+  const history = new InMemoryHistoryRepository();
+  // Waiver claims, the wire, transactions, and league history share the league partition in
+  // DynamoDB, so deleting a league deletes them too.
+  const leagueRepos = createInMemoryLeagueRepos({
+    onDelete: (leagueId) => {
+      waivers.dropLeague(leagueId);
+      history.dropLeague(leagueId);
+    }
+  });
   return {
     idempotency: new InMemoryIdempotencyRepository(),
     audit: new InMemoryAuditRepository(),
@@ -135,6 +142,7 @@ export function createInMemoryRepos(options: { players?: readonly Player[] } = {
     ...leagueRepos,
     agents: new InMemoryAgentRepository(),
     waivers,
-    chat: new InMemoryChatRepository()
+    chat: new InMemoryChatRepository(),
+    history
   };
 }

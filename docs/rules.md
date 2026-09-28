@@ -99,6 +99,26 @@ These values are our best understanding of Yahoo's defaults. Check them against 
 - Return touchdowns are scored from `st_td` only. If Sleeper's individual stat lines also carry `kr_td`/`pr_td` for the same play, do not weight those as well, or the play counts twice.
 - Kicks of 50+ yards score from `fgm_50p` only. Do not also weight `fgm_50_59`/`fgm_60p`.
 
+### Scoring validation (`validateScoring`, the Phase 1 milestone)
+
+The harness (`packages/core/src/scoring/validate.ts`, fed by `packages/data/src/validation/scoring-harness.ts`) scores recorded stat lines with the engine and requires every player's PPR, half-PPR, and standard total to match the source's own precomputed total within 0.01. It runs in CI over every set in `packages/data/fixtures/` (`scoring-harness.test.ts`), and `npm run validate-scoring -w @fantasy/data -- <files>` runs it on any Sleeper weekly stats JSON or nflverse `stats_player_week` CSV, such as a whole season.
+
+It checks against two references, each with its own reference scoring:
+
+| Source | Totals | Reference scoring |
+|---|---|---|
+| Sleeper `/v1/stats/nfl/regular/{season}/{week}` | `pts_ppr`, `pts_half_ppr`, `pts_std` | `sleeperReferenceScoring`: our defaults plus -1 per missed FG (`fgmiss`) and missed XP (`xpmiss`) |
+| nflverse `stats_player_week` | `fantasy_points`, `fantasy_points_ppr` (half-PPR is their mean) | `nflverseReferenceScoring`: offense only, -2 per interception |
+
+**Results.** The full 2025 nflverse regular season (18,540 player-weeks, 55,620 comparisons) matches except for 36 player-weeks, and all 36 are the return-fumble difference below. The checked-in sample is all 2,180 regular-season player-weeks of 2025 weeks 1-2 (`fixtures/nflverse/scoring_sample_2025.csv`). The Sleeper stats fixtures match with no differences, but they are hand-authored in Sleeper's shape (the sandbox cannot reach `api.sleeper.app`). Replace them with real recordings from the *Record fixtures* workflow (`record-fixtures.mjs --scoring --sleeper`, which writes `fixtures/sleeper/scoring/`), and the test covers them with no code change.
+
+**Known, intentional differences:**
+
+- **Missed kicks.** Our Yahoo default charges nothing for a missed field goal or extra point. Sleeper's precomputed totals charge -1 each. The engine is validated against Sleeper with the miss penalties added. League scoring keeps the Yahoo default, and a commissioner can add `fgmiss`/`xpmiss` weights.
+- **Interceptions.** nflverse charges -2 per interception thrown, and Yahoo and Sleeper charge -1. Only the nflverse reference scoring uses -2.
+- **Fumbles lost on kick and punt returns.** nflverse's `fantasy_points` counts only sack, rushing, and receiving fumbles lost. We charge -2 for every lost fumble in `fum_lost` (nflverse `fumbles_lost_total`), including returns. The real Sleeper recordings will confirm whether Sleeper does the same. The harness explains these (`returnFumbleDifference`) instead of failing on them.
+- **Kickers, team defense, and IDP.** nflverse does not score them, so those positions are checked only against Sleeper's totals.
+
 ## Roster
 
 | Setting | Default |
@@ -220,10 +240,10 @@ A league plays from `schedule.startWeek` through `schedule.regularSeasonEndWeek`
 
 - Seeds are the top `playoffs.teams` teams in the final standings, so the standings tiebreakers also decide seeding.
 - The bracket is single elimination with one round per week, from `playoffs.startWeek` to `playoffs.endWeek`. It uses the standard order (1 v 8, 4 v 5, 2 v 7, 3 v 6), and the top seeds get the byes. For example, in the default 6-team bracket, 4 v 5 and 3 v 6 play in week 15, and seeds 1 and 2 enter in week 16.
-- **There is no reseeding.** The bracket is fixed when it's built, as on Yahoo.
+- **By default there is no reseeding.** The bracket is fixed when it's built, as on Yahoo. With `playoffs.reseed: true`, once a round ends the teams left (winners plus first-round byes) are re-paired, the best seed against the worst.
 - The better seed is listed as home.
 - **A tie in a playoff game advances the better (lower-numbered) seed**, as on Yahoo. The game is marked `decidedBySeed`.
-- An **optional consolation bracket** (`{ consolation: true }`) is a single-elimination bracket for the teams that missed the playoffs. It ends in the same final week, and its top seeds get byes when the field isn't a power of two. If there are more teams than the playoff weeks can fit, the lowest seeds sit out.
+- An **optional consolation bracket** (`playoffs.consolation: true`, off by default; it needs at least 2 teams outside the playoffs, `CONSOLATION_TOO_FEW_TEAMS` otherwise) is a single-elimination bracket for the teams that missed the playoffs. It ends in the same final week, and its top seeds get byes when the field isn't a power of two. If there are more teams than the playoff weeks can fit, the lowest seeds sit out.
 - `buildBracket` rejects a seed count that doesn't match `playoffs.teams`, a bye count other than the bracket needs, a number of weeks that doesn't match the number of rounds, duplicate teams or seeds, and a consolation bracket with fewer than 2 teams.
 
 ## Draft

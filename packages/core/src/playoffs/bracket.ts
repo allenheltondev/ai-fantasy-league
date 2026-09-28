@@ -45,8 +45,12 @@ export function seedPlayoffs(
 
 export type BracketKind = 'championship' | 'consolation';
 
-/** Where a bracket side comes from: a seed placed directly, or the winner of an earlier game. */
-export type BracketSource = { type: 'seed'; seed: number } | { type: 'winner'; gameId: string };
+/**
+ * Where a bracket side comes from: a seed placed directly, the winner of an earlier game (a fixed
+ * bracket), or the teams left after the previous round, re-paired best against worst (reseeding).
+ */
+export type BracketSource =
+  { type: 'seed'; seed: number } | { type: 'winner'; gameId: string } | { type: 'reseed'; round: number };
 
 export interface BracketSide {
   source: BracketSource;
@@ -73,6 +77,10 @@ export interface BracketGame {
 
 export interface Bracket {
   seeds: PlayoffSeed[];
+  /** The consolation bracket's field (empty without one). Teams that did not fit sit out. */
+  consolationSeeds: PlayoffSeed[];
+  /** True when each round after the first re-pairs the teams left, best seed against worst. */
+  reseed: boolean;
   /** Weeks of the championship bracket, one per round. */
   weeks: number[];
   games: BracketGame[];
@@ -87,6 +95,11 @@ export interface BracketOptions {
   consolation?: boolean;
   /** Required with `consolation`: the non-playoff teams from `seedPlayoffs`. */
   nonPlayoff?: readonly PlayoffSeed[];
+  /**
+   * Re-pair the teams left after each round, best remaining seed against worst (defaults to
+   * `playoffs.reseed`). Otherwise the bracket is fixed when it is built, as on Yahoo.
+   */
+  reseed?: boolean;
 }
 
 /** Standard bracket order for `size` (a power of two): 1 v size, and the top two seeds meet last. */
@@ -105,9 +118,15 @@ function side(source: BracketSource, teamId: string | null, seed: number | null)
 
 /**
  * Single-elimination games for `seeds` (best first) finishing in the last of `weeks`. Seeds without
- * a first-round opponent (byes) start in round 2. No reseeding: the bracket is fixed at the start.
+ * a first-round opponent (byes) start in round 2. A fixed bracket names each later side as the
+ * winner of an earlier game; with `reseed` the later rounds are paired once the round before ends.
  */
-function eliminationGames(kind: BracketKind, seeds: readonly PlayoffSeed[], weeks: readonly number[]) {
+function eliminationGames(
+  kind: BracketKind,
+  seeds: readonly PlayoffSeed[],
+  weeks: readonly number[],
+  reseed: boolean
+) {
   const rounds = weeks.length;
   const size = 2 ** rounds;
   // Each entry is either a seed index into `seeds` or a game id whose winner fills this spot.
@@ -128,6 +147,8 @@ function eliminationGames(kind: BracketKind, seeds: readonly PlayoffSeed[], week
       }
       const id = `${kind}-r${round}-g${games.filter((g) => g.round === round).length + 1}`;
       const make = (src: BracketSource): BracketSide => {
+        // Reseeded rounds are paired only once the round before them ends (byes included).
+        if (reseed && round > 1) return side({ type: 'reseed', round }, null, null);
         if (src.type === 'seed') return side(src, byNumber.get(src.seed)?.teamId ?? null, src.seed);
         return side(src, null, null);
       };
@@ -240,19 +261,28 @@ export function buildBracket(
   if (issues.length > 0) return ruleFail(issues);
 
   const ordered = [...seeds].sort((a, b) => a.seed - b.seed);
-  const games = eliminationGames('championship', ordered, weeks);
+  const reseed = options.reseed ?? p.reseed;
+  const games = eliminationGames('championship', ordered, weeks, reseed);
   let consolationFinalGameId: string | null = null;
+  let consolationSeeds: PlayoffSeed[] = [];
   if (options.consolation) {
     const field = [...consolationField].sort((a, b) => a.seed - b.seed);
     const cRounds = Math.min(Math.ceil(Math.log2(field.length)), weeks.length);
     // Keep only as many teams as fit in the available weeks; the rest sit out.
-    const fitted = field.slice(0, 2 ** cRounds);
-    const cGames = eliminationGames('consolation', fitted, weeks.slice(weeks.length - cRounds));
+    consolationSeeds = field.slice(0, 2 ** cRounds);
+    const cGames = eliminationGames(
+      'consolation',
+      consolationSeeds,
+      weeks.slice(weeks.length - cRounds),
+      reseed
+    );
     games.push(...cGames);
     consolationFinalGameId = (cGames[cGames.length - 1] as BracketGame).id;
   }
   return ruleOk({
     seeds: ordered,
+    consolationSeeds,
+    reseed,
     weeks,
     games,
     finalGameId: (games.filter((g) => g.bracket === 'championship').pop() as BracketGame).id,
@@ -363,7 +393,59 @@ export function advanceBracket(bracket: Bracket, weekResults: BracketWeekResults
     );
   }
   if (issues.length > 0) return ruleFail(issues);
+  if (bracket.reseed) games = reseedNextRounds({ ...bracket, games }, thisWeek);
   return ruleOk({ ...bracket, games });
+}
+
+/** Seeds that skip the first round of a bracket: in no round-1 game. */
+function byeSeeds(bracket: Bracket, kind: BracketKind): PlayoffSeed[] {
+  const field = kind === 'championship' ? bracket.seeds : bracket.consolationSeeds;
+  const playing = new Set(
+    bracket.games
+      .filter((g) => g.bracket === kind && g.round === 1)
+      .flatMap((g) => [g.home.source, g.away.source])
+      .flatMap((src) => (src.type === 'seed' ? [src.seed] : []))
+  );
+  return field.filter((s) => !playing.has(s.seed));
+}
+
+/**
+ * Reseeding: once every game of a round is decided, the teams left (winners plus first-round
+ * byes) are paired for the next round, the best remaining seed against the worst.
+ */
+function reseedNextRounds(bracket: Bracket, decidedNow: readonly BracketGame[]): BracketGame[] {
+  let games = bracket.games;
+  const rounds = new Set(decidedNow.map((g) => `${g.bracket}:${g.round}`));
+  for (const key of rounds) {
+    const [kind, roundText] = key.split(':') as [BracketKind, string];
+    const round = Number(roundText);
+    const current = games.filter((g) => g.bracket === kind && g.round === round);
+    const next = games
+      .filter((g) => g.bracket === kind && g.round === round + 1)
+      .sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
+    if (next.length === 0 || current.some((g) => g.winnerTeamId === null)) continue;
+    const winners = current.map((g) => (g.home.teamId === g.winnerTeamId ? g.home : g.away));
+    const alive = [
+      ...(round === 1 ? byeSeeds(bracket, kind).map((s) => ({ teamId: s.teamId, seed: s.seed })) : []),
+      ...winners.map((w) => ({ teamId: w.teamId as string, seed: w.seed as number }))
+    ].sort((a, b) => a.seed - b.seed);
+    const paired = new Map(
+      next.map((g, i) => {
+        const best = alive[i] as { teamId: string; seed: number };
+        const worst = alive[alive.length - 1 - i] as { teamId: string; seed: number };
+        return [
+          g.id,
+          {
+            ...g,
+            home: { ...g.home, teamId: best.teamId, seed: best.seed },
+            away: { ...g.away, teamId: worst.teamId, seed: worst.seed }
+          }
+        ];
+      })
+    );
+    games = games.map((g) => paired.get(g.id) ?? g);
+  }
+  return games;
 }
 
 /** The league champion, or null until the championship game is decided. */

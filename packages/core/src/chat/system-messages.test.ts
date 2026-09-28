@@ -132,6 +132,41 @@ describe('renderSystemMessage', () => {
     expect(render('Stat Correction Applied', { week: 4, teamId: 'team-1', oldScore: 'x' })?.text).toBe(
       'A stat correction changed week 4 scores.'
     );
+    const flipped = {
+      week: 4,
+      teamId: 'team-1',
+      oldScore: 100,
+      newScore: 96,
+      resultFlipped: true,
+      winnerTeamId: 'team-2',
+      loserTeamId: 'team-1',
+      winnerScore: 98.5,
+      loserScore: 96
+    };
+    expect(render('Stat Correction Applied', flipped)?.text).toBe(
+      'Stat correction flips week 4: Robo Ballers now beats Allen FC, 98.5 to 96.'
+    );
+    // A correction that leaves a tie reports the score change instead.
+    expect(render('Stat Correction Applied', { ...flipped, winnerScore: 96 })?.text).toBe(
+      'Stat correction in week 4: Allen FC goes from 100 to 96.'
+    );
+  });
+
+  it('renders the season finale and achievements', () => {
+    expect(
+      render('Season Completed', { season: 2026, championTeamId: 'team-3', runnerUpTeamId: 'team-1' })
+    ).toEqual({
+      text: 'Tuna won the 2026 championship, beating Allen FC in the final!',
+      moment: true,
+      subjectTeamId: 'team-3',
+      players: []
+    });
+    expect(render('Season Completed', { season: 2026, championTeamId: 'team-3' })?.text).toBe(
+      'Tuna won the 2026 championship!'
+    );
+    expect(
+      render('Achievement Earned', { teamId: 'team-2', name: 'Blowout', reason: 'Won by 61 in week 3' })?.text
+    ).toBe('Robo Ballers earned Blowout: Won by 61 in week 3.');
   });
 
   it('renders membership and settings changes', () => {

@@ -67,6 +67,7 @@ export const LEAGUE_CASES: Record<string, Case[]> = {
   ],
   get_league_state: [
     { label: 'member', path: `${L}/lg-c/state`, status: 200 },
+    { label: 'detail', path: `${L}/lg-c/state?detail=true`, status: 200 },
     { label: 'outsider', path: `${L}/lg-c/state`, init: { token: outsider }, status: 403 }
   ],
   update_league_settings: [
@@ -219,11 +220,22 @@ export const LEAGUE_CASES: Record<string, Case[]> = {
   ],
   get_standings: [
     { label: 'before the season', path: `${L}/lg-c/standings`, status: 200 },
+    { label: 'detail', path: `${L}/lg-c/standings?detail=true`, status: 200 },
     { label: 'outsider', path: `${L}/lg-c/standings`, init: { token: outsider }, status: 403 }
   ],
   get_matchup: [
     { label: 'no schedule yet', path: `${L}/lg-c/matchup`, status: 200 },
     { label: 'in season, with lineups', path: `${L}/lg-cs/matchup`, status: 200 },
+    { label: 'detail', path: `${L}/lg-cs/matchup?detail=true`, status: 200 },
     { label: 'week out of range', path: `${L}/lg-c/matchup?week=18`, status: 400 }
+  ],
+  get_playoff_bracket: [
+    { label: 'before the season', path: `${L}/lg-c/playoffs`, status: 200 },
+    { label: 'projected', path: `${L}/lg-cs/playoffs`, status: 200 },
+    { label: 'outsider', path: `${L}/lg-c/playoffs`, init: { token: outsider }, status: 403 }
+  ],
+  get_league_history: [
+    { label: 'in season', path: `${L}/lg-cs/history`, status: 200 },
+    { label: 'outsider', path: `${L}/lg-c/history`, init: { token: outsider }, status: 403 }
   ]
 };

@@ -3,7 +3,7 @@ import { ingestNews } from './ingest-news.js';
 import { ingestProjections } from './ingest-projections.js';
 import { ingestStats } from './ingest-stats.js';
 import { ingestTrending } from './ingest-trending.js';
-import { advanceSeason, scoreLiveWeek } from './season.js';
+import { advanceSeason, officialFinal, scoreLiveWeek } from './season.js';
 import { processWaivers } from './process-waivers.js';
 import { syncNflState } from './sync-nfl-state.js';
 import { syncPlayers } from './sync-players.js';
@@ -23,6 +23,7 @@ export const JOBS = {
   ingestNews,
   scoreLiveWeek,
   advanceSeason,
+  officialFinal,
   processWaivers
 } as const satisfies Record<string, Job>;
 
@@ -41,6 +42,7 @@ export {
   ingestStats,
   ingestTrending,
   scoreLiveWeek,
+  officialFinal,
   processWaivers,
   syncNflState,
   syncPlayers,

@@ -72,6 +72,7 @@ export async function ingestStats(
   };
 }
 
-function sameLine(before: StoredStatLine | undefined, after: StatLine): boolean {
+/** Whether a stored line already matches a fetched one (team and stats). */
+export function sameLine(before: StoredStatLine | undefined, after: StatLine): boolean {
   return before !== undefined && before.team === after.team && deepEqual(before.stats, after.stats);
 }

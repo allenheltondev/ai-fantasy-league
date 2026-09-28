@@ -248,7 +248,7 @@ describe('reading leagues', () => {
   it('lists only rule-based actions when the handler runs without a registry', async () => {
     await seedLeague(h.repos, { id: 'lg-nr', owners: [ALICE] });
     const ctx = createContext(h.services, { type: 'user', sub: 'alice', email: null, name: 'Alice' });
-    const state = await getLeagueState.handler(ctx, { leagueId: 'lg-nr' });
+    const state = await getLeagueState.handler(ctx, { leagueId: 'lg-nr', detail: false });
     expect(state).toMatchObject({ allowedActions: [] });
   });
 
