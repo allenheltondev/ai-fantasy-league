@@ -19,6 +19,8 @@ import { TaskUnavailableError } from './lineup.js';
  *   by the difficulty's `valuationNoise`), and not insult the other side.
  * - The model sees the candidates and picks which to send (by number), with an optional note. It
  *   cannot change the players: only the vetted offers can be proposed, through propose_trade.
+ * - Right after the draft, a high-appetite archetype takes one early look (`draft_complete`, a
+ *   follow-up of the post-draft kickoff, #175): at most `EARLY_LOOK_OFFERS` offer.
  * - No model (kill switch, budget, every model unavailable): no proposals.
  * - The trade deadline and the season phase close it (`allowedActions` lacks propose_trade), and
  *   a team that already has an offer pending from this agent is not offered another.
@@ -40,7 +42,11 @@ const TRADE_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
 
 export const SEALED_PROPOSAL = 'Made trade offers; the terms stay private between the two teams.';
 
-const PayloadSchema = z.object({ week: z.number().int().optional() });
+const PayloadSchema = z.object({
+  week: z.number().int().optional(),
+  /** `draft_complete`: the post-draft kickoff's early look (#175), at most one offer. */
+  reason: z.enum(['week', 'draft_complete']).default('week')
+});
 type Payload = z.infer<typeof PayloadSchema>;
 
 export const TradeProposalDecisionSchema = BaseDecisionSchema.extend({
@@ -143,9 +149,16 @@ export function swapIdeas(
   return ideas.sort((a, b) => b.rough - a.rough || a.send.player.id.localeCompare(b.send.player.id));
 }
 
-async function prepare(ctx: TaskContext): Promise<ProposalPrep> {
+/** Offers the early trade look right after the draft may send. */
+export const EARLY_LOOK_OFFERS = 1;
+
+async function prepare(ctx: TaskContext, payload: Payload): Promise<ProposalPrep> {
   const appetite = tradeAppetite(ctx.config);
-  const limit = Math.min(appetite.proposalsPerWeek, ctx.config.levers.actionsPerTrigger);
+  const limit = Math.min(
+    appetite.proposalsPerWeek,
+    ctx.config.levers.actionsPerTrigger,
+    payload.reason === 'draft_complete' ? EARLY_LOOK_OFFERS : Number.POSITIVE_INFINITY
+  );
   if (limit === 0) throw new TaskUnavailableError('no_trade_appetite');
   const state = data(await ctx.tools.call('get_league_state', {}), StateSchema);
   if (state === null || state.yourTeam === null || !state.allowedActions.includes('propose_trade'))
@@ -312,10 +325,12 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
   payload: PayloadSchema,
   decision: TradeProposalDecisionSchema,
   tools: ['get_league_state', 'get_roster', 'get_player', 'get_projections', 'get_news', 'preview_trade'],
-  prepare: (ctx) => prepare(ctx),
-  instructions(_ctx, _payload, prep) {
+  prepare: (ctx, payload) => prepare(ctx, payload),
+  instructions(_ctx, payload, prep) {
     return [
-      `A new week: time to shop for trades. You may send up to ${prep.limit} offer(s) this week, one per team.`,
+      payload.reason === 'draft_complete'
+        ? `The draft just ended and you like to deal: take an early look for a trade. You may send up to ${prep.limit} offer(s) now.`
+        : `A new week: time to shop for trades. You may send up to ${prep.limit} offer(s) this week, one per team.`,
       `Your scouting found these one-for-one swaps that help your roster by the trade value math (your bar is ${prep.bar}); each is legal and fair enough to offer:`,
       ...prep.candidates.map(describe),
       'Check anything you doubt with your tools, then answer with `offers`: the candidate numbers to send, best first, each with an optional short `message` to the other manager. You cannot change the players. An empty list sends nothing.'

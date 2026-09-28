@@ -19,7 +19,8 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  * lineup is the fallback. The optimizer sees projections discounted by injury status and the
  * archetype's risk tolerance (`lineupProjection`), so a win-now manager benches a questionable
  * player a gut-feel homer would start. Triggered by `Lineup Lock Approaching` (scheduled before each game
- * window) and when news or a status change hits a rostered player.
+ * window) and when news or a status change hits a rostered player. The post-draft kickoff (#175)
+ * runs it deterministically (`draft_complete`): the optimizer's first lineup, with no model call.
  *
  * It works through the real season operations, with the agent's own principal:
  * - `get_roster({ leagueId, teamId, week? })` gives the players, their slots, statuses, kickoffs,
@@ -59,7 +60,7 @@ const RosterDataSchema = z.object({ week: z.number().int(), players: z.array(Ros
 
 const LineupPayloadSchema = z.object({
   week: z.number().int().min(1).max(18).optional(),
-  reason: z.enum(['lock', 'news', 'status']).default('lock'),
+  reason: z.enum(['lock', 'news', 'status', 'draft_complete']).default('lock'),
   playerId: z.string().optional()
 });
 type LineupPayload = z.infer<typeof LineupPayloadSchema>;
@@ -206,7 +207,9 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
     const why =
       payload.reason === 'lock'
         ? 'Lineups lock soon.'
-        : `News or a status change just hit ${payload.playerId ?? 'one of your players'}.`;
+        : payload.reason === 'draft_complete'
+          ? 'The draft just ended: set your first starting lineup.'
+          : `News or a status change just hit ${payload.playerId ?? 'one of your players'}.`;
     const projections = ctx.config.levers.research.projections;
     return [
       `${why} The lineup optimizer proposes this lineup${projections ? ` (${prep.optimized.projectedPoints} projected points)` : ''}:`,

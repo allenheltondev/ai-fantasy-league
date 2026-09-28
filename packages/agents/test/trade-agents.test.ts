@@ -168,6 +168,21 @@ describe('trade proposal task', () => {
     expect(again).toMatchObject({ status: 'skipped', fallbackReason: 'no_trade_found' });
   });
 
+  it('sends at most one offer on the early look right after the draft', async () => {
+    const s = await market();
+    const model = new ScriptedModelClient();
+    const record = await runAgentAction(s.deps(model), {
+      ...proposalRequest('early'),
+      trigger: { detailType: 'Draft Completed', eventId: 'early', urgent: true },
+      payload: { reason: 'draft_complete', week: 5 }
+    });
+    expect(record).toMatchObject({ status: 'completed', finalAction: 'propose_trade' });
+    expect(model.transcript[0]?.systemPrompt).toContain(
+      'The draft just ended and you like to deal: take an early look for a trade. You may send up to 1 offer(s) now.'
+    );
+    expect(await proposed(s)).toHaveLength(1);
+  });
+
   it('proposes only vetted candidates, at most the action budget, and nothing when the model passes', async () => {
     const s = await market({ ...HAPPY, advanced: { levers: { actionsPerTrigger: 1 } } });
     const picky = new ScriptedModelClient({

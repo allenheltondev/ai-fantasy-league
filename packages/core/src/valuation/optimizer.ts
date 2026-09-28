@@ -5,7 +5,8 @@ import {
   type LineupContext,
   type LineupEntry,
   type LineupValidation,
-  type RosterPlayer
+  type RosterPlayer,
+  type WeekGames
 } from '../rules/lineup.js';
 import {
   ROSTER_SLOTS,
@@ -84,6 +85,14 @@ export interface OptimizedLineup {
 
 const FORBIDDEN = 1e15;
 
+export interface OptimizeOptions {
+  /**
+   * Break ties between equally projected lineups in favour of players keeping their current slots,
+   * so a manager is never shown moves that gain nothing (the lineup editor, #176).
+   */
+  keepSlots?: boolean;
+}
+
 /**
  * The highest-projected legal lineup, solved exactly as an assignment problem (so flex slots are
  * chosen optimally, not greedily).
@@ -91,16 +100,19 @@ const FORBIDDEN = 1e15;
  * - Locked players (with `games`, `now` and `previousLineup`) keep the slot they had.
  * - Players on IR in `previousLineup` stay on IR.
  * - Players on bye (when `games` is given) or with a will-not-play status (Out, IR, …) are benched.
- * - Among lineups with equal projected points, one that fills more slots wins; a slot is left empty
- *   only when no eligible player remains or every eligible player projects below 0.
+ * - Among lineups with equal projected points, one that fills more slots wins, then (with
+ *   `keepSlots`) one that keeps the most players in their `previousLineup` slots; a slot is left
+ *   empty only when no eligible player remains or every eligible player projects below 0.
  */
 export function optimizeLineup(
   settings: Pick<LeagueSettings, 'roster'>,
   roster: readonly RosterPlayer[],
   projections: WeekProjections,
-  context: LineupContext = {}
+  context: LineupContext = {},
+  options: OptimizeOptions = {}
 ): OptimizedLineup {
   const { games, now, previousLineup } = context;
+  const stay = options.keepSlots === true ? 1 : 0;
   const prev = new Map((previousLineup ?? []).map((e) => [e.playerId, e.slot]));
   const locksApply = games !== undefined && now !== undefined && previousLineup !== undefined;
   const pts = (id: string): number => projections[id] ?? 0;
@@ -128,11 +140,14 @@ export function optimizeLineup(
     )
     .sort((a, b) => a.playerId.localeCompare(b.playerId));
 
-  // Integer weights: whole cents × 1000, plus 1 for filling a slot, so ties favour full lineups
-  // without ever outweighing a cent of projected points.
+  // Integer weights: whole cents × 100000, plus 100 for filling a slot and (with `keepSlots`) 1 for
+  // a player keeping the slot he had. Ties favour full lineups, then the fewest moves, and neither
+  // ever outweighs a cent of projected points.
   const cost = openSlots.map((slot) => [
     ...candidates.map((p) =>
-      isEligibleForSlot(slot, p.positions) ? -(Math.round(pts(p.playerId) * 100) * 1000 + 1) : FORBIDDEN
+      isEligibleForSlot(slot, p.positions)
+        ? -(Math.round(pts(p.playerId) * 100) * 100_000 + 100 + (prev.get(p.playerId) === slot ? stay : 0))
+        : FORBIDDEN
     ),
     ...openSlots.map(() => 0)
   ]);
@@ -149,4 +164,48 @@ export function optimizeLineup(
     lineup.filter((e) => isStarterSlot(e.slot)).reduce((sum, e) => sum + pts(e.playerId), 0)
   );
   return { lineup, projectedPoints, validation: validateLineup(settings, roster, lineup, context) };
+}
+
+/**
+ * Projected points of a lineup's starters who will play: a starter on bye (when `games` is given)
+ * or with a will-not-play status (Out, IR, …) counts 0, as he will score nothing. Rounded to 2
+ * decimals. This is the total a manager compares when choosing a lineup, and one that
+ * `optimizeLineup`'s lineup never falls below (for a legal starting lineup).
+ */
+export function startersProjection(
+  roster: readonly RosterPlayer[],
+  lineup: readonly LineupEntry[],
+  projections: WeekProjections,
+  games?: WeekGames
+): number {
+  const byId = new Map(roster.map((p) => [p.playerId, p]));
+  let cents = 0;
+  for (const entry of lineup) {
+    const player = byId.get(entry.playerId);
+    if (player === undefined || !isStarterSlot(entry.slot)) continue;
+    if (WILL_NOT_PLAY_STATUSES.includes(player.status)) continue;
+    if (games !== undefined && isOnBye(player, games)) continue;
+    cents += Math.round((projections[entry.playerId] ?? 0) * 100);
+  }
+  return cents / 100;
+}
+
+/**
+ * Stand-in lineup values for a week without projections: each player's consensus overall rank as a
+ * score (rank 1 is worth the most; unranked players the least, but still above an empty slot).
+ * They order players for `optimizeLineup`; they are not points and must not be shown as points.
+ */
+export function rankValues(players: readonly { playerId: string; rank: number | null }[]): WeekProjections {
+  return Object.fromEntries(
+    players.map((p) => [p.playerId, p.rank === null ? 0.01 : Math.max(1000 - Math.max(p.rank, 1), 1) / 100])
+  );
+}
+
+/**
+ * The `set_lineup` moves that turn `before` into `after`: one per player whose slot changed
+ * (players missing from `before` count as BN), in `after`'s order.
+ */
+export function lineupDiff(before: readonly LineupEntry[], after: readonly LineupEntry[]): LineupEntry[] {
+  const was = new Map(before.map((e) => [e.playerId, e.slot]));
+  return after.filter((e) => (was.get(e.playerId) ?? 'BN') !== e.slot).map((e) => ({ ...e }));
 }

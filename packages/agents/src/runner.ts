@@ -27,6 +27,7 @@ import type { KillSwitch } from './kill-switch.js';
 import { MEMORY_BUDGETS, memoryForPrompt, tableMemoryStore, type AgentMemoryStore } from './memory.js';
 import { estimateTokens, isModelUnavailable, type ModelClient } from './model.js';
 import { MEMORY_NOTE_MAX, assembleSystemPrompt } from './prompt.js';
+import { requestTask, taskIdFor } from './router.js';
 import type {
   BaseDecision,
   PreparedTask,
@@ -50,6 +51,7 @@ import { ToolBox, keyPrefix } from './tools.js';
  *    tokens and estimated cost per model; add the weekly rollups; update the agent's memory (#44):
  *    its decision, its note, and whatever the kind adds (a chat snapshot). Summaries with sealed
  *    information carry the kind's `sealed` marker, so the activity log withholds them (#122).
+ * 6. Request the outcome's follow-up tasks (`followUps`), each a task of its own for the same agent.
  *
  * The first task that finds the league's weekly budget spent announces it in the league chat
  * (`Agent Budget Exceeded`, once per league and budget week).
@@ -203,11 +205,29 @@ export async function runAgentAction(
       log.warn('agent memory write failed', { error });
     }
   };
+  const followUp = async (outcome: TaskOutcome) => {
+    for (const next of outcome.followUps ?? []) {
+      const task: AgentActionRequested = {
+        ...request,
+        taskId: taskIdFor(request.trigger.eventId, request.teamId, next.kind),
+        kind: next.kind,
+        payload: next.payload,
+        requestedAt: clock.now().toISOString()
+      };
+      try {
+        await requestTask(services, task, next.delayMs);
+      } catch (error) {
+        // Best effort, like memory: the follow-up is lost, this task's decision stands.
+        log.warn('agent follow-up task could not be requested', { followUp: next.kind, error });
+      }
+    }
+  };
   const deterministic: PreparedTask = {
     ...prepared,
     fallback: async () => {
       const outcome = await prepared.fallback();
       await remember(outcome);
+      await followUp(outcome);
       return outcome;
     }
   };
@@ -304,6 +324,7 @@ export async function runAgentAction(
         );
       }
       await remember(outcome, result.decision.memoryNote);
+      await followUp(outcome);
       return finish(
         deps,
         { ...base, week },

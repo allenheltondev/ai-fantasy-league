@@ -74,6 +74,20 @@ export interface TaskOutcome {
    * the commissioner's activity log shows `sealed.summary` until those moves resolve.
    */
   sealed?: AgentTaskSeal;
+  /**
+   * More tasks for the same agent and trigger, requested once this one is recorded (the post-draft
+   * kickoff hands its early trade look to `trade_proposal`). Each runs as its own task, through
+   * the same claim, kill switch, and budget; its task id comes from the trigger and its kind, so a
+   * replay never doubles it.
+   */
+  followUps?: TaskFollowUp[];
+}
+
+export interface TaskFollowUp {
+  kind: string;
+  payload: Record<string, unknown>;
+  /** Wait this long before it runs (scheduled); right away when left out. */
+  delayMs?: number;
 }
 
 export interface TaskKindSpec<P, D extends BaseDecision, Prep> {

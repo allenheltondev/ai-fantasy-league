@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import { useParams } from 'react-router';
-import { Alert, EmptyState, StatusBadge } from '@readysetcloud/ui';
+import { Alert, EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
-import type { Roster, RosterEntry } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
-import { STACKED_BLOCK, STACKED_HEAD, STACKED_LABEL, STACKED_ROW } from '../../lib/stackedTable';
-import { LoadingSkeleton, stagger } from '../../motion/decor';
-import { isStarter, planMove, slotOptions, statusLabel } from './slots';
+import { LoadingSkeleton } from '../../motion/decor';
+import { LineupBoard } from './LineupBoard';
 import { TeamAchievements } from './TeamAchievements';
 
-/** The Roster section (#58): your players by slot, with lock and status badges, and slot moves. */
+/** The Roster section (#58, #176): your lineup, with projections, drag and drop, and Optimize. */
 export function RosterPage() {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
@@ -44,8 +42,6 @@ export function RosterPage() {
 function LineupEditor({ leagueId, teamId }: { leagueId: string; teamId: string }) {
   const api = useLeagueApi();
   const roster = useLoad(() => api.getRoster(leagueId, teamId), `${leagueId}:${teamId}`);
-  const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState<unknown>(null);
   const [warnings, setWarnings] = useState<{ code: string; message: string }[]>([]);
 
   if (roster.data === null) {
@@ -56,139 +52,36 @@ function LineupEditor({ leagueId, teamId }: { leagueId: string; teamId: string }
     );
   }
   const data = roster.data;
-
-  const move = (entry: RosterEntry, target: string) => {
-    const moves = planMove(data.players, data.slots, entry.player.id, target);
-    if (moves === null) {
-      setProblem(new Error(`Every ${target} slot holds a locked player.`));
-      return;
-    }
-    setSaving(true);
-    setProblem(null);
-    api.setLineup(leagueId, teamId, data.week, moves).then(
-      (res) => {
-        setWarnings(res.warnings);
-        setSaving(false);
-        roster.reload();
-      },
-      (error: unknown) => {
-        setProblem(error);
-        setSaving(false);
-      }
+  if (data.players.length === 0) {
+    return (
+      <>
+        {data.carriedFromWeek !== null && (
+          <p className="text-muted-foreground">
+            {data.teamName} · Week {data.week} · carried over from week {data.carriedFromWeek}
+          </p>
+        )}
+        <EmptyState title="No players yet" description="Your roster fills in at the draft." />
+      </>
     );
-  };
-
+  }
   return (
     <div className="space-y-4">
-      <p className="text-muted-foreground">
-        {data.teamName} · Week {data.week}
-        {data.carriedFromWeek !== null ? ` · carried over from week ${data.carriedFromWeek}` : ''}
-      </p>
-      <ApiErrorAlert error={problem} />
       {warnings.map((w) => (
         <Alert key={`${w.code}:${w.message}`} variant="info">
           {w.message}
         </Alert>
       ))}
-      {data.players.length === 0 ? (
-        <EmptyState title="No players yet" description="Your roster fills in at the draft." />
-      ) : (
-        <>
-          <LineupTable
-            title="Starters"
-            rows={data.players.filter((p) => isStarter(p.slot))}
-            data={data}
-            saving={saving}
-            onMove={move}
-          />
-          <LineupTable
-            title="Bench"
-            rows={data.players.filter((p) => !isStarter(p.slot))}
-            data={data}
-            saving={saving}
-            onMove={move}
-          />
-        </>
-      )}
+      {/* A fresh board for each loaded lineup, so a save starts from what the server kept. */}
+      <LineupBoard
+        key={`${data.week}:${data.players.map((p) => `${p.player.id}=${p.slot}`).join(',')}`}
+        leagueId={leagueId}
+        teamId={teamId}
+        data={data}
+        onSaved={(next) => {
+          setWarnings(next);
+          roster.reload();
+        }}
+      />
     </div>
-  );
-}
-
-/** A roster row as a card below `sm`: slot | player (two columns) | move, then status and numbers. */
-const ROW = `${STACKED_ROW} max-sm:grid-cols-[2.75rem_minmax(0,1fr)_minmax(0,1fr)_auto]`;
-
-function LineupTable(props: {
-  title: string;
-  rows: RosterEntry[];
-  data: Roster;
-  saving: boolean;
-  onMove: (entry: RosterEntry, slot: string) => void;
-}) {
-  return (
-    // Below `sm` each row stacks into a card: slot, player and move on top, the numbers under them.
-    <table className={`w-full text-sm ${STACKED_BLOCK}`} aria-label={props.title}>
-      <caption className="text-left font-semibold max-sm:block">{props.title}</caption>
-      <thead className={STACKED_HEAD}>
-        <tr className="text-left text-muted-foreground">
-          <th scope="col">Slot</th>
-          <th scope="col">Player</th>
-          <th scope="col">Status</th>
-          <th scope="col">Proj</th>
-          <th scope="col">Pts</th>
-          <th scope="col">Move</th>
-        </tr>
-      </thead>
-      <tbody className={STACKED_BLOCK}>
-        {props.rows.map((row, index) => {
-          const label = statusLabel(row);
-          const enter = stagger(index);
-          return (
-            <tr
-              key={row.player.id}
-              data-testid={`roster-row-${row.player.id}`}
-              className={`motion-row ${enter.className} ${ROW}`}
-              style={enter.style}
-            >
-              <td className="font-mono max-sm:row-span-3">{row.slot}</td>
-              <td className="break-words max-sm:col-span-2">
-                {row.player.name}{' '}
-                <span className="text-muted-foreground">
-                  {row.player.position} · {row.player.team ?? 'FA'}
-                  {row.byeWeek !== null ? ` · bye ${row.byeWeek}` : ''}
-                </span>
-              </td>
-              <td className="space-x-1 max-sm:col-span-2 max-sm:col-start-2 max-sm:empty:hidden">
-                {row.locked && <StatusBadge tone="neutral">Locked</StatusBadge>}
-                {label && <StatusBadge tone={row.onBye ? 'warning' : 'error'}>{label}</StatusBadge>}
-              </td>
-              <td data-label="Proj" className={`max-sm:col-start-2 ${STACKED_LABEL}`}>
-                {row.projectedPoints ?? '–'}
-              </td>
-              <td data-label="Pts" className={`max-sm:col-start-3 ${STACKED_LABEL}`}>
-                {row.points ?? '–'}
-              </td>
-              <td className="max-sm:col-start-4 max-sm:row-span-3 max-sm:row-start-1">
-                <select
-                  aria-label={`Move ${row.player.name}`}
-                  disabled={row.locked || props.saving}
-                  value=""
-                  onChange={(e) => props.onMove(row, e.target.value)}
-                  className="rounded-md border border-border bg-background px-2 py-1"
-                >
-                  <option value="" disabled>
-                    Move to…
-                  </option>
-                  {slotOptions(row, props.data.slots).map((slot) => (
-                    <option key={slot} value={slot}>
-                      {slot}
-                    </option>
-                  ))}
-                </select>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
   );
 }

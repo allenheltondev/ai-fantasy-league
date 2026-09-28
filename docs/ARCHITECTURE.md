@@ -20,6 +20,7 @@ This is the contract every work stream builds against. The product is described 
   - **Publisher:** `RealtimePublisherFunction` (`realtime/relay.ts`) relays league events from the bus to the topics. It is the only function besides the API that reads the Momento key.
 - **Agents:** `@readysetcloud/agent` runs Strands on Bedrock. Agents call the league **only** through the operation registry (below) with their own principal.
   - **Flow:** league events → the trigger router Lambda (`packages/agents/src/router.ts`) → `Agent Action Requested` → the agent task Lambda (`packages/agents/src/runner.ts`).
+  - **Post-draft kickoff (#175):** when the draft completes, the router schedules one `post_draft` task per agent team (a minute after the last pick, then 45 seconds apart; `POST_DRAFT_KICKOFF`), once per draft. The task sets the optimizer lineup, posts one draft reaction in the league chat (the one model call: its grade by ADP value, a steal, a rival's reach, managers by name, under the chat budgets and banter guards), and claims a healthy player for each roster hole (core `rosterHoles`). High trade-appetite archetypes then take one early trade look: the task hands `trade_proposal` a follow-up (`TaskOutcome.followUps`, at most one offer). With the kill switch on or the budget spent, only the lineup and the hole claims run.
   - **Runs:** autonomous turns use `runAgent` in-Lambda: structured output, bounded tool loops, and trusted `invocationState`.
   - **Idempotency:** each task is idempotent through a claim on its task id in the league table.
   - **Task kinds:** each feature (draft, lineups, waivers, trades, chat) adds a task kind (`packages/agents/src/tasks/kinds.ts`) with a deterministic fallback.
@@ -167,7 +168,7 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `League Created` | A league is created |
 | `Draft Turn Started` | A team is on the clock |
 | `Draft Pick Made` | A pick is made (`adp`, the pick's `reason`, and `notable`: a steal or reach by ADP, or an agent's first-round pick, which the chat calls out; core `notablePick`) |
-| `Draft Completed` | The draft ends (`recap`: steals, reaches, and each agent's first pick with its reasoning, and `recapText` for the chat; core `draftRecap`). The agent task Lambda also grades the draft on it: one model call writes the report card (`get_draft_report_card`), and core `projectRecords` makes its projected records add up on the schedule |
+| `Draft Completed` | The draft ends (`recap`: steals, reaches, and each agent's first pick with its reasoning, and `recapText` for the chat; core `draftRecap`). The agent router schedules each agent's post-draft kickoff (`post_draft`), staggered, once per draft. The agent task Lambda also grades the draft on it: one model call writes the report card (`get_draft_report_card`), and core `projectRecords` makes its projected records add up on the schedule |
 | `Draft Paused` / `Draft Resumed` | The commissioner freezes or restarts the pick clock; relayed so open boards stop or restart their countdown |
 | `Draft Pick Deadline` | A pick's clock runs out (scheduled with `scheduleAt`; the API function autopicks if the pick is still open) |
 | `Draft Start Scheduled` | The league's `draft.scheduledAt` arrives (scheduled with `scheduleAt`; the API function starts the draft if the time still holds) |

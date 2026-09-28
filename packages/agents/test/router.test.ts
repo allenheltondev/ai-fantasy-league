@@ -3,6 +3,7 @@ import { AgentActionRequestedSchema, type BusEvent } from '../src/events.js';
 import {
   CHAT_COOLDOWNS,
   CHAT_MOMENT_AGENTS,
+  POST_DRAFT_KICKOFF,
   cooldownSlot,
   detailRosterIndex,
   leagueRosterIndex,
@@ -210,6 +211,47 @@ describe('routeEvent', () => {
       await withSeats()
     ).route(event('Chat Moment', { leagueId: LEAGUE_ID, moment: 'blowout' }, 'evt-2'));
     expect(again.map((d) => d.teamId)).toEqual(moment.map((d) => d.teamId));
+  });
+
+  it('staggers the post-draft kickoff over every agent team, once per draft', async () => {
+    const s = await withSeats();
+    const detail = {
+      leagueId: LEAGUE_ID,
+      week: 1,
+      completedAt: '2026-09-30T13:00:00.000Z',
+      picks: 64,
+      rounds: 16
+    };
+    const first = await s.route(event('Draft Completed', detail));
+    expect(first.map((d) => [d.teamId, d.decision, d.kind])).toEqual([
+      ['team-2', 'requested', 'post_draft'],
+      ['team-3', 'requested', 'post_draft'],
+      ['team-4', 'requested', 'post_draft']
+    ]);
+    // Scheduled, not published: one agent after another, clear of the last pick.
+    expect(s.requested()).toEqual([]);
+    const scheduled = s.events.events.filter((e) => e.detailType === 'Schedule Event');
+    const now = s.clock.now().getTime();
+    expect(
+      scheduled.map((e) => {
+        const d = e.detail as { at: string; name: string; event: { detailType: string; detail: unknown } };
+        const task = AgentActionRequestedSchema.parse(d.event.detail);
+        return [Date.parse(d.at) - now, d.event.detailType, task.teamId, task.payload, task.trigger.urgent];
+      })
+    ).toEqual(
+      ['team-2', 'team-3', 'team-4'].map((teamId, i) => [
+        POST_DRAFT_KICKOFF.firstMs + i * POST_DRAFT_KICKOFF.spacingMs,
+        'Agent Action Requested',
+        teamId,
+        { week: 1, completedAt: detail.completedAt },
+        true
+      ])
+    );
+    expect(new Set(scheduled.map((e) => (e.detail as { name: string }).name)).size).toBe(3);
+    // A replay, or the same draft finished again by the watchdog, starts nothing.
+    const again = await s.route(event('Draft Completed', detail, 'evt-2'));
+    expect(again.map((d) => d.decision)).toEqual(['repeat', 'repeat', 'repeat']);
+    expect(s.events.events.filter((e) => e.detailType === 'Schedule Event')).toHaveLength(3);
   });
 
   it('skips triggers whose task kind is not built yet', async () => {

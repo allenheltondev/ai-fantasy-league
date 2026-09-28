@@ -36,7 +36,15 @@ interface Message {
 
 const TEAMS = [
   { id: 'team-1', name: 'Alice FC', ownerName: 'Alice', seatType: 'human', open: false, draftSlot: 1 },
-  { id: 'team-2', name: 'Robo Ballers', ownerName: null, seatType: 'agent', open: false, draftSlot: 2 }
+  {
+    id: 'team-2',
+    name: 'Robo Ballers',
+    ownerName: null,
+    seatType: 'agent',
+    open: false,
+    draftSlot: 2,
+    manager: { name: 'Robo Rita', avatarSeed: 'rita', personality: 'The Trash Talker' }
+  }
 ];
 
 function stubChatApi(page: Page) {
@@ -105,7 +113,11 @@ function stubChatApi(page: Page) {
         if (request.method() === 'POST') {
           expect(request.headers()['idempotency-key']).toBeTruthy();
           const { text } = request.postDataJSON() as { text: string };
-          const mentioned = TEAMS.filter((t) => text.toLowerCase().includes(`@${t.name.toLowerCase()}`));
+          const mentioned = TEAMS.filter((t) =>
+            [t.name, t.ownerName ?? t.manager?.name].some(
+              (name) => name !== undefined && text.toLowerCase().includes(`@${name.toLowerCase()}`)
+            )
+          );
           const message = add({
             kind: 'user',
             author: { teamId: 'team-1', teamName: 'Alice FC', name: 'Alice' },
@@ -173,17 +185,24 @@ test('posts a chat message, mentions a team, and sees new messages arrive', asyn
   await expect(waivers.getByTestId('player-card')).toHaveText('Puka NacuaWR · LAR');
   await expect(page.getByTestId('chat-status')).toHaveText('Updates every 1s');
 
+  // Who you can talk to (#177): the placeholder says so, and the room lists its AI manager.
   const box = page.getByRole('combobox');
+  await expect(box).toHaveAttribute('placeholder', /Type @ to talk to an AI manager/);
+  await expect(page.getByTestId('chat-members')).toContainText('Robo Rita');
   await box.fill('Good luck ');
   await box.pressSequentially('@Ro');
-  await page.getByRole('option', { name: 'Robo Ballers' }).click();
-  await expect(box).toHaveValue('Good luck @Robo Ballers ');
+  const option = page.getByRole('option', { name: /Robo Rita, Robo Ballers, AI manager, The Trash Talker/ });
+  await expect(option).toContainText('AI');
+  await option.click();
+  await expect(box).toHaveValue('Good luck @Robo Rita ');
   await box.pressSequentially('you will need it');
   await box.press('Enter');
 
   const mine = list.locator('[data-kind="user"]').last();
-  await expect(mine).toContainText('Good luck @Robo Ballers you will need it');
-  await expect(mine.locator('strong')).toHaveText('@Robo Ballers');
+  await expect(mine).toContainText('Good luck @Robo Rita you will need it');
+  await expect(mine.locator('strong')).toHaveText('@Robo Rita');
+  await mine.locator('strong').hover();
+  await expect(page.getByRole('tooltip')).toContainText('Robo Ballers');
   await expect(box).toHaveValue('');
 
   // An agent answers; the polling fallback picks it up.
