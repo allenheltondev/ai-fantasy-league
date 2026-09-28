@@ -415,7 +415,7 @@ Resources:
               Resource:
                 - !GetAtt FantasyTable.Arn
                 - !Sub ${FantasyTable.Arn}/index/*
-            # Player Status Changed, Week Rolled Over, Scores Updated, Player News Alert,
+            # Player Status Changed, Week Rolled Over, Scores Updated, NFL Games Updated, Player News Alert,
             # Waivers Processed, Waiver Window Opened, Week Provisionally Final, and
             # Schedule Event (rsc-core deferred events for Lineup Lock Approaching).
             - Effect: Allow
@@ -484,7 +484,9 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 0
         # Season loop (docs/adr/002-weekly-cycle.md). Live scoring polls like
-        # ingestStats and returns after one query outside game windows.
+        # ingestStats and returns after one query outside game windows. Each run
+        # also reads ESPN's public scoreboard once for the NFL games strip and the
+        # red-zone highlights (#132; outbound HTTPS, no credentials).
         ScoreLiveWeek:
           Type: ScheduleV2
           Properties:
@@ -1092,6 +1094,7 @@ Resources:
               detail-type:
                 - Chat Message Posted
                 - Scores Updated
+                - NFL Games Updated
                 - Draft Turn Started
                 - Draft Pick Made
                 - Draft Completed

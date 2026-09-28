@@ -6,9 +6,11 @@ import { advanceSeason, scoreLiveWeek } from '../../src/jobs/season.js';
 import { silentLogger } from '../../src/log.js';
 import { createHarness, type Harness } from '../support/harness.js';
 import { as, data, errorCode, type Caller } from '../support/league-client.js';
-import { ALICE, BOB } from '../support/leagues.js';
+import { ALICE, BOB, CAROL } from '../support/leagues.js';
 import {
+  liveGame,
   MONDAY_KICKOFF,
+  redZoneGame,
   SEASON,
   SUNDAY_KICKOFF,
   THURSDAY_KICKOFF,
@@ -502,5 +504,58 @@ describe('a draft that ran into the season (void weeks)', () => {
     expect(standings.standings.every((r) => games(r.record) === 1)).toBe(true);
     const voided = await h.repos.schedule.listMatchups('lg-mid', 1);
     expect(voided.every((m) => m.status === 'scheduled' && m.homeScore === null)).toBe(true);
+  });
+});
+
+describe('get_nfl_games', () => {
+  interface GamesBody {
+    season: number;
+    week: number;
+    updatedAt: string | null;
+    games: { gameId: string | null; state: string; isRedZone: boolean; possessionTeam: string | null }[];
+    redZone: { team: string; downDistance: string | null }[];
+  }
+
+  it("serves the week's games with the live read overlaid, and the red-zone teams", async () => {
+    const deps = { repos: h.repos, reference: h.services.data.reference };
+    await seedSeasonLeague(deps, { id: 'lg-nfl', owners: [ALICE, BOB], overrides: { week: 5 } });
+    const scheduleOnly = data<GamesBody>(await alice.get('/leagues/lg-nfl/nfl-games'));
+    expect(scheduleOnly).toMatchObject({ season: SEASON, week: 5, updatedAt: null, redZone: [] });
+    expect(scheduleOnly.games).toHaveLength(8);
+    expect(scheduleOnly.games.every((g) => g.state === 'pre')).toBe(true);
+
+    const readAt = new Date(Date.parse(SUNDAY_KICKOFF) + 4 * 7 * 86_400_000 + 3_600_000);
+    h.clock.set(readAt);
+    await deps.reference.nflGames.put({
+      season: SEASON,
+      week: 5,
+      games: [redZoneGame('2026_05_DAL_PHI'), liveGame('2026_05_GB_MIN', { possessionTeam: 'MIN' })],
+      updatedAt: readAt.toISOString()
+    });
+    const live = data<GamesBody>(await bob.get('/leagues/lg-nfl/nfl-games'));
+    expect(live.updatedAt).toBe(readAt.toISOString());
+    expect(live.redZone).toEqual([{ team: 'PHI', downDistance: '2nd & 4 at DAL 7', fieldPosition: 'DAL 7' }]);
+    expect(live.games.find((g) => g.gameId === '2026_05_GB_MIN')).toMatchObject({
+      state: 'in',
+      possessionTeam: 'MIN',
+      isRedZone: false
+    });
+
+    // Twenty minutes without a new read: possession and the red zone are no longer trusted.
+    h.clock.set(new Date(readAt.getTime() + 20 * 60_000));
+    const stale = data<GamesBody>(await alice.get('/leagues/lg-nfl/nfl-games'));
+    expect(stale.redZone).toEqual([]);
+    expect(stale.games.find((g) => g.gameId === '2026_05_DAL_PHI')).toMatchObject({
+      state: 'in',
+      possessionTeam: null
+    });
+    // Another week is only the schedule.
+    expect(data<GamesBody>(await alice.get('/leagues/lg-nfl/nfl-games?week=6')).updatedAt).toBeNull();
+  });
+
+  it('is for members only, and for weeks the league plays', async () => {
+    const carol = as(h, CAROL);
+    expect(errorCode(await carol.get('/leagues/lg-nfl/nfl-games'))).toBe('FORBIDDEN');
+    expect(errorCode(await alice.get('/leagues/lg-nfl/nfl-games?week=18'))).toBe('INVALID_INPUT');
   });
 });
