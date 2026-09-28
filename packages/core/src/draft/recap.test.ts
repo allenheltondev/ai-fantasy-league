@@ -1,6 +1,8 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  DRAFT_GRADES,
+  draftGrade,
   draftRecap,
   formatDraftRecap,
   notablePick,
@@ -121,5 +123,46 @@ describe('draftRecap', () => {
       player: (id) => id
     });
     expect(quiet).toBe('Draft recap: 1 pick. t1 took p5 at pick 5.');
+  });
+});
+
+describe('draftGrade', () => {
+  const graded = (overall: number, adp: number | null, position: 'RB' | 'K' = 'RB') => ({
+    overall,
+    adp,
+    position
+  });
+
+  it('grades a draft of steals high and a draft of reaches low', () => {
+    // 8 teams: at picks 10 and 30 the steal margins are 8 and 12.
+    expect(draftGrade([graded(10, 2), graded(30, 18)], 8)).toBe('A');
+    expect(draftGrade([graded(10, 10), graded(30, 30)], 8)).toBe('C');
+    expect(draftGrade([graded(10, 18), graded(30, 42)], 8)).toBe('F');
+    expect(draftGrade([graded(10, 9), graded(30, 28)], 8)).toBe('B');
+    expect(draftGrade([graded(10, 12), graded(30, 33)], 8)).toBe('D');
+  });
+
+  it('leaves kickers, defenses, and unranked players out, and caps one wild pick', () => {
+    expect(draftGrade([graded(100, 1, 'K'), graded(20, null)], 8)).toBeNull();
+    expect(draftGrade([], 8)).toBeNull();
+    // A 150-pick steal counts as two steals, not twelve.
+    expect(draftGrade([graded(160, 10), graded(10, 18), graded(20, 28)], 8)).toBe('C');
+  });
+
+  it('never grades a team lower when one of its picks came cheaper (property)', () => {
+    const rank = (g: string | null) => DRAFT_GRADES.indexOf(g as (typeof DRAFT_GRADES)[number]);
+    const pickArb = fc.record({
+      overall: fc.integer({ min: 1, max: 200 }),
+      adp: fc.integer({ min: 1, max: 300 })
+    });
+    fc.assert(
+      fc.property(fc.array(pickArb, { minLength: 1, maxLength: 16 }), fc.nat({ max: 50 }), (picks, gain) => {
+        const all = picks.map((p) => graded(p.overall, p.adp));
+        const [first, ...rest] = all as [ReturnType<typeof graded>, ...ReturnType<typeof graded>[]];
+        const cheaper = [{ ...first, adp: Math.max(1, (first.adp as number) - gain) }, ...rest];
+        expect(DRAFT_GRADES).toContain(draftGrade(all, 10));
+        expect(rank(draftGrade(cheaper, 10))).toBeLessThanOrEqual(rank(draftGrade(all, 10)));
+      })
+    );
   });
 });

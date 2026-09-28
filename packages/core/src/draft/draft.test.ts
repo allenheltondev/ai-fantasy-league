@@ -2,7 +2,8 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { Position } from '../rules/positions.js';
 import { yahooDefaultSettings } from '../rules/settings.js';
-import { autopick, unfilledStarterSlots, type DraftablePlayer } from './autopick.js';
+import { PLAYER_STATUSES, WILL_NOT_PLAY_STATUSES } from '../rules/positions.js';
+import { autopick, rosterHoles, unfilledStarterSlots, type DraftablePlayer } from './autopick.js';
 import {
   createDraft,
   currentPick,
@@ -204,6 +205,47 @@ describe('autopick', () => {
       ['DEF', 'K', 'RB', 'RB', 'TE'].sort()
     );
     expect(unfilledStarterSlots(settings, [[]])).toHaveLength(10);
+  });
+});
+
+describe('rosterHoles', () => {
+  const settings = yahooDefaultSettings(8);
+  const full: Position[][] = [['QB'], ['RB'], ['RB'], ['RB'], ['WR'], ['WR'], ['WR'], ['TE'], ['K'], ['DEF']];
+  const healthy = full.map((positions) => ({ positions, status: 'active' as const }));
+
+  it('finds no hole in a full, healthy lineup', () => {
+    expect(rosterHoles(settings, healthy)).toEqual(unfilledStarterSlots(settings, full));
+    expect(rosterHoles(settings, healthy)).toEqual([]);
+  });
+
+  it('counts an injured starter with no healthy backup, and an empty kicker slot, as holes', () => {
+    const roster = [
+      ...healthy.filter((p) => p.positions[0] !== 'K' && p.positions[0] !== 'TE'),
+      { positions: ['TE'] as Position[], status: 'ir' as const }
+    ];
+    expect(rosterHoles(settings, roster).sort()).toEqual(['K', 'TE']);
+    // A questionable starter still plays.
+    expect(rosterHoles(settings, [...roster, { positions: ['TE'], status: 'questionable' }])).toEqual(['K']);
+  });
+
+  it('never finds more holes when a healthy player joins (property)', () => {
+    const position = fc.constantFrom<Position>('QB', 'RB', 'WR', 'TE', 'K', 'DEF');
+    const player = fc.record({ positions: fc.tuple(position), status: fc.constantFrom(...PLAYER_STATUSES) });
+    fc.assert(
+      fc.property(fc.array(player, { maxLength: 16 }), position, (roster, added) => {
+        const before = rosterHoles(settings, roster);
+        const after = rosterHoles(settings, [...roster, { positions: [added], status: 'active' }]);
+        expect(after.length).toBeLessThanOrEqual(before.length);
+        // Players who will not play never fill a hole.
+        const out = roster.filter((p) => WILL_NOT_PLAY_STATUSES.includes(p.status));
+        expect(
+          rosterHoles(
+            settings,
+            roster.filter((p) => !out.includes(p))
+          )
+        ).toEqual(before);
+      })
+    );
   });
 });
 

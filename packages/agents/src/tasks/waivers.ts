@@ -1,4 +1,14 @@
-import { hashString, suggestFaabBid, waiverMinGain, type ResearchAccess } from '@fantasy/core';
+import {
+  PlayerStatusSchema,
+  PositionSchema,
+  SLOT_ELIGIBILITY,
+  hashString,
+  rosterHoles,
+  suggestFaabBid,
+  waiverMinGain,
+  type ResearchAccess,
+  type RosterSlot
+} from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
@@ -79,7 +89,7 @@ export interface WaiverSuggestion {
   trendingCount: number;
 }
 
-interface WaiverPrep {
+export interface WaiverPrep {
   open: boolean;
   faabRemaining: number;
   roster: z.infer<typeof PlayerRef>[];
@@ -98,14 +108,24 @@ function noiseFor(ctx: TaskContext, playerId: string): number {
   return 1 + unit * spread;
 }
 
-async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
+/** A player worth a closer look, from trending adds or a roster hole. */
+interface Lead {
+  player: z.infer<typeof PlayerRef>;
+  /** Trending adds (0 for a hole's lead). */
+  count: number;
+}
+
+const CLOSED: WaiverPrep = { open: false, faabRemaining: 0, roster: [], suggestions: [] };
+
+/** Your team's FAAB when waivers are open; null when they are closed. */
+async function openTeam(ctx: TaskContext): Promise<{ faabRemaining: number } | null> {
   const state = optional(await ctx.tools.call('get_league_state', {}), StateSchema);
-  if (state === null || !state.flags.waiversOpen || state.yourTeam === null) {
-    return { open: false, faabRemaining: 0, roster: [], suggestions: [] };
-  }
-  const faabRemaining = state.yourTeam.faabRemaining;
-  // Previews bid the minimum, so a league without $0 bids does not block every waiver claim.
-  const minBid = ctx.league.settings.waivers.allowZeroBids ? 0 : 1;
+  return state === null || !state.flags.waiversOpen ? null : state.yourTeam;
+}
+
+async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
+  const team = await openTeam(ctx);
+  if (team === null) return CLOSED;
   const trending =
     optional(
       await ctx.tools.call('get_trending_players', {
@@ -115,7 +135,28 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
       }),
       TrendingSchema
     )?.players ?? [];
+  // Projected weekly points a pickup must add to be worth suggesting, by the archetype.
+  return scout(
+    ctx,
+    team.faabRemaining,
+    trending.slice(0, MAX_CANDIDATES),
+    waiverMinGain(ctx.config.waiverAggressiveness)
+  );
+}
 
+/**
+ * Checks each lead with preview_waiver_claim (is he available, does the roster need a drop),
+ * projects him against the weakest player on the roster, and suggests a FAAB bid. A pickup must add
+ * `minGain` projected weekly points over his drop.
+ */
+async function scout(
+  ctx: TaskContext,
+  faabRemaining: number,
+  leads: readonly Lead[],
+  minGain: number
+): Promise<WaiverPrep> {
+  // Previews bid the minimum, so a league without $0 bids does not block every waiver claim.
+  const minBid = ctx.league.settings.waivers.allowZeroBids ? 0 : 1;
   const candidates: {
     player: z.infer<typeof PlayerRef>;
     /** `blocked` only by a full roster: known once a drop is picked. */
@@ -124,7 +165,7 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
     count: number;
   }[] = [];
   let roster: z.infer<typeof PlayerRef>[] = [];
-  for (const entry of trending.slice(0, MAX_CANDIDATES)) {
+  for (const entry of leads) {
     const preview = optional(
       await ctx.tools.call('preview_waiver_claim', { playerId: entry.player.id, bid: minBid }),
       PreviewSchema
@@ -149,8 +190,6 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
   const points = new Map((projections?.projections ?? []).map((p) => [p.player.id, p.points]));
   const pts = (id: string) => points.get(id) ?? 0;
 
-  // Projected weekly points a pickup must add to be worth suggesting, by the archetype.
-  const minGain = waiverMinGain(ctx.config.waiverAggressiveness);
   const usedDrops = new Set<string>();
   const suggestions: WaiverSuggestion[] = [];
   for (const c of candidates.sort((a, b) => pts(b.player.id) - pts(a.player.id))) {
@@ -183,7 +222,7 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
       kind === 'add_now'
         ? 0
         : suggestFaabBid({
-            gain,
+            gain: Math.max(0, gain),
             faabRemaining,
             aggressiveness: ctx.config.waiverAggressiveness,
             noise: noiseFor(ctx, c.player.id),
@@ -207,6 +246,83 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
   };
 }
 
+const HoleRosterSchema = z.object({
+  players: z.array(z.object({ player: z.object({ position: PositionSchema }), status: PlayerStatusSchema }))
+});
+const FoundSchema = z.object({ players: z.array(PlayerRef) });
+
+/** Leads searched per position and availability (free agents, then players on waivers). */
+export const HOLE_LEADS = 2;
+
+export interface HoleScan extends WaiverPrep {
+  /** The starting slots the roster cannot fill with players who will play. */
+  holes: RosterSlot[];
+}
+
+/**
+ * The post-draft waiver scan (#175): the starting slots the roster cannot fill with players who
+ * will play (core `rosterHoles`: an empty kicker or defense slot, a starter out or on IR with no
+ * healthy backup), each with the best-ranked healthy players still available at an eligible
+ * position, scouted like any pickup but with no gain bar (a hole takes the best healthy body). At
+ * most one suggestion per hole. Waivers closed or no holes: no suggestions.
+ */
+export async function scanRosterHoles(ctx: TaskContext): Promise<HoleScan> {
+  const team = await openTeam(ctx);
+  const roster =
+    team === null
+      ? null
+      : optional(await ctx.tools.call('get_roster', { teamId: ctx.principal.teamId }), HoleRosterSchema);
+  if (team === null || roster === null) return { ...CLOSED, holes: [] };
+  const holes = rosterHoles(
+    ctx.league.settings,
+    roster.players.map((p) => ({ positions: [p.player.position], status: p.status }))
+  );
+  const leads: Lead[] = [];
+  for (const position of new Set(holes.flatMap((slot) => SLOT_ELIGIBILITY[slot]))) {
+    for (const availability of ['free_agent', 'waivers'] as const) {
+      const found = optional(
+        await ctx.tools.call('search_players', {
+          position,
+          leagueId: ctx.league.id,
+          availability,
+          injury: 'healthy',
+          limit: HOLE_LEADS
+        }),
+        FoundSchema
+      );
+      // Positions and availabilities do not overlap, so neither do the leads.
+      leads.push(...(found?.players ?? []).map((player) => ({ player, count: 0 })));
+    }
+  }
+  if (leads.length === 0)
+    return { open: true, faabRemaining: team.faabRemaining, roster: [], suggestions: [], holes };
+  const scouted = await scout(
+    ctx,
+    team.faabRemaining,
+    leads.slice(0, MAX_CANDIDATES),
+    Number.NEGATIVE_INFINITY
+  );
+  const unfilled = [...holes];
+  const suggestions = scouted.suggestions.filter((s) => {
+    const at = unfilled.findIndex((slot) =>
+      (SLOT_ELIGIBILITY[slot] as readonly string[]).includes(s.player.position)
+    );
+    if (at < 0) return false;
+    unfilled.splice(at, 1);
+    return true;
+  });
+  return { ...scouted, suggestions, holes };
+}
+
+/** The scouting's suggestions as claims, most wanted first. */
+export function suggestedClaims(prep: Pick<WaiverPrep, 'suggestions'>): WaiverDecision['claims'] {
+  return prep.suggestions.map((s) => ({
+    playerId: s.player.id,
+    ...(s.drop === null ? {} : { dropPlayerId: s.drop.id }),
+    bid: s.bid
+  }));
+}
+
 /**
  * One suggestion as the model sees it. The scouting behind it used full research (deterministic
  * code), but the prompt only repeats what the agent's own research access could have found:
@@ -223,6 +339,63 @@ function describeSuggestion(s: WaiverSuggestion, research: ResearchAccess): stri
 /** Claims actually submitted: at most the difficulty's actions per trigger, whatever the model returns. */
 export function claimsToApply<T>(claims: readonly T[], actionsPerTrigger: number): T[] {
   return claims.slice(0, Math.max(0, actionsPerTrigger));
+}
+
+/**
+ * Submits claims through claim_waiver, the same tool a person's UI uses: never more than the
+ * difficulty's `actionsPerTrigger`, each bid within the FAAB left. Bids on players still on waivers
+ * are sealed in the activity log until the claims are processed.
+ */
+export async function submitClaims(
+  ctx: TaskContext,
+  prep: Pick<WaiverPrep, 'open' | 'faabRemaining'>,
+  wanted: WaiverDecision['claims'],
+  summary: string
+): Promise<TaskOutcome> {
+  const claims = claimsToApply(wanted, ctx.config.levers.actionsPerTrigger);
+  if (!prep.open || claims.length === 0) {
+    return { action: 'none', summary };
+  }
+  const made: string[] = [];
+  const failed: string[] = [];
+  const pending: string[] = [];
+  for (const claim of claims) {
+    const bid = Math.min(Math.max(0, claim.bid), prep.faabRemaining);
+    const result = await ctx.tools.call('claim_waiver', {
+      playerId: claim.playerId,
+      ...(claim.dropPlayerId === undefined ? {} : { dropPlayerId: claim.dropPlayerId }),
+      bid
+    });
+    if ('error' in result) failed.push(`${claim.playerId} (${result.error.code})`);
+    else {
+      made.push(`${claim.playerId} ($${bid})`);
+      const id = ClaimResultSchema.safeParse(result.data).data?.claim?.id;
+      if (id !== undefined) pending.push(id);
+    }
+  }
+  const skipped = wanted.length - claims.length;
+  const outcome: TaskOutcome = {
+    action: made.length > 0 ? 'claim_waiver' : 'claims_failed',
+    summary: [
+      summary,
+      made.length > 0 ? `Claimed: ${made.join(', ')}.` : '',
+      failed.length > 0 ? `Refused: ${failed.join(', ')}.` : '',
+      skipped > 0 ? `Ignored ${skipped} more claim(s) over the action limit.` : ''
+    ]
+      .filter((s) => s.length > 0)
+      .join(' '),
+    // Bids on players still on waivers are secret until the claims are processed.
+    ...(pending.length === 0
+      ? {}
+      : {
+          sealed: {
+            summary: `Made ${made.length} waiver claim(s); players and bids are hidden until waivers are processed.`,
+            trades: [],
+            waiverClaims: pending
+          }
+        })
+  };
+  return outcome;
 }
 
 export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPrep>({
@@ -261,52 +434,7 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
       `Check anyone you are unsure about with your research tools, then answer with the \`claims\` to make (most wanted first, at most ${most}; any more are ignored), each with a \`bid\` and a \`dropPlayerId\` when your roster is full. Keep FAAB for the rest of the season: bid big only on a real starter. An empty list is fine.`
     ].join('\n');
   },
-  async apply(ctx, _payload, prep, decision) {
-    const claims = claimsToApply(decision.claims, ctx.config.levers.actionsPerTrigger);
-    if (!prep.open || claims.length === 0) {
-      return { action: 'none', summary: decision.summary };
-    }
-    const made: string[] = [];
-    const failed: string[] = [];
-    const pending: string[] = [];
-    for (const claim of claims) {
-      const bid = Math.min(Math.max(0, claim.bid), prep.faabRemaining);
-      const result = await ctx.tools.call('claim_waiver', {
-        playerId: claim.playerId,
-        ...(claim.dropPlayerId === undefined ? {} : { dropPlayerId: claim.dropPlayerId }),
-        bid
-      });
-      if ('error' in result) failed.push(`${claim.playerId} (${result.error.code})`);
-      else {
-        made.push(`${claim.playerId} ($${bid})`);
-        const id = ClaimResultSchema.safeParse(result.data).data?.claim?.id;
-        if (id !== undefined) pending.push(id);
-      }
-    }
-    const skipped = decision.claims.length - claims.length;
-    const outcome: TaskOutcome = {
-      action: made.length > 0 ? 'claim_waiver' : 'claims_failed',
-      summary: [
-        decision.summary,
-        made.length > 0 ? `Claimed: ${made.join(', ')}.` : '',
-        failed.length > 0 ? `Refused: ${failed.join(', ')}.` : '',
-        skipped > 0 ? `Ignored ${skipped} more claim(s) over the action limit.` : ''
-      ]
-        .filter((s) => s.length > 0)
-        .join(' '),
-      // Bids on players still on waivers are secret until the claims are processed.
-      ...(pending.length === 0
-        ? {}
-        : {
-            sealed: {
-              summary: `Made ${made.length} waiver claim(s); players and bids are hidden until waivers are processed.`,
-              trades: [],
-              waiverClaims: pending
-            }
-          })
-    };
-    return outcome;
-  },
+  apply: (ctx, _payload, prep, decision) => submitClaims(ctx, prep, decision.claims, decision.summary),
   fallback: async () => ({ action: 'none', summary: 'No waiver claims without a model decision.' }),
   fakeScript: (_ctx, _payload, prep) => ({
     steps: [],
@@ -315,11 +443,7 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
         prep.suggestions.length === 0
           ? 'Nothing worth a claim this window.'
           : 'Going after the best trending pickups.',
-      claims: prep.suggestions.map((s) => ({
-        playerId: s.player.id,
-        ...(s.drop === null ? {} : { dropPlayerId: s.drop.id }),
-        bid: s.bid
-      }))
+      claims: suggestedClaims(prep)
     }
   })
 });

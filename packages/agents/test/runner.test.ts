@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import type { ModelClient, ModelRunRequest, ModelRunResult } from '../src/model.js';
+import { taskIdFor } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
 import { lineupTask } from '../src/tasks/lineup.js';
 import { noopTask } from '../src/tasks/noop.js';
@@ -373,6 +374,54 @@ describe('runAgentAction with the fake model', () => {
     });
     expect(model.transcript[0]?.modelId).toBe('moonshot.kimi-k2-thinking');
     expect(model.transcript[0]?.input).toContain('Lineup Lock Approaching');
+  });
+
+  it('requests follow-up tasks from an outcome, and a failed request never fails the task', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, PRO);
+    const handOff = {
+      ...noopTaskSpec(),
+      kind: 'kickoff',
+      apply: async () => ({
+        action: 'none',
+        summary: 'ok',
+        followUps: [
+          { kind: 'noop', payload: { note: 'now' } },
+          { kind: 'noop2', payload: {}, delayMs: 60_000 }
+        ]
+      })
+    };
+    const kinds = createTaskKindRegistry([defineTaskKind(handOff)]);
+    const record = await runAgentAction(
+      s.deps(new ScriptedModelClient(), { kinds }),
+      request({ kind: 'kickoff', payload: {} })
+    );
+    expect(record.status).toBe('completed');
+    expect(s.events.events.find((e) => e.detailType === 'Agent Action Requested')?.detail).toMatchObject({
+      taskId: taskIdFor('evt-1', AGENT_TEAM, 'noop'),
+      kind: 'noop',
+      payload: { note: 'now' },
+      trigger: { detailType: 'Lineup Lock Approaching', eventId: 'evt-1' }
+    });
+    const later = s.events.events.find((e) => e.detailType === 'Schedule Event')?.detail as {
+      at: string;
+      event: { detail: { taskId: string } };
+    };
+    expect(Date.parse(later.at) - s.clock.now().getTime()).toBe(60_000);
+    expect(later.event.detail.taskId).toBe(taskIdFor('evt-1', AGENT_TEAM, 'noop2'));
+
+    // The follow-up is lost when the bus refuses it; the task's own decision stands.
+    const broken = await setup();
+    await broken.seat(AGENT_TEAM, PRO);
+    broken.services.events.publish = async () => {
+      throw new Error('bus down');
+    };
+    const kept = await runAgentAction(
+      broken.deps(new ScriptedModelClient(), { kinds }),
+      request({ kind: 'kickoff', payload: {} })
+    );
+    expect(kept.status).toBe('completed');
+    expect(broken.logs.some((l) => l.includes('follow-up task could not be requested'))).toBe(true);
   });
 
   describe('security', () => {

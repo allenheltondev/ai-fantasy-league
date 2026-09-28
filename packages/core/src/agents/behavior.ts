@@ -61,6 +61,17 @@ export function tradeAppetite(config: Pick<ResolvedAgentConfig, 'tradeFrequency'
   };
 }
 
+/** The trade frequency from which an archetype takes an early trade look right after the draft (#175). */
+export const EARLY_TRADE_MIN_FREQUENCY = 0.6;
+
+/**
+ * True for archetypes with a high trade appetite (trade-happy and up): right after the draft they
+ * shop for one trade instead of waiting for the first weekly rollover.
+ */
+export function wantsEarlyTradeLook(config: Pick<ResolvedAgentConfig, 'tradeFrequency'>): boolean {
+  return clamp01(config.tradeFrequency) >= EARLY_TRADE_MIN_FREQUENCY;
+}
+
 /** The fairness numbers of a trade (preview_trade `fairness`, core `tradeValue`). */
 export interface TradeFairness {
   lineupGap: number;
