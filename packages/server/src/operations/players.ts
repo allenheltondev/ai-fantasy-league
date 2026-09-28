@@ -15,6 +15,27 @@ import {
   standingView
 } from '../players/availability.js';
 import { defineOperation } from '../registry/operation.js';
+import { WILL_NOT_PLAY_STATUSES } from '@fantasy/core';
+import type { Player } from '../players/model.js';
+import { playerStatus } from '../season/lineups.js';
+
+export const INJURY_FILTERS = ['healthy', 'injured', 'questionable', 'doubtful', 'out'] as const;
+type InjuryFilter = (typeof INJURY_FILTERS)[number];
+
+/** Whether a player's injury designation matches the `injury` filter. */
+export function matchesInjury(player: Player, filter: InjuryFilter): boolean {
+  const status = playerStatus(player);
+  switch (filter) {
+    case 'healthy':
+      return status === 'active';
+    case 'injured':
+      return status !== 'active';
+    case 'out':
+      return WILL_NOT_PLAY_STATUSES.includes(status);
+    default:
+      return status === filter;
+  }
+}
 
 /** `detail` arrives as a string in a query and as a boolean in JSON; both parse here. */
 export const detailFlag = z
@@ -32,7 +53,8 @@ export const searchPlayers = defineOperation({
     '`q` matches full names, last names, name prefixes, nicknames ("CMC"), and small typos; add a team or position to narrow it ("mccaffrey sf", "allen qb").',
     'With no `q`, returns the best-ranked players that match `position` and `team`.',
     'Results are ranked best match first.',
-    'Pass your `leagueId` to see where each player stands in your league (`availability`: free_agent, waivers with the time he clears, or rostered with the team), and add `availability` to list only those players, e.g. `availability: "free_agent"` for pickups you can add right now with claim_waiver.'
+    'Pass your `leagueId` to see where each player stands in your league (`availability`: free_agent, waivers with the time he clears, or rostered with the team), and add `availability` to list only those players, e.g. `availability: "free_agent"` for pickups you can add right now with claim_waiver.',
+    'Filter by health with `injury`: `healthy` (no designation), `injured` (any designation), `questionable`, `doubtful`, or `out` (out, IR, PUP, NFI, or suspended). `detail: true` adds each player’s status and injury designation.'
   ].join(' '),
   tags: ['players'],
   mutation: false,
@@ -50,7 +72,13 @@ export const searchPlayers = defineOperation({
       .min(1)
       .optional()
       .describe('Your league id: adds each player’s league availability. Required with `availability`.'),
-    availability: AvailabilitySchema.optional()
+    availability: AvailabilitySchema.optional(),
+    injury: z
+      .enum(INJURY_FILTERS)
+      .optional()
+      .describe(
+        'Health filter: healthy, injured (any designation), questionable, doubtful, or out (out, IR, PUP, NFI, suspended).'
+      )
   }),
   output: z.object({
     players: z.array(PlayerDetailSchema.extend({ availability: StandingSchema.optional() }))
@@ -61,23 +89,26 @@ export const searchPlayers = defineOperation({
         fix: 'Pass `leagueId` with `availability`, or drop `availability` to search every player.'
       });
     }
-    const players = await ctx.data.players.search({
+    const filtered = input.availability !== undefined || input.injury !== undefined;
+    const found = await ctx.data.players.search({
       query: input.q,
       position: input.position,
       team: input.team,
-      limit: input.availability === undefined ? input.limit : AVAILABILITY_SEARCH_POOL
+      limit: filtered ? AVAILABILITY_SEARCH_POOL : input.limit
     });
+    const injury = input.injury;
+    const players = injury === undefined ? found : found.filter((p) => matchesInjury(p, injury));
     if (input.leagueId === undefined) {
-      return { players: players.map((p) => toPlayerDetail(p, input.detail)) };
+      return { players: players.slice(0, input.limit).map((p) => toPlayerDetail(p, input.detail)) };
     }
-    const filtered = await applyAvailability(ctx, players, {
+    const inLeague = await applyAvailability(ctx, players, {
       leagueId: input.leagueId,
       availability: input.availability
     });
     return {
-      players: filtered.players.slice(0, input.limit).map((p) => ({
+      players: inLeague.players.slice(0, input.limit).map((p) => ({
         ...toPlayerDetail(p, input.detail),
-        availability: standingView(filtered.standingOf(p))
+        availability: standingView(inLeague.standingOf(p))
       }))
     };
   }

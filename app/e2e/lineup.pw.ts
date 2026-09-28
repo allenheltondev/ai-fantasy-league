@@ -31,6 +31,8 @@ test('a manager swaps a bench player into the lineup and sees it saved', async (
   // Both lineups show on the matchup page.
   await page.getByRole('link', { name: 'Matchup' }).click();
   await expect(page.getByRole('region', { name: "season-e2e's Team" })).toContainText('Patrick Mahomes');
+  // The outlook panel (get_matchup_outlook) shows the win probability.
+  await expect(page.getByTestId('win-probability')).toContainText('to win');
 
   // Put Allen back for the next run.
   await page.getByRole('link', { name: 'Roster' }).click();

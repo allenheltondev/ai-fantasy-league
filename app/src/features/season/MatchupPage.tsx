@@ -5,6 +5,7 @@ import type { MatchupLineup, MatchupSide } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
+import { MatchupOutlookPanel } from './MatchupOutlookPanel';
 import { isStarter } from './slots';
 
 /** How often live scores refresh without realtime. The server recomputes them on every read. */
@@ -78,6 +79,10 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
     <div data-testid="league-section-matchup" className="space-y-4">
       <h2 className="text-xl font-semibold">Matchup</h2>
       {body}
+      <MatchupOutlookPanel
+        leagueId={leagueId}
+        pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
+      />
     </div>
   );
 }
