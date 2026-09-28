@@ -28,9 +28,11 @@ function knownKeysAt(path: readonly PropertyKey[]): readonly string[] {
   if (joinPath(path) === 'roster.slots') return ROSTER_SLOTS;
   let schema: unknown = LeagueSettingsSchema;
   for (const seg of path) {
+    if (schema instanceof z.ZodDefault) schema = schema.unwrap();
     if (!(schema instanceof z.ZodObject)) return [];
     schema = (schema.shape as Record<string, unknown>)[String(seg)];
   }
+  if (schema instanceof z.ZodDefault) schema = schema.unwrap();
   return schema instanceof z.ZodObject ? Object.keys(schema.shape as Record<string, unknown>) : [];
 }
 
@@ -367,7 +369,8 @@ export const SETTINGS_EDITABILITY: Readonly<Record<string, SettingEditability>> 
   'waivers.faabTiebreak': 'any_time',
   'waivers.maxAcquisitionsPerWeek': 'any_time',
   trades: 'any_time',
-  playoffs: 'pre_draft'
+  playoffs: 'pre_draft',
+  draft: 'pre_draft'
 };
 
 export function settingEditability(path: string): SettingEditability {

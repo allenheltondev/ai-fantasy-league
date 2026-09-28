@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router';
 import { AuthProvider } from '@readysetcloud/ui/auth';
 import { ForgotPasswordPage, LoginPage, SignUpPage } from './auth/AuthScreens';
+import { DraftPage } from './draft/DraftPage';
 import { RequireSignIn } from './auth/RequireSignIn';
 import { AppLayout } from './layout/AppLayout';
 import {
@@ -36,7 +37,9 @@ export function App() {
               <Route
                 key={section.path}
                 path={section.path}
-                element={<LeagueSectionPage section={section.path} />}
+                element={
+                  section.path === 'draft' ? <DraftPage /> : <LeagueSectionPage section={section.path} />
+                }
               />
             ))}
           </Route>

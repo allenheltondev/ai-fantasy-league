@@ -1,6 +1,6 @@
 /**
  * Local API server for `npm run dev`: the Hono node adapter, dynalite (in-process
- * DynamoDB) seeded with fixture players, in-memory events, and optional dev sign-in.
+ * DynamoDB) seeded with the fixture draft pool, in-memory events, and optional dev sign-in.
  *
  * Dev sign-in (`Authorization: Bearer dev` or `Bearer dev:<handle>`) is only on when
  * FANTASY_LOCAL_AUTH=1, and never inside Lambda (see auth/dev.ts).
@@ -17,7 +17,7 @@ import { InMemoryEventPublisher } from './events/publisher.js';
 import { createApp } from './http/app.js';
 import { createLogger, parseLogLevel, type Logger } from './log.js';
 import { registry } from './operations/index.js';
-import { fixturePlayers } from './players/fixtures.js';
+import { fixtureDraftPool } from './players/fixtures.js';
 import { createDynamoRepos } from './repos/dynamo/index.js';
 import { limitsFromEnv } from './context.js';
 import { createDynamoReferenceStore } from './repos/dynamo/reference.js';
@@ -51,7 +51,7 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
   const log = options.log ?? createLogger({ level: parseLogLevel(env.LOG_LEVEL) });
   const table = await startLocalTable();
   const repos = createDynamoRepos(table);
-  await repos.players.putMany(fixturePlayers);
+  await repos.players.putMany(fixtureDraftPool);
   const events = new InMemoryEventPublisher();
   const services = createServices({
     clock: options.clock ?? systemClock,
