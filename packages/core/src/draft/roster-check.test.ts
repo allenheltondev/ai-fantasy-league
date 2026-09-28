@@ -68,9 +68,13 @@ describe('draftRosterIssue', () => {
   });
 });
 
-/** A deep player pool: enough of every position for four teams. */
+/**
+ * A player pool as deep as the NFL's at every position (32 teams, so 32 defenses and kickers). A
+ * pool of 8 DEF let random manual picks hoard every defense before a team filled its DEF slot, a
+ * supply shortage no roster rule can prevent and no real league has.
+ */
 function pool(): DraftablePlayer[] {
-  const counts: Record<string, number> = { QB: 16, RB: 30, WR: 36, TE: 14, K: 8, DEF: 8 };
+  const counts: Record<string, number> = { QB: 32, RB: 60, WR: 80, TE: 32, K: 32, DEF: 32 };
   return Object.entries(counts).flatMap(([pos, n]) =>
     Array.from({ length: n }, (_, i) => ({ playerId: `${pos}-${i}`, positions: [pos as Position] }))
   );
@@ -109,5 +113,42 @@ describe('draft roster properties', () => {
       ),
       { numRuns: 60 }
     );
+  });
+
+  it('holds for the manual DEF run that exhausted the old 8-DEF pool (CI seed -1854449322)', () => {
+    const players = pool();
+    const def = (n: number) => players.findIndex((p) => p.playerId === `DEF-${n}`);
+    const manualAt = new Map([
+      [0, def(1)],
+      [3, def(0)],
+      [16, def(2)],
+      [19, def(6)],
+      [24, def(4)],
+      [28, def(3)],
+      [32, def(5)]
+    ]);
+    let d = draft();
+    const ranks = players.map((p) => p.playerId);
+    let i = 0;
+    while (!isComplete(d)) {
+      const slot = currentPick(d)!;
+      const wanted = manualAt.get(i);
+      const choice =
+        wanted !== undefined &&
+        draftRosterIssue(d, slot.teamId, players[wanted]!.positions, settings) === null
+          ? players[wanted]!
+          : autopick(d, players, ranks, settings)!;
+      expect(draftRosterIssue(d, slot.teamId, choice.positions, settings)).toBeNull();
+      d = take(d, choice.playerId, [...choice.positions]);
+      i++;
+    }
+    for (const team of d.teamIds) {
+      expect(
+        unfilledStarterSlots(
+          settings,
+          teamPicks(d, team).map((p) => p.positions)
+        )
+      ).toEqual([]);
+    }
   });
 });

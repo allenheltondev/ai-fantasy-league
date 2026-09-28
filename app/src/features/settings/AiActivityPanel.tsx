@@ -13,6 +13,7 @@ import type { AgentTaskRecord, TeamDetail } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { formatUsd } from '../season/ModelLeaderboardPanel';
+import { TableScroll } from '../../components/TableScroll';
 
 const STATUS: Record<AgentTaskRecord['status'], { tone: StatusBadgeTone; label: string }> = {
   completed: { tone: 'success', label: 'Model decided' },
@@ -87,26 +88,28 @@ export function AiActivityPanel({ leagueId, teams }: { leagueId: string; teams: 
         <h4 id="agent-spend-title" className="font-semibold">
           Spend by agent
         </h4>
-        <table className="w-full text-sm" aria-label="Spend by agent">
-          <thead>
-            <tr className="text-left text-muted-foreground">
-              <th scope="col">Team</th>
-              <th scope="col">Spent</th>
-              <th scope="col">Allowance</th>
-              <th scope="col">Tasks</th>
-            </tr>
-          </thead>
-          <tbody>
-            {budget.byAgent.map((a) => (
-              <tr key={a.agentId}>
-                <td>{teamName(a.teamId)}</td>
-                <td>{formatUsd(a.costUsd)}</td>
-                <td>{formatUsd(a.allowanceUsd)}</td>
-                <td>{a.tasks}</td>
+        <TableScroll label="Spend by agent">
+          <table className="w-full text-sm" aria-label="Spend by agent">
+            <thead>
+              <tr className="text-left text-muted-foreground">
+                <th scope="col">Team</th>
+                <th scope="col">Spent</th>
+                <th scope="col">Allowance</th>
+                <th scope="col">Tasks</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {budget.byAgent.map((a) => (
+                <tr key={a.agentId}>
+                  <td>{teamName(a.teamId)}</td>
+                  <td>{formatUsd(a.costUsd)}</td>
+                  <td>{formatUsd(a.allowanceUsd)}</td>
+                  <td>{a.tasks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroll>
       </section>
 
       <section aria-labelledby="decision-log-title" className="space-y-3">

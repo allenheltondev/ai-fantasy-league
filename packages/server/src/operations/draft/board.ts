@@ -47,6 +47,12 @@ const RecapEntrySchema = SlotSchema.omit({ pick: true }).extend({
   reason: z.string().nullable()
 });
 
+const ByeSchema = z
+  .number()
+  .int()
+  .nullable()
+  .describe("The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent).");
+
 export const DraftBoardSchema = z.object({
   status: z.enum(DRAFT_STATUSES).describe('`in_progress`, `paused` (clock frozen), or `complete`.'),
   rounds: z.number().int(),
@@ -73,7 +79,8 @@ export const DraftBoardSchema = z.object({
       auto: z.boolean().describe('True when autopick made it (clock expired).'),
       madeAt: z.string().nullable(),
       adp: z.number().nullable().describe("The player's consensus rank when he was picked."),
-      reason: z.string().nullable().describe('Why the team made the pick, in its own words.')
+      reason: z.string().nullable().describe('Why the team made the pick, in its own words.'),
+      bye: ByeSchema
     })
   ),
   recap: z
@@ -93,7 +100,12 @@ export const DraftBoardSchema = z.object({
     .array(
       z.object({
         player: PlayerRefSchema,
-        rank: z.number().int().nullable().describe('Consensus overall rank (ADP stand-in); lower is better.')
+        rank: z.number().int().nullable().describe('Consensus overall rank (ADP stand-in); lower is better.'),
+        bye: ByeSchema,
+        injuryStatus: z
+          .string()
+          .nullable()
+          .describe('Injury designation such as "Questionable", "Out", or "IR"; null when healthy.')
       })
     )
     .describe('Best-ranked undrafted players, filtered by `position` and `q` when given.')
@@ -126,6 +138,8 @@ export async function buildBoard(
     record: DraftRecord;
     teams: readonly Team[];
     settings: LeagueSettings;
+    /** NFL season year, for bye weeks. */
+    season: number;
     yourTeamId: string | null;
     query: BoardQuery;
   }
@@ -136,6 +150,11 @@ export async function buildBoard(
   const name = (id: string) => teams.find((t) => t.id === id)?.name ?? id;
   const pool = await draftPool(ctx);
   const players = new Map((await ctx.data.players.all()).map((p) => [p.id, p]));
+  const byes = (await ctx.data.reference.schedule.getSeason(input.season))?.byes ?? {};
+  const byeOf = (id: string) => {
+    const team = players.get(id)?.team ?? null;
+    return team === null ? null : (byes[team] ?? null);
+  };
   // A drafted player who has since left the player index still shows, by id.
   const ref = (id: string, positions: readonly string[]) => {
     const p = players.get(id);
@@ -152,7 +171,8 @@ export async function buildBoard(
     auto: p.auto,
     madeAt: p.madeAt,
     adp: p.adp ?? null,
-    reason: p.reason ?? null
+    reason: p.reason ?? null,
+    bye: byeOf(p.playerId)
   }));
   const slot = currentPick(state);
   const drafted = new Set(state.picks.map((p) => p.playerId));
@@ -162,7 +182,12 @@ export async function buildBoard(
     { query: input.query.q, position: input.query.position }
   )
     .slice(0, limit)
-    .map((m) => ({ player: toPlayerRef(m.player), rank: m.player.rank }));
+    .map((m) => ({
+      player: toPlayerRef(m.player),
+      rank: m.player.rank,
+      bye: byeOf(m.player.id),
+      injuryStatus: m.player.injuryStatus
+    }));
 
   const away = yourTeamId === null ? null : picksUntilTurn(state, yourTeamId);
   const next = away === null ? null : pickSlot(state, state.picks.length + 1 + away);

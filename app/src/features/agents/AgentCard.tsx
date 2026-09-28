@@ -24,29 +24,38 @@ export function AgentCard({ seatLabel, config, catalog, onChange, onShuffle, bus
   const name = personality?.displayName ?? config.personalityId;
 
   return (
-    <Card data-testid="agent-card" aria-label={`${seatLabel}: ${name}`}>
+    <Card data-testid="agent-card" aria-label={`${seatLabel}: ${name}`} className="min-w-0">
       <CardBody className="space-y-3">
         <div className="flex items-start gap-3">
           <AgentAvatar seed={personality?.avatarSeed ?? config.personalityId} label={`${name} avatar`} />
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{seatLabel}</p>
-            <h3 className="font-display text-lg font-semibold leading-tight">{name}</h3>
-            <p className="truncate text-sm text-muted-foreground" title={personality?.bio}>
+            <h3 className="break-words font-display text-base font-semibold leading-tight sm:text-lg">
+              {name}
+            </h3>
+            <p
+              className="line-clamp-2 text-sm text-muted-foreground sm:line-clamp-1"
+              title={personality?.bio}
+            >
               {personality?.bio}
             </p>
           </div>
-          <StatusBadge tone={difficultyTone(catalog, config.difficulty)} data-testid="difficulty-pill">
+          <StatusBadge
+            tone={difficultyTone(catalog, config.difficulty)}
+            data-testid="difficulty-pill"
+            className="shrink-0"
+          >
             {difficulty?.displayName ?? config.difficulty}
           </StatusBadge>
         </div>
         {archetype && (
-          <p className="text-sm">
+          <p className="break-words text-sm">
             <span className="text-muted-foreground">Strategy:</span> {archetype.displayName}
           </p>
         )}
         {onChange && (
           <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-40 flex-1">
+            <div className="w-full min-w-0 sm:w-auto sm:min-w-40 sm:flex-1">
               <Select
                 label="Difficulty"
                 value={config.difficulty}
