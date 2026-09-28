@@ -81,6 +81,7 @@ export const STAT_LABELS: Readonly<Record<string, string>> = {
   ff: 'Forced fumbles (team defense)',
   def_td: 'Defensive touchdowns',
   def_st_td: 'Special teams touchdowns (team defense)',
+  def_st_fum_rec: 'Special teams fumble recoveries (team defense)',
   def_2pt: 'Two-point conversion returns (team defense)',
   safe: 'Safeties',
   blk_kick: 'Blocked kicks',
@@ -146,6 +147,7 @@ const YAHOO_BASE_PER_STAT: Readonly<Record<string, number>> = {
   fum_rec: 2,
   def_td: 6,
   def_st_td: 6,
+  def_st_fum_rec: 2,
   def_2pt: 2,
   safe: 2,
   blk_kick: 2

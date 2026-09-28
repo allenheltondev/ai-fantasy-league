@@ -120,11 +120,36 @@ export function normalizeStatMap(raw: Record<string, number | null>): StatMap {
   return stats;
 }
 
-/** Weekly stats or projections → stat lines, sorted by player id. Empty stat maps are dropped. */
-export function normalizeWeekStats(raw: SleeperWeekStats, season: number, week: number): StatLine[] {
+/** A team defense's id is its team code (`KC`); Sleeper's `TEAM_KC` team-total lines are not. */
+export function isTeamDefenseId(playerId: string): boolean {
+  return /^[A-Z]{2,3}$/.test(playerId);
+}
+
+/**
+ * Sleeper leaves zero-valued stats out of a stat line, so a shutout's team defense line has no
+ * `pts_allow`, and the points-allowed tier (10 for a shutout) would not apply. A team defense
+ * that played (`gp` > 0) with no `pts_allow` allowed 0.
+ */
+export function withShutout(playerId: string, stats: StatMap): StatMap {
+  if (!isTeamDefenseId(playerId) || !(Number(stats.gp) > 0) || stats.pts_allow !== undefined) return stats;
+  return { ...stats, pts_allow: 0 };
+}
+
+/**
+ * Weekly stats or projections → stat lines, sorted by player id. Empty stat maps are dropped.
+ * Final stats (`kind: 'stats'`) get the shutout's `pts_allow: 0` back (`withShutout`); a
+ * projection without `pts_allow` has no projection for it.
+ */
+export function normalizeWeekStats(
+  raw: SleeperWeekStats,
+  season: number,
+  week: number,
+  kind: 'stats' | 'projections' = 'stats'
+): StatLine[] {
   const lines: StatLine[] = [];
   for (const [playerId, values] of Object.entries(raw)) {
-    const stats = normalizeStatMap(values);
+    const map = normalizeStatMap(values);
+    const stats = kind === 'stats' ? withShutout(playerId, map) : map;
     if (Object.keys(stats).length > 0) lines.push({ playerId, season, week, stats });
   }
   return lines.sort((a, b) => compareIds(a.playerId, b.playerId));

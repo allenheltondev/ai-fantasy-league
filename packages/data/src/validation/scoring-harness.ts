@@ -1,6 +1,8 @@
 import {
   nflverseReferenceScoring,
+  sleeperDefaultDifference,
   sleeperReferenceScoring,
+  SLEEPER_KEYS_MISSING_FROM_EARLY_RECORDINGS,
   validateScoring,
   type KnownDifference,
   type ScoringCase,
@@ -8,6 +10,7 @@ import {
 } from '@fantasy/core';
 import { csvNumber, csvValue, parseCsvObjects } from '../nflverse/csv.js';
 import { mapNflverseStats, STATS_REQUIRED_COLUMNS } from '../nflverse/stats.js';
+import { normalizeStatMap, withShutout } from '../sleeper/normalize.js';
 
 /**
  * The scoring validation harness (#30): runs the scoring engine over recorded stat lines and
@@ -20,12 +23,21 @@ import { mapNflverseStats, STATS_REQUIRED_COLUMNS } from '../nflverse/stats.js';
  * Known, intended differences are explained (and listed in docs/rules.md); anything else is a bug.
  */
 
-type SleeperStatsFile = Readonly<Record<string, Readonly<Record<string, number | null | undefined>>>>;
+type SleeperStatsFile = Readonly<Record<string, Readonly<Record<string, number | null>>>>;
 
-/** One case per player in a Sleeper stats file that has precomputed points. */
+/** Sleeper's team-total lines (`TEAM_KC`): a whole team's offense and defense summed, not a player. */
+const TEAM_TOTAL = /^TEAM_/;
+
+/**
+ * One case per player in a Sleeper stats file that has precomputed points, normalized the way the
+ * live provider normalizes them (a shutout gets `pts_allow: 0` back). Team-total lines are skipped:
+ * no league rosters them, and their totals mix offense and defense.
+ */
 export function sleeperScoringCases(file: SleeperStatsFile, label: string): ScoringCase[] {
   const cases: ScoringCase[] = [];
-  for (const [playerId, stats] of Object.entries(file)) {
+  for (const [playerId, raw] of Object.entries(file)) {
+    if (TEAM_TOTAL.test(playerId)) continue;
+    const stats = withShutout(playerId, normalizeStatMap(raw));
     const expected: ScoringCase['expected'] = {};
     if (typeof stats.pts_ppr === 'number') expected.ppr = stats.pts_ppr;
     if (typeof stats.pts_half_ppr === 'number') expected.half_ppr = stats.pts_half_ppr;
@@ -35,8 +47,17 @@ export function sleeperScoringCases(file: SleeperStatsFile, label: string): Scor
   return cases;
 }
 
+/** True for a set recorded before the recorder kept `ff`, `st_ff`, and `st_fum_rec` (none appears). */
+export function isEarlySleeperRecording(file: SleeperStatsFile): boolean {
+  return !Object.values(file).some((stats) =>
+    SLEEPER_KEYS_MISSING_FROM_EARLY_RECORDINGS.some((key) => key in stats)
+  );
+}
+
 export function validateSleeperStats(file: SleeperStatsFile, label: string): ScoringReport {
-  return validateScoring(sleeperScoringCases(file, label), sleeperReferenceScoring);
+  return validateScoring(sleeperScoringCases(file, label), sleeperReferenceScoring, [
+    sleeperDefaultDifference({ missingKeys: isEarlySleeperRecording(file) })
+  ]);
 }
 
 /** Offensive fumbles nflverse charges in `fantasy_points`; `fumbles_lost_total` also has returns. */

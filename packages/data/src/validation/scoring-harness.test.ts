@@ -1,8 +1,9 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { formatScoringReport } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
 import { FIXTURES, fixtureJson, fixtureText } from '../../test/helpers.js';
 import {
+  isEarlySleeperRecording,
   nflverseScoringCases,
   returnFumbleDifference,
   sleeperScoringCases,
@@ -18,14 +19,11 @@ import {
 
 type SleeperFile = Parameters<typeof validateSleeperStats>[0];
 
-const sleeperFiles = [
-  ...readdirSync(new URL('sleeper/', FIXTURES))
-    .filter((f) => /^stats_regular_\d+_\d+\.json$/.test(f))
-    .map((f) => `sleeper/${f}`),
-  ...(existsSync(new URL('sleeper/scoring/', FIXTURES))
-    ? readdirSync(new URL('sleeper/scoring/', FIXTURES)).map((f) => `sleeper/scoring/${f}`)
-    : [])
-];
+/**
+ * Real Sleeper recordings only. The curated `sleeper/stats_regular_*` fixtures are hand-authored,
+ * so their pts_* are ours, not Sleeper's, and prove nothing here.
+ */
+const sleeperFiles = readdirSync(new URL('sleeper/scoring/', FIXTURES)).map((f) => `sleeper/scoring/${f}`);
 const nflverseFiles = readdirSync(new URL('nflverse/', FIXTURES))
   .filter((f) => /^(scoring_sample|stats_player_week)_\d+\.csv$/.test(f))
   .map((f) => `nflverse/${f}`);
@@ -40,6 +38,28 @@ describe('scoring validation against recorded totals', () => {
     const report = validateSleeperStats(fixtureJson(file) as SleeperFile, file);
     expect(report.comparisons).toBeGreaterThan(0);
     expect(report.unexplained, formatScoringReport(report)).toEqual([]);
+  });
+
+  it('explains the recorded Sleeper weeks only by the documented classes (docs/rules.md)', () => {
+    const seen = new Set<string>();
+    for (const file of sleeperFiles) {
+      const report = validateSleeperStats(fixtureJson(file) as SleeperFile, file);
+      for (const m of report.explained) {
+        for (const part of (m.explanation ?? '').split('; ')) seen.add(part.split(' ')[0] ?? '');
+      }
+    }
+    expect([...seen].sort()).toEqual(
+      [
+        'def-special-teams-fumble-recoveries',
+        'idp',
+        'missed-kicks',
+        'missing-keys',
+        'points-allowed-14-20'
+      ].sort()
+    );
+    // The committed weeks predate the recorder keeping ff, st_ff, and st_fum_rec.
+    for (const file of sleeperFiles)
+      expect(isEarlySleeperRecording(fixtureJson(file) as SleeperFile)).toBe(true);
   });
 
   it.each(nflverseFiles)("matches nflverse's fantasy_points in %s", (file) => {
@@ -72,9 +92,38 @@ describe('harness building blocks', () => {
     ]);
   });
 
+  it('skips team-total lines and gives a shutout its pts_allow back', () => {
+    const cases = sleeperScoringCases(
+      {
+        TEAM_CAR: { rush_td: 2, pts_ppr: 60 },
+        CAR: { gp: 1, int: 2, pts_ppr: 14 },
+        '4046': { gp: 1, pass_td: 1, pts_ppr: 4 }
+      },
+      'wk3'
+    );
+    expect(cases.map((c) => c.key)).toEqual(['wk3 4046', 'wk3 CAR']);
+    expect(cases[1]?.stats).toEqual({ gp: 1, int: 2, pts_ppr: 14, pts_allow: 0 });
+    expect(validateSleeperStats({ CAR: { gp: 1, int: 2, pts_ppr: 14 } }, 'wk3').unexplained).toEqual([]);
+  });
+
   it('reports a wrong Sleeper total as unexplained', () => {
-    const report = validateSleeperStats({ x: { rec: 3, rec_yd: 30, pts_ppr: 7 } }, 'wk1');
+    const recorded = { D: { ff: 1, gp: 1, pts_allow: 24, pts_ppr: 1 } };
+    const report = validateSleeperStats({ ...recorded, x: { rec: 3, rec_yd: 30, pts_ppr: 7 } }, 'wk1');
     expect(report.unexplained).toEqual([expect.objectContaining({ key: 'wk1 x', format: 'ppr', diff: -1 })]);
+    expect(report.explained).toEqual([
+      expect.objectContaining({ key: 'wk1 D', explanation: expect.stringMatching(/^def-forced-fumbles/) })
+    ]);
+  });
+
+  it('explains whole missing points only in an early recording, which has no ff/st_ff/st_fum_rec', () => {
+    const early = { x: { rec: 3, rec_yd: 30, pts_ppr: 7 } };
+    expect(isEarlySleeperRecording(early)).toBe(true);
+    expect(isEarlySleeperRecording({ ...early, y: { st_ff: 1, pts_ppr: 1 } })).toBe(false);
+    const report = validateSleeperStats(early, 'wk1');
+    expect(report.unexplained).toEqual([]);
+    expect(report.explained[0]?.explanation).toMatch(/^missing-keys \(\+1\): this early recording/);
+    // Two points short is more than a player's one special-teams play.
+    expect(validateSleeperStats({ x: { ...early.x, pts_ppr: 8 } }, 'wk1').unexplained).toHaveLength(1);
   });
 
   it('reads nflverse rows, skipping the postseason, and notes return fumbles', () => {
