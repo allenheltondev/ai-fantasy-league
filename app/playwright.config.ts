@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Sandbox environments preinstall Chromium at a revision @playwright/test may
 // not auto-discover; pin it there when present. Elsewhere (CI, dev machines)
 // fall back to Playwright's own resolution (`npx playwright install chromium`).
-const PREINSTALLED_CHROMIUM = '/opt/pw-browsers/chromium';
+const PREINSTALLED_CHROMIUM = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? '/opt/pw-browsers/chromium';
 // Overridable so two checkouts can run their e2e suites side by side.
 const PORT = Number(process.env.E2E_PORT ?? 5173);
 const API_PORT = Number(process.env.E2E_API_PORT ?? 8787);
@@ -14,7 +14,7 @@ process.env.E2E_AGENT_API_PORT = String(AGENT_API_PORT);
 
 /**
  * E2E for the SPA against the local API server (packages/server/src/local.ts):
- * dynalite, fixture players, the fake model, and dev sign-in (`Bearer dev:<handle>`).
+ * DynamoDB Local, fixture players, the fake model, and dev sign-in (`Bearer dev:<handle>`).
  * The clock is pinned early in the 2026 season so a new league always has
  * weeks left to play. Specs are `*.pw.ts` so vitest's default glob never picks
  * them up.

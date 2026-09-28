@@ -11,7 +11,7 @@ import { as, data, errorCode, type Caller } from '../support/league-client.js';
 import { ALICE, BOB, CAROL, seedLeague } from '../support/leagues.js';
 
 /**
- * The draft end to end over HTTP (dynalite): start it, pick by name and id, the errors a model has
+ * The draft end to end over HTTP (DynamoDB Local): start it, pick by name and id, the errors a model has
  * to act on, idempotent replays, racing picks, pause and resume, the pick clock's autopick, and the
  * move to the regular season when the last pick lands.
  */
@@ -79,7 +79,7 @@ beforeAll(async () => {
 });
 afterAll(() => h.close());
 
-describe('draft over HTTP (dynalite)', () => {
+describe('draft over HTTP (DynamoDB Local)', () => {
   it('has no board before the draft starts', async () => {
     const res = await alice.get(`/leagues/${L}/draft`);
     expect(res.status).toBe(409);

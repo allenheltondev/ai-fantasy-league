@@ -9,7 +9,7 @@ import { as, data, errorCode, type Caller } from '../support/league-client.js';
 import { ALICE, BOB, CAROL } from '../support/leagues.js';
 
 /**
- * League lifecycle end to end: the REST adapter, real token verification, and dynalite. A creates a
+ * League lifecycle end to end: the REST adapter, real token verification, and DynamoDB Local. A creates a
  * league, B joins by invite, C is refused everywhere, settings change before and after the draft,
  * quotas and idempotency hold, and agents stay inside their own league and team.
  */
@@ -43,7 +43,7 @@ beforeAll(async () => {
 });
 afterAll(() => h.close());
 
-describe('league lifecycle over HTTP (dynalite)', () => {
+describe('league lifecycle over HTTP (DynamoDB Local)', () => {
   it('A creates a league and is its commissioner on seat 1', async () => {
     const res = await alice.post('/leagues', { name: 'Hero League', teamCount: 8, preset: 'full_ppr' });
     expect(res.status, JSON.stringify(res.body)).toBe(200);

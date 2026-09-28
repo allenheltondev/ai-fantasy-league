@@ -1,5 +1,7 @@
 import { weekEndsAt, type Clock } from '@fantasy/core';
 import { IdCrosswalk, isInGameWindow, type ScheduledGame } from '@fantasy/data';
+import { resumeDraftStartup } from '../operations/draft/start-draft.js';
+import { createServices } from '../services.js';
 import type { StoredStatLine } from '../repos/reference.js';
 import type { League, Matchup } from '../repos/types.js';
 import { advanceLeague } from '../season/cycle.js';
@@ -115,12 +117,26 @@ async function scoreLeague(deps: SeasonJobDeps, league: League, week: number, no
  */
 export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
-  const leagues = await listInSeason(deps.repos);
+  const [active, complete, drafting] = await Promise.all([
+    listInSeason(deps.repos),
+    deps.repos.leagues.listByPhase('complete'),
+    deps.repos.leagues.listByPhase('drafting')
+  ]);
+  const leagues = [
+    ...active,
+    ...complete.filter((l) => l.pendingRollover),
+    ...drafting.filter((l) => l.draftStartup)
+  ];
   if (leagues.length === 0) return skipped('no_leagues_in_season');
   const outcomes: Record<string, number> = {};
   let failed = 0;
   for (const league of leagues) {
     try {
+      if (league.draftStartup) {
+        await resumeDraftStartup(createServices({ ...deps, clock }), league);
+        outcomes.draft_recovered = (outcomes.draft_recovered ?? 0) + 1;
+        continue;
+      }
       const outcome = await advanceLeague(deps, league, now);
       outcomes[outcome.status] = (outcomes[outcome.status] ?? 0) + 1;
     } catch (error) {

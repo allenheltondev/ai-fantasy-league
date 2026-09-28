@@ -19,7 +19,7 @@ import {
 } from '../support/season.js';
 
 /**
- * The season loop end to end over HTTP (dynalite): rosters and lineups with per-player locks,
+ * The season loop end to end over HTTP (DynamoDB Local): rosters and lineups with per-player locks,
  * live scoring from stored stats, the provisional final, and the rollover into week 2.
  * team-1 is Alice's, team-2 is an agent seat, team-3 is Bob's.
  */

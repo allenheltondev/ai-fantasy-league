@@ -1,6 +1,6 @@
 import type { PlayerSeasonLines, ProjectionLine } from '@fantasy/data';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import { toProfile } from '../../src/players/profile.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { createDynamoReferenceStore } from '../../src/repos/dynamo/reference.js';
@@ -18,7 +18,7 @@ import { liveGame, redZoneGame } from '../support/season.js';
 
 /**
  * The reference repositories' behavioral contract (stats, projections with as-of reads, trending,
- * news, schedule, NFL state, player sync), run against DynamoDB (dynalite) and in-memory.
+ * news, schedule, NFL state, player sync), run against DynamoDB (DynamoDB Local) and in-memory.
  * Each test uses fresh keys (a new season or player ids) so both backends can share one table.
  */
 
@@ -38,7 +38,7 @@ const backends: [string, Backend][] = [
     }
   ],
   [
-    'DynamoDB (dynalite)',
+    'DynamoDB (DynamoDB Local)',
     () => ({ repos: createDynamoRepos(table), reference: createDynamoReferenceStore(table) })
   ]
 ];

@@ -51,10 +51,12 @@ export type AdvanceOutcome =
  * next week's playoff games when there are any, `Week Rolled Over`, and the next week's lock
  * warnings. Safe to run repeatedly: before the week ends it does nothing, every write is
  * idempotent, and the version-checked league update is the commit point, so a concurrent run that
- * loses the race emits nothing.
+ * loses the race emits nothing. Pending commits are replayed after failures; events are delivered
+ * at least once, and stable schedule names keep repeated timer requests idempotent.
  */
 export async function advanceLeague(deps: SeasonDeps, league: League, now: Date): Promise<AdvanceOutcome> {
   const skip = (reason: string): AdvanceOutcome => ({ leagueId: league.id, status: 'skipped', reason });
+  if (league.pendingRollover) return finishRollover(deps, league, now);
   if (league.week === null || !isInSeason(league)) return skip('not_in_season');
   const phase = league.phase as 'regular_season' | 'playoffs';
   const week = league.week;
@@ -62,36 +64,18 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
   if (endsAt === null) return skip('no_schedule');
   if (now.getTime() < Date.parse(endsAt)) return skip('week_in_progress');
 
-  const scored = await updateMatchupScores(deps, league, week, 'final', now);
+  await updateMatchupScores(deps, league, week, 'final', now);
   if (phase === 'regular_season') await recordStandings(deps, league, week, now);
-  const matchups = scored.matchups.map(scoreLine);
-  // The recap: the week's top score and its biggest blowout, for the chat announcement.
-  const final = {
-    leagueId: league.id,
-    season: league.season,
-    week,
-    matchups,
-    ...weekHighlights(matchups),
-    finalizedAt: now.toISOString()
-  };
-
   const step = nextLeagueWeek(league.settings, phase, week);
   // The bracket advances with this week's results (or is seeded as the playoffs start).
   const playoffs = step.phase === 'regular_season' ? null : await rebuildPlayoffs(deps, league, now);
   if (step.phase === 'complete') {
-    const completed = await commit(deps.repos, transitionPhase(league, 'complete', now));
-    if (completed === null) return skip('concurrent_update');
-    const history = await recordSeasonHistory(deps, completed, playoffs, now);
-    await deps.events.publish('Week Provisionally Final', final);
-    await deps.events.publish('Season Completed', {
-      leagueId: league.id,
-      season: league.season,
-      championTeamId: history.championTeamId,
-      runnerUpTeamId: history.runnerUpTeamId,
-      consolationChampionTeamId: history.consolationChampionTeamId,
-      completedAt: now.toISOString()
+    const completed = await commit(deps.repos, {
+      ...transitionPhase(league, 'complete', now),
+      pendingRollover: { fromWeek: week, at: now.toISOString() }
     });
-    return { leagueId: league.id, status: 'completed', finalWeek: week };
+    if (completed === null) return skip('concurrent_update');
+    return finishRollover(deps, completed, now);
   }
 
   if (playoffs !== null) await writePlayoffGames(deps, league, playoffs.bracket, step.week);
@@ -101,26 +85,73 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
   const saved = await commit(deps.repos, {
     ...moved,
     week: step.week,
+    pendingRollover: { fromWeek: week, at: now.toISOString() },
     deadlines: weekDeadlines(moved, nextGames),
     updatedAt: now.toISOString()
   });
   if (saved === null) return skip('concurrent_update');
-  if (league.settings.waivers.priorityOrder === 'reverse_standings_weekly') {
-    await resetPriorityToStandings(deps.repos, league.id, now);
-  }
+  return finishRollover(deps, saved, now);
+}
 
-  await deps.events.publish('Week Provisionally Final', final);
-  await deps.events.publish('Week Rolled Over', {
+/** The phase/week commit includes this marker, so a retry cannot skip its remaining side effects. */
+async function finishRollover(deps: SeasonDeps, league: League, now: Date): Promise<AdvanceOutcome> {
+  const pending = league.pendingRollover!;
+  const at = new Date(pending.at);
+  const week = pending.fromWeek;
+  const matchups = (await deps.repos.schedule.listMatchups(league.id, week)).map(scoreLine);
+  const final = {
     leagueId: league.id,
     season: league.season,
-    fromWeek: week,
-    week: step.week,
-    phase: step.phase,
-    rolledOverAt: now.toISOString()
-  });
-  await publishModelPowerRankings(deps, saved, week, now);
-  await scheduleLockWarnings(deps, saved, nextGames, now);
-  return { leagueId: league.id, status: 'rolled_over', finalWeek: week, week: step.week, phase: step.phase };
+    week,
+    matchups,
+    ...weekHighlights(matchups),
+    finalizedAt: pending.at
+  };
+  if (league.phase === 'complete') {
+    const playoffs = await rebuildPlayoffs(deps, league, at);
+    const history = await recordSeasonHistory(deps, league, playoffs, at);
+    await deps.events.publish('Week Provisionally Final', final);
+    await deps.events.publish('Season Completed', {
+      leagueId: league.id,
+      season: league.season,
+      championTeamId: history.championTeamId,
+      runnerUpTeamId: history.runnerUpTeamId,
+      consolationChampionTeamId: history.consolationChampionTeamId,
+      completedAt: pending.at
+    });
+  } else {
+    if (league.settings.waivers.priorityOrder === 'reverse_standings_weekly')
+      await resetPriorityToStandings(deps.repos, league.id, at);
+    await deps.events.publish('Week Provisionally Final', final);
+    await deps.events.publish('Week Rolled Over', {
+      leagueId: league.id,
+      season: league.season,
+      fromWeek: week,
+      week: league.week as number,
+      phase: league.phase as 'regular_season' | 'playoffs',
+      rolledOverAt: pending.at
+    });
+    await publishModelPowerRankings(deps, league, week, at);
+    await scheduleLockWarnings(
+      deps,
+      league,
+      await weekGames(deps.reference, league.season, league.week as number),
+      now
+    );
+  }
+  const latest = await deps.repos.leagues.get(league.id);
+  if (latest?.pendingRollover?.at === pending.at && latest.pendingRollover.fromWeek === week) {
+    await deps.repos.leagues.update({ ...latest, pendingRollover: null });
+  }
+  return league.phase === 'complete'
+    ? { leagueId: league.id, status: 'completed', finalWeek: week }
+    : {
+        leagueId: league.id,
+        status: 'rolled_over',
+        finalWeek: week,
+        week: league.week as number,
+        phase: league.phase
+      };
 }
 
 /**

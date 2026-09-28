@@ -1,7 +1,7 @@
 import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { yahooDefaultSettings } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import { newTeam } from '../../src/league/seats.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { TABLE_KEYS } from '../../src/repos/dynamo/table.js';
@@ -19,7 +19,7 @@ afterAll(() => table.close());
 /** The league repositories' behavioral contract, run against both implementations. */
 const backends: [string, () => Repos][] = [
   ['in-memory', () => createInMemoryRepos()],
-  ['DynamoDB (dynalite)', () => createDynamoRepos(table)]
+  ['DynamoDB (DynamoDB Local)', () => createDynamoRepos(table)]
 ];
 
 let counter = 0;

@@ -71,6 +71,8 @@ export const LeagueRecordSchema = z.object({
   commissionerName: z.string(),
   createdBy: z.string(),
   scheduleSeed: z.string(),
+  draftStartup: z.object({ by: z.string() }).nullable().optional(),
+  pendingRollover: z.object({ fromWeek: z.number().int(), at: iso }).nullable().optional(),
   deadlines: z.object({
     draftStartsAt: iso.nullable(),
     nextLineupLockAt: iso.nullable(),

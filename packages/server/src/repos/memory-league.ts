@@ -125,7 +125,10 @@ export class InMemoryLeagueRepository implements LeagueRepository {
 }
 
 export class InMemoryTeamRepository implements TeamRepository {
-  constructor(private readonly store: InMemoryLeagueStore) {}
+  constructor(
+    private readonly store: InMemoryLeagueStore,
+    private readonly onRosterUpdate?: (next: Team, previous: Team, teams: readonly Team[]) => void
+  ) {}
 
   async list(leagueId: string): Promise<Team[]> {
     return [...this.store.partition(leagueId).teams.values()]
@@ -149,6 +152,7 @@ export class InMemoryTeamRepository implements TeamRepository {
     const teams = this.store.partition(team.leagueId).teams;
     if (teams.get(team.id)?.version !== team.version) throw staleTeam(team.id);
     const next = { ...clone(team), version: team.version + 1 };
+    this.onRosterUpdate?.(next, teams.get(team.id) as Team, [...teams.values()]);
     teams.set(team.id, next);
     return clone(next);
   }
@@ -321,11 +325,16 @@ export class InMemoryDraftRepository implements DraftRepository {
   }
 }
 
-export function createInMemoryLeagueRepos(options: { onDelete?: (leagueId: string) => void } = {}) {
+export function createInMemoryLeagueRepos(
+  options: {
+    onDelete?: (leagueId: string) => void;
+    onRosterUpdate?: (next: Team, previous: Team, teams: readonly Team[]) => void;
+  } = {}
+) {
   const store = new InMemoryLeagueStore();
   return {
     leagues: new InMemoryLeagueRepository(store, options.onDelete),
-    teams: new InMemoryTeamRepository(store),
+    teams: new InMemoryTeamRepository(store, options.onRosterUpdate),
     members: new InMemoryMemberRepository(store),
     invites: new InMemoryInviteRepository(store),
     schedule: new InMemoryScheduleRepository(store),

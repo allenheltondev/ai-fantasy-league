@@ -28,10 +28,10 @@ async function tradeLeague(config: typeof PRO | typeof ROOKIE): Promise<Setup> {
   const s = await setup();
   await s.seat(AGENT_TEAM, config);
   const rosters: Record<string, string[]> = {
-    'team-1': ['rb3'],
     'team-2': roster()
       .map((r) => r.playerId)
       .filter((id) => id !== 'rb3'),
+    'team-1': ['rb3'],
     'team-3': []
   };
   for (const [teamId, ids] of Object.entries(rosters)) {

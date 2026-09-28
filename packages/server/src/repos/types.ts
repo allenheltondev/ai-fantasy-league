@@ -140,6 +140,9 @@ export interface League {
   /** Seed for the regular-season schedule, so it can always be regenerated identically. */
   scheduleSeed: string;
   deadlines: LeagueDeadlines;
+  /** Durable work remaining after a phase/week commit; absent on older records. */
+  draftStartup?: { by: string } | null;
+  pendingRollover?: { fromWeek: number; at: string } | null;
   createdAt: string;
   updatedAt: string;
   /** Optimistic concurrency counter; incremented on every update. */

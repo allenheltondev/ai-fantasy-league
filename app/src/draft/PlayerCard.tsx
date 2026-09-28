@@ -11,6 +11,7 @@ export interface PlayerCardProps {
   player: PlayerRef;
   onClose(): void;
   queued: boolean;
+  queueReady?: boolean;
   onQueue(player: PlayerRef): void;
   /** True while you are on the clock and the player is still available. */
   canDraft: boolean;
@@ -103,7 +104,12 @@ export function PlayerCard(props: PlayerCardProps) {
           )}
         </p>
         <div className="flex gap-2">
-          <Button size="sm" variant="secondary" disabled={props.queued} onClick={() => props.onQueue(player)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={props.queueReady === false || props.queued}
+            onClick={() => props.onQueue(player)}
+          >
             {props.queued ? 'Queued' : 'Queue'}
           </Button>
           {props.canDraft && (

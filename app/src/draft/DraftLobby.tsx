@@ -278,7 +278,7 @@ export function DraftLobby({
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={queue.has(player.id)}
+                    disabled={!queue.ready || queue.has(player.id)}
                     onClick={() => queue.add(player)}
                     aria-label={`Queue ${player.name}`}
                   >
