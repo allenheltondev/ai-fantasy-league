@@ -259,6 +259,63 @@ describe('processing', () => {
     expect(await voidStaleOffers(s.deps, s.league, ['fx-chase'], NOW)).toBe(0);
   });
 
+  it('takes over a lock freed mid-run, and voids when a lock is held but its holder is unknown', async () => {
+    const s = await world();
+    const record = await accepted(s);
+    const acquire = s.repos.waivers.acquirePlayer.bind(s.repos.waivers);
+    // Bijan's lock looks taken, then is free by the time the owner is read: the retry takes it.
+    vi.spyOn(s.repos.waivers, 'acquirePlayer').mockResolvedValueOnce(false).mockImplementation(acquire);
+    expect((await processAccepted(s.deps, s.league, record, NOW)).outcome).toBe('processed');
+
+    const t = await world();
+    const again = await accepted(t);
+    vi.spyOn(t.repos.waivers, 'acquirePlayer').mockResolvedValue(false);
+    vi.spyOn(t.repos.players, 'getMany').mockResolvedValue([]);
+    const voided = await processAccepted(t.deps, t.league, again, NOW);
+    expect(voided.outcome).toBe('voided');
+    expect(voided.record.trade.voidReason?.message).toBe(
+      'fx-bijan joined another team before this trade could move him.'
+    );
+  });
+
+  it('leaves a trade that cannot be voided, and reports lost races when voiding', async () => {
+    const s = await world();
+    const record = await accepted(s);
+    const done = { ...record, trade: { ...record.trade, status: 'processed' as const } };
+    expect((await processAccepted(s.deps, s.league, done, NOW)).outcome).toBe('not_ready');
+
+    // The final save loses a race.
+    const update = s.repos.trades.update.bind(s.repos.trades);
+    vi.spyOn(s.repos.trades, 'update')
+      .mockImplementationOnce(update)
+      .mockRejectedValueOnce(new ApiError('CONFLICT', 'stale', { fix: 'retry' }))
+      .mockImplementation(update);
+    expect((await processAccepted(s.deps, s.league, record, NOW)).outcome).toBe('raced');
+
+    // An open offer with a player who moved, whose save loses a race, is left alone.
+    const offer: TradeRecord = {
+      ...record,
+      trade: {
+        ...record.trade,
+        tradeId: 'open',
+        status: 'proposed',
+        sides: [
+          { teamId: 'A', sends: ['ghost'], drops: [] },
+          { teamId: 'C', sends: [], drops: [] }
+        ]
+      }
+    };
+    await s.repos.trades.create(offer);
+    vi.spyOn(s.repos.trades, 'update').mockRejectedValueOnce(
+      new ApiError('CONFLICT', 'stale', { fix: 'retry' })
+    );
+    expect(await voidStaleOffers(s.deps, s.league, ['ghost'], NOW)).toBe(0);
+    expect(await voidStaleOffers(s.deps, s.league, ['ghost'], NOW)).toBe(1);
+    expect((await s.repos.trades.get('lg', 'open'))?.trade.voidReason?.message).toBe(
+      'ghost changed rosters after this offer was made, so it no longer works.'
+    );
+  });
+
   it('reports a lost race at each commit point', async () => {
     const s = await world();
     const record = await accepted(s);

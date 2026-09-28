@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { agentPrincipal } from '../../src/auth/principal.js';
+import { postSystemMessage } from '../../src/chat/system-messages.js';
 import { handleLeagueEvent } from '../../src/events/handlers.js';
 import { processWaivers } from '../../src/jobs/process-waivers.js';
 import { silentLogger } from '../../src/log.js';
@@ -143,8 +144,17 @@ describe('the trade deadline', () => {
     h.clock.set(WEEK_11);
     expect((await timer('Trade Deadline Passed', { leagueId: 'lg-dl' })).outcome).toBe('early');
     expect((await h.repos.trades.get('lg-dl', offer.id))?.trade.status).toBe('proposed');
+    const announce = (id: string) =>
+      postSystemMessage(h.services, {
+        id,
+        'detail-type': 'Trade Deadline Passed',
+        source: 'fantasy',
+        detail: { leagueId: 'lg-dl', deadlineWeek: 11, deadlineAt: WEEK_11 }
+      });
+    expect(await announce('old-deadline-1')).toEqual({ status: 'skipped', reason: 'stale' });
     h.clock.set(WEEK_12);
     expect((await timer('Trade Deadline Passed', { leagueId: 'lg-dl' })).outcome).toEqual({ expired: 1 });
+    expect((await announce('deadline-2')).status).toBe('posted');
     h.clock.set(START);
   });
 

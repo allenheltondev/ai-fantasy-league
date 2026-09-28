@@ -351,13 +351,14 @@ export async function voidStaleOffers(
 ): Promise<number> {
   const moved = new Set(playerIds.filter((id): id is string => id !== null));
   if (moved.size === 0) return 0;
-  const stale = (await deps.repos.trades.list(league.id)).filter(
-    (r) => r.trade.status === 'proposed' && tradePlayerIds(r.trade).some((id) => moved.has(id))
+  // Every trade with one of them; only open offers can be voided (`voidOffer` refuses the rest).
+  const touched = (await deps.repos.trades.list(league.id)).filter((r) =>
+    tradePlayerIds(r.trade).some((id) => moved.has(id))
   );
-  if (stale.length === 0) return 0;
+  if (touched.length === 0) return 0;
   const refs = await refsFor(deps.repos, [...moved]);
   let voided = 0;
-  for (const record of stale) {
+  for (const record of touched) {
     const ids = tradePlayerIds(record.trade).filter((id) => moved.has(id));
     const names = ids.map((id) => refs.get(id)?.name ?? id).join(', ');
     const issue = ruleError(

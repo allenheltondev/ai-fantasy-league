@@ -129,6 +129,7 @@ async function processTrade(s: Awaited<ReturnType<typeof setup>>) {
     leagueId: 'lg',
     trade: done.trade,
     message: null,
+    reply: null,
     createdBy: 'user#u',
     processingAt: null,
     updatedAt: NOW.toISOString(),
