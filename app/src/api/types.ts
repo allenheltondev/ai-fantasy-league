@@ -588,3 +588,76 @@ export interface TradeValueRecord {
   sent: PlayerRef[];
   valueDelta: number;
 }
+
+/** A team as the dashboard shows it (#166): its name, and who plays it (a person or an AI manager). */
+export interface DashboardTeam {
+  teamId: string;
+  teamName: string;
+  /** The person playing it; null for an AI or open seat. */
+  ownerName: string | null;
+  manager: Manager | null;
+}
+
+export interface DashboardMatchupSide extends DashboardTeam {
+  score: number | null;
+  record: string | null;
+}
+
+export interface DashboardMatchup {
+  id: string;
+  kind: 'regular' | 'playoff';
+  status: 'scheduled' | 'in_progress' | 'final';
+  home: DashboardMatchupSide;
+  away: DashboardMatchupSide;
+}
+
+export interface DashboardStanding extends DashboardTeam {
+  rank: number;
+  record: string;
+  pointsFor: number;
+  streak: string | null;
+}
+
+export type MoveType = 'trade' | 'add' | 'drop' | 'waiver';
+
+export interface MoveSide extends DashboardTeam {
+  added: PlayerRef[];
+  dropped: PlayerRef[];
+  cost: number | null;
+}
+
+export interface Move {
+  id: string;
+  type: MoveType;
+  at: string;
+  week: number;
+  teams: MoveSide[];
+}
+
+export interface DashboardDraft {
+  status: 'not_started' | 'in_progress' | 'paused' | 'complete';
+  scheduledAt: string | null;
+  seatsFilled: number;
+  seats: number;
+  picksMade: number;
+  totalPicks: number | null;
+  onTheClock: (DashboardTeam & { overall: number; round: number }) | null;
+  deadline: string | null;
+  yourPickIn: number | null;
+}
+
+/** get_league_dashboard (#166): the league at a glance. */
+export interface LeagueDashboardData {
+  leagueId: string;
+  name: string;
+  season: number;
+  phase: Phase;
+  week: number | null;
+  yourTeamId: string | null;
+  draft: DashboardDraft | null;
+  matchups: DashboardMatchup[];
+  standings: { throughWeek: number | null; rows: DashboardStanding[] };
+  moves: Move[];
+  hasMoreMoves: boolean;
+  champion: DashboardTeam | null;
+}

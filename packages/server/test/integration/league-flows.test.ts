@@ -85,7 +85,7 @@ describe('league lifecycle over HTTP (dynalite)', () => {
   it('C, who is not a member, gets 403 from every league operation', async () => {
     const params = { leagueId, teamId: 'team-2', inviteId: 'inv-1', userId: 'bob' };
     const scoped = leagueOperations.filter((op) => op.pathParams.includes('leagueId'));
-    expect(scoped.length).toBe(17);
+    expect(scoped.length).toBe(18);
     for (const op of scoped) {
       const res = await h.request(`/api/v1${pathFor(op.path, params)}`, {
         method: op.method,

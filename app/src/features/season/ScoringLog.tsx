@@ -58,6 +58,7 @@ export function ScoringLog({
   leagueId,
   matchupId,
   myTeamId,
+  teamId,
   sides,
   redZone,
   pushed,
@@ -67,6 +68,8 @@ export function ScoringLog({
   leagueId: string;
   matchupId: string;
   myTeamId: string;
+  /** Another team's matchup (`?team=`); your own when left out. */
+  teamId?: string | undefined;
   sides: readonly MatchupSide[];
   redZone: readonly RedZoneTeam[];
   /** Entries pushed live for this matchup (merged by id). */
@@ -80,8 +83,9 @@ export function ScoringLog({
   const [includeBench, setIncludeBench] = useState(false);
   const [older, setOlder] = useState<OlderPages>({ bench: false, entries: [], cursor: null });
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const team = teamId === undefined ? {} : { teamId };
   const newest = useLoad(
-    () => api.getScoringLog(leagueId, { includeBench, limit: SCORING_LOG_PAGE }),
+    () => api.getScoringLog(leagueId, { includeBench, limit: SCORING_LOG_PAGE, ...team }),
     `${leagueId}:${matchupId}:${includeBench}:${version}`,
     pollMs
   );
@@ -111,7 +115,12 @@ export function ScoringLog({
   const loadOlder = async (from: string) => {
     setLoadingOlder(true);
     try {
-      const page = await api.getScoringLog(leagueId, { includeBench, limit: SCORING_LOG_PAGE, cursor: from });
+      const page = await api.getScoringLog(leagueId, {
+        includeBench,
+        limit: SCORING_LOG_PAGE,
+        cursor: from,
+        ...team
+      });
       setOlder({ bench: includeBench, entries: [...olderEntries, ...page.entries], cursor: page.nextCursor });
     } catch {
       // The button stays; the next tap tries again.

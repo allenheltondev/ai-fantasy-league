@@ -4,6 +4,7 @@ import { deleteLeague } from './delete-league.js';
 import { getDefaultSettings } from './get-default-settings.js';
 import { getInvite } from './get-invite.js';
 import { getLeague } from './get-league.js';
+import { getLeagueDashboard } from './get-league-dashboard.js';
 import { getLeagueHistory } from './get-league-history.js';
 import { getLeagueState } from './get-league-state.js';
 import { getMatchup } from './get-matchup.js';
@@ -44,5 +45,6 @@ export const leagueOperations = [
   getScoringLog,
   getDefaultSettings,
   getPlayoffBracket,
-  getLeagueHistory
+  getLeagueHistory,
+  getLeagueDashboard
 ];

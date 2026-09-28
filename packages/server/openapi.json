@@ -8681,6 +8681,977 @@
         }
       }
     },
+    "/api/v1/leagues/{leagueId}/dashboard": {
+      "get": {
+        "operationId": "get_league_dashboard",
+        "summary": "The league at a glance: this week's matchups, standings, and the latest moves",
+        "description": "One read for the league's home page: every matchup this week with scores and each side's manager, the standings (compact rows), and the move board, the latest trades, adds, drops, and waiver awards, each grouped into one move with its teams, players in and out, and FAAB paid. Before and during the draft `matchups` and `standings` are empty and `draft` says when it starts, how many seats are filled, and who is on the clock. Once the season is complete `champion` names the winner. Scores are the stored ones, refreshed every few minutes while games are live; for a live lineup-level view of one matchup, use get_matchup. `moves` sets how many moves to return (default 10); `hasMoreMoves` says whether older ones exist (page them with list_transactions). Only members can read it.",
+        "tags": [
+          "leagues",
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "moves",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "How many moves to return (1-50, default 10)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "leagueId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "season": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "phase": {
+                          "type": "string",
+                          "enum": [
+                            "setup",
+                            "drafting",
+                            "regular_season",
+                            "playoffs",
+                            "complete"
+                          ],
+                          "description": "setup → drafting → regular_season → playoffs → complete."
+                        },
+                        "week": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The current NFL week, or null before the season."
+                        },
+                        "yourTeamId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "draft": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "not_started",
+                                    "in_progress",
+                                    "paused",
+                                    "complete"
+                                  ]
+                                },
+                                "scheduledAt": {
+                                  "description": "When the draft starts by itself; null when the commissioner starts it by hand.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "seatsFilled": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991,
+                                  "description": "Seats with a manager (a person or an AI)."
+                                },
+                                "seats": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "picksMade": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "totalPicks": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "Null until the draft starts."
+                                },
+                                "onTheClock": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "teamId": {
+                                          "type": "string"
+                                        },
+                                        "teamName": {
+                                          "type": "string"
+                                        },
+                                        "ownerName": {
+                                          "description": "The person who plays the team, or null for an AI or open seat.",
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "manager": {
+                                          "anyOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "name": {
+                                                  "type": "string",
+                                                  "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                                },
+                                                "avatarSeed": {
+                                                  "type": "string",
+                                                  "description": "Seed the app hashes into the avatar picture."
+                                                },
+                                                "personality": {
+                                                  "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "name",
+                                                "avatarSeed",
+                                                "personality"
+                                              ],
+                                              "additionalProperties": false,
+                                              "description": "The AI manager playing an agent team."
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                                        },
+                                        "overall": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "round": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        }
+                                      },
+                                      "required": [
+                                        "teamId",
+                                        "teamName",
+                                        "ownerName",
+                                        "manager",
+                                        "overall",
+                                        "round"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "The team picking now."
+                                },
+                                "deadline": {
+                                  "description": "When the pick on the clock is due; null while paused.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "yourPickIn": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "Picks before yours (0: you are on the clock); null when you have no picks left."
+                                }
+                              },
+                              "required": [
+                                "status",
+                                "scheduledAt",
+                                "seatsFilled",
+                                "seats",
+                                "picksMade",
+                                "totalPicks",
+                                "onTheClock",
+                                "deadline",
+                                "yourPickIn"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The draft, before the season starts (setup and drafting)."
+                        },
+                        "matchups": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "regular",
+                                  "playoff"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "scheduled",
+                                  "in_progress",
+                                  "final"
+                                ]
+                              },
+                              "home": {
+                                "type": "object",
+                                "properties": {
+                                  "teamId": {
+                                    "type": "string"
+                                  },
+                                  "teamName": {
+                                    "type": "string"
+                                  },
+                                  "ownerName": {
+                                    "description": "The person who plays the team, or null for an AI or open seat.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "manager": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "name": {
+                                            "type": "string",
+                                            "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                          },
+                                          "avatarSeed": {
+                                            "type": "string",
+                                            "description": "Seed the app hashes into the avatar picture."
+                                          },
+                                          "personality": {
+                                            "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "name",
+                                          "avatarSeed",
+                                          "personality"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "The AI manager playing an agent team."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                                  },
+                                  "score": {
+                                    "description": "Points so far (refreshed every few minutes while games are live).",
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "record": {
+                                    "description": "Regular-season record, e.g. \"3-1\"; null before the season.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "teamId",
+                                  "teamName",
+                                  "ownerName",
+                                  "manager",
+                                  "score",
+                                  "record"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "away": {
+                                "type": "object",
+                                "properties": {
+                                  "teamId": {
+                                    "type": "string"
+                                  },
+                                  "teamName": {
+                                    "type": "string"
+                                  },
+                                  "ownerName": {
+                                    "description": "The person who plays the team, or null for an AI or open seat.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "manager": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "name": {
+                                            "type": "string",
+                                            "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                          },
+                                          "avatarSeed": {
+                                            "type": "string",
+                                            "description": "Seed the app hashes into the avatar picture."
+                                          },
+                                          "personality": {
+                                            "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "name",
+                                          "avatarSeed",
+                                          "personality"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "The AI manager playing an agent team."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                                  },
+                                  "score": {
+                                    "description": "Points so far (refreshed every few minutes while games are live).",
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "record": {
+                                    "description": "Regular-season record, e.g. \"3-1\"; null before the season.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "teamId",
+                                  "teamName",
+                                  "ownerName",
+                                  "manager",
+                                  "score",
+                                  "record"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "kind",
+                              "status",
+                              "home",
+                              "away"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "This week's matchups; empty before the season."
+                        },
+                        "standings": {
+                          "type": "object",
+                          "properties": {
+                            "throughWeek": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Last final week included, or null."
+                            },
+                            "rows": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "teamId": {
+                                    "type": "string"
+                                  },
+                                  "teamName": {
+                                    "type": "string"
+                                  },
+                                  "ownerName": {
+                                    "description": "The person who plays the team, or null for an AI or open seat.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "manager": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "name": {
+                                            "type": "string",
+                                            "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                          },
+                                          "avatarSeed": {
+                                            "type": "string",
+                                            "description": "Seed the app hashes into the avatar picture."
+                                          },
+                                          "personality": {
+                                            "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "name",
+                                          "avatarSeed",
+                                          "personality"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "The AI manager playing an agent team."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                                  },
+                                  "rank": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "record": {
+                                    "type": "string"
+                                  },
+                                  "pointsFor": {
+                                    "type": "number"
+                                  },
+                                  "streak": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "teamId",
+                                  "teamName",
+                                  "ownerName",
+                                  "manager",
+                                  "rank",
+                                  "record",
+                                  "pointsFor",
+                                  "streak"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "throughWeek",
+                            "rows"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "moves": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "The trade id for a trade, else the transaction id."
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "trade",
+                                  "add",
+                                  "drop",
+                                  "waiver"
+                                ],
+                                "description": "`trade`: a processed trade (both teams); `add`: a free-agent pickup (with any drop); `waiver`: a waiver award; `drop`: a release."
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "week": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "teams": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "teamId": {
+                                      "type": "string"
+                                    },
+                                    "teamName": {
+                                      "type": "string"
+                                    },
+                                    "ownerName": {
+                                      "description": "The person who plays the team, or null for an AI or open seat.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "manager": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                            },
+                                            "avatarSeed": {
+                                              "type": "string",
+                                              "description": "Seed the app hashes into the avatar picture."
+                                            },
+                                            "personality": {
+                                              "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                              "type": [
+                                                "string",
+                                                "null"
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "avatarSeed",
+                                            "personality"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "The AI manager playing an agent team."
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                                    },
+                                    "added": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "description": "Players this team received or picked up."
+                                    },
+                                    "dropped": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "description": "Players this team released."
+                                    },
+                                    "cost": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "FAAB paid (waiver awards)."
+                                    }
+                                  },
+                                  "required": [
+                                    "teamId",
+                                    "teamName",
+                                    "ownerName",
+                                    "manager",
+                                    "added",
+                                    "dropped",
+                                    "cost"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "description": "Each team in the move: one, or two for a trade."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "type",
+                              "at",
+                              "week",
+                              "teams"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "The latest moves, newest first."
+                        },
+                        "hasMoreMoves": {
+                          "type": "boolean"
+                        },
+                        "champion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "teamId": {
+                                  "type": "string"
+                                },
+                                "teamName": {
+                                  "type": "string"
+                                },
+                                "ownerName": {
+                                  "description": "The person who plays the team, or null for an AI or open seat.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "manager": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                        },
+                                        "avatarSeed": {
+                                          "type": "string",
+                                          "description": "Seed the app hashes into the avatar picture."
+                                        },
+                                        "personality": {
+                                          "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "avatarSeed",
+                                        "personality"
+                                      ],
+                                      "additionalProperties": false,
+                                      "description": "The AI manager playing an agent team."
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                                }
+                              },
+                              "required": [
+                                "teamId",
+                                "teamName",
+                                "ownerName",
+                                "manager"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The league champion, once the final is decided."
+                        }
+                      },
+                      "required": [
+                        "leagueId",
+                        "name",
+                        "season",
+                        "phase",
+                        "week",
+                        "yourTeamId",
+                        "draft",
+                        "matchups",
+                        "standings",
+                        "moves",
+                        "hasMoreMoves",
+                        "champion"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/draft": {
       "get": {
         "operationId": "get_draft_board",

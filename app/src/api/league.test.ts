@@ -119,6 +119,20 @@ describe('createLeagueApi', () => {
     expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/leagues/L1/playoffs', '/leagues/L1/history']);
   });
 
+  it('maps the dashboard and another team’s matchup (#166)', async () => {
+    const { fetch, api } = setup();
+    await api.getLeagueDashboard('L1');
+    await api.getLeagueDashboard('L1', { moves: 18 });
+    await api.getMatchup('L1', 'team-3');
+    await api.getScoringLog('L1');
+    expect(fetch.mock.calls).toEqual([
+      ['/leagues/L1/dashboard', { query: {} }],
+      ['/leagues/L1/dashboard', { query: { moves: 18 } }],
+      ['/leagues/L1/matchup', { query: { teamId: 'team-3' } }],
+      ['/leagues/L1/matchup/scoring-log', { query: {} }]
+    ]);
+  });
+
   it('useLeagueApi needs a provider', () => {
     expect(() => renderHook(() => useLeagueApi())).toThrow(/LeagueApiContext/);
   });
