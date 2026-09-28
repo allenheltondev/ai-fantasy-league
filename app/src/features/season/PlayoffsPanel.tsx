@@ -1,9 +1,13 @@
 import { useParams } from 'react-router';
-import { EmptyState, LoadingPage } from '@readysetcloud/ui';
+import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { BracketGameView, BracketSideView, PlayoffBracketData } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { useCelebrateOnce } from '../../motion/celebration';
+import { Confetti } from '../../motion/Confetti';
+import { LoadingSkeleton, Trophy } from '../../motion/decor';
+import { useYourTeamId } from '../../routes/leagueContext';
 
 const STATUS_TEXT: Record<PlayoffBracketData['status'], string> = {
   not_started: 'The bracket is seeded once the regular season ends.',
@@ -59,13 +63,56 @@ function Bracket({ title, games }: { title: string; games: BracketGameView[] }) 
   );
 }
 
+const score = (side: BracketSideView) => side.score?.toFixed(2) ?? '-';
+
+/**
+ * Your latest playoff moment: the title, or else your most recent championship-bracket win. The
+ * key includes the final score so a new season's bracket (same game ids) celebrates afresh.
+ */
+export function playoffMoment(
+  data: PlayoffBracketData,
+  yourTeamId: string | null
+): { kind: 'title' | 'advance'; key: string } | null {
+  if (yourTeamId === null) return null;
+  const wins = data.games
+    .filter((g) => g.bracket === 'championship' && g.winnerTeamId === yourTeamId)
+    .sort((a, b) => b.round - a.round);
+  const latest = wins[0];
+  if (latest === undefined) return null;
+  const key = `${latest.id}:${score(latest.home)}-${score(latest.away)}`;
+  return data.championTeamId === yourTeamId
+    ? { kind: 'title', key: `title:${key}` }
+    : { kind: 'advance', key: `advance:${key}` };
+}
+
+/** The bigger moment: a playoff win, or the title, celebrated once per browser. */
+function PlayoffCelebration({ leagueId, data }: { leagueId: string; data: PlayoffBracketData }) {
+  const moment = playoffMoment(data, useYourTeamId());
+  const celebrate = useCelebrateOnce(moment === null ? null : `${leagueId}:${moment.key}`);
+  if (!celebrate || moment === null) return null;
+  return (
+    <>
+      <p role="status" className="motion-pop text-lg font-semibold text-success-700">
+        {moment.kind === 'title'
+          ? 'You are the league champion!'
+          : 'You won your playoff game. On to the next round!'}
+      </p>
+      <Confetti size="big" />
+    </>
+  );
+}
+
 /** The playoff bracket (#78): seeds, byes, games by week, and the champion. */
 export function PlayoffsPanel() {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
   const loaded = useLoad(() => api.getPlayoffBracket(leagueId), leagueId);
   if (loaded.data === null) {
-    return loaded.error ? <ApiErrorAlert error={loaded.error} /> : <LoadingPage text="Loading bracket…" />;
+    return loaded.error ? (
+      <ApiErrorAlert error={loaded.error} />
+    ) : (
+      <LoadingSkeleton label="Loading bracket…" />
+    );
   }
   const data = loaded.data;
   if (data.games.length === 0) {
@@ -78,8 +125,10 @@ export function PlayoffsPanel() {
         {STATUS_TEXT[data.status]} {data.teams} teams, {data.byes} bye{data.byes === 1 ? '' : 's'},{' '}
         {data.reseed ? 'reseeded each round' : 'fixed bracket'}.
       </p>
+      <PlayoffCelebration leagueId={leagueId} data={data} />
       {champion && (
-        <p role="status" className="text-lg font-semibold">
+        <p role="status" className="flex items-center gap-2 text-lg font-semibold">
+          <Trophy className="motion-trophy h-6 w-6" />
           Champion: {champion.teamName}
         </p>
       )}
