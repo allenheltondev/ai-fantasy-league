@@ -44,6 +44,24 @@ export async function seedReferenceData(services: Services, repos: Repos): Promi
     { season: 2026, week: 1, capturedAt: '2026-09-09T12:00:00.000Z', hash: 'seed', count: lines.length },
     lines
   );
+  // Draft research (#136): last season's weekly stats, this season's projection, and byes.
+  const meta = { updatedAt: '2026-09-01T00:00:00.000Z', weeks: [1, 2], hash: 'seed' };
+  await ref.seasons.put({ ...meta, kind: 'stats', season: 2025, players: 2 }, [
+    {
+      playerId: 'fx-cmc',
+      season: 2025,
+      team: 'SF',
+      weeks: [
+        { week: 1, stats: { gp: 1, rush_att: 20, rush_yd: 110, rush_td: 1, rec: 4, rec_yd: 30 } },
+        { week: 2, stats: { gp: 1, rush_att: 17, rush_yd: 70, rec: 6, rec_yd: 45 } }
+      ]
+    },
+    { playerId: 'fx-chase', season: 2025, weeks: [{ week: 1, stats: { gp: 1, rec: 9, rec_yd: 120 } }] }
+  ]);
+  await ref.seasons.put({ ...meta, kind: 'projections', season: 2026, players: 1 }, [
+    { playerId: 'fx-chase', season: 2026, weeks: [{ week: 1, stats: { rec: 7, rec_yd: 95 } }] }
+  ]);
+  await ref.schedule.putSeason(2026, [], { SF: 14, CIN: 10 }, new Date('2026-05-01T00:00:00.000Z'));
   await ref.trending.put({
     type: 'add',
     capturedAt: '2026-09-10T11:00:00.000Z',

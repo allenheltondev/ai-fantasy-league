@@ -2,8 +2,10 @@ import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import type {
   ByeWeeks,
   NflState,
+  PlayerSeasonLines,
   ProjectionLine,
   ScheduledGame,
+  SeasonLinesKind,
   Player as SourcePlayer,
   TrendingType
 } from '@fantasy/data';
@@ -20,6 +22,8 @@ import {
   type ProjectionRepository,
   type ProjectionSnapshot,
   type ReferenceStore,
+  type SeasonLinesMeta,
+  type SeasonLinesRepository,
   type NflGamesRepository,
   type NflScheduleRepository,
   type StatsRepository,
@@ -31,7 +35,7 @@ import {
   type TrendingRepository,
   type TrendingSnapshot
 } from '../reference.js';
-import { batchGet, batchPut, queryAll } from './batch.js';
+import { batchDelete, batchGet, batchPut, queryAll } from './batch.js';
 import { playerItem } from './players.js';
 import { epochSeconds, isConditionalCheckFailure, TABLE_KEYS, type TableContext } from './table.js';
 
@@ -126,6 +130,22 @@ const ProjectionSnapshotSchema = z.object({
   capturedAt: z.string(),
   hash: z.string(),
   count: z.number()
+});
+
+const SeasonLinesSchema = z.object({
+  playerId: z.string(),
+  season: z.number(),
+  team: z.string().optional(),
+  weeks: z.array(z.object({ week: z.number(), stats: statMap }))
+});
+
+const SeasonLinesMetaSchema = z.object({
+  kind: z.enum(['stats', 'projections']),
+  season: z.number(),
+  updatedAt: z.string(),
+  players: z.number(),
+  weeks: z.array(z.number()),
+  hash: z.string()
 });
 
 const TrendingEntrySchema = z.object({ playerId: z.string(), count: z.number() });
@@ -409,6 +429,68 @@ export class DynamoProjectionRepository implements ProjectionRepository {
 
 // ---------------------------------------------------------------------------
 
+/** `SEASON#stats#2025`: one item per player (`PLAYER#<id>`) plus the set's `META`. */
+export const seasonLinesPk = (kind: SeasonLinesKind, season: number) => `SEASON#${kind}#${season}`;
+const SEASON_META_SK = 'META';
+
+export class DynamoSeasonLinesRepository implements SeasonLinesRepository {
+  constructor(private readonly table: TableContext) {}
+
+  async getMeta(kind: SeasonLinesKind, season: number): Promise<SeasonLinesMeta | null> {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: { pk: seasonLinesPk(kind, season), sk: SEASON_META_SK }
+      })
+    );
+    return result.Item === undefined ? null : SeasonLinesMetaSchema.parse(result.Item);
+  }
+
+  async put(meta: SeasonLinesMeta, lines: readonly PlayerSeasonLines[]): Promise<void> {
+    const pk = seasonLinesPk(meta.kind, meta.season);
+    const keep = new Set(lines.map((l) => `PLAYER#${l.playerId}`));
+    const existing = await queryAll(this.table, {
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :player)',
+      ExpressionAttributeValues: { ':pk': pk, ':player': 'PLAYER#' },
+      ProjectionExpression: 'pk, sk'
+    });
+    await batchPut(
+      this.table,
+      lines.map((line) => ({ pk, sk: `PLAYER#${line.playerId}`, ...line }))
+    );
+    await batchDelete(
+      this.table,
+      existing.filter((item) => !keep.has(String(item.sk))).map((item) => ({ pk, sk: item.sk }))
+    );
+    await this.table.doc.send(
+      new PutCommand({ TableName: this.table.tableName, Item: { pk, sk: SEASON_META_SK, ...meta } })
+    );
+  }
+
+  async get(
+    kind: SeasonLinesKind,
+    season: number,
+    playerIds?: readonly string[]
+  ): Promise<PlayerSeasonLines[]> {
+    const pk = seasonLinesPk(kind, season);
+    const items =
+      playerIds === undefined
+        ? await queryAll(this.table, {
+            KeyConditionExpression: 'pk = :pk AND begins_with(sk, :player)',
+            ExpressionAttributeValues: { ':pk': pk, ':player': 'PLAYER#' }
+          })
+        : await batchGet(
+            this.table,
+            [...new Set(playerIds)].map((id) => ({ pk, sk: `PLAYER#${id}` }))
+          );
+    return items
+      .map((item) => SeasonLinesSchema.parse(item))
+      .sort((a, b) => a.playerId.localeCompare(b.playerId));
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 export const trendingPk = (type: TrendingType) => `TRENDING#${type}`;
 
 export class DynamoTrendingRepository implements TrendingRepository {
@@ -575,6 +657,7 @@ export function createDynamoReferenceStore(table: TableContext): ReferenceStore 
     nflGames: new DynamoNflGamesRepository(table),
     stats: new DynamoStatsRepository(table),
     projections: new DynamoProjectionRepository(table),
+    seasons: new DynamoSeasonLinesRepository(table),
     trending: new DynamoTrendingRepository(table),
     news: new DynamoNewsRepository(table),
     playerSync: new DynamoPlayerSyncRepository(table)

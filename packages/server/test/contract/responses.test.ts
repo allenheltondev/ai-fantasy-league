@@ -84,6 +84,22 @@ const CASES: Record<string, Case[]> = {
     { label: 'no drops yet', path: '/api/v1/players/trending?type=drop', status: 200 },
     { label: 'invalid limit', path: '/api/v1/players/trending?limit=500', status: 400 }
   ],
+  get_player_card: [
+    { label: 'stats, projection, news', path: '/api/v1/players/card?player=cmc', status: 200 },
+    {
+      label: 'league scoring',
+      path: `/api/v1/players/card?playerId=fx-chase&leagueId=${RESEARCH_LEAGUE_ID}`,
+      status: 200
+    },
+    { label: 'no data', path: '/api/v1/players/card?playerId=fx-butker', status: 200 },
+    { label: 'not found', path: '/api/v1/players/card?playerId=nope', status: 404 },
+    {
+      label: 'not a member',
+      path: `/api/v1/players/card?playerId=fx-cmc&leagueId=${RESEARCH_LEAGUE_ID}`,
+      init: { token: OTHER_USER },
+      status: 403
+    }
+  ],
   get_news: [
     { label: 'league-wide', path: '/api/v1/news', status: 200 },
     { label: 'player, detail', path: '/api/v1/news?player=mccaffrey&detail=true', status: 200 },
