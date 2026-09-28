@@ -77,7 +77,8 @@ export interface WaiverRunRecord {
   leagueId: string;
   /** `YYYY-MM-DD`: one processing window per day. */
   runId: string;
-  status: 'running' | 'complete';
+  /** `failed`: the run hit an error part-way and released the window, so a retry may take it over. */
+  status: 'running' | 'complete' | 'failed';
   startedAt: string;
   completedAt: string | null;
   awarded: number;
@@ -116,7 +117,8 @@ export interface WaiverRepository {
 
   /**
    * Starts a processing run. Returns false when the run already exists and is complete, or is
-   * running and was started after `staleBefore` (another worker has it).
+   * running and was started after `staleBefore` (another worker has it). A `failed` run may be
+   * taken over at once.
    */
   beginRun(run: WaiverRunRecord, staleBefore: string): Promise<boolean>;
   completeRun(run: WaiverRunRecord): Promise<void>;

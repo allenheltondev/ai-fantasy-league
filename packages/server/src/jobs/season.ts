@@ -31,7 +31,8 @@ function gamesCache(deps: SeasonJobDeps) {
  * Live scoring (every 2 minutes, working only inside a game window, like `ingestStats`). For each
  * in-season league whose current week has a game in progress it recomputes the week's matchups
  * from the stored stat lines and, when a score changed, emits `Scores Updated` with the league's
- * score lines. The realtime push to browsers subscribes to that event.
+ * score lines. The realtime push to browsers subscribes to that event. One league failing is
+ * logged and counted and does not stop the others; the next run (two minutes later) retries it.
  */
 export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
@@ -40,26 +41,38 @@ export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<
   const games = gamesCache(deps);
   let live = 0;
   let updated = 0;
+  let failed = 0;
   for (const league of leagues) {
     if (league.week === null) continue;
     const week = league.week;
-    if (!isInGameWindow(now, await games(league.season, week), { gameDurationMs: STATS_GAME_DURATION_MS })) {
-      continue;
+    try {
+      const weekGames = await games(league.season, week);
+      if (!isInGameWindow(now, weekGames, { gameDurationMs: STATS_GAME_DURATION_MS })) continue;
+      live++;
+      if (await scoreLeague(deps, league, week, now)) updated++;
+    } catch (error) {
+      failed++;
+      deps.log.error('could not score league', { leagueId: league.id, week, error });
     }
-    live++;
-    const scored = await updateMatchupScores(deps, league, week, 'in_progress', now);
-    if (scored.changed.length === 0) continue;
-    updated++;
-    await deps.events.publish('Scores Updated', {
-      leagueId: league.id,
-      season: league.season,
-      week,
-      matchups: scored.matchups.map(scoreLine),
-      updatedAt: now.toISOString()
-    });
   }
-  if (live === 0) return skipped('outside_game_window', { leagues: leagues.length });
-  return { status: 'ok', leagues: leagues.length, live, updated };
+  if (live === 0) {
+    return skipped('outside_game_window', { leagues: leagues.length, ...(failed > 0 ? { failed } : {}) });
+  }
+  return { status: 'ok', leagues: leagues.length, live, updated, failed };
+}
+
+/** Rescores one league's week; emits `Scores Updated` and returns true when a score changed. */
+async function scoreLeague(deps: SeasonJobDeps, league: League, week: number, now: Date): Promise<boolean> {
+  const scored = await updateMatchupScores(deps, league, week, 'in_progress', now);
+  if (scored.changed.length === 0) return false;
+  await deps.events.publish('Scores Updated', {
+    leagueId: league.id,
+    season: league.season,
+    week,
+    matchups: scored.matchups.map(scoreLine),
+    updatedAt: now.toISOString()
+  });
+  return true;
 }
 
 /**

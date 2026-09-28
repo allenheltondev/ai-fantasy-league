@@ -1,7 +1,13 @@
 import { FixedClock } from '@fantasy/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ALICE } from '../../test/support/leagues.js';
-import { MONDAY_KICKOFF, SEASON, seedNflSchedule, seedSeasonLeague } from '../../test/support/season.js';
+import {
+  MONDAY_KICKOFF,
+  SEASON,
+  SUNDAY_KICKOFF,
+  seedNflSchedule,
+  seedSeasonLeague
+} from '../../test/support/season.js';
 import { InMemoryEventPublisher } from '../events/publisher.js';
 import { advanceSeason, scoreLiveWeek } from '../jobs/season.js';
 import { silentLogger } from '../log.js';
@@ -295,6 +301,52 @@ describe('season jobs with nothing to do', () => {
     expect(await scoreLiveWeek(deps, clock)).toMatchObject({ status: 'ok', live: 1 });
     const noWeek = await setup({ week: null });
     expect(await scoreLiveWeek(noWeek.deps, clock)).toMatchObject({ reason: 'outside_game_window' });
+  });
+
+  it('live scoring logs and counts a failing league without stopping the others', async () => {
+    const { deps, repos, league, events } = await setup();
+    await repos.leagues.create({ ...league, id: 'lg-broken' });
+    const listMatchups = repos.schedule.listMatchups.bind(repos.schedule);
+    vi.spyOn(repos.schedule, 'listMatchups').mockImplementation(async (id, week) => {
+      if (id === 'lg-broken') throw new Error('dynamo down');
+      return listMatchups(id, week);
+    });
+    const log = { ...silentLogger, error: vi.fn() };
+    const clock = new FixedClock(new Date(Date.parse(SUNDAY_KICKOFF) + 3_600_000));
+    expect(await scoreLiveWeek({ ...deps, log }, clock)).toMatchObject({
+      status: 'ok',
+      leagues: 2,
+      live: 2,
+      failed: 1
+    });
+    expect(log.error).toHaveBeenCalledWith(
+      'could not score league',
+      expect.objectContaining({ leagueId: 'lg-broken' })
+    );
+    // The healthy league is still scored.
+    expect(events.events.filter((e) => e.detailType === 'Scores Updated').map((e) => e.detail)).toMatchObject(
+      [{ leagueId: 'lg-cycle' }]
+    );
+  });
+
+  it('live scoring counts a league whose schedule cannot be read', async () => {
+    const { deps } = await setup();
+    const broken = {
+      ...deps,
+      reference: {
+        ...deps.reference,
+        schedule: {
+          ...deps.reference.schedule,
+          getWeek: async () => Promise.reject(new Error('dynamo down'))
+        }
+      }
+    };
+    const clock = new FixedClock(new Date(Date.parse(SUNDAY_KICKOFF) + 3_600_000));
+    expect(await scoreLiveWeek(broken, clock)).toMatchObject({
+      status: 'skipped',
+      reason: 'outside_game_window',
+      failed: 1
+    });
   });
 });
 
