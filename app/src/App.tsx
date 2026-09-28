@@ -3,6 +3,7 @@ import { AuthProvider } from '@readysetcloud/ui/auth';
 import { leagueApi } from './api';
 import { LeagueApiContext, type LeagueApi } from './api/league';
 import { ForgotPasswordPage, LoginPage, SignUpPage } from './auth/AuthScreens';
+import { ChatPage } from './chat/ChatPage';
 import { DraftPage } from './draft/DraftPage';
 import { RequireSignIn } from './auth/RequireSignIn';
 import { JoinPage } from './features/join/JoinPage';
@@ -46,7 +47,13 @@ export function App({ api = leagueApi }: { api?: LeagueApi }) {
                   key={section.path}
                   path={section.path}
                   element={
-                    section.path === 'draft' ? <DraftPage /> : <LeagueSectionPage section={section.path} />
+                    section.path === 'draft' ? (
+                      <DraftPage />
+                    ) : section.path === 'chat' ? (
+                      <ChatPage />
+                    ) : (
+                      <LeagueSectionPage section={section.path} />
+                    )
                   }
                 />
               ))}

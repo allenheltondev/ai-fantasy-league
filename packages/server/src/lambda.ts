@@ -18,6 +18,7 @@ import { createDynamoRepos } from './repos/dynamo/index.js';
 import { createDynamoReferenceStore } from './repos/dynamo/reference.js';
 import { createDocumentClient } from './repos/dynamo/table.js';
 import { limitsFromEnv } from './context.js';
+import { realtimeFromEnv } from './realtime/config.js';
 import { createServices } from './services.js';
 import type { Services } from './context.js';
 import { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/handlers.js';
@@ -36,7 +37,8 @@ export function createLambdaServices(env: Record<string, string | undefined> = p
     events: new EventBridgePublisher({ busName: config.eventBusName }),
     log,
     limits: limitsFromEnv(env),
-    reference: createDynamoReferenceStore(table)
+    reference: createDynamoReferenceStore(table),
+    realtime: realtimeFromEnv(env, { clock: systemClock, log })
   });
 }
 
