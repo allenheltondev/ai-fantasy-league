@@ -74,7 +74,7 @@ export function DraftPage({
   now = Date.now
 }: DraftPageProps) {
   const { leagueId = '' } = useParams();
-  const queue = useDraftQueue(leagueId);
+  const queue = useDraftQueue(leagueId, api);
   const [board, setBoard] = useState<DraftBoard | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [pickError, setPickError] = useState<ApiError | null>(null);
@@ -328,11 +328,16 @@ export function DraftPage({
             <CardHeader>
               <CardTitle>Your queue</CardTitle>
             </CardHeader>
-            <CardBody>
+            <CardBody className="space-y-2">
+              {queue.error !== null && (
+                <Alert variant="error" role="alert">
+                  {queue.error}
+                </Alert>
+              )}
               {queued.length === 0 ? (
                 <p className="text-muted-foreground">
-                  Queue players from Best available to line up your next picks. The queue stays in this
-                  browser.
+                  Queue players from Best available to line up your next picks. If your clock runs out,
+                  autopick takes the first one still available.
                 </p>
               ) : (
                 <ol aria-label="Your queue" className="divide-y divide-border">

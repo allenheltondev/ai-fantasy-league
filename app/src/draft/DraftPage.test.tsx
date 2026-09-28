@@ -64,10 +64,29 @@ function board(overrides: Partial<DraftBoard> = {}): DraftBoard {
 
 type Handler = (path: string, request: ApiRequest) => unknown;
 
+/** Players the fake queue endpoint knows by id. */
+const KNOWN = [
+  ref('fx-cmc', 'Christian McCaffrey', 'RB'),
+  ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN'),
+  ref('fx-def-nyj', 'NYJ Defense', 'DEF', null)
+];
+
+/** The API, with the draft queue kept in memory (get_draft_queue / set_draft_queue) unless `handler` answers it. */
 function fakeApi(handler: Handler) {
   const calls: { path: string; request: ApiRequest }[] = [];
+  let queue: string[] = [];
+  const queueView = () => ({
+    teamId: 'team-1',
+    maxSize: 50,
+    updatedAt: null,
+    players: queue.map((id) => ({ player: KNOWN.find((p) => p.id === id), rank: null, available: true }))
+  });
   const api = (async (path: string, request: ApiRequest = {}) => {
     calls.push({ path, request });
+    if (path.endsWith('/draft/queue')) {
+      if (request.method === 'PUT') queue = (request.body as { playerIds: string[] }).playerIds;
+      return { data: queueView(), league: null, warnings: [] };
+    }
     const data = handler(path, request);
     if (data instanceof Error) throw data;
     return { data, league: null, warnings: [] };
@@ -152,7 +171,7 @@ describe('DraftPage', () => {
       await vi.advanceTimersByTimeAsync(3100);
     });
     expect(screen.getByTestId('pick-clock')).toHaveTextContent('1:00');
-    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls.filter((c) => c.path.endsWith('/draft')).length).toBeGreaterThanOrEqual(2);
   });
 
   it('lets you pick when you are on the clock, then refreshes', async () => {
@@ -439,6 +458,26 @@ describe('DraftPage', () => {
     expect(list().queryByText(/NYJ Defense/)).not.toBeInTheDocument();
     await user.click(list().getByRole('button', { name: "Remove Ja'Marr Chase from the queue" }));
     expect(screen.getByText(/Queue players from Best available/)).toBeInTheDocument();
+    // Every change replaced the whole queue on the server, in order.
+    const saves = calls.filter((c) => c.path === '/leagues/L1/draft/queue' && c.request.method === 'PUT');
+    expect(saves.map((c) => (c.request.body as { playerIds: string[] }).playerIds)).toEqual([
+      ['fx-chase'],
+      ['fx-chase', 'fx-def-nyj'],
+      ['fx-def-nyj', 'fx-chase'],
+      ['fx-def-nyj']
+    ]);
+  });
+
+  it('says when your queue cannot load', async () => {
+    const { api } = fakeApi(() => board());
+    const failing = (async (path: string, request?: ApiRequest) => {
+      if (path.endsWith('/draft/queue')) {
+        throw new ApiError(403, { code: 'FORBIDDEN', message: 'You do not manage a team in this league.' });
+      }
+      return api(path, request);
+    }) as ApiFetch;
+    renderDraft(failing);
+    expect(await screen.findByText('You do not manage a team in this league.')).toBeInTheDocument();
   });
 
   it('shows a loading state first', () => {
