@@ -295,6 +295,18 @@ for (const viewport of VIEWPORTS) {
       await page.goto(`/leagues/${leagueId}/draft`);
       await expect(page.getByRole('table', { name: 'Draft board' })).toBeVisible();
       await expectFits(page, 'draft (in progress)');
+
+      // Draft research (#136): the best-available table, an open player card, and the depth chart.
+      const firstAvailable = page.locator('[data-testid^="available-"]').first();
+      await expect(firstAvailable).toBeVisible();
+      await firstAvailable.getByRole('button').first().click();
+      await expect(page.getByTestId('player-card')).toBeVisible();
+      await expectFits(page, 'draft: player card');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('player-card')).toBeHidden();
+      await page.getByRole('button', { name: 'Depth' }).click();
+      await expect(page.getByRole('table', { name: 'Depth chart' })).toBeVisible();
+      await expectFits(page, 'draft: depth chart');
       await context.close();
     });
 

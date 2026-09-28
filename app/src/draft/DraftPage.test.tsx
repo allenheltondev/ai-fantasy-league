@@ -64,10 +64,29 @@ function board(overrides: Partial<DraftBoard> = {}): DraftBoard {
 
 type Handler = (path: string, request: ApiRequest) => unknown;
 
+/** Players the fake queue endpoint knows by id. */
+const KNOWN = [
+  ref('fx-cmc', 'Christian McCaffrey', 'RB'),
+  ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN'),
+  ref('fx-def-nyj', 'NYJ Defense', 'DEF', null)
+];
+
+/** The API, with the draft queue kept in memory (get_draft_queue / set_draft_queue) unless `handler` answers it. */
 function fakeApi(handler: Handler) {
   const calls: { path: string; request: ApiRequest }[] = [];
+  let queue: string[] = [];
+  const queueView = () => ({
+    teamId: 'team-1',
+    maxSize: 50,
+    updatedAt: null,
+    players: queue.map((id) => ({ player: KNOWN.find((p) => p.id === id), rank: null, available: true }))
+  });
   const api = (async (path: string, request: ApiRequest = {}) => {
     calls.push({ path, request });
+    if (path.endsWith('/draft/queue')) {
+      if (request.method === 'PUT') queue = (request.body as { playerIds: string[] }).playerIds;
+      return { data: queueView(), league: null, warnings: [] };
+    }
     const data = handler(path, request);
     if (data instanceof Error) throw data;
     return { data, league: null, warnings: [] };
@@ -152,7 +171,7 @@ describe('DraftPage', () => {
       await vi.advanceTimersByTimeAsync(3100);
     });
     expect(screen.getByTestId('pick-clock')).toHaveTextContent('1:00');
-    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls.filter((c) => c.path.endsWith('/draft')).length).toBeGreaterThanOrEqual(2);
   });
 
   it('lets you pick when you are on the clock, then refreshes', async () => {
@@ -228,8 +247,55 @@ describe('DraftPage', () => {
     expect(await screen.findByText('Paused')).toBeInTheDocument();
     expect(screen.getByTestId('pick-clock')).toHaveTextContent('0:40');
     await user.type(screen.getByLabelText('Search players'), 'chase');
-    await user.selectOptions(screen.getByLabelText('Position'), 'WR');
+    await user.click(
+      within(screen.getByRole('group', { name: 'Position' })).getByRole('button', { name: 'WR' })
+    );
     expect(calls.at(-1)?.request.query).toEqual({ q: 'chase', position: 'WR', limit: 25 });
+    await user.click(screen.getByRole('button', { name: 'Sort by last season points per game' }));
+    expect(calls.at(-1)?.request.query).toEqual({ q: 'chase', position: 'WR', limit: 25, sort: 'ppg' });
+  });
+
+  it('opens a player card from the board grid, your roster, and the queue', async () => {
+    const user = userEvent.setup();
+    const { api, calls } = fakeApi((path) =>
+      path === '/players/card'
+        ? {
+            player: ref('fx-cmc', 'Christian McCaffrey', 'RB'),
+            scoring: { source: 'league' },
+            bye: 14,
+            injuryStatus: null,
+            lastSeason: null,
+            projection: null,
+            news: []
+          }
+        : board()
+    );
+    renderDraft(api);
+    await user.click(
+      within(await screen.findByTestId('cell-1')).getByRole('button', { name: 'Christian McCaffrey' })
+    );
+    expect(await screen.findByTestId('player-card')).toHaveTextContent('bye 14');
+    expect(calls.find((c) => c.path === '/players/card')?.request.query).toEqual({
+      playerId: 'fx-cmc',
+      leagueId: 'L1'
+    });
+    // Drafted already, and not your turn: no Draft button.
+    expect(within(screen.getByTestId('player-card')).queryByRole('button', { name: 'Draft' })).toBeNull();
+    await user.keyboard('{Escape}');
+    await user.click(within(screen.getByRole('list', { name: 'Your roster' })).getByRole('button'));
+    expect(await screen.findByTestId('player-card')).toBeInTheDocument();
+  });
+
+  it('switches the board to the depth chart', async () => {
+    const user = userEvent.setup();
+    const { api, calls } = fakeApi((path) =>
+      path.endsWith('/draft/depth') ? { yourTeamId: 'team-1', teams: [] } : board()
+    );
+    renderDraft(api);
+    await user.click(await screen.findByRole('button', { name: 'Depth' }));
+    expect(await screen.findByRole('table', { name: 'Depth chart' })).toBeInTheDocument();
+    expect(calls.some((c) => c.path === '/leagues/L1/draft/depth')).toBe(true);
+    expect(screen.queryByRole('table', { name: 'Draft board' })).toBeNull();
   });
 
   it('shows a frozen clock with no time recorded as 0:00', async () => {
@@ -439,6 +505,26 @@ describe('DraftPage', () => {
     expect(list().queryByText(/NYJ Defense/)).not.toBeInTheDocument();
     await user.click(list().getByRole('button', { name: "Remove Ja'Marr Chase from the queue" }));
     expect(screen.getByText(/Queue players from Best available/)).toBeInTheDocument();
+    // Every change replaced the whole queue on the server, in order.
+    const saves = calls.filter((c) => c.path === '/leagues/L1/draft/queue' && c.request.method === 'PUT');
+    expect(saves.map((c) => (c.request.body as { playerIds: string[] }).playerIds)).toEqual([
+      ['fx-chase'],
+      ['fx-chase', 'fx-def-nyj'],
+      ['fx-def-nyj', 'fx-chase'],
+      ['fx-def-nyj']
+    ]);
+  });
+
+  it('says when your queue cannot load', async () => {
+    const { api } = fakeApi(() => board());
+    const failing = (async (path: string, request?: ApiRequest) => {
+      if (path.endsWith('/draft/queue')) {
+        throw new ApiError(403, { code: 'FORBIDDEN', message: 'You do not manage a team in this league.' });
+      }
+      return api(path, request);
+    }) as ApiFetch;
+    renderDraft(failing);
+    expect(await screen.findByText('You do not manage a team in this league.')).toBeInTheDocument();
   });
 
   it('shows a loading state first', () => {

@@ -1,7 +1,13 @@
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { draftExists, staleDraft } from '../errors.js';
-import type { DraftRecord, DraftRepository } from '../types.js';
-import { DraftRecordSchema, draftKey, ENTITY } from './league-records.js';
+import type { DraftQueueRecord, DraftRecord, DraftRepository } from '../types.js';
+import {
+  DraftQueueRecordSchema,
+  draftQueueKey,
+  DraftRecordSchema,
+  draftKey,
+  ENTITY
+} from './league-records.js';
 import { isConditionalCheckFailure, type TableContext } from './table.js';
 
 const draftItem = (draft: DraftRecord) => ({ ...draftKey(draft.leagueId), entity: ENTITY.draft, ...draft });
@@ -51,5 +57,26 @@ export class DynamoDraftRepository implements DraftRepository {
       throw error;
     }
     return next;
+  }
+
+  async getQueue(leagueId: string, teamId: string): Promise<DraftQueueRecord | null> {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: draftQueueKey(leagueId, teamId),
+        ConsistentRead: true
+      })
+    );
+    return result.Item === undefined ? null : DraftQueueRecordSchema.parse(result.Item);
+  }
+
+  /** One item per team, replaced whole: the last write wins, and a repeat is a no-op. */
+  async putQueue(queue: DraftQueueRecord): Promise<void> {
+    await this.table.doc.send(
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: { ...draftQueueKey(queue.leagueId, queue.teamId), entity: ENTITY.draftQueue, ...queue }
+      })
+    );
   }
 }

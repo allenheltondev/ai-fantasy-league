@@ -8,6 +8,7 @@ import {
   teamExists
 } from './errors.js';
 import type {
+  DraftQueueRecord,
   DraftRecord,
   DraftRepository,
   Invite,
@@ -37,6 +38,7 @@ interface Partition {
   standings: Map<number, StandingsSnapshot>;
   lineups: Map<string, Lineup>;
   draft: DraftRecord | null;
+  draftQueues: Map<string, DraftQueueRecord>;
 }
 
 export class InMemoryLeagueStore {
@@ -53,7 +55,8 @@ export class InMemoryLeagueStore {
         matchups: new Map(),
         standings: new Map(),
         lineups: new Map(),
-        draft: null
+        draft: null,
+        draftQueues: new Map()
       };
       this.#partitions.set(leagueId, partition);
     }
@@ -296,6 +299,15 @@ export class InMemoryDraftRepository implements DraftRepository {
     if (partition.draft?.version !== draft.version) throw staleDraft(draft.leagueId);
     partition.draft = { ...clone(draft), version: draft.version + 1 };
     return clone(partition.draft);
+  }
+
+  async getQueue(leagueId: string, teamId: string): Promise<DraftQueueRecord | null> {
+    const queue = this.store.partition(leagueId).draftQueues.get(teamId);
+    return queue === undefined ? null : clone(queue);
+  }
+
+  async putQueue(queue: DraftQueueRecord): Promise<void> {
+    this.store.partition(queue.leagueId).draftQueues.set(queue.teamId, clone(queue));
   }
 }
 

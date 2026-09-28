@@ -86,6 +86,49 @@ describe('draft over HTTP (dynalite)', () => {
     expect(errorCode(res)).toBe('DRAFT_NOT_STARTED');
   });
 
+  it('keeps each team a private draft queue, before the draft too', async () => {
+    const Q = `/leagues/${L}/draft/queue`;
+    expect(data(await bob.get(Q))).toEqual({ teamId: 'team-2', maxSize: 50, updatedAt: null, players: [] });
+    const set = await bob.put(Q, { playerIds: ['fx-bijan', 'fx-kelce', 'fx-bijan'] });
+    expect(set.status, JSON.stringify(set.body)).toBe(200);
+    expect(data(set)).toMatchObject({
+      teamId: 'team-2',
+      updatedAt: h.clock.now().toISOString(),
+      players: [
+        { player: { id: 'fx-bijan' }, available: true, rank: 5 },
+        { player: { id: 'fx-kelce' }, available: true }
+      ]
+    });
+    expect((set.body as { warnings: { code: string }[] }).warnings.map((w) => w.code)).toEqual([
+      'DUPLICATES_REMOVED'
+    ]);
+    // The same list again changes nothing (idempotent), and the queue is what get returns.
+    const first = data<{ updatedAt: string }>(set).updatedAt;
+    h.clock.advance(1000);
+    expect(data(await bob.put(Q, { playerIds: ['fx-bijan', 'fx-kelce'] }))).toMatchObject({
+      updatedAt: first
+    });
+    h.clock.set(new Date(first));
+    expect(data(await bob.get(Q))).toMatchObject({ updatedAt: first, players: [{}, {}] });
+    expect((await h.repos.drafts.getQueue(L, 'team-2'))?.playerIds).toEqual(['fx-bijan', 'fx-kelce']);
+
+    // Owner only: the commissioner cannot read or set someone else's queue; outsiders see nothing.
+    expect(errorCode(await alice.get(`${Q}?teamId=team-2`))).toBe('FORBIDDEN');
+    expect(errorCode(await alice.put(Q, { teamId: 'team-2', playerIds: [] }))).toBe('FORBIDDEN');
+    expect(errorCode(await carol.get(Q))).toBe('FORBIDDEN');
+    expect(errorCode(await carol.put(Q, { playerIds: [] }))).toBe('FORBIDDEN');
+    const unknown = await bob.put(Q, { playerIds: ['fx-cmc', 'nobody'] });
+    expect(unknown.body).toMatchObject({
+      error: { code: 'PLAYER_NOT_FOUND', details: { unknownPlayerIds: ['nobody'] } }
+    });
+    const tooMany = await bob.put(Q, { playerIds: Array.from({ length: 51 }, (_, i) => `p${i}`) });
+    expect(tooMany.status).toBe(400);
+    expect((await h.repos.drafts.getQueue(L, 'team-2'))?.playerIds).toEqual(['fx-bijan', 'fx-kelce']);
+    // Clearing it is an empty list; Alice's own queue is hers alone.
+    expect(data(await alice.put(Q, { playerIds: ['fx-chase'] }))).toMatchObject({ teamId: 'team-1' });
+    expect(data(await alice.put(Q, { playerIds: [] }))).toMatchObject({ players: [] });
+  });
+
   it('only the commissioner starts it, with a valid order, and every human seat taken', async () => {
     expect(errorCode(await bob.post(`/leagues/${L}/draft/start`, {}))).toBe('FORBIDDEN');
     expect(errorCode(await carol.post(`/leagues/${L}/draft/start`, {}))).toBe('FORBIDDEN');
@@ -272,14 +315,25 @@ describe('draft over HTTP (dynalite)', () => {
       detail: { leagueId: L, pick: 3 }
     });
     expect(early).toEqual({ handled: true, outcome: 'early' });
+    // The agent's queue leads with a drafted player; autopick takes the first one still available.
+    const queued = await invokeTool({
+      registry,
+      services: h.services,
+      principal: agent('team-3'),
+      name: 'set_draft_queue',
+      args: { leagueId: L, playerIds: ['fx-cmc', 'fx-kelce'], idempotencyKey: 'agent-queue-0001' }
+    });
+    expect(queued.body).toMatchObject({
+      data: { players: [{ available: false }, { player: { id: 'fx-kelce' }, available: true }] }
+    });
     expect(await expire(3)).toEqual({ handled: true, outcome: 'autopicked' });
     const draft = await h.repos.drafts.get(L);
-    expect(draft?.state.picks[2]).toMatchObject({ teamId: 'team-3', auto: true });
-    // An agent seat's first-round pick is notable, even when the clock made it.
+    expect(draft?.state.picks[2]).toMatchObject({ teamId: 'team-3', auto: true, playerId: 'fx-kelce' });
+    // A queued pick is still judged by ADP: Kelce (rank 45) at pick 3 is a reach.
     expect(events('Draft Pick Made').at(-1)?.detail).toMatchObject({
       teamId: 'team-3',
       auto: true,
-      notable: 'first_round',
+      notable: 'reach',
       reason: null
     });
     const stale = await handleLeagueEvent(h.services, {

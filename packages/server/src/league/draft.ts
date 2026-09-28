@@ -420,7 +420,8 @@ export type DeadlineOutcome = 'autopicked' | 'stale' | 'early' | 'paused' | 'com
 
 /**
  * Handles `Draft Pick Deadline`. If the pick is still open and its deadline has passed, autopick
- * (core `autopick`: fill an empty starting slot with the best-ranked player, else best available).
+ * (core `autopick`: the first player in the team's draft queue who still fits, else fill an empty
+ * starting slot with the best-ranked player, else best available).
  * A deadline for a pick already made is a no-op, except that it re-asserts the current pick's
  * deadline, so a draft interrupted between a pick and its announcement cannot stall. A deadline that
  * fires early (the draft was paused and resumed) waits for the rescheduled one.
@@ -446,11 +447,13 @@ export async function handleDraftDeadline(
   }
   const pool = await draftPool(deps);
   const byId = new Map(pool.map((p) => [p.id, p]));
+  const queue = await deps.repos.drafts.getQueue(league.id, slot.teamId);
   const choice = autopick(
     record.state,
     pool.map(draftable),
     pool.map((p) => p.id),
-    league.settings
+    league.settings,
+    queue?.playerIds ?? []
   );
   if (choice === null) {
     deps.log.error('autopick found no player', { leagueId: league.id, pick: slot.overall });
