@@ -12,7 +12,7 @@ import { createDevVerifier, isLocalAuthEnabled } from './auth/dev.js';
 import { createCognitoVerifier, type TokenVerifier } from './auth/verifier.js';
 import type { Services } from './context.js';
 import { startLocalTable } from './dev/local-table.js';
-import { seedDemoSeason } from './dev/season-demo.js';
+import { seedDemoProjections, seedDemoSeason } from './dev/season-demo.js';
 import { EventLoop, type EventSubscriber } from './events/loop.js';
 import { InMemoryEventPublisher } from './events/publisher.js';
 import { serverSubscribers } from './events/subscribers.js';
@@ -95,6 +95,8 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
       { repos, reference: services.data.reference },
       { leagueId: 'demo-season', owner: { sub: `local-${demo}`, name: demo }, now: services.clock.now() }
     );
+    // Projections for the lineup editor (#176); the demo leagues share the reference data.
+    await seedDemoProjections(services.data.reference, services.clock.now());
   }
   // FANTASY_LOCAL_TRADE_DEMO=<handle>,<rival>: the same league (`demo-trades`) with a second person,
   // local-<rival>, on team-2 (the notification e2e: one person's offer lands in the other's inbox).

@@ -223,9 +223,13 @@ export interface RosterEntry {
   byeWeek: number | null;
   onBye: boolean;
   kickoff: string | null;
+  /** His NFL team's opponent this week (#176): absent on older responses, null on a bye. */
+  opponent?: { team: string; home: boolean } | null;
   locked: boolean;
   projectedPoints: number | null;
   points: number | null;
+  /** Points per game over the last 3 NFL weeks (get_roster, #176), or null with no games yet. */
+  recentPoints?: { average: number; games: number } | null;
 }
 
 export interface SlotCount {
@@ -241,6 +245,10 @@ export interface Roster {
   carriedFromWeek: number | null;
   slots: SlotCount[];
   players: RosterEntry[];
+  /** The starters' projection; starters on bye or ruled out count 0 (#176). */
+  projectedPoints?: number;
+  /** The best legal lineup as set_lineup moves from this one, by projection or, with none, by rank (#176). */
+  optimal?: { basis?: 'projections' | 'rank'; projectedPoints: number; moves: LineupMove[] } | null;
 }
 
 export interface LineupMove {

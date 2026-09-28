@@ -1,8 +1,11 @@
 import {
   isPlayerLocked,
   normalizePlayerStatus,
+  optimizeLineup,
   playerKickoff,
+  rankValues,
   reconcileLineup,
+  scorePlayer,
   weekEndsAt,
   type LineupEntry,
   type PlayerStatus,
@@ -164,6 +167,76 @@ export async function resolveWeekLineups(
     );
   }
   return out;
+}
+
+/** What the lineup optimizer ranks players by: projected points, or consensus rank without them. */
+export type LineupBasis = 'projections' | 'rank';
+
+/**
+ * The values the optimizer compares for a week: league-scored projections when any are stored for
+ * the team's players, else consensus rank (core `rankValues`), which orders players but is not
+ * points. `projected` is the week's league-scored projections by player, as loaded for the page.
+ */
+export function lineupValues(
+  projected: ReadonlyMap<string, number>,
+  players: ReadonlyMap<string, Pick<Player, 'id' | 'rank'>>,
+  roster: readonly string[]
+): { basis: LineupBasis; values: Record<string, number> } {
+  if (projected.size > 0) return { basis: 'projections', values: Object.fromEntries(projected) };
+  return {
+    basis: 'rank',
+    values: rankValues(roster.map((id) => ({ playerId: id, rank: players.get(id)?.rank ?? null })))
+  };
+}
+
+/**
+ * Gives every human team without any lineup for the league's current week (none saved and none to
+ * carry forward) the optimizer's lineup (#176): right after the draft everyone would otherwise sit
+ * on the bench. It never overwrites a lineup, and agent seats set their own (the post-draft task).
+ * Returns the ids of the teams it set.
+ */
+export async function setDefaultLineups(
+  deps: Pick<SeasonDeps, 'repos' | 'reference'>,
+  league: League,
+  now: Date
+): Promise<string[]> {
+  const week = league.week;
+  if (week === null) return [];
+  const teams = (await deps.repos.teams.list(league.id)).filter(
+    (t) => t.seatType !== 'agent' && t.roster.length > 0
+  );
+  const [scheduled, snapshot] = await Promise.all([
+    weekGames(deps.reference, league.season, week),
+    deps.reference.projections.latestSnapshot(league.season, week, now)
+  ]);
+  // With no games stored for the week at all, byes and locks are unknown rather than universal.
+  const games = scheduled.length === 0 ? undefined : gamesByTeam(scheduled);
+  const set: string[] = [];
+  for (const team of teams) {
+    if ((await deps.repos.lineups.latest(league.id, team.id, week)) !== null) continue;
+    const players = await rosterPlayers(deps.repos, team);
+    const lines = snapshot === null ? [] : await deps.reference.projections.getLines(snapshot, team.roster);
+    const projected = new Map(lines.map((l) => [l.playerId, scorePlayer(league.settings, l.stats).points]));
+    const { values } = lineupValues(projected, players, team.roster);
+    const roster = team.roster.map((id) => toRosterPlayer(id, players.get(id)));
+    const best = optimizeLineup(league.settings, roster, values, {
+      ...(games === undefined ? {} : { games }),
+      now,
+      previousLineup: []
+    });
+    await deps.repos.lineups.put([
+      {
+        leagueId: league.id,
+        teamId: team.id,
+        week,
+        entries: best.lineup,
+        updatedAt: now.toISOString(),
+        updatedBy: 'system'
+      }
+    ]);
+    set.push(team.id);
+  }
+  return set;
 }
 
 /** Every league in `regular_season` or `playoffs`: two GSI2 `LEAGUEPHASE#<phase>` queries. */

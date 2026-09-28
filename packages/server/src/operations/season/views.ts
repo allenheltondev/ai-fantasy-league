@@ -59,12 +59,29 @@ export const RosterEntrySchema = z.object({
   byeWeek: z.number().int().nullable().describe("The NFL team's bye week, or null when unknown."),
   onBye: z.boolean().describe('True when his NFL team has no game this week (or he has no team).'),
   kickoff: z.string().nullable().describe("His game's kickoff this week (ISO 8601), or null on a bye."),
+  opponent: z
+    .object({
+      team: z.string().describe('The opposing NFL team, e.g. "BUF".'),
+      home: z.boolean().describe('True when his team is at home.')
+    })
+    .nullable()
+    .describe("His NFL team's opponent this week, or null on a bye."),
   locked: z.boolean().describe('True once his game has kicked off: he cannot change slots until next week.'),
   projectedPoints: z
     .number()
     .nullable()
     .describe('Projected points this week under league scoring, or null.'),
   points: z.number().nullable().describe('Points scored this week so far, or null before he has stats.'),
+  recentPoints: z
+    .object({
+      average: z.number().describe('Average points per game under league scoring.'),
+      games: z.number().int().describe('Games averaged (at most 3; weeks without a stat line are skipped).')
+    })
+    .nullable()
+    .optional()
+    .describe(
+      'His average over the last 3 NFL weeks before this one, or null with no games yet. Present on get_roster.'
+    ),
   eligibleSlots: z
     .array(RosterSlotSchema)
     .optional()
@@ -85,6 +102,8 @@ export function slotCounts(league: League): z.infer<typeof SlotCountSchema>[] {
 
 export interface WeekData {
   games: WeekGames;
+  /** Each playing NFL team's opponent this week. */
+  opponents: ReadonlyMap<string, { team: string; home: boolean }>;
   /** NFL teams whose game this week is final. */
   finalTeams: ReadonlySet<string>;
   byes: Record<string, number>;
@@ -111,6 +130,12 @@ export async function loadWeekData(
   const wanted = new Set(playerIds);
   return {
     games: gamesByTeam(games),
+    opponents: new Map<string, { team: string; home: boolean }>(
+      games.flatMap((g): [string, { team: string; home: boolean }][] => [
+        [g.homeTeam, { team: g.awayTeam, home: true }],
+        [g.awayTeam, { team: g.homeTeam, home: false }]
+      ])
+    ),
     finalTeams: new Set(games.filter((g) => g.status === 'final').flatMap((g) => [g.homeTeam, g.awayTeam])),
     byes: season?.byes ?? {},
     projected: new Map(projections.map((l) => [l.playerId, score(l.stats)])),
@@ -146,6 +171,7 @@ export function rosterEntries(
         byeWeek: team === null ? null : (week.byes[team] ?? null),
         onBye: isOnBye({ nflTeam: team }, week.games),
         kickoff: kickoff?.toISOString() ?? null,
+        opponent: team === null ? null : (week.opponents.get(team) ?? null),
         locked: isPlayerLocked({ nflTeam: team }, week.games, now),
         projectedPoints: week.projected.get(e.playerId) ?? null,
         points: week.actual.get(e.playerId) ?? null,

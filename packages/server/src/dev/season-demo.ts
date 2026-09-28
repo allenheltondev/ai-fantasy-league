@@ -107,6 +107,45 @@ export async function seedNflSchedule(reference: ReferenceStore): Promise<void> 
 }
 
 /**
+ * Week-1 projections for the demo rosters, so the lineup editor (#176) has numbers to show. The
+ * saved team-1 lineup is not the best one: Lamb (bench) projects above St. Brown, Hall above the
+ * flex, and the TE slot is empty, so "Optimize lineup" has moves to offer.
+ */
+export const DEMO_PROJECTIONS: [playerId: string, stats: Record<string, number>][] = [
+  ['fx-jallen', { pass_yd: 245, pass_td: 1.8, pass_int: 0.7, rush_yd: 32, rush_td: 0.4 }],
+  ['fx-mahomes', { pass_yd: 265, pass_td: 2, pass_int: 0.6, rush_yd: 18 }],
+  ['fx-cmc', { rush_yd: 82, rush_td: 0.7, rec: 4.5, rec_yd: 35 }],
+  ['fx-bijan', { rush_yd: 75, rush_td: 0.6, rec: 3, rec_yd: 25 }],
+  ['fx-bhall', { rush_yd: 70, rush_td: 0.5, rec: 3.5, rec_yd: 30 }],
+  ['fx-chase', { rec: 6.5, rec_yd: 88, rec_td: 0.7 }],
+  ['fx-jjefferson', { rec: 6, rec_yd: 85, rec_td: 0.6 }],
+  ['fx-arsb', { rec: 5.5, rec_yd: 64, rec_td: 0.4 }],
+  ['fx-lamb', { rec: 7, rec_yd: 90, rec_td: 0.6 }],
+  ['fx-kelce', { rec: 5, rec_yd: 55, rec_td: 0.5 }],
+  ['fx-butker', { fgm_30_39: 1, fgm_40_49: 0.7, xpm: 2.6 }],
+  ['fx-def-sf', { sack: 3, int: 1, fum_rec: 0.6, pts_allow: 18 }],
+  ['fx-kwalker', { rush_yd: 60, rush_td: 0.4 }],
+  ['fx-lamar', { pass_yd: 220, pass_td: 1.7, pass_int: 0.5, rush_yd: 55, rush_td: 0.4 }],
+  ['fx-jtaylor', { rush_yd: 90, rush_td: 0.8, rec: 2, rec_yd: 15 }],
+  ['fx-jjacobs', { rush_yd: 72, rush_td: 0.6, rec: 2.5, rec_yd: 18 }],
+  ['fx-ajbrown', { rec: 5.5, rec_yd: 80, rec_td: 0.5 }],
+  ['fx-mhj', { rec: 5, rec_yd: 68, rec_td: 0.4 }],
+  ['fx-tyhill', { rec: 6, rec_yd: 84, rec_td: 0.6 }],
+  ['fx-laporta', { rec: 4.5, rec_yd: 50, rec_td: 0.4 }],
+  ['fx-tucker', { fgm_30_39: 1, fgm_40_49: 0.8, xpm: 2.2 }],
+  ['fx-def-buf', { sack: 2.5, int: 0.8, pts_allow: 20 }]
+];
+
+/** Stores `DEMO_PROJECTIONS` as a week-1 snapshot captured at `now` (a rewrite is harmless). */
+export async function seedDemoProjections(reference: ReferenceStore, now: Date): Promise<void> {
+  const lines = DEMO_PROJECTIONS.map(([playerId, stats]) => ({ playerId, season: SEASON, week: 1, stats }));
+  await reference.projections.putSnapshot(
+    { season: SEASON, week: 1, capturedAt: now.toISOString(), hash: 'demo', count: lines.length },
+    lines
+  );
+}
+
+/**
  * Seeds the demo league (`FANTASY_LOCAL_SEASON_DEMO=<handle>` in the local server), owned by the
  * dev user `local-<handle>` on team-1. With a `rival`, a second person holds team-2 instead of an
  * AI manager (`FANTASY_LOCAL_TRADE_DEMO`, for the notification e2e: one person's trade offer lands
