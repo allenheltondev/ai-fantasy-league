@@ -6,6 +6,7 @@ import { toProfile } from '../../src/players/profile.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import {
   createDynamoReferenceStore,
+  JOB_RUN_TTL_MS,
   NFL_GAMES_TTL_MS,
   SCORING_LOG_TTL_MS
 } from '../../src/repos/dynamo/reference.js';
@@ -179,6 +180,37 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
       { ...player('s1', 7), team: 'KC' }
     ]);
     expect(await reference.seasons.get('projections', season)).toEqual([]);
+    // An unchanged check stamps only the meta; the lines stay.
+    await reference.seasons.putMeta({ ...meta('b', 2), checkedAt: '2026-08-02T00:00:00.000Z' });
+    expect(await reference.seasons.getMeta('stats', season)).toEqual({
+      ...meta('b', 2),
+      checkedAt: '2026-08-02T00:00:00.000Z'
+    });
+    expect(await reference.seasons.get('stats', season)).toHaveLength(2);
+  });
+
+  it('keeps each job’s latest run and its last ok run (#181)', async () => {
+    const { reference } = make();
+    const job = `job-${nextSeason()}`;
+    const run = (finishedAt: string, status: 'ok' | 'skipped' | 'failed', reason: string | null) => ({
+      job,
+      finishedAt,
+      status,
+      reason,
+      summary: status === 'ok' ? '{"weeks":[4,5]}' : null,
+      durationMs: 12
+    });
+    expect(await reference.jobRuns.list([job])).toEqual([{ job, latest: null, lastOk: null }]);
+    await reference.jobRuns.put(run('2026-09-28T10:00:00.000Z', 'ok', null));
+    await reference.jobRuns.put(run('2026-09-28T11:00:00.000Z', 'skipped', 'no_nfl_state'));
+    expect(await reference.jobRuns.list([job, 'never-ran'])).toEqual([
+      {
+        job,
+        latest: run('2026-09-28T11:00:00.000Z', 'skipped', 'no_nfl_state'),
+        lastOk: run('2026-09-28T10:00:00.000Z', 'ok', null)
+      },
+      { job: 'never-ran', latest: null, lastOk: null }
+    ]);
   });
 
   it('keeps trending snapshots and serves the latest as of a time', async () => {
@@ -380,6 +412,25 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
     expect(await repos.players.get(id)).toEqual(player);
     expect((await repos.players.listIndex('TE')).map((p) => p.id)).toContain(id);
     expect((await reference.playerSync.listSources()).find((s) => s.id === id)).toEqual(source);
+  });
+});
+
+describe('DynamoDB job runs', () => {
+  it('keys runs by job and expires them after 30 days', async () => {
+    const reference = createDynamoReferenceStore(table);
+    const finishedAt = '2099-10-04T17:00:00.000Z';
+    await reference.jobRuns.put({
+      job: 'ttlJob',
+      finishedAt,
+      status: 'failed',
+      reason: 'boom',
+      summary: null,
+      durationMs: 1
+    });
+    const item = await table.doc.send(
+      new GetCommand({ TableName: table.tableName, Key: { pk: 'JOBRUN#ttlJob', sk: 'LATEST' } })
+    );
+    expect(item.Item?.ttl).toBe(Date.parse(finishedAt) / 1000 + JOB_RUN_TTL_MS / 1000);
   });
 });
 

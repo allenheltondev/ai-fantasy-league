@@ -9655,6 +9655,587 @@
         "x-mutation": false
       }
     },
+    "/api/v1/leagues/{leagueId}/data-status": {
+      "get": {
+        "operationId": "get_data_status",
+        "summary": "Check the NFL data behind projections and research",
+        "description": "Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with. Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
+        "tags": [
+          "leagues"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "checkedAt": {
+                          "type": "string"
+                        },
+                        "nflState": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "season": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "seasonType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pre",
+                                    "regular",
+                                    "post",
+                                    "off"
+                                  ]
+                                },
+                                "week": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "leagueSeason": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "updatedAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "season",
+                                "seasonType",
+                                "week",
+                                "leagueSeason",
+                                "updatedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Sleeper's NFL state as the syncNflState job last stored it; null when it was never stored, which leaves projections and research empty."
+                        },
+                        "league": {
+                          "type": "object",
+                          "properties": {
+                            "season": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "The league's current week; null before its season starts."
+                            }
+                          },
+                          "required": [
+                            "season",
+                            "week"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "players": {
+                          "type": "object",
+                          "properties": {
+                            "total": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "byPosition": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ]
+                              },
+                              "additionalProperties": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "required": [
+                                "QB",
+                                "RB",
+                                "WR",
+                                "TE",
+                                "K",
+                                "DEF"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "total",
+                            "byPosition"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "weeks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "season": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "week": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "projections": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "capturedAt": {
+                                        "type": "string"
+                                      },
+                                      "count": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "hash": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "capturedAt",
+                                      "count",
+                                      "hash"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The latest weekly projection snapshot (what rosters and matchups show); null if none."
+                              },
+                              "statLines": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Stored stat lines for the week."
+                              }
+                            },
+                            "required": [
+                              "season",
+                              "week",
+                              "projections",
+                              "statLines"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "The league's current week (its first week before the season) and the next one."
+                        },
+                        "research": {
+                          "type": "object",
+                          "properties": {
+                            "stats": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "season": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "updatedAt": {
+                                      "type": "string",
+                                      "description": "When the set was last replaced."
+                                    },
+                                    "checkedAt": {
+                                      "description": "When the source was last checked (null before the first check that found no change).",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "players": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "weeks": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "description": "Weeks the source had lines for."
+                                    }
+                                  },
+                                  "required": [
+                                    "season",
+                                    "updatedAt",
+                                    "checkedAt",
+                                    "players",
+                                    "weeks"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Last season's weekly stats (the draft room's Pts and PPG); null if none."
+                            },
+                            "projections": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "season": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "updatedAt": {
+                                      "type": "string",
+                                      "description": "When the set was last replaced."
+                                    },
+                                    "checkedAt": {
+                                      "description": "When the source was last checked (null before the first check that found no change).",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "players": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "weeks": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "description": "Weeks the source had lines for."
+                                    }
+                                  },
+                                  "required": [
+                                    "season",
+                                    "updatedAt",
+                                    "checkedAt",
+                                    "players",
+                                    "weeks"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "This season's projections (the draft room's Proj); null if none."
+                            }
+                          },
+                          "required": [
+                            "stats",
+                            "projections"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "jobs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "job": {
+                                "type": "string"
+                              },
+                              "latest": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "finishedAt": {
+                                        "type": "string"
+                                      },
+                                      "status": {
+                                        "type": "string",
+                                        "enum": [
+                                          "ok",
+                                          "skipped",
+                                          "failed"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "description": "Why the run skipped, or the error of a failed run.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "summary": {
+                                        "description": "The rest of the job's result as JSON (weeks stored, counts).",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "durationMs": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "finishedAt",
+                                      "status",
+                                      "reason",
+                                      "summary",
+                                      "durationMs"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The latest recorded run; null when none is recorded."
+                              },
+                              "lastOk": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "finishedAt": {
+                                        "type": "string"
+                                      },
+                                      "status": {
+                                        "type": "string",
+                                        "enum": [
+                                          "ok",
+                                          "skipped",
+                                          "failed"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "description": "Why the run skipped, or the error of a failed run.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "summary": {
+                                        "description": "The rest of the job's result as JSON (weeks stored, counts).",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "durationMs": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "finishedAt",
+                                      "status",
+                                      "reason",
+                                      "summary",
+                                      "durationMs"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The latest run that did its work."
+                              }
+                            },
+                            "required": [
+                              "job",
+                              "latest",
+                              "lastOk"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Each scheduled data job. Runs are kept for 30 days."
+                        }
+                      },
+                      "required": [
+                        "checkedAt",
+                        "nflState",
+                        "league",
+                        "players",
+                        "weeks",
+                        "research",
+                        "jobs"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/draft": {
       "get": {
         "operationId": "get_draft_board",

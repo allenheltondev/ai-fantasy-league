@@ -103,10 +103,12 @@ describe('createLeagueApi', () => {
     await api.getModelLeaderboard('L1');
     await api.getAgentActivity('L1');
     await api.getAgentActivity('L1', { teamId: 'team-2', limit: 10 });
+    await api.getDataStatus('L1');
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       '/leagues/L1/model-leaderboard',
       '/leagues/L1/agent-activity',
-      '/leagues/L1/agent-activity'
+      '/leagues/L1/agent-activity',
+      '/leagues/L1/data-status'
     ]);
     expect(fetch.mock.calls[1]?.[1]).toEqual({ query: {} });
     expect(fetch.mock.calls[2]?.[1]).toEqual({ query: { teamId: 'team-2', limit: 10 } });

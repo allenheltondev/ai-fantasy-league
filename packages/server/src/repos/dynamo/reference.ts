@@ -14,6 +14,9 @@ import { POSITIONS } from '../../players/model.js';
 import {
   stateRevision,
   weekKey,
+  type JobRun,
+  type JobRunHistory,
+  type JobRunRepository,
   type NewsItem,
   type NewsQuery,
   type NewsRepository,
@@ -182,6 +185,7 @@ const SeasonLinesMetaSchema = z.object({
   kind: z.enum(['stats', 'projections']),
   season: z.number(),
   updatedAt: z.string(),
+  checkedAt: z.string().optional(),
   players: z.number(),
   weeks: z.array(z.number()),
   hash: z.string()
@@ -573,8 +577,15 @@ export class DynamoSeasonLinesRepository implements SeasonLinesRepository {
       this.table,
       existing.filter((item) => !keep.has(String(item.sk))).map((item) => ({ pk, sk: item.sk }))
     );
+    await this.putMeta(meta);
+  }
+
+  async putMeta(meta: SeasonLinesMeta): Promise<void> {
     await this.table.doc.send(
-      new PutCommand({ TableName: this.table.tableName, Item: { pk, sk: SEASON_META_SK, ...meta } })
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: { pk: seasonLinesPk(meta.kind, meta.season), sk: SEASON_META_SK, ...meta }
+      })
     );
   }
 
@@ -761,6 +772,49 @@ export class DynamoPlayerSyncRepository implements PlayerSyncRepository {
   }
 }
 
+const JobRunSchema = z.object({
+  job: z.string(),
+  finishedAt: z.string(),
+  status: z.enum(['ok', 'skipped', 'failed']),
+  reason: z.string().nullable(),
+  summary: z.string().nullable(),
+  durationMs: z.number()
+});
+
+/** A job run outlives the investigation it serves, then expires. */
+export const JOB_RUN_TTL_MS = 30 * DAY_MS;
+/** `JOBRUN#<job>`: `LATEST` (any status) and `OK` (the last run that did its work). */
+export const jobRunPk = (job: string) => `JOBRUN#${job}`;
+const JOB_RUN_LATEST = 'LATEST';
+const JOB_RUN_OK = 'OK';
+
+export class DynamoJobRunRepository implements JobRunRepository {
+  constructor(private readonly table: TableContext) {}
+
+  async put(run: JobRun): Promise<void> {
+    const ttl = epochSeconds(new Date(Date.parse(run.finishedAt) + JOB_RUN_TTL_MS));
+    const item = (sk: string) => ({ pk: jobRunPk(run.job), sk, ...run, ttl });
+    await batchPut(
+      this.table,
+      run.status === 'ok' ? [item(JOB_RUN_LATEST), item(JOB_RUN_OK)] : [item(JOB_RUN_LATEST)]
+    );
+  }
+
+  async list(jobs: readonly string[]): Promise<JobRunHistory[]> {
+    const names = [...new Set(jobs)];
+    const items = await batchGet(
+      this.table,
+      names.flatMap((job) => [JOB_RUN_LATEST, JOB_RUN_OK].map((sk) => ({ pk: jobRunPk(job), sk })))
+    );
+    const found = new Map(items.map((item) => [`${String(item.pk)}|${String(item.sk)}`, item]));
+    const run = (job: string, sk: string): JobRun | null => {
+      const item = found.get(`${jobRunPk(job)}|${sk}`);
+      return item === undefined ? null : JobRunSchema.parse(item);
+    };
+    return jobs.map((job) => ({ job, latest: run(job, JOB_RUN_LATEST), lastOk: run(job, JOB_RUN_OK) }));
+  }
+}
+
 export function createDynamoReferenceStore(table: TableContext): ReferenceStore {
   return {
     nflState: new DynamoNflStateRepository(table),
@@ -773,6 +827,7 @@ export function createDynamoReferenceStore(table: TableContext): ReferenceStore 
     seasons: new DynamoSeasonLinesRepository(table),
     trending: new DynamoTrendingRepository(table),
     news: new DynamoNewsRepository(table),
-    playerSync: new DynamoPlayerSyncRepository(table)
+    playerSync: new DynamoPlayerSyncRepository(table),
+    jobRuns: new DynamoJobRunRepository(table)
   };
 }

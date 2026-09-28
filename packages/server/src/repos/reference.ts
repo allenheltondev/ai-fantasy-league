@@ -185,6 +185,8 @@ export interface SeasonLinesMeta {
   season: number;
   /** When the set was last replaced. */
   updatedAt: string;
+  /** When the source was last checked for changes (an unchanged check leaves `updatedAt`). */
+  checkedAt?: string;
   players: number;
   /** Weeks the source had lines for. */
   weeks: number[];
@@ -196,6 +198,8 @@ export interface SeasonLinesRepository {
   getMeta(kind: SeasonLinesKind, season: number): Promise<SeasonLinesMeta | null>;
   /** Replaces the season's set (players missing from `lines` are removed), then writes the meta. */
   put(meta: SeasonLinesMeta, lines: readonly PlayerSeasonLines[]): Promise<void>;
+  /** Rewrites only the meta (an unchanged check stamping `checkedAt`). */
+  putMeta(meta: SeasonLinesMeta): Promise<void>;
   /** The season's records: all of them, or only `playerIds`. */
   get(kind: SeasonLinesKind, season: number, playerIds?: readonly string[]): Promise<PlayerSeasonLines[]>;
 }
@@ -269,6 +273,39 @@ export interface PlayerSyncRepository {
   upsert(records: readonly SyncedPlayer[]): Promise<void>;
 }
 
+// ---------------------------------------------------------------------------
+// Data job runs (#181)
+// ---------------------------------------------------------------------------
+
+export type JobRunStatus = 'ok' | 'skipped' | 'failed';
+
+/** One data job run's outcome, as the jobs Lambda records it. */
+export interface JobRun {
+  job: string;
+  finishedAt: string;
+  status: JobRunStatus;
+  /** The skip reason, or the error message of a failed run; null for `ok`. */
+  reason: string | null;
+  /** The rest of the job's result as short JSON (weeks stored, counts), or null. */
+  summary: string | null;
+  durationMs: number;
+}
+
+export interface JobRunHistory {
+  job: string;
+  /** The latest run of any status, or null when none is recorded. */
+  latest: JobRun | null;
+  /** The latest `ok` run: the last time the job did its work. */
+  lastOk: JobRun | null;
+}
+
+export interface JobRunRepository {
+  /** Records the run as the job's latest, and as its last `ok` run when its status is `ok`. */
+  put(run: JobRun): Promise<void>;
+  /** The latest and last `ok` runs of each named job, in the order given. */
+  list(jobs: readonly string[]): Promise<JobRunHistory[]>;
+}
+
 export interface ReferenceStore {
   nflState: NflStateRepository;
   schedule: NflScheduleRepository;
@@ -281,6 +318,7 @@ export interface ReferenceStore {
   trending: TrendingRepository;
   news: NewsRepository;
   playerSync: PlayerSyncRepository;
+  jobRuns: JobRunRepository;
 }
 
 /** `W05`: zero-padded so sort keys order chronologically. */

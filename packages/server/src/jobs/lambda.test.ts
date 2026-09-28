@@ -6,6 +6,7 @@ import { createLogger } from '../log.js';
 import { loadJobsConfig } from './config.js';
 import { isJobName, JOB_NAMES } from './index.js';
 import { createJobDeps, handler, runJob } from './lambda.js';
+import { DATA_JOB_NAMES, JOB_RUN_TEXT_LIMIT, jobRunFromError, jobRunFromResult } from './runs.js';
 
 const ENV = { TABLE_NAME: 'FantasyTable', NEWS_FEEDS_PARAMETER: '/fantasy/news-feeds' };
 
@@ -86,6 +87,69 @@ describe('runJob', () => {
     await expect(runJob({}, deps, deps.clock)).rejects.toThrow(/Expected one of: syncPlayers/);
     await expect(runJob({ job: 'syncNflState' }, deps, deps.clock)).rejects.toThrow(/state was not set/);
     expect(lines.some((l) => l.includes('job failed'))).toBe(true);
+  });
+});
+
+describe('job run records (#181)', () => {
+  it('lists the same jobs the API reports on', () => {
+    expect([...DATA_JOB_NAMES]).toEqual(JOB_NAMES);
+  });
+
+  it('records each run: ok as latest and last ok, a skip with its reason, a failure with its error', async () => {
+    const provider = new StubProvider();
+    provider.state = nflState();
+    const deps = createTestJobDeps({ provider });
+    await runJob({ job: 'syncNflState' }, deps, deps.clock);
+    deps.clock.advance(60_000);
+    await runJob({ job: 'ingestStats' }, deps, deps.clock);
+    deps.clock.advance(60_000);
+    provider.state = null;
+    await expect(runJob({ job: 'syncNflState' }, deps, deps.clock)).rejects.toThrow();
+
+    const [state, stats, never] = await deps.reference.jobRuns.list([
+      'syncNflState',
+      'ingestStats',
+      'syncPlayers'
+    ]);
+    expect(state).toMatchObject({
+      job: 'syncNflState',
+      latest: { status: 'failed', reason: 'StubProvider: state was not set', summary: null },
+      lastOk: { status: 'ok', reason: null, finishedAt: '2025-09-04T12:00:00.000Z' }
+    });
+    expect(JSON.parse(state?.lastOk?.summary ?? '')).toMatchObject({ season: 2025, week: 1 });
+    expect(stats).toMatchObject({
+      latest: { status: 'skipped', reason: 'no_schedule', finishedAt: '2025-09-04T12:01:00.000Z' },
+      lastOk: null
+    });
+    expect(never).toEqual({ job: 'syncPlayers', latest: null, lastOk: null });
+  });
+
+  it('never fails a job because its record could not be written', async () => {
+    const lines: string[] = [];
+    const provider = new StubProvider();
+    provider.state = nflState();
+    const deps = { ...createTestJobDeps({ provider }), log: createLogger({ sink: (l) => lines.push(l) }) };
+    deps.reference.jobRuns.put = async () => {
+      throw new Error('table is gone');
+    };
+    expect(await runJob({ job: 'syncNflState' }, deps, deps.clock)).toMatchObject({ status: 'ok' });
+    expect(lines.some((l) => l.includes('could not record the job run'))).toBe(true);
+  });
+
+  it('keeps summaries short, errors as text, and leaves out an empty summary', () => {
+    const at = new Date('2026-09-28T12:00:00.000Z');
+    const long = jobRunFromResult('ingestNews', { status: 'ok', items: 'x'.repeat(5000) }, at, 5);
+    expect(long.summary).toHaveLength(JOB_RUN_TEXT_LIMIT);
+    expect(long.summary?.endsWith('…')).toBe(true);
+    expect(jobRunFromResult('ingestNews', { status: 'skipped' }, at, 5)).toEqual({
+      job: 'ingestNews',
+      finishedAt: at.toISOString(),
+      status: 'skipped',
+      reason: null,
+      summary: null,
+      durationMs: 5
+    });
+    expect(jobRunFromError('ingestNews', 'boom', at, 5)).toMatchObject({ status: 'failed', reason: 'boom' });
   });
 });
 

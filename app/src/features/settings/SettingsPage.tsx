@@ -8,6 +8,7 @@ import { useLoad } from '../../lib/useLoad';
 import { PHASE_LABELS } from '../leagues/MyLeaguesPage';
 import { AgentManagers } from './AgentManagers';
 import { AiActivityPanel } from './AiActivityPanel';
+import { DataStatusPanel } from './DataStatusPanel';
 import { DraftSchedulePanel } from './DraftSchedulePanel';
 import { InvitesPanel } from './InvitesPanel';
 import { RulesEditor } from './RulesEditor';
@@ -43,7 +44,7 @@ export function aiSeats(league: LeagueDetail) {
     .sort((a, b) => a.draftSlot - b.draftSlot);
 }
 
-/** The league's Settings section: seats, AI managers, invites, and the rules. */
+/** The league's Settings section: seats, AI managers, invites, the rules, and (commissioner) AI activity and data status. */
 export function SettingsPage() {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
@@ -51,7 +52,7 @@ export function SettingsPage() {
   const loaded = useLoad(() => loadSettings(api, leagueId), leagueId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [tab, setTab] = useState<'league' | 'ai'>('league');
+  const [tab, setTab] = useState<'league' | 'ai' | 'data'>('league');
 
   if (loaded.data === null) {
     return loaded.error ? <ApiErrorAlert error={loaded.error} /> : <LoadingPage text="Loading settings…" />;
@@ -90,13 +91,18 @@ export function SettingsPage() {
           aria-label="Settings view"
           options={[
             { value: 'league', label: 'League settings' },
-            { value: 'ai', label: 'AI activity' }
+            { value: 'ai', label: 'AI activity' },
+            { value: 'data', label: 'Data status' }
           ]}
           value={tab}
           onChange={setTab}
         />
       )}
-      {state.youAreCommissioner && tab === 'ai' ? (
+      {state.youAreCommissioner && tab === 'data' ? (
+        <Section id="data-status" title="Data status">
+          <DataStatusPanel leagueId={league.id} />
+        </Section>
+      ) : state.youAreCommissioner && tab === 'ai' ? (
         <>
           <Section id="ai-activity" title="AI activity">
             <AiActivityPanel leagueId={league.id} teams={league.teams} />

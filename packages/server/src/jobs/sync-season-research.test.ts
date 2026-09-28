@@ -3,7 +3,8 @@ import { FixtureDataProvider, type NflState, type StatLine } from '@fantasy/data
 import { describe, expect, it } from 'vitest';
 import { createTestJobDeps, nflState, sourcePlayer, StubProvider } from '../../test/support/jobs.js';
 import { researchSeasons } from '../players/research.js';
-import { seasonLinesHash, syncSeasonResearch } from './sync-season-research.js';
+import { nextRunFn, JOB_SCHEDULE_EXPRESSIONS } from './schedules.js';
+import { RESEARCH_RECHECK_MS, seasonLinesHash, syncSeasonResearch } from './sync-season-research.js';
 import { syncPlayers } from './sync-players.js';
 
 const AT = '2026-08-20T12:00:00.000Z';
@@ -92,6 +93,7 @@ describe('syncSeasonResearch', () => {
     });
     expect(provider.calls.some((c) => c.startsWith('getWeekStats'))).toBe(false);
 
+    deps.clock.advance(RESEARCH_RECHECK_MS);
     provider.projections[2] = [line('1', 2026, 2, { rec: 4 })];
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [{ kind: 'stats' }, { kind: 'projections', stored: true, players: 1, weeks: 2 }]
@@ -115,11 +117,25 @@ describe('syncSeasonResearch', () => {
         { kind: 'projections', stored: true }
       ]
     });
+    // The next hourly run leaves both alone; a day later they are checked again.
+    provider.calls.length = 0;
+    expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
+      sets: [
+        { kind: 'stats', stored: false, reason: 'checked_recently' },
+        { kind: 'projections', stored: false, reason: 'checked_recently' }
+      ]
+    });
+    expect(provider.calls.some((c) => c.startsWith('getWeek'))).toBe(false);
+    deps.clock.advance(RESEARCH_RECHECK_MS);
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [
         { kind: 'stats', stored: false, reason: 'unchanged' },
         { kind: 'projections', stored: false, reason: 'unchanged' }
       ]
+    });
+    expect(await deps.reference.seasons.getMeta('stats', 2025)).toMatchObject({
+      updatedAt: AT,
+      checkedAt: deps.clock.now().toISOString()
     });
   });
 
@@ -127,6 +143,7 @@ describe('syncSeasonResearch', () => {
     const { provider, deps } = await setup({ ...PRESEASON_2026, seasonType: 'regular', week: 3 });
     provider.projections[1] = [line('1', 2026, 1, { rec: 5 })];
     await syncSeasonResearch(deps, deps.clock);
+    deps.clock.advance(RESEARCH_RECHECK_MS);
     provider.projections = Object.fromEntries(
       Array.from({ length: 18 }, (_, i) => [i + 1, [line('1', 2026, i + 1, { rec: 5 })]])
     );
@@ -138,6 +155,32 @@ describe('syncSeasonResearch', () => {
       sets: [{ kind: 'stats' }, { kind: 'projections', reason: 'in_season' }]
     });
     expect(provider.calls.some((c) => c.startsWith('getWeekProjections'))).toBe(false);
+  });
+
+  it('fills a missing set within the hour of a deploy, not the next morning (#181)', async () => {
+    // Draft research shipped at 12:42 UTC, after the daily 11:37 run, so production had no
+    // SEASON# sets until the next day and the draft room showed no Proj, PPG, or Pts.
+    const deployed = new Date('2026-09-28T12:42:00.000Z');
+    const next = nextRunFn(JOB_SCHEDULE_EXPRESSIONS.syncSeasonResearch)(deployed);
+    expect(next.getTime() - deployed.getTime()).toBeLessThanOrEqual(3_600_000);
+
+    // And a run that finds nothing yet tries again on the next run, with no wait.
+    const { provider, deps } = await setup({ ...PRESEASON_2026, seasonType: 'regular', week: 4 });
+    expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
+      sets: [
+        { kind: 'stats', stored: false, reason: 'no_data' },
+        { kind: 'projections', stored: false, reason: 'no_data' }
+      ]
+    });
+    deps.clock.advance(3_600_000);
+    provider.weekly[1] = [line('1', 2025, 1, { gp: 1, rec: 2 })];
+    provider.projections[4] = [line('1', 2026, 4, { rec: 5 })];
+    expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
+      sets: [
+        { kind: 'stats', stored: true, players: 1 },
+        { kind: 'projections', stored: true, players: 1 }
+      ]
+    });
   });
 
   it('fails the run on a source error, so the schedule retries it', async () => {

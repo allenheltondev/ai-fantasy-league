@@ -1,6 +1,7 @@
 import { createInvite } from './create-invite.js';
 import { createLeague } from './create-league.js';
 import { deleteLeague } from './delete-league.js';
+import { getDataStatus } from './get-data-status.js';
 import { getDefaultSettings } from './get-default-settings.js';
 import { getInvite } from './get-invite.js';
 import { getLeague } from './get-league.js';
@@ -46,5 +47,6 @@ export const leagueOperations = [
   getDefaultSettings,
   getPlayoffBracket,
   getLeagueHistory,
-  getLeagueDashboard
+  getLeagueDashboard,
+  getDataStatus
 ];

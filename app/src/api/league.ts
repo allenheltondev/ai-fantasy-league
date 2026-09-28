@@ -8,6 +8,7 @@ import type {
   AgentSeatConfig,
   AgentSeatView,
   CreatedInvite,
+  DataStatus,
   DefaultSettings,
   Invite,
   InvitePreview,
@@ -111,6 +112,8 @@ export function createLeagueApi(api: ApiFetch) {
     /** get_agent_activity (#77): commissioner only. */
     getAgentActivity: (id: string, query: { teamId?: string; limit?: number } = {}) =>
       call<AgentActivity>(`${league(id)}/agent-activity`, { query }),
+    /** get_data_status (#181): commissioner only. */
+    getDataStatus: (id: string) => call<DataStatus>(`${league(id)}/data-status`),
     /** get_realtime_token: a subscribe-only token for live league events, or `enabled: false`. */
     getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`),
     // Playoffs and history (#78, #81)

@@ -473,6 +473,45 @@ export interface AgentActivity {
   killSwitch: { configured: boolean; engaged: boolean };
 }
 
+/** One data job run (get_data_status, #181). */
+export interface DataJobRun {
+  finishedAt: string;
+  status: 'ok' | 'skipped' | 'failed';
+  reason: string | null;
+  summary: string | null;
+  durationMs: number;
+}
+
+export interface DataSeasonSet {
+  season: number;
+  updatedAt: string;
+  checkedAt: string | null;
+  players: number;
+  weeks: number[];
+}
+
+/** get_data_status (#181): the commissioner's view of the NFL data behind projections and research. */
+export interface DataStatus {
+  checkedAt: string;
+  nflState: {
+    season: number;
+    seasonType: 'pre' | 'regular' | 'post' | 'off';
+    week: number;
+    leagueSeason: number;
+    updatedAt: string;
+  } | null;
+  league: { season: number; week: number | null };
+  players: { total: number; byPosition: Record<string, number> };
+  weeks: {
+    season: number;
+    week: number;
+    projections: { capturedAt: string; count: number; hash: string } | null;
+    statLines: number;
+  }[];
+  research: { stats: DataSeasonSet | null; projections: DataSeasonSet | null };
+  jobs: { job: string; latest: DataJobRun | null; lastOk: DataJobRun | null }[];
+}
+
 export interface BracketSideView {
   teamId: string | null;
   teamName: string | null;

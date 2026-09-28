@@ -13,22 +13,21 @@ export function projectionHash(lines: readonly ProjectionLine[]): string {
 }
 
 /**
- * The weeks worth projecting now: the current regular-season week, plus the next one once every
- * game of the current week has kicked off (waiver research). Preseason projects week 1.
+ * The weeks worth projecting now: the current regular-season week and the next one. The next week
+ * is always included because a league can already be playing it: a league drafted during week 3
+ * starts with week 4 (the next week that has not kicked off, `firstScoringWeek`) while Sleeper's
+ * NFL state still says week 3 until that week's last game. It is also waiver research once the
+ * current week is under way. Preseason projects week 1.
  */
 export async function projectionWeeks(
-  deps: Pick<JobDeps, 'reference'>,
-  now: Date
+  deps: Pick<JobDeps, 'reference'>
 ): Promise<{ season: number; weeks: number[] } | null> {
   const state = await deps.reference.nflState.get();
   if (state === null) return null;
   if (state.seasonType === 'pre') return { season: state.leagueSeason, weeks: [1] };
   if (state.seasonType !== 'regular') return null;
-  const weeks = [state.week];
-  const games = await deps.reference.schedule.getWeek(state.season, state.week);
-  const allStarted = games.length > 0 && games.every((g) => Date.parse(g.kickoff) <= now.getTime());
-  if (allStarted && state.week < LAST_NFL_WEEK) weeks.push(state.week + 1);
-  return { season: state.season, weeks };
+  const week = Math.min(Math.max(state.week, 1), LAST_NFL_WEEK);
+  return { season: state.season, weeks: week < LAST_NFL_WEEK ? [week, week + 1] : [week] };
 }
 
 /**
@@ -41,7 +40,7 @@ export async function ingestProjections(
   clock: Clock
 ): Promise<JobResult> {
   const now = clock.now();
-  const target = await projectionWeeks(deps, now);
+  const target = await projectionWeeks(deps);
   if (target === null) return skipped('no_projection_week');
   const ids = await universeIds(deps.directory);
   const weeks: Record<string, unknown>[] = [];

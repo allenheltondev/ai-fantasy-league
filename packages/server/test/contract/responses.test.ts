@@ -263,6 +263,15 @@ const CASES: Record<string, Case[]> = {
       status: 403
     }
   ],
+  get_data_status: [
+    { label: 'commissioner', path: '/api/v1/leagues/lg-1/data-status', status: 200 },
+    {
+      label: 'not commissioner',
+      path: '/api/v1/leagues/lg-1/data-status',
+      init: { token: OTHER_USER },
+      status: 403
+    }
+  ],
   get_agent_activity: [
     { label: 'commissioner', path: '/api/v1/leagues/lg-1/agent-activity?limit=5', status: 200 },
     {

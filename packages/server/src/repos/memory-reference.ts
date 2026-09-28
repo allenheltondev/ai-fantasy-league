@@ -10,6 +10,9 @@ import type {
 } from '@fantasy/data';
 import {
   stateRevision,
+  type JobRun,
+  type JobRunHistory,
+  type JobRunRepository,
   type NewsItem,
   type NewsQuery,
   type NewsRepository,
@@ -199,6 +202,10 @@ export class InMemorySeasonLinesRepository implements SeasonLinesRepository {
     this.#meta.set(`${meta.kind}:${meta.season}`, clone(meta));
   }
 
+  async putMeta(meta: SeasonLinesMeta): Promise<void> {
+    this.#meta.set(`${meta.kind}:${meta.season}`, clone(meta));
+  }
+
   async get(
     kind: SeasonLinesKind,
     season: number,
@@ -280,6 +287,24 @@ export class InMemoryPlayerSyncRepository implements PlayerSyncRepository {
   }
 }
 
+export class InMemoryJobRunRepository implements JobRunRepository {
+  readonly #latest = new Map<string, JobRun>();
+  readonly #ok = new Map<string, JobRun>();
+
+  async put(run: JobRun): Promise<void> {
+    this.#latest.set(run.job, clone(run));
+    if (run.status === 'ok') this.#ok.set(run.job, clone(run));
+  }
+
+  async list(jobs: readonly string[]): Promise<JobRunHistory[]> {
+    const get = (map: Map<string, JobRun>, job: string) => {
+      const run = map.get(job);
+      return run === undefined ? null : clone(run);
+    };
+    return jobs.map((job) => ({ job, latest: get(this.#latest, job), lastOk: get(this.#ok, job) }));
+  }
+}
+
 export function createInMemoryReferenceStore(players: PlayerRepository): ReferenceStore {
   return {
     nflState: new InMemoryNflStateRepository(),
@@ -292,6 +317,7 @@ export function createInMemoryReferenceStore(players: PlayerRepository): Referen
     seasons: new InMemorySeasonLinesRepository(),
     trending: new InMemoryTrendingRepository(),
     news: new InMemoryNewsRepository(),
-    playerSync: new InMemoryPlayerSyncRepository(players)
+    playerSync: new InMemoryPlayerSyncRepository(players),
+    jobRuns: new InMemoryJobRunRepository()
   };
 }
