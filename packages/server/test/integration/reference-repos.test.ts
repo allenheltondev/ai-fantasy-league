@@ -1,9 +1,10 @@
 import type { PlayerSeasonLines, ProjectionLine } from '@fantasy/data';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
 import { toProfile } from '../../src/players/profile.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
-import { createDynamoReferenceStore } from '../../src/repos/dynamo/reference.js';
+import { createDynamoReferenceStore, SCORING_LOG_TTL_MS } from '../../src/repos/dynamo/reference.js';
 import { createInMemoryReferenceStore } from '../../src/repos/memory-reference.js';
 import type {
   NewsItem,
@@ -60,6 +61,36 @@ const stat = (
 });
 
 describe.each(backends)('%s reference repositories', (_name, make) => {
+  it('stores scoring log events per week and reads them by player, oldest first', async () => {
+    const { reference } = make();
+    const season = nextSeason();
+    const event = (playerId: string, at: string, stats: Record<string, number>, week = 1) => ({
+      season,
+      week,
+      playerId,
+      at,
+      kind: 'live' as const,
+      stats
+    });
+    await reference.scoringLog.put([
+      event('p1', '2026-09-13T17:04:00.000Z', { rec: 2 }),
+      event('p1', '2026-09-13T17:02:00.000Z', { rec: 1 }),
+      // A player id that prefixes another's must not bleed into it.
+      event('p10', '2026-09-13T17:02:00.000Z', { rush_yd: 5 }),
+      event('p2', '2026-09-13T17:02:00.000Z', { pass_yd: 9 }),
+      event('p1', '2026-09-20T17:02:00.000Z', { rec: 7 }, 2),
+      // A rewrite of the same event replaces it.
+      { ...event('p2', '2026-09-13T17:02:00.000Z', { pass_yd: 12 }), kind: 'correction' as const }
+    ]);
+    expect(await reference.scoringLog.listPlayers(season, 1, ['p1', 'p2', 'p1'])).toEqual([
+      event('p1', '2026-09-13T17:02:00.000Z', { rec: 1 }),
+      event('p1', '2026-09-13T17:04:00.000Z', { rec: 2 }),
+      { ...event('p2', '2026-09-13T17:02:00.000Z', { pass_yd: 12 }), kind: 'correction' }
+    ]);
+    expect(await reference.scoringLog.listPlayers(season, 1, [])).toEqual([]);
+    expect(await reference.scoringLog.listPlayers(season, 3, ['p1'])).toEqual([]);
+  });
+
   it('stores stat lines per week, overwrites corrections, and reads a player’s history', async () => {
     const { reference } = make();
     const season = nextSeason();
@@ -308,6 +339,29 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
     expect(await repos.players.get(id)).toEqual(player);
     expect((await repos.players.listIndex('TE')).map((p) => p.id)).toContain(id);
     expect((await reference.playerSync.listSources()).find((s) => s.id === id)).toEqual(source);
+  });
+});
+
+describe('DynamoDB scoring log', () => {
+  it('keys events under the week and expires them after the season', async () => {
+    const reference = createDynamoReferenceStore(table);
+    await reference.scoringLog.put([
+      {
+        season: 2099,
+        week: 5,
+        playerId: 'p1',
+        at: '2099-10-04T17:00:00.000Z',
+        kind: 'live',
+        stats: { rec: 1 }
+      }
+    ]);
+    const item = await table.doc.send(
+      new GetCommand({
+        TableName: table.tableName,
+        Key: { pk: 'SCORELOG#2099#W05', sk: 'PLAYER#p1#2099-10-04T17:00:00.000Z' }
+      })
+    );
+    expect(item.Item?.ttl).toBe(Date.parse('2099-10-04T17:00:00.000Z') / 1000 + SCORING_LOG_TTL_MS / 1000);
   });
 });
 

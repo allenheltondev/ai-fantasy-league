@@ -6,14 +6,44 @@ import { advanceLeague } from '../season/cycle.js';
 import { finalizeOfficialWeek } from '../season/official.js';
 import { listInSeason, weekGames } from '../season/lineups.js';
 import { scoreLine, updateMatchupScores } from '../season/scoring.js';
+import { matchupScoringLog, type ScoringLogEntry } from '../season/scoring-log.js';
 import type { JobDeps, JobResult } from './deps.js';
 import { settle, skipped } from './deps.js';
 import { refreshNflGames, type NflWeekTarget } from './nfl-games.js';
-import { inUniverse, sameLine, universeIds } from './ingest-stats.js';
+import { inUniverse, sameLine, scoringEvents, universeIds } from './ingest-stats.js';
 import { STATS_GAME_DURATION_MS } from '../season/window.js';
 
 type SeasonJobDeps = Pick<JobDeps, 'repos' | 'reference' | 'events' | 'log'>;
 type LiveJobDeps = SeasonJobDeps & Partial<Pick<JobDeps, 'provider'>>;
+
+/** How far back the live push looks for scoring log entries; clients merge repeats by id. */
+export const LIVE_LOG_WINDOW_MS = 5 * 60_000;
+/** At most this many log entries per matchup ride on one push; the app reloads for more. */
+export const LIVE_LOG_MAX_ENTRIES = 20;
+
+/**
+ * The players whose stat lines changed within `LIVE_LOG_WINDOW_MS`, one stats read per season and
+ * week in the run: only their events are read for the push.
+ */
+function recentPlayersCache(deps: SeasonJobDeps, now: Date) {
+  const since = new Date(now.getTime() - LIVE_LOG_WINDOW_MS).toISOString();
+  const cache = new Map<string, Promise<Set<string>>>();
+  return {
+    since,
+    players(season: number, week: number) {
+      const key = `${season}:${week}`;
+      let players = cache.get(key);
+      if (players === undefined) {
+        players = deps.reference.stats
+          .getWeek(season, week)
+          .then((lines) => new Set(lines.filter((l) => l.updatedAt >= since).map((l) => l.playerId)));
+        cache.set(key, players);
+      }
+      return players;
+    }
+  };
+}
+type RecentPlayers = ReturnType<typeof recentPlayersCache>;
 
 /** One read of a week's games per season and week, shared by every league in the run. */
 function gamesCache(deps: SeasonJobDeps) {
@@ -47,6 +77,7 @@ export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<Jo
   const leagues = await listInSeason(deps.repos);
   if (leagues.length === 0) return skipped('no_leagues_in_season');
   const games = gamesCache(deps);
+  const recent = recentPlayersCache(deps, now);
   const weeks = new Map<string, NflWeekTarget>();
   let live = 0;
   let updated = 0;
@@ -65,7 +96,7 @@ export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<Jo
       });
       if (!inWindow) continue;
       live++;
-      if (await scoreLeague(deps, league, week, now)) updated++;
+      if (await scoreLeague(deps, league, week, now, recent)) updated++;
     } catch (error) {
       failed++;
       deps.log.error('could not score league', { leagueId: league.id, week, error });
@@ -94,17 +125,61 @@ export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<Jo
 }
 
 /** Rescores one league's week; emits `Scores Updated` and returns true when a score changed. */
-async function scoreLeague(deps: SeasonJobDeps, league: League, week: number, now: Date): Promise<boolean> {
+async function scoreLeague(
+  deps: SeasonJobDeps,
+  league: League,
+  week: number,
+  now: Date,
+  recent: RecentPlayers
+): Promise<boolean> {
   const scored = await updateMatchupScores(deps, league, week, 'in_progress', now);
   if (scored.changed.length === 0) return false;
+  const scoringLog = await liveLogEntries(deps, league, week, scored.changed, now, recent);
   await deps.events.publish('Scores Updated', {
     leagueId: league.id,
     season: league.season,
     week,
     matchups: scored.matchups.map(scoreLine),
+    ...(scoringLog.length > 0 ? { scoringLog } : {}),
     updatedAt: now.toISOString()
   });
   return true;
+}
+
+/**
+ * The recent scoring log entries (#162) of the matchups whose score changed, for the realtime push.
+ * Best effort: the log is an extra, so a failure here is logged and the push goes out without it
+ * (the app still reloads the log on the event).
+ */
+async function liveLogEntries(
+  deps: SeasonJobDeps,
+  league: League,
+  week: number,
+  changed: readonly Matchup[],
+  now: Date,
+  recent: RecentPlayers
+): Promise<{ matchupId: string; entries: ScoringLogEntry[] }[]> {
+  try {
+    const onlyPlayers = await recent.players(league.season, week);
+    if (onlyPlayers.size === 0) return [];
+    const teams = await deps.repos.teams.list(league.id);
+    const logs = await Promise.all(
+      changed.map(async (m) => ({
+        matchupId: m.id,
+        entries: (
+          await matchupScoringLog(deps, league, teams, m, now, {
+            includeBench: true,
+            since: recent.since,
+            onlyPlayers
+          })
+        ).slice(0, LIVE_LOG_MAX_ENTRIES)
+      }))
+    );
+    return logs.filter((l) => l.entries.length > 0);
+  } catch (error) {
+    deps.log.warn('could not build the live scoring log', { leagueId: league.id, error });
+    return [];
+  }
 }
 
 /**
@@ -144,7 +219,8 @@ type OfficialJobDeps = SeasonJobDeps & Pick<JobDeps, 'provider' | 'directory' | 
 /**
  * Re-pulls a week's stats with the stat corrections applied (`getOfficialWeekStats`: Sleeper
  * reconciled with nflverse; a provider without it serves `getWeekStats`) and stores the lines that
- * changed. Stats are shared by every league, so this runs once per season and week.
+ * changed, each as a `correction` scoring log event. Stats are shared by every league, so this runs
+ * once per season and week.
  */
 async function refreshOfficialStats(deps: OfficialJobDeps, season: number, week: number, now: Date) {
   const [sources, stored, ids] = await Promise.all([
@@ -165,6 +241,8 @@ async function refreshOfficialStats(deps: OfficialJobDeps, season: number, week:
   const changed: StoredStatLine[] = inUniverse(lines, ids)
     .filter((line) => !sameLine(previous.get(line.playerId), line))
     .map((line) => ({ ...line, updatedAt }));
+  // Corrections show in the matchup scoring log (#162) as "Stat correction" entries.
+  await deps.reference.scoringLog.put(scoringEvents(previous, changed, 'correction'));
   await deps.reference.stats.putLines(changed);
   return changed.length;
 }

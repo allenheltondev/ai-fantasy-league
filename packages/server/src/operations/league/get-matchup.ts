@@ -1,7 +1,7 @@
 import { LAST_NFL_WEEK } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../../errors.js';
-import { requireMember, requireTeam } from '../../league/access.js';
+import { requireMember, requireTeam, type LeagueAccess } from '../../league/access.js';
 import { actorTeam } from '../../league/phase.js';
 import { leagueManagers } from '../../league/managers.js';
 import { LeagueIdSchema, matchupView, MatchupViewSchema, TeamIdSchema } from '../../league/views.js';
@@ -57,27 +57,7 @@ export const getMatchup = defineOperation({
   handler: async (ctx, input) => {
     const access = await requireMember(ctx, input.leagueId);
     const { league, teams } = access;
-    const own = actorTeam(access.actor);
-    if (input.teamId === undefined && own === null) {
-      throw new ApiError('INVALID_INPUT', 'You do not manage a team, so there is no default team.', {
-        fix: `Pass teamId, one of: ${teams.map((t) => t.id).join(', ')}.`
-      });
-    }
-    const team = requireTeam(access, input.teamId ?? (own?.id as string));
-    const { startWeek } = league.settings.schedule;
-    const lastWeek = league.settings.playoffs.endWeek;
-    const week = input.week ?? league.week ?? startWeek;
-    if (week < startWeek || week > lastWeek) {
-      throw new ApiError(
-        'INVALID_INPUT',
-        `This league plays weeks ${startWeek}-${lastWeek}, not week ${week}.`,
-        {
-          fix: `Pass a week from ${startWeek} to ${lastWeek}.`
-        }
-      );
-    }
-    const matchups = await ctx.repos.schedule.listMatchups(league.id, week);
-    const matchup = matchups.find((m) => m.homeTeamId === team.id || m.awayTeamId === team.id);
+    const { team, week, matchup } = await findMatchup(ctx, access, input);
     if (matchup !== undefined) {
       const lineups = await matchupLineups(ctx, league, teams, matchup, input.detail);
       const hasStats = [...lineups.home.players, ...lineups.away.players].some((p) => p.points !== null);
@@ -110,6 +90,40 @@ export const getMatchup = defineOperation({
     ]);
   }
 });
+
+/**
+ * The team and week a matchup read is about (default: the caller's team and the current week), and
+ * that team's matchup that week if it has one. Shared by get_matchup and get_scoring_log.
+ */
+export async function findMatchup(
+  ctx: Ctx,
+  access: LeagueAccess,
+  input: { teamId?: string | undefined; week?: number | undefined }
+): Promise<{ team: Team; week: number; matchup: Matchup | undefined }> {
+  const { league, teams } = access;
+  const own = actorTeam(access.actor);
+  if (input.teamId === undefined && own === null) {
+    throw new ApiError('INVALID_INPUT', 'You do not manage a team, so there is no default team.', {
+      fix: `Pass teamId, one of: ${teams.map((t) => t.id).join(', ')}.`
+    });
+  }
+  const team = requireTeam(access, input.teamId ?? (own?.id as string));
+  const { startWeek } = league.settings.schedule;
+  const lastWeek = league.settings.playoffs.endWeek;
+  const week = input.week ?? league.week ?? startWeek;
+  if (week < startWeek || week > lastWeek) {
+    throw new ApiError(
+      'INVALID_INPUT',
+      `This league plays weeks ${startWeek}-${lastWeek}, not week ${week}.`,
+      {
+        fix: `Pass a week from ${startWeek} to ${lastWeek}.`
+      }
+    );
+  }
+  const matchups = await ctx.repos.schedule.listMatchups(league.id, week);
+  const matchup = matchups.find((m) => m.homeTeamId === team.id || m.awayTeamId === team.id);
+  return { team, week, matchup };
+}
 
 /** Both sides' lineups for the matchup's week, with projected and live points. */
 async function matchupLineups(

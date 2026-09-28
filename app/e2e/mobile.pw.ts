@@ -69,6 +69,63 @@ const NFL_GAMES = [
   nflGame('ATL', 'NO', {})
 ];
 
+/** Scoring log entries for the live matchup (#162), long enough to test the row wrapping. */
+const SCORING_LOG = (home: string, away: string) => {
+  const entry = (
+    at: string,
+    teamId: string,
+    player: Record<string, string>,
+    extra: Record<string, unknown>
+  ) => ({
+    id: `${at}#${player.id}`,
+    at,
+    kind: 'live',
+    teamId,
+    teamName: teamId,
+    slot: 'WR',
+    starter: true,
+    player,
+    changes: [],
+    summary: '+1 rec',
+    points: 1,
+    touchdown: false,
+    ...extra
+  });
+  return [
+    entry(
+      '2026-09-13T18:44:00.000Z',
+      home,
+      { id: 'fx-jallen', name: 'Josh Allen', team: 'BUF', position: 'QB' },
+      {
+        summary: '+31 pass yds, +12 rush yds, +2 carries, +1 completion, +1 pass TD, +1 rush TD',
+        points: 11.44,
+        touchdown: true
+      }
+    ),
+    entry(
+      '2026-09-13T18:30:00.000Z',
+      away,
+      { id: 'fx-lamar', name: 'Lamar Jackson', team: 'BAL', position: 'QB' },
+      {
+        kind: 'correction',
+        summary: '-4 pass yds',
+        points: -0.16
+      }
+    ),
+    entry(
+      '2026-09-13T18:02:00.000Z',
+      home,
+      { id: 'fx-bench', name: 'Amon-Ra St. Brown', team: 'DET', position: 'WR' },
+      {
+        starter: false,
+        slot: 'BN',
+        summary: '+1 rec, +18 rec yds',
+        points: 2.3
+      }
+    )
+  ];
+};
+
 interface Offender {
   element: string;
   x: number;
@@ -419,15 +476,24 @@ for (const viewport of VIEWPORTS) {
       const context = await phone(browser, viewport, SEASON_WHO);
       const page = await context.newPage();
       // The seeded clock is before kickoff: play the real matchup as live (as delight.pw.ts does).
+      const live = { matchupId: '', home: '', away: '' };
       await page.route(/\/api\/v1\/leagues\/demo-season\/matchup(\?|$)/, async (route) => {
         const response = await route.fetch({
           headers: { ...route.request().headers(), authorization: `Bearer dev:${SEASON_WHO}` }
         });
         const body = (await response.json()) as {
           data: {
-            matchup: { status: string; home: { score: number | null }; away: { score: number | null } };
+            matchup: {
+              id: string;
+              status: string;
+              home: { teamId: string; score: number | null };
+              away: { teamId: string; score: number | null };
+            };
           };
         };
+        live.matchupId = body.data.matchup.id;
+        live.home = body.data.matchup.home.teamId;
+        live.away = body.data.matchup.away.teamId;
         body.data.matchup.status = 'in_progress';
         body.data.matchup.home.score = 88.4;
         body.data.matchup.away.score = 101.25;
@@ -449,10 +515,30 @@ for (const viewport of VIEWPORTS) {
           }
         })
       );
+      // And a busy scoring log (#162): a long touchdown line, a correction, and the bench.
+      await page.route(/\/api\/v1\/leagues\/demo-season\/matchup\/scoring-log/, (route) =>
+        route.fulfill({
+          json: {
+            data: {
+              week: 1,
+              teamId: live.home,
+              matchupId: live.matchupId,
+              entries: SCORING_LOG(live.home, live.away),
+              nextCursor: 'older'
+            },
+            league: null,
+            warnings: []
+          }
+        })
+      );
       await page.goto('/leagues/demo-season/matchup');
       await expect(
         page.getByRole('region', { name: `${SEASON_WHO}'s Team` }).getByTestId(/^score-/)
       ).toHaveText(/\d+\.\d\d/);
+      const plays = page.getByRole('list', { name: 'Scoring plays, newest first' }).getByRole('listitem');
+      await expect(plays).toHaveCount(2);
+      await page.getByRole('checkbox', { name: 'Include bench' }).check();
+      await expect(plays).toHaveCount(3);
       await expect(page.getByText('3rd & Goal at MIA 4').first()).toBeVisible();
       await expectFits(page, 'matchup (live)');
       await context.close();

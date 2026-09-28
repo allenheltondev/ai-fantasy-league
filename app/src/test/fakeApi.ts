@@ -317,6 +317,13 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       trades: [],
       tradeRecords: { best: [], worst: [] }
     })),
+    getScoringLog: vi.fn(async () => ({
+      week: 1,
+      teamId: 'team-1',
+      matchupId: null,
+      entries: [],
+      nextCursor: null
+    })),
     getMatchupOutlook: vi.fn(async () => {
       throw new Error('getMatchupOutlook is not faked in this test');
     })

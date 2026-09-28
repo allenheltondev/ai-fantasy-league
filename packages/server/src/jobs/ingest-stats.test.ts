@@ -65,6 +65,16 @@ describe('ingestStats gating', () => {
 });
 
 describe('ingestStats inside a game window', () => {
+  it('stores a line where only snaps or precomputed points moved, without a scoring event', async () => {
+    const { provider, deps } = await stubbed('2025-09-07T18:00:00.000Z');
+    provider.stats = [{ playerId: '1', season: 2025, week: 1, stats: { rec: 1, off_snp: 5, pts_ppr: 1 } }];
+    expect(await ingestStats(deps, deps.clock)).toMatchObject({ changed: 1, events: 1 });
+    deps.clock.advance(120_000);
+    provider.stats = [{ playerId: '1', season: 2025, week: 1, stats: { rec: 1, off_snp: 9, pts_ppr: 1 } }];
+    expect(await ingestStats(deps, deps.clock)).toMatchObject({ changed: 1, events: 0 });
+    expect(await deps.reference.scoringLog.listPlayers(2025, 1, ['1'])).toHaveLength(1);
+  });
+
   it('stores changed lines and emits Scores Updated with only the affected players', async () => {
     const { provider, deps } = await stubbed('2025-09-07T18:00:00.000Z');
     provider.stats = [
@@ -106,6 +116,33 @@ describe('ingestStats inside a game window', () => {
       updatedAt: '2025-09-07T18:02:00.000Z'
     });
     expect((await deps.reference.stats.getPlayerHistory('2'))[0]?.stats).toEqual({ rush_yd: 22, rush_td: 1 });
+    // Each change is a scoring log event with the whole new line (#162).
+    expect(await deps.reference.scoringLog.listPlayers(2025, 1, ['1', '2'])).toEqual([
+      {
+        season: 2025,
+        week: 1,
+        playerId: '1',
+        at: '2025-09-07T18:00:00.000Z',
+        kind: 'live',
+        stats: { rec: 2, rec_yd: 30 }
+      },
+      {
+        season: 2025,
+        week: 1,
+        playerId: '2',
+        at: '2025-09-07T18:00:00.000Z',
+        kind: 'live',
+        stats: { rush_yd: 10 }
+      },
+      {
+        season: 2025,
+        week: 1,
+        playerId: '2',
+        at: '2025-09-07T18:02:00.000Z',
+        kind: 'live',
+        stats: { rush_yd: 22, rush_td: 1 }
+      }
+    ]);
   });
 
   it('keeps only players in the synced universe once players are synced', async () => {

@@ -22,6 +22,7 @@ import type {
   MyLeague,
   PlayoffBracketData,
   Roster,
+  ScoringLogData,
   ScoringPreset,
   SeatType,
   StandingsData,
@@ -92,6 +93,9 @@ export function createLeagueApi(api: ApiFetch) {
       return { roster: res.data, warnings: res.warnings as { code: string; message: string }[] };
     },
     getMatchup: (id: string) => call<MatchupData>(`${league(id)}/matchup`),
+    /** get_scoring_log (#162): the matchup's scoring log, newest first, a page at a time. */
+    getScoringLog: (id: string, query: { includeBench?: boolean; limit?: number; cursor?: string } = {}) =>
+      call<ScoringLogData>(`${league(id)}/matchup/scoring-log`, { query }),
     getMatchupOutlook: (id: string) => call<MatchupOutlook>(`${league(id)}/matchup/outlook`),
     /** get_nfl_games (#132): the week's NFL games, for the games strip and the red-zone highlights. */
     getNflGames: (id: string) => call<NflGamesData>(`${league(id)}/nfl-games`),

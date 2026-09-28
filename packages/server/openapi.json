@@ -17328,6 +17328,396 @@
         "x-mutation": false
       }
     },
+    "/api/v1/leagues/{leagueId}/matchup/scoring-log": {
+      "get": {
+        "operationId": "get_scoring_log",
+        "summary": "A matchup's scoring log: every scoring change for both lineups, newest first",
+        "description": "Returns a team's matchup scoring log for a week, newest first: each time a player in either lineup gained or lost points, with the time, the fantasy team, the player, the stats that changed (e.g. \"+1 rec, +18 rec yds, +1 rec TD\"), and the points under this league's scoring. Stat corrections from the official final show as `kind: correction` entries, often with negative points. A player's entries add up to his points for the week. Defaults: your own team, the current week, and starters only (`includeBench: true` adds bench players, marked `starter: false`). Pass `teamId` for any team in the league and `week` for any week the league plays. Page with `cursor` (from `nextCursor`). The log fills from live stats while games are played; weeks played before the log existed have no entries. Only members can read it. For the scores and lineups themselves use get_matchup.",
+        "tags": [
+          "leagues",
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Team whose matchup to read (default: your own team)."
+          },
+          {
+            "name": "week",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18
+            },
+            "description": "NFL week (default: the current week)."
+          },
+          {
+            "name": "includeBench",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Include bench players, whose points do not count (default false: starters only)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum entries (1-100, default 25)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "`nextCursor` from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "week": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "teamId": {
+                          "type": "string"
+                        },
+                        "matchupId": {
+                          "description": "The matchup, or null when the team has no game that week.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "entries": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Stable entry id (time and player); entries are unique per matchup."
+                              },
+                              "at": {
+                                "type": "string",
+                                "description": "When the change was seen (ISO time)."
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "live",
+                                  "correction"
+                                ],
+                                "description": "`live` from the game feed; `correction` from the official final’s stat corrections."
+                              },
+                              "teamId": {
+                                "type": "string",
+                                "description": "The fantasy team whose lineup has the player."
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "slot": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "WR",
+                                  "RB",
+                                  "TE",
+                                  "W/R/T",
+                                  "Q/W/R/T",
+                                  "W/T",
+                                  "W/R",
+                                  "K",
+                                  "DEF",
+                                  "DL",
+                                  "LB",
+                                  "DB",
+                                  "IDP",
+                                  "BN",
+                                  "IR"
+                                ],
+                                "description": "His slot in that lineup (BN and IR are the bench)."
+                              },
+                              "starter": {
+                                "type": "boolean",
+                                "description": "True when his points count toward the team score."
+                              },
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "changes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "stat": {
+                                      "type": "string"
+                                    },
+                                    "delta": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "stat",
+                                    "delta"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "description": "The scored stats that changed, as Sleeper stat keys and the amount (after − before)."
+                              },
+                              "summary": {
+                                "type": "string",
+                                "description": "The changes in words, e.g. \"+1 rec, +18 rec yds, +1 rec TD\"."
+                              },
+                              "points": {
+                                "type": "number",
+                                "description": "Points the change was worth under this league's scoring (may be negative)."
+                              },
+                              "touchdown": {
+                                "type": "boolean",
+                                "description": "The change includes a touchdown."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "at",
+                              "kind",
+                              "teamId",
+                              "teamName",
+                              "slot",
+                              "starter",
+                              "player",
+                              "changes",
+                              "summary",
+                              "points",
+                              "touchdown"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "nextCursor": {
+                          "description": "Pass as `cursor` for older entries; null on the last page.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "week",
+                        "teamId",
+                        "matchupId",
+                        "entries",
+                        "nextCursor"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/members/{userId}": {
       "delete": {
         "operationId": "remove_member",

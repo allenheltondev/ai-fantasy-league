@@ -6,7 +6,10 @@ import './redZone.css';
 export const RED_ZONE_POSITIONS: readonly string[] = ['QB', 'RB', 'WR', 'TE', 'K'];
 
 /** The red-zone drive a player's NFL team is on, or null (not an offensive position, or no drive). */
-export function redZoneFor(entry: RosterEntry, redZone: readonly RedZoneTeam[]): RedZoneTeam | null {
+export function redZoneFor(
+  entry: Pick<RosterEntry, 'player'>,
+  redZone: readonly RedZoneTeam[]
+): RedZoneTeam | null {
   const { team, position } = entry.player;
   if (team === null || !RED_ZONE_POSITIONS.includes(position)) return null;
   return redZone.find((r) => r.team === team) ?? null;

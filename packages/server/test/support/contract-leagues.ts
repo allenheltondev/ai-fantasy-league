@@ -229,6 +229,13 @@ export const LEAGUE_CASES: Record<string, Case[]> = {
     { label: 'detail', path: `${L}/lg-cs/matchup?detail=true`, status: 200 },
     { label: 'week out of range', path: `${L}/lg-c/matchup?week=18`, status: 400 }
   ],
+  get_scoring_log: [
+    { label: 'no schedule yet', path: `${L}/lg-c/matchup/scoring-log`, status: 200 },
+    { label: 'live entries', path: `${L}/lg-cs/matchup/scoring-log`, status: 200 },
+    { label: 'paged, bench', path: `${L}/lg-cs/matchup/scoring-log?limit=1&includeBench=true`, status: 200 },
+    { label: 'bad cursor', path: `${L}/lg-cs/matchup/scoring-log?cursor=bm9wZQ`, status: 400 },
+    { label: 'outsider', path: `${L}/lg-cs/matchup/scoring-log`, init: { token: outsider }, status: 403 }
+  ],
   get_playoff_bracket: [
     { label: 'before the season', path: `${L}/lg-c/playoffs`, status: 200 },
     { label: 'projected', path: `${L}/lg-cs/playoffs`, status: 200 },

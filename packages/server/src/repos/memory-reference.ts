@@ -22,7 +22,9 @@ import {
   type SeasonLinesRepository,
   type NflGamesRepository,
   type NflScheduleRepository,
+  type ScoringLogRepository,
   type StatsRepository,
+  type StoredScoringEvent,
   type StoredNflWeek,
   type StoredNflState,
   type StoredSeasonSchedule,
@@ -116,6 +118,26 @@ export class InMemoryStatsRepository implements StatsRepository {
     return [...this.#lines.values()]
       .filter((l) => l.playerId === playerId && (season === undefined || l.season === season))
       .sort((a, b) => a.season - b.season || a.week - b.week)
+      .map(clone);
+  }
+}
+
+export class InMemoryScoringLogRepository implements ScoringLogRepository {
+  readonly #events = new Map<string, StoredScoringEvent>();
+
+  async put(events: readonly StoredScoringEvent[]): Promise<void> {
+    for (const e of events) this.#events.set(`${e.season}:${e.week}:${e.playerId}:${e.at}`, clone(e));
+  }
+
+  async listPlayers(
+    season: number,
+    week: number,
+    playerIds: readonly string[]
+  ): Promise<StoredScoringEvent[]> {
+    const wanted = new Set(playerIds);
+    return [...this.#events.values()]
+      .filter((e) => e.season === season && e.week === week && wanted.has(e.playerId))
+      .sort((a, b) => a.playerId.localeCompare(b.playerId) || a.at.localeCompare(b.at))
       .map(clone);
   }
 }
@@ -247,6 +269,7 @@ export function createInMemoryReferenceStore(players: PlayerRepository): Referen
     schedule: new InMemoryNflScheduleRepository(),
     nflGames: new InMemoryNflGamesRepository(),
     stats: new InMemoryStatsRepository(),
+    scoringLog: new InMemoryScoringLogRepository(),
     projections: new InMemoryProjectionRepository(),
     seasons: new InMemorySeasonLinesRepository(),
     trending: new InMemoryTrendingRepository(),

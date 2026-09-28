@@ -243,6 +243,14 @@ describe('officialFinal job', () => {
     });
     expect(provider.crosswalk?.toSleeper('00-001')).toBe('fx-cmc');
     expect((await deps.reference.stats.getWeek(SEASON, 4))[0]?.stats.rush_yd).toBe(150);
+    // The correction is a scoring log entry (#162).
+    expect(await deps.reference.scoringLog.listPlayers(SEASON, 4, ['fx-cmc'])).toEqual([
+      expect.objectContaining({
+        kind: 'correction',
+        at: officialTime(4).toISOString(),
+        stats: cmc(150).stats
+      })
+    ]);
     expect(await officialFinal(deps, new FixedClock(officialTime(4)))).toMatchObject({
       reason: 'nothing_due'
     });
