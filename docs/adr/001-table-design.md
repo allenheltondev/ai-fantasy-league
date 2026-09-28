@@ -49,8 +49,7 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 | Waiver claim | `WAIVER#<claimId>` | none | `claim_waiver`, `cancel_waiver_claim`, and the claim list come from one `begins_with(WAIVER#)` query (a season has at most a few hundred). The claim carries its status, bid, own priority, and `processesAt`; updates are version-checked. |
 | Waiver wire entry | `WAIVERWIRE#<playerId>` | none | Written when a player is dropped: who dropped him and `clearsAt`. A player is on waivers while `clearsAt` is in the future. |
 | Waiver run | `WAIVERRUN#<YYYY-MM-DD>` | none | One per league per processing window, created conditionally, so the daily job is idempotent; a run left `running` for 15 minutes can be taken over. |
-| Trade | `TRADE#<tradeId>` | none | The state machine lives on the item (`status`, `version`, `expiresAt`). Offers per team come from `begins_with(TRADE#)` filtered by team; a season has a few dozen. Expiry uses the rsc-core scheduler, not a scan. |
-| Trade vote | `TRADE#<tradeId>#VOTE#<teamId>` | none | One vote per team, enforced by `attribute_not_exists`. |
+| Trade | `TRADE#<tradeId>` | none | The state machine lives on the item (`status`, `version`, `expiresAt`), including the veto votes (one per team, enforced by core and the version check). Offers per team come from `begins_with(TRADE#)` filtered by team; a season has a few dozen. Expiry uses the rsc-core scheduler, not a scan. `processingAt` marks a trade whose processing has started, so a retry finishes it without validating again. |
 | Transaction | `TXN#<ts>#<txnId>` | none | `get_transactions` is a reverse query with a limit and a cursor. |
 
 `get_matchup_outlook`, `preview_trade`, and `preview_waiver_claim` are computed from the items above plus projections, so they need no items of their own.
@@ -146,7 +145,7 @@ has a 90-day `ttl`.
 | `drop_player`, `claim_waiver`, `cancel_waiver_claim` | Conditional `OWN#` put, version-checked `TEAM#` write, then `WAIVERWIRE#`/`WAIVER#`/`TXN#` puts (ordered writes, no transactions) |
 | `preview_waiver_claim`, `preview_trade` | Reads only (roster, lineup, projections) |
 | `propose_trade`, `counter_trade`, `respond_to_trade`, `withdraw_trade` | Conditional update on `TRADE#<id>` (`version`) |
-| Process trade | Transact both rosters, the `OWN#` locks, `TRADE#`, and `TXN#` |
+| Process trade | Version-checked `TRADE#` stamp, then ordered idempotent writes: `OWN#` locks, both `TEAM#` rosters, `WAIVERWIRE#` drops, `TXN#`, the week's `LINEUP#`, and finally `TRADE#` (no transactions) |
 | Waiver processing job | GSI2 `LEAGUEPHASE#regular_season` and `#playoffs`, then per league: put `WAIVERRUN#<day>`, query `WAIVER#` and `WAIVERWIRE#`, write teams, claims, and `TXN#` |
 | Scoring job | Query `STATS#<season>#W05`, then the week's lineups and matchups |
 | Season jobs (live scoring, weekly cycle) | GSI2 queries `LEAGUEPHASE#regular_season` and `LEAGUEPHASE#playoffs` |

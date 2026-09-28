@@ -28,6 +28,7 @@ export interface SystemTemplate {
   subjectTeam?: string;
 }
 
+const noReview = (d: Record<string, unknown>) => d.review === 'none';
 const noAwards = (d: Record<string, unknown>) => !Array.isArray(d.awarded) || d.awarded.length === 0;
 
 export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> = {
@@ -52,6 +53,11 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   },
   'Trade Accepted': {
     text: [
+      {
+        text: '{team:toTeamId} accepted a trade with {team:fromTeamId}: {players:fromPlayers} for {players:toPlayers}.',
+        when: noReview
+      },
+      { text: '{team:toTeamId} accepted a trade with {team:fromTeamId}.', when: noReview },
       '{team:toTeamId} accepted a trade with {team:fromTeamId}: {players:fromPlayers} for {players:toPlayers}. It is under review.',
       '{team:toTeamId} accepted a trade with {team:fromTeamId}. It is under review.'
     ]
@@ -66,11 +72,23 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   },
   'Trade Vetoed': {
     text: [
+      {
+        text: 'The trade between {team:fromTeamId} and {team:toTeamId} was cancelled: {reason}',
+        when: (d) => d.voided === true
+      },
+      {
+        text: 'The commissioner vetoed the trade between {team:fromTeamId} and {team:toTeamId}.',
+        when: (d) => d.review === 'commissioner'
+      },
       'The league vetoed the trade between {team:fromTeamId} and {team:toTeamId}.',
       'A trade was vetoed.'
     ],
     moment: true,
     subjectTeam: 'fromTeamId'
+  },
+  'Trade Deadline Passed': {
+    text: ['The trade deadline has passed. Rosters change only through waivers from here on.'],
+    moment: true
   },
   'Week Provisionally Final': {
     text: [

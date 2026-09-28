@@ -164,7 +164,8 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
 | `Waiver Window Opened` | Waivers open |
 | `Waivers Processed` | Waiver claims are resolved |
-| `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine |
+| `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine. Every detail carries `leagueId`, `tradeId`, `fromTeamId` (made the offer), `toTeamId` (answers it), `teamIds`, and the players each side sends (`tradeEventDetail` in `server/src/trades/lifecycle.ts`). Pending offers are not relayed to the league topic. |
+| `Trade Offer Deadline` / `Trade Review Ended` / `Trade Deadline Passed` | Scheduled with `scheduleAt`: an offer's expiry, the end of a trade's review period, and the league's trade deadline. The API function expires, processes, or expires every open offer; a stale event is a no-op. |
 | `Player News Alert` | News hits a player |
 | `Player Status Changed` | A player's status, injury, team, or depth chart changes |
 | `Chat Mention` | Someone is mentioned in chat (`messageId`, `mentionedTeamIds`, `authorTeamId`, `authorType`). Mentions written by agents do not trigger agent replies. |
