@@ -130,8 +130,8 @@ export async function loadWeekData(
   const wanted = new Set(playerIds);
   return {
     games: gamesByTeam(games),
-    opponents: new Map(
-      games.flatMap((g) => [
+    opponents: new Map<string, { team: string; home: boolean }>(
+      games.flatMap((g): [string, { team: string; home: boolean }][] => [
         [g.homeTeam, { team: g.awayTeam, home: true }],
         [g.awayTeam, { team: g.homeTeam, home: false }]
       ])

@@ -93,11 +93,17 @@ export const getRoster = defineOperation({
     const roster = team.roster.map((id) => toRosterPlayer(id, players.get(id)));
     const check = validateLineup(league.settings, roster, lineup.entries, { games: data.games });
     const projections = Object.fromEntries(data.projected);
-    const best = optimizeLineup(league.settings, roster, projections, {
-      games: data.games,
-      now,
-      previousLineup: lineup.entries
-    });
+    const best = optimizeLineup(
+      league.settings,
+      roster,
+      projections,
+      {
+        games: data.games,
+        now,
+        previousLineup: lineup.entries
+      },
+      { keepSlots: true }
+    );
     const result = {
       teamId: team.id,
       teamName: team.name,
@@ -106,13 +112,9 @@ export const getRoster = defineOperation({
       lineupSaved: lineup.saved,
       carriedFromWeek: lineup.carriedFromWeek,
       slots: slotCounts(league),
-      players: rosterEntries(
-        lineup.entries,
-        players,
-        data,
-        now,
-        input.detail ? league.settings : null
-      ).map((e) => ({ ...e, recentPoints: recent.get(e.player.id) ?? null })),
+      players: rosterEntries(lineup.entries, players, data, now, input.detail ? league.settings : null).map(
+        (e) => ({ ...e, recentPoints: recent.get(e.player.id) ?? null })
+      ),
       projectedPoints: startersProjection(roster, lineup.entries, projections, data.games),
       optimal:
         data.projected.size === 0 || !best.validation.valid

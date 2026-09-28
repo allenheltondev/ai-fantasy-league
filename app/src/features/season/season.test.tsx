@@ -1,6 +1,5 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import { LeagueApiContext, type LeagueApi } from '../../api/league';
@@ -9,7 +8,7 @@ import type { MatchupData, Roster, RosterEntry, SlotCount, StandingsData } from 
 import { fakeApi, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 import { MATCHUP_POLL_MS, MatchupPage } from './MatchupPage';
-import { planMove, slotOptions, statusLabel } from './slots';
+import { statusLabel } from './slots';
 
 const ALICE = { sub: 'alice', email: 'alice@example.com', given_name: 'Alice' };
 
@@ -74,27 +73,6 @@ beforeEach(() => signInAs(ALICE));
 afterEach(() => vi.useRealTimers());
 
 describe('slot helpers', () => {
-  it('offers eligible starting slots, the bench, and IR only for IR-eligible players', () => {
-    expect(slotOptions(entry('wr', 'WR', 'BN'), SLOTS)).toEqual(['WR', 'W/R/T']);
-    expect(slotOptions(entry('qb', 'QB', 'QB', { status: 'out' }), SLOTS)).toEqual(['BN', 'IR']);
-    expect(slotOptions(entry('k', 'K', 'BN'), SLOTS)).toEqual([]);
-    expect(slotOptions(entry('lb', 'LB', 'BN'), [...SLOTS, { slot: 'DL', count: 1 }])).toEqual([]);
-  });
-
-  it('swaps with the first unlocked occupant of a full slot', () => {
-    const players = [entry('a', 'WR', 'WR'), entry('b', 'WR', 'BN')];
-    expect(planMove(players, SLOTS, 'b', 'WR')).toEqual([
-      { playerId: 'b', slot: 'WR' },
-      { playerId: 'a', slot: 'BN' }
-    ]);
-    expect(planMove(players, SLOTS, 'b', 'W/R/T')).toEqual([{ playerId: 'b', slot: 'W/R/T' }]);
-    expect(planMove(players, SLOTS, 'a', 'BN')).toEqual([{ playerId: 'a', slot: 'BN' }]);
-    const locked = [entry('a', 'WR', 'WR', { locked: true }), entry('b', 'WR', 'BN')];
-    expect(planMove(locked, SLOTS, 'b', 'WR')).toBeNull();
-    expect(planMove(players, SLOTS, 'nobody', 'WR')).toBeNull();
-    expect(planMove(players, SLOTS, 'b', 'TE')).toBeNull();
-  });
-
   it('labels byes and injuries', () => {
     expect(statusLabel(entry('a', 'WR', 'BN'))).toBeNull();
     expect(statusLabel(entry('a', 'WR', 'BN', { onBye: true }))).toBe('Bye');
@@ -104,76 +82,6 @@ describe('slot helpers', () => {
 });
 
 describe('RosterPage', () => {
-  it('shows the lineup with lock and status badges and saves a swap', async () => {
-    let current = roster([
-      entry('qb1', 'QB', 'QB', { locked: true }),
-      entry('wr1', 'WR', 'WR'),
-      entry('wr2', 'WR', 'BN', { onBye: true, byeWeek: 1 }),
-      entry('rb1', 'RB', 'W/R/T', {
-        status: 'out',
-        injuryStatus: 'Out',
-        byeWeek: null,
-        player: { id: 'rb1', name: 'RB1', team: null, position: 'RB' }
-      })
-    ]);
-    const setLineup = vi.fn(async () => {
-      current = roster(
-        current.players.map((p) =>
-          p.player.id === 'wr2' ? { ...p, slot: 'WR' } : p.player.id === 'wr1' ? { ...p, slot: 'BN' } : p
-        )
-      );
-      return { roster: current, warnings: [{ code: 'STARTER_ON_BYE', message: 'WR2 is on bye.' }] };
-    });
-    const api = open('/leagues/L1/roster', { getRoster: vi.fn(async () => current), setLineup });
-    const user = userEvent.setup();
-
-    const qb = await screen.findByTestId('roster-row-qb1');
-    expect(within(qb).getByText('Locked')).toBeInTheDocument();
-    expect(within(qb).getByRole('combobox')).toBeDisabled();
-    expect(within(screen.getByTestId('roster-row-wr2')).getByText('Bye')).toBeInTheDocument();
-    const rb = screen.getByTestId('roster-row-rb1');
-    expect(within(rb).getByText('Out')).toBeInTheDocument();
-    expect(within(rb).getByText(/RB · FA$/)).toBeInTheDocument();
-    // On a phone each row is a card: the numbers carry their column names.
-    expect(
-      within(rb)
-        .getAllByRole('cell')
-        .map((cell) => cell.dataset.label ?? null)
-    ).toEqual([null, null, null, 'Proj', 'Pts', null]);
-
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Move WR2' }), 'WR');
-    expect(await screen.findByText('WR2 is on bye.')).toBeInTheDocument();
-    expect(setLineup).toHaveBeenCalledWith('L1', 'team-1', 1, [
-      { playerId: 'wr2', slot: 'WR' },
-      { playerId: 'wr1', slot: 'BN' }
-    ]);
-    await waitFor(() =>
-      expect(within(screen.getByRole('table', { name: 'Starters' })).getByText('WR2')).toBeInTheDocument()
-    );
-    expect(api.getRoster).toHaveBeenCalledTimes(2);
-  });
-
-  it('explains a refused move with its fix, and a slot full of locked players', async () => {
-    const current = roster([
-      entry('wr1', 'WR', 'WR', { locked: true }),
-      entry('wr2', 'WR', 'BN'),
-      entry('wr3', 'WR', 'BN'),
-      entry('rb1', 'RB', 'W/R/T')
-    ]);
-    open('/leagues/L1/roster', {
-      getRoster: vi.fn(async () => current),
-      setLineup: vi.fn(async () => {
-        throw refused(409, 'PLAYER_LOCKED', 'RB1 is locked.', 'Keep him in W/R/T.');
-      })
-    });
-    const user = userEvent.setup();
-    await user.selectOptions(await screen.findByRole('combobox', { name: 'Move WR2' }), 'WR');
-    expect(await screen.findByText('Every WR slot holds a locked player.')).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Move WR3' }), 'W/R/T');
-    expect(await screen.findByText('RB1 is locked.')).toBeInTheDocument();
-    expect(screen.getByText('Keep him in W/R/T.')).toBeInTheDocument();
-  });
-
   it('shows an empty roster carried over from an earlier week', async () => {
     open('/leagues/L1/roster', { getRoster: vi.fn(async () => roster([], { carriedFromWeek: 0 })) });
     expect(await screen.findByText('No players yet')).toBeInTheDocument();

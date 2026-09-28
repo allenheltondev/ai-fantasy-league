@@ -37,10 +37,18 @@ beforeAll(async () => {
   alice = as(h, ALICE);
   const reference = h.services.data.reference;
   await seedNflSchedule(reference);
-  await seedSeasonLeague({ repos: h.repos, reference }, { id: 'lg-lineup-ux', owners: [ALICE], overrides: { week: 2 } });
+  await seedSeasonLeague(
+    { repos: h.repos, reference },
+    { id: 'lg-lineup-ux', owners: [ALICE], overrides: { week: 2 } }
+  );
   const [bijan] = await h.repos.players.getMany(['fx-bijan']);
   await h.repos.players.putMany([{ ...bijan!, injuryStatus: 'Out' }]);
-  const line = (playerId: string, stats: Record<string, number>) => ({ playerId, season: SEASON, week: 2, stats });
+  const line = (playerId: string, stats: Record<string, number>) => ({
+    playerId,
+    season: SEASON,
+    week: 2,
+    stats
+  });
   await reference.projections.putSnapshot(
     { season: SEASON, week: 2, capturedAt: '2026-09-09T12:00:00.000Z', hash: 'ux', count: 6 },
     [
@@ -53,7 +61,13 @@ beforeAll(async () => {
     ]
   );
   await reference.stats.putLines([
-    { playerId: 'fx-cmc', season: SEASON, week: 1, stats: { rush_yd: 100 }, updatedAt: '2026-09-16T00:00:00Z' },
+    {
+      playerId: 'fx-cmc',
+      season: SEASON,
+      week: 1,
+      stats: { rush_yd: 100 },
+      updatedAt: '2026-09-16T00:00:00Z'
+    },
     { playerId: 'fx-chase', season: SEASON, week: 1, stats: { gp: 0 }, updatedAt: '2026-09-16T00:00:00Z' }
   ]);
 });

@@ -194,10 +194,22 @@ describe('optimizeLineup', () => {
       { playerId: 'e', slot: 'W/R/T' },
       { playerId: 'd', slot: 'WR' }
     ];
-    const r = optimizeLineup(s, roster, { a: 5, b: 5, c: 5, d: 5, e: 5 }, { previousLineup });
+    const r = optimizeLineup(
+      s,
+      roster,
+      { a: 5, b: 5, c: 5, d: 5, e: 5 },
+      { previousLineup },
+      { keepSlots: true }
+    );
     expect(lineupDiff(previousLineup, r.lineup)).toEqual([]);
     // A real gain still moves players.
-    const better = optimizeLineup(s, roster, { a: 9, b: 5, c: 5, d: 5, e: 5 }, { previousLineup });
+    const better = optimizeLineup(
+      s,
+      roster,
+      { a: 9, b: 5, c: 5, d: 5, e: 5 },
+      { previousLineup },
+      { keepSlots: true }
+    );
     expect(lineupDiff(previousLineup, better.lineup)).toHaveLength(2);
   });
 
@@ -279,7 +291,9 @@ describe('optimizeLineup with locks and injuries (properties)', () => {
     let k = 0;
     for (const slot of ROSTER_SLOTS.filter(isStarterSlot) as RosterSlot[]) {
       for (let n = 0; n < slotCount(s, slot); n++) {
-        const options = roster.filter((pl) => !used.has(pl.playerId) && isEligibleForSlot(slot, pl.positions));
+        const options = roster.filter(
+          (pl) => !used.has(pl.playerId) && isEligibleForSlot(slot, pl.positions)
+        );
         const chosen = options[(picks[k++ % picks.length] ?? 0) % (options.length + 1)];
         if (chosen) {
           used.add(chosen.playerId);
@@ -292,40 +306,52 @@ describe('optimizeLineup with locks and injuries (properties)', () => {
 
   it('never starts an ineligible, locked, or ruled-out player, and never projects below the current lineup', () => {
     fc.assert(
-      fc.property(slotsArb, rosterArb, fc.array(fc.nat(), { minLength: 40, maxLength: 40 }), (slots, rows, picks) => {
-        const s = withSlots(slots);
-        const roster = rows
-          .slice(0, activeRosterSize(s))
-          .map((r, i) => p(`p${i}`, r.positions, { status: r.status, nflTeam: r.team }));
-        const proj = Object.fromEntries(rows.map((r, i) => [`p${i}`, r.points]));
-        const current = randomLineup(s, roster, picks);
-        expect(validateLineup(s, roster, current).valid).toBe(true);
+      fc.property(
+        slotsArb,
+        rosterArb,
+        fc.array(fc.nat(), { minLength: 40, maxLength: 40 }),
+        fc.boolean(),
+        (slots, rows, picks, keepSlots) => {
+          const s = withSlots(slots);
+          const roster = rows
+            .slice(0, activeRosterSize(s))
+            .map((r, i) => p(`p${i}`, r.positions, { status: r.status, nflTeam: r.team }));
+          const proj = Object.fromEntries(rows.map((r, i) => [`p${i}`, r.points]));
+          const current = randomLineup(s, roster, picks);
+          expect(validateLineup(s, roster, current).valid).toBe(true);
 
-        const best = optimizeLineup(s, roster, proj, { games, now, previousLineup: current });
-        expect(best.validation.valid).toBe(true);
-        const was = new Map(current.map((e) => [e.playerId, e.slot]));
-        const byId = new Map(roster.map((pl) => [pl.playerId, pl]));
-        for (const e of best.lineup) {
-          const player = byId.get(e.playerId) as RosterPlayer;
-          const before = was.get(e.playerId) ?? 'BN';
-          const locked = isPlayerLocked(player, games, now);
-          // A locked player keeps his slot, whatever it is.
-          if (locked) expect(e.slot).toBe(before);
-          if (!isStarterSlot(e.slot)) continue;
-          expect(isEligibleForSlot(e.slot, player.positions)).toBe(true);
-          // Out, IR, and bye players only start when they were already locked into the slot.
-          if (WILL_NOT_PLAY_STATUSES.includes(player.status) || isOnBye(player, games)) {
-            expect(locked && before === e.slot).toBe(true);
+          const best = optimizeLineup(
+            s,
+            roster,
+            proj,
+            { games, now, previousLineup: current },
+            { keepSlots }
+          );
+          expect(best.validation.valid).toBe(true);
+          const was = new Map(current.map((e) => [e.playerId, e.slot]));
+          const byId = new Map(roster.map((pl) => [pl.playerId, pl]));
+          for (const e of best.lineup) {
+            const player = byId.get(e.playerId) as RosterPlayer;
+            const before = was.get(e.playerId) ?? 'BN';
+            const locked = isPlayerLocked(player, games, now);
+            // A locked player keeps his slot, whatever it is.
+            if (locked) expect(e.slot).toBe(before);
+            if (!isStarterSlot(e.slot)) continue;
+            expect(isEligibleForSlot(e.slot, player.positions)).toBe(true);
+            // Out, IR, and bye players only start when they were already locked into the slot.
+            if (WILL_NOT_PLAY_STATUSES.includes(player.status) || isOnBye(player, games)) {
+              expect(locked && before === e.slot).toBe(true);
+            }
           }
+          expect(startersProjection(roster, best.lineup, proj, games)).toBeGreaterThanOrEqual(
+            startersProjection(roster, current, proj, games)
+          );
+          // The diff, applied to the current lineup, gives the optimized one.
+          const moved = new Map(was);
+          for (const m of lineupDiff(current, best.lineup)) moved.set(m.playerId, m.slot);
+          for (const e of best.lineup) expect(moved.get(e.playerId) ?? 'BN').toBe(e.slot);
         }
-        expect(startersProjection(roster, best.lineup, proj, games)).toBeGreaterThanOrEqual(
-          startersProjection(roster, current, proj, games)
-        );
-        // The diff, applied to the current lineup, gives the optimized one.
-        const moved = new Map(was);
-        for (const m of lineupDiff(current, best.lineup)) moved.set(m.playerId, m.slot);
-        for (const e of best.lineup) expect(moved.get(e.playerId) ?? 'BN').toBe(e.slot);
-      }),
+      ),
       { numRuns: 300 }
     );
   });

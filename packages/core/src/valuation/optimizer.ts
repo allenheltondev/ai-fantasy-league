@@ -85,6 +85,14 @@ export interface OptimizedLineup {
 
 const FORBIDDEN = 1e15;
 
+export interface OptimizeOptions {
+  /**
+   * Break ties between equally projected lineups in favour of players keeping their current slots,
+   * so a manager is never shown moves that gain nothing (the lineup editor, #176).
+   */
+  keepSlots?: boolean;
+}
+
 /**
  * The highest-projected legal lineup, solved exactly as an assignment problem (so flex slots are
  * chosen optimally, not greedily).
@@ -92,17 +100,19 @@ const FORBIDDEN = 1e15;
  * - Locked players (with `games`, `now` and `previousLineup`) keep the slot they had.
  * - Players on IR in `previousLineup` stay on IR.
  * - Players on bye (when `games` is given) or with a will-not-play status (Out, IR, …) are benched.
- * - Among lineups with equal projected points, one that fills more slots wins, then one that moves
- *   the fewest players from `previousLineup`; a slot is left empty only when no eligible player
- *   remains or every eligible player projects below 0.
+ * - Among lineups with equal projected points, one that fills more slots wins, then (with
+ *   `keepSlots`) one that keeps the most players in their `previousLineup` slots; a slot is left
+ *   empty only when no eligible player remains or every eligible player projects below 0.
  */
 export function optimizeLineup(
   settings: Pick<LeagueSettings, 'roster'>,
   roster: readonly RosterPlayer[],
   projections: WeekProjections,
-  context: LineupContext = {}
+  context: LineupContext = {},
+  options: OptimizeOptions = {}
 ): OptimizedLineup {
   const { games, now, previousLineup } = context;
+  const stay = options.keepSlots === true ? 1 : 0;
   const prev = new Map((previousLineup ?? []).map((e) => [e.playerId, e.slot]));
   const locksApply = games !== undefined && now !== undefined && previousLineup !== undefined;
   const pts = (id: string): number => projections[id] ?? 0;
@@ -130,13 +140,13 @@ export function optimizeLineup(
     )
     .sort((a, b) => a.playerId.localeCompare(b.playerId));
 
-  // Integer weights: whole cents × 100000, plus 100 for filling a slot and 1 for a player keeping
-  // the slot he had. Ties favour full lineups, then the fewest moves, and neither ever outweighs a
-  // cent of projected points.
+  // Integer weights: whole cents × 100000, plus 100 for filling a slot and (with `keepSlots`) 1 for
+  // a player keeping the slot he had. Ties favour full lineups, then the fewest moves, and neither
+  // ever outweighs a cent of projected points.
   const cost = openSlots.map((slot) => [
     ...candidates.map((p) =>
       isEligibleForSlot(slot, p.positions)
-        ? -(Math.round(pts(p.playerId) * 100) * 100_000 + 100 + (prev.get(p.playerId) === slot ? 1 : 0))
+        ? -(Math.round(pts(p.playerId) * 100) * 100_000 + 100 + (prev.get(p.playerId) === slot ? stay : 0))
         : FORBIDDEN
     ),
     ...openSlots.map(() => 0)
