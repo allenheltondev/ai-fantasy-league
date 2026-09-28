@@ -38,7 +38,17 @@ export interface DraftBoard {
   /** Once the draft is complete: its steals, reaches, and each agent's first pick. */
   recap?: DraftRecap | null;
   rosters: { teamId: string; teamName: string; players: PlayerRef[] }[];
-  bestAvailable: { player: PlayerRef; rank: number | null }[];
+  bestAvailable: BestAvailableEntry[];
+}
+
+/** One undrafted player, with last season and the projection under the league's scoring (#136). */
+export interface BestAvailableEntry {
+  player: PlayerRef;
+  rank: number | null;
+  lastSeason?: { points: number; ppg: number; games: number } | null;
+  projection?: { points: number } | null;
+  bye?: number | null;
+  injuryStatus?: string | null;
 }
 
 export interface DraftRecapEntry {

@@ -228,8 +228,55 @@ describe('DraftPage', () => {
     expect(await screen.findByText('Paused')).toBeInTheDocument();
     expect(screen.getByTestId('pick-clock')).toHaveTextContent('0:40');
     await user.type(screen.getByLabelText('Search players'), 'chase');
-    await user.selectOptions(screen.getByLabelText('Position'), 'WR');
+    await user.click(
+      within(screen.getByRole('group', { name: 'Position' })).getByRole('button', { name: 'WR' })
+    );
     expect(calls.at(-1)?.request.query).toEqual({ q: 'chase', position: 'WR', limit: 25 });
+    await user.click(screen.getByRole('button', { name: 'Sort by last season points per game' }));
+    expect(calls.at(-1)?.request.query).toEqual({ q: 'chase', position: 'WR', limit: 25, sort: 'ppg' });
+  });
+
+  it('opens a player card from the board grid, your roster, and the queue', async () => {
+    const user = userEvent.setup();
+    const { api, calls } = fakeApi((path) =>
+      path === '/players/card'
+        ? {
+            player: ref('fx-cmc', 'Christian McCaffrey', 'RB'),
+            scoring: { source: 'league' },
+            bye: 14,
+            injuryStatus: null,
+            lastSeason: null,
+            projection: null,
+            news: []
+          }
+        : board()
+    );
+    renderDraft(api);
+    await user.click(
+      within(await screen.findByTestId('cell-1')).getByRole('button', { name: 'Christian McCaffrey' })
+    );
+    expect(await screen.findByTestId('player-card')).toHaveTextContent('bye 14');
+    expect(calls.find((c) => c.path === '/players/card')?.request.query).toEqual({
+      playerId: 'fx-cmc',
+      leagueId: 'L1'
+    });
+    // Drafted already, and not your turn: no Draft button.
+    expect(within(screen.getByTestId('player-card')).queryByRole('button', { name: 'Draft' })).toBeNull();
+    await user.keyboard('{Escape}');
+    await user.click(within(screen.getByRole('list', { name: 'Your roster' })).getByRole('button'));
+    expect(await screen.findByTestId('player-card')).toBeInTheDocument();
+  });
+
+  it('switches the board to the depth chart', async () => {
+    const user = userEvent.setup();
+    const { api, calls } = fakeApi((path) =>
+      path.endsWith('/draft/depth') ? { yourTeamId: 'team-1', teams: [] } : board()
+    );
+    renderDraft(api);
+    await user.click(await screen.findByRole('button', { name: 'Depth' }));
+    expect(await screen.findByRole('table', { name: 'Depth chart' })).toBeInTheDocument();
+    expect(calls.some((c) => c.path === '/leagues/L1/draft/depth')).toBe(true);
+    expect(screen.queryByRole('table', { name: 'Draft board' })).toBeNull();
   });
 
   it('shows a frozen clock with no time recorded as 0:00', async () => {
