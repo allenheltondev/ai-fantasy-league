@@ -14,13 +14,20 @@ import {
   StatusBadge
 } from '@readysetcloud/ui';
 import { ApiError, apiFetch, type ApiFetch } from '../api';
+import type { RealtimeInfo } from '../chat/api';
+import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
 import { formatClock, overallPick, POSITIONS, secondsUntil, type DraftBoard } from './board';
+import { useDraftQueue } from './queue';
 
 export interface DraftPageProps {
   /** The API client (tests pass a fake). */
   api?: ApiFetch;
-  /** How often to refresh the board. Realtime updates replace polling later. */
+  /** How often to refresh the board when realtime is off or has failed. */
   pollMs?: number;
+  /** How often to refresh anyway while live, in case an event is missed. */
+  livePollMs?: number;
+  /** Subscribes to live league events (tests pass a fake). */
+  connect?: EventConnect;
   /** The wall clock for the countdown. */
   now?: () => number;
 }
@@ -31,6 +38,9 @@ function toApiError(error: unknown): ApiError {
     : new ApiError(0, { code: 'NETWORK', message: 'Could not reach the server.' });
 }
 
+/** The events that change the board. */
+export const DRAFT_EVENTS = ['Draft Pick Made', 'Draft Turn Started', 'Draft Completed'] as const;
+
 const STATUS = {
   in_progress: { tone: 'success', label: 'Live' },
   paused: { tone: 'warning', label: 'Paused' },
@@ -38,8 +48,15 @@ const STATUS = {
 } as const;
 
 /** The draft room: the board grid, the clock, the best available players, and your pick. */
-export function DraftPage({ api = apiFetch, pollMs = 3000, now = Date.now }: DraftPageProps) {
+export function DraftPage({
+  api = apiFetch,
+  pollMs = 3000,
+  livePollMs = 30_000,
+  connect = connectMomentoEvents,
+  now = Date.now
+}: DraftPageProps) {
   const { leagueId = '' } = useParams();
+  const queue = useDraftQueue(leagueId);
   const [board, setBoard] = useState<DraftBoard | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [pickError, setPickError] = useState<ApiError | null>(null);
@@ -60,11 +77,21 @@ export function DraftPage({ api = apiFetch, pollMs = 3000, now = Date.now }: Dra
     }
   }, [api, leagueId, q, position]);
 
+  const realtime = async (id: string) => (await api<RealtimeInfo>(`/leagues/${id}/realtime`)).data;
+  const live = useLiveEvents({
+    leagueId,
+    types: DRAFT_EVENTS,
+    realtime,
+    connect,
+    onEvent: () => void load()
+  });
+  const interval = live === 'live' ? livePollMs : pollMs;
+
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), pollMs);
+    const id = setInterval(() => void load(), interval);
     return () => clearInterval(id);
-  }, [load, pollMs]);
+  }, [load, interval]);
 
   useEffect(() => {
     const id = setInterval(() => setTick(now()), 1000);
@@ -106,10 +133,15 @@ export function DraftPage({ api = apiFetch, pollMs = 3000, now = Date.now }: Dra
           : secondsUntil(clock.deadline, tick);
     const byOverall = new Map(board.picks.map((p) => [p.overall, p]));
     const roster = board.rosters.find((r) => r.teamId === board.yourTeamId);
+    const drafted = new Set(board.picks.map((p) => p.player.id));
+    const queued = queue.players.filter((p) => !drafted.has(p.id));
     content = (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge tone={STATUS[board.status].tone}>{STATUS[board.status].label}</StatusBadge>
+          <span className="text-sm text-muted-foreground" data-testid="draft-updates">
+            {live === 'live' ? 'Updating live' : `Refreshing every ${Math.round(pollMs / 1000)}s`}
+          </span>
           {clock !== null && (
             <p>
               <strong>{clock.teamName}</strong> is on the clock: round {clock.round}, pick {clock.overall}.{' '}
@@ -209,21 +241,84 @@ export function DraftPage({ api = apiFetch, pollMs = 3000, now = Date.now }: Dra
                         {player.position} · {player.team ?? 'FA'} · rank {rank ?? '—'}
                       </span>
                     </span>
-                    <Button
-                      size="sm"
-                      disabled={!mine || picking !== null}
-                      loading={picking === player.id}
-                      onClick={() => void draft(player.id, current)}
-                      aria-label={`Draft ${player.name}`}
-                    >
-                      Pick
-                    </Button>
+                    <span className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={queue.has(player.id)}
+                        onClick={() => queue.add(player)}
+                        aria-label={`Queue ${player.name}`}
+                      >
+                        Queue
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={!mine || picking !== null}
+                        loading={picking === player.id}
+                        onClick={() => void draft(player.id, current)}
+                        aria-label={`Draft ${player.name}`}
+                      >
+                        Pick
+                      </Button>
+                    </span>
                   </li>
                 ))}
               </ul>
             </CardBody>
           </Card>
           <Card>
+            <CardHeader>
+              <CardTitle>Your queue</CardTitle>
+            </CardHeader>
+            <CardBody>
+              {queued.length === 0 ? (
+                <p className="text-muted-foreground">
+                  Queue players from Best available to line up your next picks. The queue stays in this
+                  browser.
+                </p>
+              ) : (
+                <ol aria-label="Your queue" className="divide-y divide-border">
+                  {queued.map((player, index) => (
+                    <li key={player.id} className="flex items-center justify-between gap-2 py-2">
+                      <span>
+                        {index + 1}. {player.name}{' '}
+                        <span className="text-muted-foreground">{player.position}</span>
+                      </span>
+                      <span className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={index === 0}
+                          onClick={() => queue.move(player.id, -1)}
+                          aria-label={`Move ${player.name} up`}
+                        >
+                          ↑
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => queue.remove(player.id)}
+                          aria-label={`Remove ${player.name} from the queue`}
+                        >
+                          ✕
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={!mine || picking !== null}
+                          loading={picking === player.id}
+                          onClick={() => void draft(player.id, current)}
+                          aria-label={`Draft ${player.name} from the queue`}
+                        >
+                          Pick
+                        </Button>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </CardBody>
+          </Card>
+          <Card className="md:col-span-3">
             <CardHeader>
               <CardTitle>Your team</CardTitle>
             </CardHeader>

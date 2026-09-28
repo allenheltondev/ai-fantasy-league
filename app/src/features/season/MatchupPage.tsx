@@ -4,18 +4,44 @@ import { useLeagueApi } from '../../api/league';
 import type { MatchupLineup, MatchupSide } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
 import { isStarter } from './slots';
 
-/** How often live scores refresh. The server recomputes them from the latest stats on every read. */
+/** How often live scores refresh without realtime. The server recomputes them on every read. */
 export const MATCHUP_POLL_MS = 30_000;
+/** While live, a slow safety refresh in case an event is missed. */
+export const MATCHUP_LIVE_POLL_MS = 120_000;
+
+/**
+ * Events that change the matchup. `Scores Updated` comes from the live-stats job on the global topic
+ * (it names no league); the rest on the league topic.
+ */
+export const MATCHUP_EVENTS = [
+  'Scores Updated',
+  'Stat Correction Applied',
+  'Week Provisionally Final',
+  'Week Official Final'
+] as const;
 
 const STATUS_LABEL = { scheduled: 'Upcoming', in_progress: 'Live', final: 'Final' } as const;
 
 /** The Matchup section (#58): both lineups side by side with live scores. */
-export function MatchupPage() {
+export function MatchupPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
-  const loaded = useLoad(() => api.getMatchup(leagueId), leagueId, MATCHUP_POLL_MS);
+  const live = useLiveEvents({
+    leagueId,
+    types: MATCHUP_EVENTS,
+    global: true,
+    realtime: api.getRealtime,
+    connect,
+    onEvent: () => loaded.reload()
+  });
+  const loaded = useLoad(
+    () => api.getMatchup(leagueId),
+    leagueId,
+    live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS
+  );
 
   let body;
   if (loaded.data === null) {

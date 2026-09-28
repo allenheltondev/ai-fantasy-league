@@ -80,6 +80,7 @@ describe('createLeagueApi', () => {
     await api.getRoster('L1', 'team-1');
     await api.getMatchup('L1');
     await api.getStandings('L1');
+    await api.getRealtime('L1');
     const moves = [{ playerId: 'p1', slot: 'WR' }];
     expect(await api.setLineup('L1', 'team-1', 3, moves)).toEqual({
       roster: { path: '/leagues/L1/teams/team-1/lineup' },
@@ -89,9 +90,10 @@ describe('createLeagueApi', () => {
       '/leagues/L1/teams/team-1/roster',
       '/leagues/L1/matchup',
       '/leagues/L1/standings',
+      '/leagues/L1/realtime',
       '/leagues/L1/teams/team-1/lineup'
     ]);
-    expect(fetch.mock.calls[3]?.[1]).toEqual({ method: 'PUT', body: { week: 3, moves } });
+    expect(fetch.mock.calls[4]?.[1]).toEqual({ method: 'PUT', body: { week: 3, moves } });
   });
 
   it('useLeagueApi needs a provider', () => {
