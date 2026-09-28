@@ -280,6 +280,68 @@ describe('set_lineup', () => {
     });
     expect(ok.status).toBe(200);
   });
+
+  it('refuses to drop a locked player on every path, and holds a kicked-off free agent on waivers', async () => {
+    // Thursday night's KC game has kicked off: Mahomes is locked.
+    const drop = await alice.post(`${L}/drops`, { playerId: 'fx-mahomes' });
+    expect(drop.status).toBe(409);
+    expect(drop.body).toMatchObject({
+      error: { code: 'PLAYER_LOCKED', message: expect.stringContaining('Patrick Mahomes'), fix: expect.any(String) }
+    });
+    expect(
+      errorCode(await alice.post(`${L}/waivers/claims`, { playerId: 'fx-swift', dropPlayerId: 'fx-mahomes' }))
+    ).toBe('PLAYER_LOCKED');
+    const preview = data(await alice.get(`${L}/waivers/preview?playerId=fx-swift&dropPlayerId=fx-mahomes`));
+    expect(preview).toMatchObject({ wouldSucceed: false, issues: [{ code: 'PLAYER_LOCKED' }] });
+    expect((await h.repos.teams.get('lg-season', 'team-1'))?.roster).toContain('fx-mahomes');
+
+    // Lamar (BAL) leaves team-2 after Thursday's kickoff: he is held on game-time waivers until the
+    // first run after the week, so his known points cannot be picked up as a free agent.
+    const team2 = (await h.repos.teams.get('lg-season', 'team-2'))!;
+    await h.repos.teams.update({ ...team2, roster: team2.roster.filter((id) => id !== 'fx-lamar') });
+    const search = data<{ players: { id: string; availability: { status: string; clearsAt?: string } }[] }>(
+      await alice.get(`/players?q=lamar&leagueId=lg-season`)
+    );
+    expect(search.players.find((p) => p.id === 'fx-lamar')?.availability).toEqual({
+      status: 'waivers',
+      clearsAt: '2026-09-15T08:00:00.000Z'
+    });
+    const lamar = await alice.get(`${L}/waivers/preview?playerId=fx-lamar&dropPlayerId=fx-kwalker`);
+    expect(data(lamar)).toMatchObject({ outcome: 'claim_pending', processesAt: '2026-09-15T08:00:00.000Z' });
+    await h.repos.teams.update({ ...(await h.repos.teams.get('lg-season', 'team-2'))!, roster: team2.roster });
+
+    // Swift clears waivers at Monday's run; Josh Allen (Sunday) will be locked by then.
+    await h.repos.waivers.putWireEntry({
+      leagueId: 'lg-season',
+      playerId: 'fx-swift',
+      droppedByTeamId: 'team-3',
+      droppedAt: '2026-09-11T00:00:00.000Z',
+      clearsAt: '2026-09-13T20:00:00.000Z'
+    });
+    const lockedLater = data(await alice.get(`${L}/waivers/preview?playerId=fx-swift&dropPlayerId=fx-jallen`));
+    expect(lockedLater).toMatchObject({
+      wouldSucceed: false,
+      processesAt: null,
+      issues: [{ code: 'PLAYER_LOCKED', message: expect.stringContaining('2026-09-14T08:00:00.000Z') }]
+    });
+    const fine = data(await alice.get(`${L}/waivers/preview?playerId=fx-swift&dropPlayerId=fx-kwalker`));
+    expect(fine).toMatchObject({ wouldSucceed: true, outcome: 'claim_pending' });
+  });
+
+  it('keeps a locked starter who left the roster in the saved lineup', async () => {
+    const team = (await h.repos.teams.get('lg-season', 'team-1'))!;
+    const stored = (await h.repos.lineups.get('lg-season', 'team-1', 1))!;
+    // Kelce (KC, W/R/T) locked Thursday; a roster change slips past the guards.
+    await h.repos.teams.update({ ...team, roster: team.roster.filter((id) => id !== 'fx-kelce') });
+    const res = await alice.put(`${L}/teams/team-1/lineup`, { moves: [{ playerId: 'fx-lamb', slot: 'W/R/T' }] });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const saved = (await h.repos.lineups.get('lg-season', 'team-1', 1))!;
+    expect(saved.entries).toContainEqual({ playerId: 'fx-kelce', slot: 'W/R/T' });
+    expect(saved.entries).toContainEqual({ playerId: 'fx-lamb', slot: 'W/R/T' });
+    // Put things back for the scoring tests.
+    await h.repos.teams.update({ ...(await h.repos.teams.get('lg-season', 'team-1'))!, roster: team.roster });
+    await h.repos.lineups.put([stored]);
+  });
 });
 
 describe('live scoring and the weekly cycle', () => {

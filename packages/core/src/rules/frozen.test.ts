@@ -27,6 +27,19 @@ describe('frozenLineup', () => {
     ]);
   });
 
+  it('keeps the departed starter even when the pickup saved into his slot has played too', () => {
+    // Friday: qbKC (Thursday) left, qbBUF was saved into QB; by Monday both games have started.
+    const saved: LineupEntry[] = [
+      { playerId: 'qbKC', slot: 'QB' },
+      { playerId: 'qbBUF', slot: 'QB' }
+    ];
+    const current: LineupEntry[] = [{ playerId: 'qbBUF', slot: 'QB' }];
+    expect(frozenLineup(settings, saved, current, teamOf, games, '2026-09-14T12:00:00.000Z')).toEqual([
+      { playerId: 'qbBUF', slot: 'BN' },
+      { playerId: 'qbKC', slot: 'QB' }
+    ]);
+  });
+
   it('changes nothing before kickoff, for bench players, or for players without a game', () => {
     const saved: LineupEntry[] = [
       { playerId: 'qbKC', slot: 'QB' },
@@ -84,7 +97,7 @@ describe('frozenLineup', () => {
       return { saved, current, nfl, now };
     });
 
-  it('always keeps every rostered player and every locked starter, and never overfills an unlocked slot', () => {
+  it('always keeps every rostered player and every locked starter, and never overfills a slot', () => {
     fc.assert(
       fc.property(scenario, ({ saved, current, nfl, now }) => {
         const locked = (id: string) => {
@@ -105,9 +118,7 @@ describe('frozenLineup', () => {
         }
         for (const slot of SLOTS.filter(isStarterSlot)) {
           const inSlot = out.filter((e) => e.slot === slot);
-          expect(inSlot.length <= slotCount(settings, slot) || inSlot.every((e) => locked(e.playerId))).toBe(
-            true
-          );
+          expect(inSlot.length).toBeLessThanOrEqual(slotCount(settings, slot));
         }
         expect(frozenLineup(settings, saved, out, (id) => nfl.get(id), games, now)).toEqual(out);
       })
