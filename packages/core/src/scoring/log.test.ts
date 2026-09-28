@@ -92,6 +92,16 @@ describe('scorePlayerEvents', () => {
     expect(statChanges({ rec: 0 }, { rec: 0 })).toEqual([]);
   });
 
+  it('keeps a change too small to show when rounded, since it can still cross a tier edge', () => {
+    // fast-check's counterexample: points allowed going from the smallest float to 0 scores the shutout.
+    expect(statChanges({ pts_allow: 5e-324 }, { pts_allow: 0 })).toEqual([{ stat: 'pts_allow', delta: 0 }]);
+    const scored = scorePlayerEvents(scoringPreset('yahoo_standard'), [
+      event(1, { pts_allow: 5e-324 }),
+      event(2, { pts_allow: 0 })
+    ]);
+    expect(scored[1]?.changes.map((c) => c.stat)).toEqual(['pts_allow']);
+  });
+
   it('scores tier changes: a defense giving up a touchdown', () => {
     const yahoo = scoringPreset('yahoo_standard');
     const scored = scorePlayerEvents(yahoo, [event(1, { pts_allow: 0 }), event(2, { pts_allow: 7 })]);
