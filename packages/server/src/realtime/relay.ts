@@ -10,9 +10,10 @@ import { GLOBAL_TOPIC, leagueTopic, teamTopic, type Realtime, type RealtimeMessa
  * no league (the live-stats job's `Scores Updated`) go to the global topic.
  *
  * Only trade events the whole league may see go to the league topic: an accepted trade (which the
- * league then reviews), and its processing or veto. Offers, counters, rejections, and expiries stay
- * between the two teams (Yahoo shows pending offers only to them): they go only to those two teams'
- * private topics (`teamTopic`), never to the league topic, which reaches every member.
+ * league then reviews), and its processing or veto. Offers, counters, rejections, expiries, and
+ * withdrawals stay between the two teams (Yahoo shows pending offers only to them): they go only to
+ * those two teams' private topics (`teamTopic`), never to the league topic, which reaches every
+ * member.
  *
  * Per-team results also go to the team's own topic: each team's waiver awards from
  * `Waivers Processed` (the league topic still gets the whole run, which everyone may see).
@@ -39,7 +40,8 @@ export const TEAM_ONLY_EVENTS: readonly FantasyEventType[] = [
   'Trade Proposed',
   'Trade Countered',
   'Trade Rejected',
-  'Trade Expired'
+  'Trade Expired',
+  'Trade Withdrawn'
 ];
 
 export interface RelayResult {

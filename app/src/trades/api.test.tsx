@@ -42,6 +42,7 @@ describe('trades api', () => {
     await api.respond('L1', 't1', 'accept');
     await api.withdraw('L1', 't1');
     expect(await api.vote('L1', 't1', 'veto')).toEqual({ id: 't1' });
+    expect(await api.realtime('L1')).toEqual({ trade: { id: 't1' } });
     expect(calls.map((c) => c.path)).toEqual([
       '/leagues/L%201/state',
       '/leagues/L1/teams/team-2/roster',
@@ -51,7 +52,8 @@ describe('trades api', () => {
       '/leagues/L1/trades/t1/counter',
       '/leagues/L1/trades/t1/respond',
       '/leagues/L1/trades/t1/withdraw',
-      '/leagues/L1/trades/t1/votes'
+      '/leagues/L1/trades/t1/votes',
+      '/leagues/L1/realtime'
     ]);
     expect(calls[3]?.request?.query).toEqual({
       withTeamId: 'team-2',

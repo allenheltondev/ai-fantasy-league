@@ -7,7 +7,7 @@ import { actorTeam } from '../../league/phase.js';
 import { PlayerRefSchema, type PlayerRef } from '../../players/model.js';
 import type { Team } from '../../repos/types.js';
 import type { TradeRecord } from '../../repos/trades.js';
-import { refsFor, tradePlayerIds } from '../../trades/lifecycle.js';
+import { refsFor, tradePlayerIds, tradeReviewSettings } from '../../trades/lifecycle.js';
 import type { TradeDeps, TradeWorld } from '../../trades/world.js';
 import { refOf } from '../waivers/shared.js';
 
@@ -44,7 +44,16 @@ export const TradeViewSchema = z.object({
   toSends: z.array(PlayerRefSchema).describe('Players toTeam gives up.'),
   fromDrops: z.array(PlayerRefSchema).describe('Players fromTeam releases to make room.'),
   toDrops: z.array(PlayerRefSchema).describe('Players toTeam releases to make room (chosen when accepting).'),
-  message: z.string().nullable(),
+  message: z
+    .string()
+    .nullable()
+    .describe('The offering team’s note. Only the two teams see it; null for everyone else.'),
+  reply: z
+    .string()
+    .nullable()
+    .describe(
+      'The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.'
+    ),
   proposedAt: z.string(),
   expiresAt: z.string().describe('When an unanswered offer expires (48h or the next lineup lock).'),
   reviewEndsAt: z.string().nullable().describe('When league review ends and the trade processes.'),
@@ -92,7 +101,7 @@ export async function loadTrade(ctx: Ctx, access: LeagueAccess, tradeId: string)
 
 function actionsFor(access: LeagueAccess, trade: Trade, now: Date): TradeView['yourActions'] {
   const team = actorTeam(access.actor);
-  const { review } = access.league.settings.trades;
+  const { review } = tradeReviewSettings(access.league, access.teams, trade).trades;
   if (trade.status === 'proposed' && now.toISOString() < trade.expiresAt) {
     if (team?.id === trade.sides[1].teamId) return ['accept', 'reject', 'counter'];
     if (team?.id === trade.sides[0].teamId) return ['withdraw'];
@@ -121,8 +130,9 @@ export async function tradeViews(
   const team = actorTeam(access.actor);
   const name = (id: string) => ({ id, name: access.teams.find((t) => t.id === id)?.name ?? id });
   const list = (ids: readonly string[]): PlayerRef[] => ids.map((id) => refOf(refs, id));
-  return records.map(({ trade, message }) => {
+  return records.map(({ trade, message, reply }) => {
     const [from, to] = trade.sides;
+    const party = team !== null && (from.teamId === team.id || to.teamId === team.id);
     return {
       id: trade.tradeId,
       status: trade.status,
@@ -132,7 +142,8 @@ export async function tradeViews(
       toSends: list(to.sends),
       fromDrops: list(from.drops),
       toDrops: list(to.drops),
-      message,
+      message: party ? message : null,
+      reply: party ? reply : null,
       proposedAt: trade.proposedAt,
       expiresAt: trade.expiresAt,
       reviewEndsAt: trade.reviewEndsAt,

@@ -68,7 +68,12 @@ export const TradeEventDetailSchema = z.object({
   expiresAt: iso,
   reviewEndsAt: iso.nullable(),
   review: z.enum(['league_vote', 'commissioner', 'none']),
-  voided: z.boolean().optional().describe('Trade Vetoed: cancelled because it no longer validated.'),
+  voided: z
+    .boolean()
+    .optional()
+    .describe(
+      'Trade Vetoed: cancelled because it no longer validated. Trade Expired: an open offer voided because a player in it changed rosters.'
+    ),
   reason: z.string().optional(),
   reasonCode: z.string().optional()
 });
@@ -351,6 +356,7 @@ export const EVENT_DETAIL_SCHEMAS = {
   'Trade Accepted': TradeEventDetailSchema,
   'Trade Rejected': TradeEventDetailSchema,
   'Trade Expired': TradeEventDetailSchema,
+  'Trade Withdrawn': TradeEventDetailSchema,
   'Trade Processed': TradeEventDetailSchema,
   'Trade Vetoed': TradeEventDetailSchema,
   'Trade Offer Deadline': z.object({ leagueId: id, tradeId: id, expiresAt: iso }),

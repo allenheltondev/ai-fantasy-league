@@ -23,6 +23,8 @@ import {
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
 import type { League, Team } from '../../repos/types.js';
+import { scheduleTradeDeadline } from '../../trades/lifecycle.js';
+import { tradeDeadlineAt } from '../../trades/world.js';
 
 export const updateLeagueSettings = defineOperation({
   name: 'update_league_settings',
@@ -31,7 +33,7 @@ export const updateLeagueSettings = defineOperation({
   summary: 'Change league rules (commissioner only)',
   description: [
     'Changes league settings. Send only what changes in `changes`, shaped like `settings` from get_league: nested objects merge ({"scoring": {"perStat": {"rec": 1}}} switches to full PPR), arrays replace.',
-    'Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed.',
+    'Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed; in season, a new `trades.deadlineWeek` moves the deadline to that week’s first kickoff.',
     'Pass `expectedVersion` (the `version` from get_league) so you never overwrite a change you have not seen; a mismatch returns CONFLICT. Only the commissioner can call this.'
   ].join(' '),
   tags: ['leagues'],
@@ -83,11 +85,23 @@ export const updateLeagueSettings = defineOperation({
 
     const now = ctx.clock.now();
     const removals = seatsToRemove(access.teams, next.teamCount);
+    // A new deadline week in season moves the deadline itself (the week's first kickoff).
+    const deadlineMoved =
+      league.phase === 'regular_season' && league.settings.trades.deadlineWeek !== next.trades.deadlineWeek;
+    const deadlines = deadlineMoved
+      ? {
+          ...league.deadlines,
+          tradeDeadlineAt: await tradeDeadlineAt(ctx.data.reference, { ...league, settings: next })
+        }
+      : league.deadlines;
     const updated = await ctx.repos.leagues.update({
       ...league,
       settings: next,
+      deadlines,
       updatedAt: now.toISOString()
     });
+    // Same schedule name, so the old deadline event is replaced rather than joined.
+    if (deadlineMoved) await scheduleTradeDeadline({ events: ctx.events }, updated);
     await syncSeats(ctx, updated, access.teams, removals, league.settings, now);
     await ctx.events.publish('Settings Changed', {
       leagueId: league.id,

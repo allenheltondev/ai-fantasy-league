@@ -1,4 +1,5 @@
 import type { ApiFetch } from '../api/client';
+import type { RealtimeInfo } from '../chat/api';
 
 /** Shapes from the trade operations (preview_trade, propose_trade, list_trades, ...) in openapi.json. */
 
@@ -25,7 +26,10 @@ export interface TradeView {
   toSends: PlayerRef[];
   fromDrops: PlayerRef[];
   toDrops: PlayerRef[];
+  /** The offering team's note; only the two teams see it. */
   message: string | null;
+  /** The answering team's note with its accept or reject; only the two teams see it. */
+  reply: string | null;
   proposedAt: string;
   expiresAt: string;
   reviewEndsAt: string | null;
@@ -97,6 +101,8 @@ export interface TradesApi {
   ): Promise<TradeView>;
   withdraw(leagueId: string, tradeId: string): Promise<TradeView>;
   vote(leagueId: string, tradeId: string, decision: 'veto' | 'approve'): Promise<TradeView>;
+  /** get_realtime_token, for live offer updates. */
+  realtime(leagueId: string): Promise<RealtimeInfo>;
 }
 
 const league = (leagueId: string) => `/leagues/${encodeURIComponent(leagueId)}`;
@@ -139,6 +145,7 @@ export function createTradesApi(apiFetch: ApiFetch): TradesApi {
     respond: (leagueId, tradeId, response, drops = []) =>
       trade(`${league(leagueId)}/trades/${tradeId}/respond`, { response, drops }),
     withdraw: (leagueId, tradeId) => trade(`${league(leagueId)}/trades/${tradeId}/withdraw`, {}),
-    vote: (leagueId, tradeId, decision) => trade(`${league(leagueId)}/trades/${tradeId}/votes`, { decision })
+    vote: (leagueId, tradeId, decision) => trade(`${league(leagueId)}/trades/${tradeId}/votes`, { decision }),
+    realtime: async (leagueId) => (await apiFetch<RealtimeInfo>(`${league(leagueId)}/realtime`)).data
   };
 }

@@ -32,6 +32,8 @@ export type FantasyEventType =
   | 'Trade Accepted'
   | 'Trade Rejected'
   | 'Trade Expired'
+  /** The proposer took back an open offer (only the two teams hear about it). */
+  | 'Trade Withdrawn'
   | 'Trade Processed'
   | 'Trade Vetoed'
   /** Scheduled at an offer's `expiresAt`; the API function expires it if it is still open. */

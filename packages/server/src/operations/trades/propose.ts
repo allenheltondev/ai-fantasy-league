@@ -10,7 +10,7 @@ import type { TradeRecord } from '../../repos/trades.js';
 import { publishTradeEvent, scheduleOfferExpiry, tradeError } from '../../trades/lifecycle.js';
 import { loadTradeWorld, nextLockAt } from '../../trades/world.js';
 import { actingTeam, TeamIdField } from '../waivers/shared.js';
-import { buildSides, clampToDeadline, guardLopsided } from './proposal.js';
+import { buildSides, clampToDeadline, guardLopsided, guardOpenOffers } from './proposal.js';
 import {
   loadTrade,
   MessageField,
@@ -31,7 +31,7 @@ const sidesShape = {
 };
 
 const ERRORS =
-  'Errors carry a fix: PLAYER_NOT_ON_ROSTER (re-read both rosters), ROSTER_LIMIT_EXCEEDED (add `drops`), PLAYER_LOCKED (his game has kicked off this week), TRADE_DEADLINE_PASSED (trades are closed), TRADE_LOPSIDED (two AI teams, too one-sided), TRADE_INVALID (see details.issues).';
+  'Errors carry a fix: PLAYER_NOT_ON_ROSTER (re-read both rosters), ROSTER_LIMIT_EXCEEDED (add `drops`), PLAYER_LOCKED (his game has kicked off this week), TRADE_DEADLINE_PASSED (trades are closed), TRADE_LOPSIDED (two AI teams, too one-sided), TOO_MANY_OPEN_OFFERS (you already have 2 unanswered offers out to that team; wait or withdraw one), TRADE_INVALID (see details.issues).';
 
 export const proposeTradeOperation = defineOperation({
   name: 'propose_trade',
@@ -60,6 +60,7 @@ export const proposeTradeOperation = defineOperation({
     const me = actingTeam(access, input.teamId);
     assertAction('propose_trade', league, access.actor, now);
     const other = requireTeam(access, input.withTeamId);
+    await guardOpenOffers(ctx, league.id, me, other);
     const deps = tradeDepsOf(ctx);
     const world = await loadTradeWorld(deps, league, now, access.teams);
     const sides = await buildSides(ctx, world, me, other, input);
@@ -75,6 +76,7 @@ export const proposeTradeOperation = defineOperation({
       leagueId: league.id,
       trade,
       message: input.message ?? null,
+      reply: null,
       createdBy: principalKey(ctx.principal),
       processingAt: null,
       updatedAt: now.toISOString(),
@@ -119,6 +121,7 @@ export const counterTradeOperation = defineOperation({
     const deps = tradeDepsOf(ctx);
     const world = await loadTradeWorld(deps, league, now, access.teams);
     const other = requireTeam(access, record.trade.sides[0].teamId);
+    await guardOpenOffers(ctx, league.id, me, other);
     const sides = await buildSides(ctx, world, me, other, input);
     const result = counterTrade(
       league.settings,
@@ -143,6 +146,7 @@ export const counterTradeOperation = defineOperation({
       leagueId: league.id,
       trade,
       message: input.message ?? null,
+      reply: null,
       createdBy: principalKey(ctx.principal),
       processingAt: null,
       updatedAt: now.toISOString(),

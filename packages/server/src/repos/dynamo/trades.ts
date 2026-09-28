@@ -38,6 +38,7 @@ const RecordSchema = z.object({
   leagueId: z.string(),
   trade: TradeSchema,
   message: z.string().nullable(),
+  reply: z.string().nullable().default(null),
   createdBy: z.string(),
   processingAt: z.string().nullable(),
   updatedAt: z.string(),
