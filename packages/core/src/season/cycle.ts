@@ -53,6 +53,20 @@ export function firstKickoff(games: readonly WeekGame[]): string | null {
   return gameWindows(games)[0]?.startsAt ?? null;
 }
 
+/** The week's distinct kickoff times, earliest first: each one locks the players in its games. */
+export function kickoffTimes(games: readonly WeekGame[]): string[] {
+  return [...new Set(games.map((g) => instantMs(g.kickoff)))]
+    .sort((a, b) => a - b)
+    .map((ms) => new Date(ms).toISOString());
+}
+
+/** The first of `kickoffs` still in the future at `now`, or null once every one has passed. */
+export function nextKickoff(kickoffs: readonly Instant[], now: Instant): string | null {
+  const at = instantMs(now);
+  const next = kickoffs.map(instantMs).filter((ms) => ms > at);
+  return next.length === 0 ? null : new Date(Math.min(...next)).toISOString();
+}
+
 /**
  * When the week's last game is over (usually the Monday night game): its kickoff plus
  * `gameDurationMs`. Null when there are no games.

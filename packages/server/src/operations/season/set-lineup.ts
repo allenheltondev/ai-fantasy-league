@@ -1,4 +1,13 @@
-import { applyLineupMoves, RosterSlotSchema, validateLineup, type LineupMove } from '@fantasy/core';
+import {
+  applyLineupMoves,
+  isPlayerLocked,
+  isStarterSlot,
+  RosterSlotSchema,
+  validateLineup,
+  type LineupEntry,
+  type LineupMove,
+  type WeekGames
+} from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
 import type { Ctx } from '../../context.js';
@@ -104,7 +113,10 @@ export const setLineup = defineOperation({
         leagueId: league.id,
         teamId: team.id,
         week,
-        entries: check.lineup,
+        entries: [
+          ...check.lineup,
+          ...(await frozenDeparted(ctx, current.stored, team.roster, data.games, now))
+        ],
         updatedAt: now.toISOString(),
         updatedBy: principalKey(ctx.principal)
       }
@@ -123,6 +135,25 @@ export const setLineup = defineOperation({
     );
   }
 });
+
+/**
+ * Starters from the stored lineup who locked and have since left the roster. They stay in the saved
+ * lineup, so the week is still scored with them (a starter freezes at kickoff; season/scoring.ts).
+ */
+async function frozenDeparted(
+  ctx: Ctx,
+  stored: readonly LineupEntry[],
+  roster: readonly string[],
+  games: WeekGames,
+  now: Date
+): Promise<LineupEntry[]> {
+  const departed = stored.filter((e) => isStarterSlot(e.slot) && !roster.includes(e.playerId));
+  if (departed.length === 0) return [];
+  const teams = new Map(
+    (await ctx.repos.players.getMany(departed.map((e) => e.playerId))).map((p) => [p.id, p.team])
+  );
+  return departed.filter((e) => isPlayerLocked({ nflTeam: teams.get(e.playerId) ?? null }, games, now));
+}
 
 /** A move's player id: the id given, else the name matched against the roster first, then everyone. */
 async function resolveMovePlayer(

@@ -43,7 +43,7 @@ export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<
       continue;
     }
     live++;
-    const scored = await updateMatchupScores(deps, league, week, 'in_progress');
+    const scored = await updateMatchupScores(deps, league, week, 'in_progress', now);
     if (scored.changed.length === 0) continue;
     updated++;
     await deps.events.publish('Scores Updated', {

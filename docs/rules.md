@@ -287,9 +287,16 @@ The result lists awarded and failed claims (each failure has a code, a message, 
 **In the league** (`packages/server/src/operations/waivers/`, `packages/server/src/waivers/`):
 
 - `claim_waiver` adds a **free agent** (not rostered, not on waivers) at once and at no cost. A player **on waivers** gets a pending claim instead, with a FAAB bid and the team's own `priority`.
-- `drop_player` (or a claim's drop) puts the player on waivers until `waiverClearsAt`.
-- Claims are processed once a day at `WAIVER_RUN_HOUR_UTC` (08:00 UTC, 3 AM US Central in daylight time). A claim is due at the first run after its player clears waivers, and all due claims go through `resolveWaivers` together. Each run is one window: it records the awards and failures, charges FAAB, updates the priority list, emits `Waivers Processed`, and opens the next window (`Waiver Window Opened`).
+- `drop_player`, a claim's drop, and the drop of a waiver award put the player on waivers until `waiverClearsAt`, rounded up to the next waiver run, so he never turns free agent before the claims on him are processed. With `waiverPeriodDays: 0` there is no waiver period.
+- **Locked players can't be dropped.** Once a player's game this week has kicked off, `drop_player` and a claim's drop return `PLAYER_LOCKED` (the Yahoo rule) until the week rolls over. A pending claim whose drop player will be locked when it runs is refused up front, and a waiver award whose drop player is locked fails with `PLAYER_LOCKED`; the rest of the run goes on. (So core's `locksReleaseAt` rule for locked drops never applies in the league.)
+- **Other waivers.** An unrostered player is also on waivers right after the draft when `postDraftPlayers` is `waivers` (until the first waiver run after the draft, `deadlines.postDraftWaiversUntil`), and once his game this week has kicked off (Yahoo's game-time waivers, until the first waiver run after the week is over).
+- **Roster limit.** The limit counts the week's lineup: players in IR slots take no active spot.
+- **Priority.** After the draft the priority list is the reverse of the draft's round-1 order (after any `start_draft` reorder). Under `priorityOrder: reverse_standings_weekly` it resets at every rollover to the latest standings, worst record first. `faabTiebreak: reverse_standings` uses the latest standings (`reverseStandingsOrder`).
+- **Sealed bids.** `list_waiver_claims` shows a team all of its own claims, but another team's claims only once they are resolved (`awarded` or `failed`). Not even the commissioner sees another team's pending bids.
+- Claims are processed once a day at `WAIVER_RUN_HOUR_UTC` (08:00 UTC, 3 AM US Central in daylight time). A claim is due at the first run after its player clears waivers, and all due claims go through `resolveWaivers` together. Each run is one window: it records the awards and failures, charges FAAB, updates the priority list, emits `Waivers Processed`, and opens the next window (`Waiver Window Opened`). A claim cancelled or reordered while a run is going is re-read: a cancelled one is skipped, and the run carries on.
 - Claims and adds are accepted while `waiversOpen` (the regular season and playoffs).
+
+**Frozen starters.** A starter freezes at his kickoff: the week is scored from the stored lineup for him even if he later leaves the roster (core `frozenLineup`), and a player who took his slot sits on the bench for the week. `preLock` stays true while any of the week's kickoffs is still ahead, and `nextLineupLockAt` is the next one.
 
 ## Trade lifecycle
 

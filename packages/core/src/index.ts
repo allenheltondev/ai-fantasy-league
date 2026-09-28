@@ -4,6 +4,7 @@ export * from './rules/positions.js';
 export * from './rules/settings.js';
 export * from './rules/validate-settings.js';
 export * from './rules/lineup.js';
+export * from './rules/frozen.js';
 export * from './scoring/settings.js';
 export * from './scoring/engine.js';
 export * from './rules/result.js';
