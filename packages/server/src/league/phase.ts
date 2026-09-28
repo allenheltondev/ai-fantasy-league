@@ -175,6 +175,8 @@ export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
   set_seat_type: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   delete_league: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   transfer_commissioner: { phases: ACTIVE, roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
+  configure_agent_seat: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
+  randomize_agent_seats: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   leave_league: {
     phases: ['setup'],
     roles: ['member'],

@@ -79,6 +79,35 @@ log "Bundling ${ENTRY#"${ROOT}"/} and ${JOBS_ENTRY#"${ROOT}"/} with esbuild"
   --out-extension:.js=.mjs \
   --log-level=warning
 
+# --- Agent platform Lambdas (#40, #41) -------------------------------------
+# Same zip, separate handlers: agent-router.handler and agent-task.handler.
+# @aws-sdk/client-s3 is an optional import inside the Strands SDK (context
+# offloading, unused here); it stays external and the Node runtime provides it.
+AGENT_ENTRIES=(
+  "agent-router:packages/agents/src/lambda/router.ts"
+  "agent-task:packages/agents/src/lambda/task.ts"
+)
+for spec in "${AGENT_ENTRIES[@]}"; do
+  name="${spec%%:*}"
+  src="${ROOT}/${spec#*:}"
+  [ -f "${src}" ] || continue
+  log "Bundling ${spec#*:} as ${name}.mjs"
+  "${ROOT}/node_modules/.bin/esbuild" "${src}" \
+    --bundle \
+    --platform=node \
+    --target=node22 \
+    --format=esm \
+    --minify \
+    --sourcemap \
+    --legal-comments=none \
+    --main-fields=module,main \
+    --external:@aws-sdk/client-s3 \
+    --banner:js="import { createRequire as __fantasyCreateRequire } from 'node:module'; const require = __fantasyCreateRequire(import.meta.url);" \
+    --outfile="${STAGING}/${name}.mjs" \
+    --log-level=warning
+done
+# --- end agent platform -----------------------------------------------------
+
 UNZIPPED_KB="$(du -sk "${STAGING}" | cut -f1)"
 
 # Zip deterministically enough that an unchanged bundle hashes the same:

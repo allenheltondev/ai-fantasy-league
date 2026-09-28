@@ -159,9 +159,11 @@ describe('action rules', () => {
 
   it('lets only the commissioner configure the league before the draft', () => {
     expect(allowed(COMMISSIONER)).toEqual([
+      'configure_agent_seat',
       'create_invite',
       'delete_league',
       'post_message',
+      'randomize_agent_seats',
       'remove_member',
       'rename_team',
       'revoke_invite',

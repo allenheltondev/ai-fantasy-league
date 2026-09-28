@@ -4,7 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
+import { seedLeague } from '../support/leagues.js';
 import { RESEARCH_LEAGUE_ID, seedReferenceData } from '../support/reference-seed.js';
+import { signIdToken } from '../support/tokens.js';
+
+const OTHER_USER = signIdToken({ sub: 'someone-else' });
+const SEAT = { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'zero_rb' };
 
 /**
  * Contract tests: every operation's real responses (success and error) validate
@@ -84,7 +89,63 @@ const CASES: Record<string, Case[]> = {
     },
     { label: 'unknown player', path: '/api/v1/news?playerId=nope', status: 404 }
   ],
-  ...LEAGUE_CASES
+  ...LEAGUE_CASES,
+  configure_agent_seat: [
+    {
+      label: 'commissioner',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
+      init: {
+        body: { ...SEAT, advanced: { customFlavor: 'Loves kickers.' } },
+        idempotencyKey: 'contract-cfg-1'
+      },
+      status: 200
+    },
+    {
+      label: 'not commissioner',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
+      init: { body: SEAT, idempotencyKey: 'contract-cfg-2', token: OTHER_USER },
+      status: 403
+    },
+    {
+      label: 'stale version',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
+      init: { body: { ...SEAT, expectedVersion: 0 }, idempotencyKey: 'contract-cfg-3' },
+      status: 409
+    }
+  ],
+  randomize_agent_seats: [
+    {
+      label: 'seeded',
+      path: '/api/v1/leagues/lg-1/agents/randomize',
+      init: { body: { teamIds: ['team-3', 'team-4'], seed: 'contract' }, idempotencyKey: 'contract-rnd-1' },
+      status: 200
+    },
+    {
+      label: 'duplicates',
+      path: '/api/v1/leagues/lg-1/agents/randomize',
+      init: { body: { teamIds: ['team-2', 'team-2'] }, idempotencyKey: 'contract-rnd-2' },
+      status: 400
+    }
+  ],
+  get_agent_seat: [
+    { label: 'commissioner', path: '/api/v1/leagues/lg-1/agents/team-2', status: 200 },
+    {
+      label: 'not a member',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
+      init: { token: OTHER_USER },
+      status: 403
+    },
+    { label: 'no seat', path: '/api/v1/leagues/lg-1/agents/team-9', status: 404 }
+  ],
+  get_agent_activity: [
+    { label: 'commissioner', path: '/api/v1/leagues/lg-1/agent-activity?limit=5', status: 200 },
+    {
+      label: 'not commissioner',
+      path: '/api/v1/leagues/lg-1/agent-activity',
+      init: { token: OTHER_USER },
+      status: 403
+    }
+  ]
 };
 
 function findOperation(name: string): { path: string; method: string; responses: Record<string, Json> } {
@@ -127,6 +188,7 @@ beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
   await seedReferenceData(h.services, h.repos);
   await seedContractLeagues(h.repos);
+  await seedLeague(h.repos, { id: 'lg-1', owners: [{ sub: 'user-123', name: 'Allen' }], teamCount: 4 });
 });
 afterAll(() => h.close());
 

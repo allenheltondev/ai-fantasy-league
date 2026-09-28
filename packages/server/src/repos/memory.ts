@@ -1,3 +1,4 @@
+import { InMemoryAgentRepository } from './memory-agents.js';
 import { createInMemoryLeagueRepos } from './memory-league.js';
 import type { Player, Position } from '../players/model.js';
 import type {
@@ -125,6 +126,7 @@ export function createInMemoryRepos(options: { players?: readonly Player[] } = {
     idempotency: new InMemoryIdempotencyRepository(),
     audit: new InMemoryAuditRepository(),
     players: new InMemoryPlayerRepository(options.players ?? []),
-    ...createInMemoryLeagueRepos()
+    ...createInMemoryLeagueRepos(),
+    agents: new InMemoryAgentRepository()
   };
 }

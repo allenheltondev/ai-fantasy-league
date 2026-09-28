@@ -1,5 +1,6 @@
 import type { LeagueSettings, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
+import type { AgentRepository } from './agents.js';
 
 /**
  * Repository interfaces. Each has a DynamoDB implementation (single table, see
@@ -269,4 +270,6 @@ export interface Repos {
   members: MemberRepository;
   invites: InviteRepository;
   schedule: ScheduleRepository;
+  /** Agent seats, notes, task records, and usage rollups (repos/agents.ts). */
+  agents: AgentRepository;
 }

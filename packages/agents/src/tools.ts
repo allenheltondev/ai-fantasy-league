@@ -1,0 +1,165 @@
+import type { ResearchAccess, ResearchKind } from '@fantasy/core';
+import {
+  ApiError,
+  invokeTool,
+  type AgentPrincipal,
+  type AgentToolCall,
+  type AnyInputSchema,
+  type AnyOperation,
+  type Envelope,
+  type Registry,
+  type Services
+} from '@fantasy/server';
+
+/**
+ * Tool binding: an agent's tool set is built from the server registry, never hand-written. Every
+ * call goes through `invokeTool` with the agent's own principal, so a tool call gets exactly the
+ * authorization, validation, phase checks, idempotency, and audit a human's HTTP request gets.
+ * On top of that the binding narrows what an agent can reach:
+ *
+ * - operations humans alone may call (`auth: 'user'`) are never bound;
+ * - research tools are bound only when the difficulty's research access allows them;
+ * - a task kind can restrict the set further with an allowlist;
+ * - mutations that name a `teamId` must name the agent's own team;
+ * - mutations stop after the difficulty's action budget for the trigger;
+ * - the idempotency key is derived from the task (trigger event) and the step number, never
+ *   chosen by the model, so a redelivered trigger replays instead of acting twice.
+ */
+
+/** Research tools by name (SPEC §6). Operations can also opt in with a `research:<kind>` tag. */
+export const RESEARCH_TOOLS: Readonly<Record<string, ResearchKind>> = {
+  get_projections: 'projections',
+  get_news: 'news',
+  get_trending_players: 'trending',
+  get_matchup_outlook: 'matchupOutlook'
+};
+
+/** The research kind an operation needs, or null when it is not a research tool. */
+export function researchKindOf(op: AnyOperation): ResearchKind | null {
+  const tag = op.tags?.find((t) => t.startsWith('research:'));
+  if (tag !== undefined) return tag.slice('research:'.length) as ResearchKind;
+  return RESEARCH_TOOLS[op.name] ?? null;
+}
+
+export interface BoundTool {
+  name: string;
+  description: string;
+  mutation: boolean;
+  /** What the model supplies: the operation's input schema (no idempotency key). */
+  inputSchema: AnyInputSchema;
+  call(args: Record<string, unknown>): Promise<Envelope>;
+}
+
+export interface ToolBoxOptions {
+  registry: Registry;
+  services: Services;
+  /** Created by the runtime in-process; never taken from the model or a request. */
+  principal: AgentPrincipal;
+  research: ResearchAccess;
+  /** Task-kind allowlist; undefined means every tool the agent may use. */
+  allow?: readonly string[];
+  actionsPerTrigger: number;
+  /** Unique per trigger (the task id); the idempotency key is `<prefix>:<step>`. */
+  idempotencyPrefix: string;
+}
+
+/** Operations an agent may ever be given, before research and task filters. */
+export function agentEligible(op: AnyOperation): boolean {
+  return op.auth !== 'user';
+}
+
+function errorEnvelope(error: ApiError): Envelope {
+  return { error: error.toBody() };
+}
+
+export class ToolBox {
+  readonly tools: readonly BoundTool[];
+  readonly calls: AgentToolCall[] = [];
+  #mutations = 0;
+  #step = 0;
+  readonly #options: ToolBoxOptions;
+  readonly #byName: ReadonlyMap<string, AnyOperation>;
+
+  constructor(options: ToolBoxOptions) {
+    this.#options = options;
+    const ops = options.registry.operations.filter((op) => {
+      if (!agentEligible(op)) return false;
+      if (options.allow !== undefined && !options.allow.includes(op.name)) return false;
+      const kind = researchKindOf(op);
+      return kind === null || options.research[kind] === true;
+    });
+    this.#byName = new Map(ops.map((op) => [op.name, op]));
+    this.tools = ops.map((op) => ({
+      name: op.name,
+      description: `${op.summary}.\n\n${op.description}`,
+      mutation: op.mutation,
+      inputSchema: op.input,
+      call: (args: Record<string, unknown>) => this.call(op.name, args)
+    }));
+  }
+
+  /** Mutating calls that reached the operation (successful or not). */
+  get actionsTaken(): number {
+    return this.#mutations;
+  }
+
+  /** Calls a tool by name with model-supplied arguments. Returns the response envelope. */
+  async call(name: string, rawArgs: Record<string, unknown>): Promise<Envelope> {
+    const { principal } = this.#options;
+    const op = this.#byName.get(name);
+    if (op === undefined) {
+      return this.#reject(name, false, 'FORBIDDEN', `The tool "${name}" is not available to you.`, {
+        fix: 'Use only the tools you were given for this task.'
+      });
+    }
+    const { idempotencyKey: _ignored, ...args } = rawArgs;
+    if ('leagueId' in op.input.shape && args.leagueId === undefined) args.leagueId = principal.leagueId;
+    if (op.mutation) {
+      if ('teamId' in op.input.shape && args.teamId !== undefined && args.teamId !== principal.teamId) {
+        return this.#reject(name, true, 'FORBIDDEN', 'You can only act for your own team.', {
+          fix: `Use teamId "${principal.teamId}".`
+        });
+      }
+      if (this.#mutations >= this.#options.actionsPerTrigger) {
+        return this.#reject(name, true, 'FORBIDDEN', 'You have used every action allowed for this task.', {
+          fix: 'Stop taking actions and give your final answer.',
+          details: { actionsPerTrigger: this.#options.actionsPerTrigger }
+        });
+      }
+      this.#mutations += 1;
+    }
+    const key = op.mutation ? `${this.#options.idempotencyPrefix}:${++this.#step}` : undefined;
+    const result = await invokeTool({
+      registry: this.#options.registry,
+      services: this.#options.services,
+      principal,
+      name,
+      args: key === undefined ? args : { ...args, idempotencyKey: key }
+    });
+    const body = result.body;
+    this.calls.push({
+      name,
+      mutation: op.mutation,
+      ok: !('error' in body),
+      errorCode: 'error' in body ? body.error.code : null
+    });
+    return body;
+  }
+
+  #reject(
+    name: string,
+    mutation: boolean,
+    code: 'FORBIDDEN',
+    message: string,
+    options: { fix: string; details?: Record<string, unknown> }
+  ): Envelope {
+    this.calls.push({ name, mutation, ok: false, errorCode: code });
+    return errorEnvelope(new ApiError(code, message, options));
+  }
+}
+
+/** Idempotency-key-safe form of a task id (keys allow A-Z a-z 0-9 _ . : -). */
+export function keyPrefix(taskId: string): string {
+  const safe = taskId.replace(/[^A-Za-z0-9_.:-]/g, '_');
+  return safe.length > 100 ? safe.slice(0, 100) : safe.padEnd(8, '_');
+}

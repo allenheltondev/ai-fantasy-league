@@ -568,6 +568,168 @@ Resources:
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
         # No CustomErrorResponses on purpose -- see SpaRouterFunction above.
 
+  # ===========================================================================
+  # Agent platform (#39, #40, #41, #45, #93)
+  #
+  # League event --> AgentRouterFunction --> "Agent Action Requested"
+  #   --> AgentTaskFunction (Bedrock, or deterministic fallbacks).
+  # Both handlers ship in the API zip (scripts/package-server.sh bundles
+  # agent-router.mjs and agent-task.mjs next to index.mjs). Keep additions for
+  # the agent platform inside this section.
+  # ===========================================================================
+
+  # Global kill switch: set the value to "on" to put every agent into
+  # deterministic mode (no model calls). Read at most once a minute per
+  # container; unreadable fails closed.
+  AgentKillSwitchParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AWS::StackName}/agents/kill-switch
+      Type: String
+      Value: 'off'
+      Description: Global agent kill switch. "on" puts every agent into deterministic mode.
+
+  # Maps league events to "Agent Action Requested" for the affected agent
+  # teams, with cooldowns (packages/agents/src/router.ts).
+  AgentRouterFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      SkipBuild: true
+    Properties:
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: agent-router.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FantasyTable
+          EVENT_BUS_NAME: default
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FantasyTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+      Events:
+        LeagueTriggers:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - fantasy
+              detail-type:
+                - Draft Turn Started
+                - Waiver Window Opened
+                - Trade Proposed
+                - Trade Countered
+                - Player News Alert
+                - Player Status Changed
+                - Lineup Lock Approaching
+                - Chat Mention
+                - Chat Moment
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+
+  # Runs one agent task: claim, model (or fallback), record, rollups
+  # (packages/agents/src/runner.ts).
+  AgentTaskFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      SkipBuild: true
+    Properties:
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: agent-task.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: 1024
+      # The model gets AGENT_MODEL_TIMEOUT_MS; the rest is room for the
+      # deterministic fallback and the records.
+      Timeout: 120
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FantasyTable
+          EVENT_BUS_NAME: default
+          AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter
+          AGENT_MODEL_TIMEOUT_MS: '90000'
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FantasyTable
+        # Model access, scoped to the catalog in packages/core/src/agents/models.ts:
+        # the us.* inference profiles in this region, plus the foundation models
+        # they route to (any US region, hence the region wildcard). Converse and
+        # ConverseStream authorize as InvokeModel / InvokeModelWithResponseStream.
+        # Inline rather than a managed policy: the deploy role can create roles
+        # but not standalone IAM policies.
+        # packages/agents/test/infra.test.ts fails when the catalog and this list drift.
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-micro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-2-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-pro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-opus-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-micro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-pro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/moonshot.kimi-k2-thinking
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-opus-5-v1
+            # End of agent Bedrock access
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/agents/kill-switch
+      Events:
+        AgentActionRequested:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - fantasy
+              detail-type:
+                - Agent Action Requested
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+
+  # ===========================================================================
+  # End of agent platform section
+  # ===========================================================================
+
 Outputs:
   TableName:
     Description: The league table (TABLE_NAME)
@@ -625,6 +787,9 @@ Outputs:
     Condition: DeployServer
     Description: CloudFront distribution id (for `aws cloudfront create-invalidation`)
     Value: !Ref AppDistribution
+  AgentKillSwitchParameterName:
+    Description: SSM parameter to set to "on" to put every agent into deterministic mode
+    Value: !Ref AgentKillSwitchParameter
   AppDistributionDomainName:
     Condition: DeployServer
     Description: The distribution's *.cloudfront.net domain (Staging's AppUrl)

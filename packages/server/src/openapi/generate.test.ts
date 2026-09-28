@@ -102,7 +102,11 @@ describe('generateMcpTools', () => {
         'revoke_invite',
         'set_seat_type',
         'transfer_commissioner',
-        'update_league_settings'
+        'update_league_settings',
+        'configure_agent_seat',
+        'randomize_agent_seats',
+        'get_agent_seat',
+        'get_agent_activity'
       ])
     );
   });

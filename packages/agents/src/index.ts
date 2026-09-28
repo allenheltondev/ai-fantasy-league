@@ -1,0 +1,13 @@
+// Public surface of @fantasy/agents: the agent runtime.
+export * from './events.js';
+export * from './fake-model.js';
+export * from './kill-switch.js';
+export * from './model.js';
+export * from './prompt.js';
+export * from './router.js';
+export * from './runner.js';
+export * from './tasks/index.js';
+export * from './tasks/kinds.js';
+export { lineupTask, LineupDecisionSchema, TaskUnavailableError } from './tasks/lineup.js';
+export { noopTask } from './tasks/noop.js';
+export * from './tools.js';

@@ -13,7 +13,12 @@ This is the contract every work stream builds against. The product is described 
 - **Frontend:** a Vite + React 19 SPA in `app/`, served from S3 + CloudFront at `fantasy.readysetcloud.io` (Staging uses the CloudFront domain). It uses `@readysetcloud/ui` for components, tokens, the Tailwind preset, and auth (`@readysetcloud/ui/auth`).
 - **Identity:** the shared rsc-core Cognito pool (`/readysetcloud/auth/user-pool-id` from SSM). This stack creates its own app client in that pool. The API verifies ID tokens with `aws-jwt-verify`.
 - **Realtime:** Momento Topics, using the API key from the rsc-core secrets SSM parameter. The API vends short-lived, scoped tokens to browsers.
-- **Agents:** `@readysetcloud/agent` runs Strands on Bedrock. Autonomous turns use `runAgentTask`/`runAgent` in-Lambda. Agents call the league **only** through the operation registry (below) with their own principal.
+- **Agents:** `@readysetcloud/agent` runs Strands on Bedrock. Agents call the league **only** through the operation registry (below) with their own principal.
+  - **Flow:** league events → the trigger router Lambda (`packages/agents/src/router.ts`) → `Agent Action Requested` → the agent task Lambda (`packages/agents/src/runner.ts`).
+  - **Runs:** autonomous turns use `runAgent` in-Lambda: structured output, bounded tool loops, and trusted `invocationState`.
+  - **Idempotency:** each task is idempotent through a claim on its task id in the league table.
+  - **Task kinds:** each feature (draft, lineups, waivers, trades, chat) adds a task kind (`packages/agents/src/tasks/kinds.ts`) with a deterministic fallback.
+  - **Tests and local dev:** `FANTASY_FAKE_MODEL=1` swaps in a scripted model that makes no Bedrock calls.
 
 ## Repository layout
 
