@@ -380,6 +380,38 @@ describe('StandingsPage', () => {
     expect(rows[2]).toHaveTextContent('2Human10-20%200.0––');
   });
 
+  it('shows ties, tiny costs, and a league with no final week in the model rankings', async () => {
+    const model = {
+      wins: 1,
+      losses: 0,
+      ties: 1,
+      winRate: 0.75,
+      pointsFor: 200,
+      costUsd: 0.004,
+      modelKey: 'nova-micro',
+      modelName: 'Amazon Nova Micro',
+      provider: 'amazon',
+      teams: 1,
+      bestRank: 1,
+      pointsForPerTeam: 200,
+      costPerWinUsd: 0.004
+    };
+    open('/leagues/L1/standings', {
+      getStandings: vi.fn(async () => standings),
+      getModelLeaderboard: vi.fn(async () => ({
+        throughWeek: null,
+        teams: [],
+        models: [model, { ...model, modelKey: 'nova-lite', winRate: null, costUsd: 0, costPerWinUsd: null }]
+      }))
+    });
+    const table = await screen.findByRole('table', { name: 'Model power rankings' });
+    expect(within(table).getByText(/No games final yet/)).toBeInTheDocument();
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent(
+      '1Amazon Nova Micro11-0-175%200.0<$0.01<$0.01'
+    );
+    expect(within(table).getAllByRole('row')[2]).toHaveTextContent('1-0-1–200.0$0.00–');
+  });
+
   it('hides the model rankings in a league without agents or when they fail to load', async () => {
     open('/leagues/L1/standings', {
       getStandings: vi.fn(async () => standings),

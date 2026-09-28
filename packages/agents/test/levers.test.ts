@@ -116,7 +116,8 @@ describe('difficulty levers reach the model run', () => {
       id,
       'detail-type': 'Waiver Window Opened',
       source: 'fantasy',
-      detail: { leagueId: LEAGUE_ID, week: 5 }
+      // No week: no weekly once-only limit, so the difficulty cooldown decides.
+      detail: { leagueId: LEAGUE_ID }
     });
     await routeEvent(deps, windowEvent('w1'));
     s.clock.advance(DIFFICULTY_TIERS.hall_of_famer.levers.cooldownMinutes * 60_000);

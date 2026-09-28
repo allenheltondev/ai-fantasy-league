@@ -56,6 +56,7 @@ export function AiActivityPanel({ leagueId, teams }: { leagueId: string; teams: 
 
   return (
     <div className="space-y-6" data-testid="ai-activity">
+      <ApiErrorAlert error={loaded.error} />
       <div className="grid gap-3 sm:grid-cols-3">
         <StatTile
           label="Kill switch"

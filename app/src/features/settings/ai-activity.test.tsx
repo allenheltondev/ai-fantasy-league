@@ -116,6 +116,49 @@ describe('settings: AI activity', () => {
     expect(await screen.findByRole('heading', { name: 'Seats' })).toBeInTheDocument();
   });
 
+  it('shows a healthy week, unknown kinds, removed seats, and load errors', async () => {
+    const api = fakeApi({
+      getAgentActivity: vi
+        .fn()
+        .mockResolvedValueOnce(
+          activity({
+            tasks: [task({ kind: 'mystery', teamId: 'team-9', status: 'skipped', toolsCalled: [] })],
+            budget: {
+              ...activity().budget,
+              spentUsd: 0.1,
+              remainingUsd: 0.9,
+              exceeded: false,
+              byAgent: [
+                {
+                  agentId: 'L1.gone',
+                  teamId: null,
+                  allowanceUsd: null,
+                  costUsd: 0,
+                  inputTokens: 0,
+                  outputTokens: 0,
+                  tasks: 0
+                }
+              ]
+            },
+            killSwitch: { configured: true, engaged: false }
+          })
+        )
+        .mockRejectedValueOnce(new Error('boom'))
+    });
+    const user = await openAi(api);
+    const panel = screen.getByTestId('ai-activity');
+    expect(within(panel).getByText('Off')).toBeInTheDocument();
+    expect(within(panel).getByText('Agents may call their models.')).toBeInTheDocument();
+    expect(within(panel).queryByText('Over budget')).not.toBeInTheDocument();
+    expect(within(panel).getByRole('table', { name: 'Spend by agent' })).toHaveTextContent('Removed seat');
+    const log = within(panel).getByRole('list', { name: 'Agent decisions' });
+    expect(log).toHaveTextContent('mystery');
+    expect(log).toHaveTextContent('team-9');
+    expect(log).toHaveTextContent('Skipped');
+    await user.selectOptions(screen.getByLabelText('Filter by team'), 'team-4');
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+  });
+
   it('is only offered to the commissioner', async () => {
     const api = fakeApi({ getLeagueState: vi.fn(async () => state({ youAreCommissioner: false })) });
     renderApp('/leagues/L1/settings', undefined, api);
