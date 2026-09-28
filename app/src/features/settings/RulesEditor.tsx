@@ -2,15 +2,18 @@ import { useMemo, useState } from 'react';
 import { Alert, Button, Card, CardBody, Input, Select, useToast } from '@readysetcloud/ui';
 import { ApiError } from '../../api/client';
 import { useLeagueApi } from '../../api/league';
-import type { DefaultSettings, LeagueDetail, SettingsIssue } from '../../api/types';
+import type { DefaultSettings, LeagueDetail, SettingsIssue, TierRule } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import {
+  addTierBand,
+  describeTiers,
   fieldValue,
   isEditableInPhase,
   ruleSections,
   sameValue,
   setPath,
   settingsPatch,
+  tierStatLabel,
   type RuleField
 } from './rules';
 
@@ -34,7 +37,17 @@ function display(field: RuleField, value: unknown): string {
   if (field.kind === 'nullableInt' && value === null) return field.nullLabel;
   if (field.kind === 'enum') return field.options.find(([v]) => v === value)?.[1] ?? String(value);
   if (field.kind === 'statuses') return (value as string[]).join(', ');
+  if (field.kind === 'tiers') return describeTiers(value as TierRule[]);
   return String(value);
+}
+
+/** The fix for a field; the tiers field collects the fixes for every band under it. */
+function fieldError(field: RuleField, errors: Record<string, string>): string | undefined {
+  if (field.kind !== 'tiers') return errors[field.path];
+  const fixes = Object.entries(errors)
+    .filter(([path]) => path === field.path || path.startsWith(`${field.path}.`))
+    .map(([, fix]) => fix);
+  return fixes.length === 0 ? undefined : fixes.join(' ');
 }
 
 /** The commissioner's rules editor: Yahoo defaults, changes highlighted, locked by phase. */
@@ -99,14 +112,15 @@ export function RulesEditor({ league, defaults, canEdit, onSaved }: RulesEditorP
                     key={field.path}
                     data-testid={`rule-${field.path}`}
                     data-changed={changed || undefined}
-                    className={`space-y-1 rounded-md p-2 ${changed ? 'bg-warning-50 ring-1 ring-warning-300' : ''}`}
+                    className={`space-y-1 rounded-md p-2 ${field.kind === 'tiers' ? 'sm:col-span-2 lg:col-span-3' : ''} ${changed ? 'bg-warning-50 ring-1 ring-warning-300' : ''}`}
                   >
                     <RuleInput
                       field={field}
                       value={value}
                       disabled={locked || saving}
-                      error={fieldErrors[field.path]}
+                      error={fieldError(field, fieldErrors)}
                       options={defaults.playerStatuses}
+                      statLabels={defaults.statLabels}
                       onChange={(v) => change(field, v)}
                     />
                     {changed && (
@@ -151,6 +165,7 @@ function RuleInput({
   disabled,
   error,
   options,
+  statLabels,
   onChange
 }: {
   field: RuleField;
@@ -158,6 +173,7 @@ function RuleInput({
   disabled: boolean;
   error: string | undefined;
   options: string[];
+  statLabels: Record<string, string>;
   onChange: (value: unknown) => void;
 }) {
   switch (field.kind) {
@@ -242,5 +258,94 @@ function RuleInput({
         </fieldset>
       );
     }
+    case 'tiers':
+      return (
+        <TiersInput
+          label={field.label}
+          rules={value as TierRule[]}
+          disabled={disabled}
+          error={error}
+          statLabels={statLabels}
+          onChange={onChange}
+        />
+      );
   }
+}
+
+/** Number input value: blank stays blank (the server explains what is missing). */
+const num = (text: string): number | '' => (text === '' ? '' : Number(text));
+
+/** Each tier rule's bands as rows of from / to / points, with bands added and removed at the end. */
+function TiersInput({
+  label,
+  rules,
+  disabled,
+  error,
+  statLabels,
+  onChange
+}: {
+  label: string;
+  rules: TierRule[];
+  disabled: boolean;
+  error: string | undefined;
+  statLabels: Record<string, string>;
+  onChange: (value: unknown) => void;
+}) {
+  const setRule = (index: number, rule: TierRule) => onChange(rules.map((r, i) => (i === index ? rule : r)));
+  return (
+    <fieldset disabled={disabled} className="space-y-3">
+      <legend className="text-sm font-medium">{label}</legend>
+      {rules.length === 0 && <p className="text-sm text-muted-foreground">No tiered stats.</p>}
+      {rules.map((rule, r) => {
+        const name = tierStatLabel(rule.stat, statLabels);
+        const setBand = (b: number, change: Partial<TierRule['bands'][number]>) =>
+          setRule(r, {
+            ...rule,
+            bands: rule.bands.map((band, i) => (i === b ? { ...band, ...change } : band))
+          });
+        return (
+          <div key={rule.stat} className="space-y-2" data-testid={`tiers-${rule.stat}`}>
+            <p className="text-sm font-medium">{name}</p>
+            {rule.bands.map((band, b) => (
+              <div key={b} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2">
+                <Input
+                  type="number"
+                  label={`${name} band ${b + 1} from`}
+                  value={String(band.min)}
+                  onChange={(e) => setBand(b, { min: num(e.target.value) as number })}
+                />
+                <Input
+                  type="number"
+                  label={`${name} band ${b + 1} to`}
+                  placeholder="No limit"
+                  value={band.max === null ? '' : String(band.max)}
+                  onChange={(e) => setBand(b, { max: e.target.value === '' ? null : Number(e.target.value) })}
+                />
+                <Input
+                  type="number"
+                  step={0.5}
+                  label={`${name} band ${b + 1} points`}
+                  value={String(band.points)}
+                  onChange={(e) => setBand(b, { points: num(e.target.value) as number })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={rule.bands.length === 1}
+                  aria-label={`Remove ${name} band ${b + 1}`}
+                  onClick={() => setRule(r, { ...rule, bands: rule.bands.filter((_, i) => i !== b) })}
+                >
+                  ✕
+                </Button>
+              </div>
+            ))}
+            <Button variant="secondary" size="sm" onClick={() => setRule(r, addTierBand(rule))}>
+              Add {name} band
+            </Button>
+          </div>
+        );
+      })}
+      {error && <p className="text-sm text-error-600">{error}</p>}
+    </fieldset>
+  );
 }

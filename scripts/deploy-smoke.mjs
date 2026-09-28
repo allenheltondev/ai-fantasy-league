@@ -11,13 +11,17 @@
  *     CloudFront's router function works rather than returning S3's 403;
  *   - the API answers GET /api/v1/health with 200 and the JSON envelope, so
  *     CloudFront reaches the Lambda Function URL and the handler boots;
- *   - GET /api/v1/openapi.json returns an OpenAPI document.
+ *   - GET /api/v1/openapi.json returns an OpenAPI document;
+ *   - with --function-url (the stack's ApiFunctionUrl output), a direct call to
+ *     the Lambda Function URL, around CloudFront, is refused with 403 (#104).
+ *     Skipped, not failed, when the URL is not given.
  *
  * What it does not prove: anything needing a signed-in user.
  *
  * Usage:
  *   node scripts/deploy-smoke.mjs --url https://fantasy.readysetcloud.io
  *   node scripts/deploy-smoke.mjs --url https://d111.cloudfront.net --attempts 3 --retry-seconds 5
+ *   node scripts/deploy-smoke.mjs --url https://d111.cloudfront.net --function-url https://abc.lambda-url.us-east-1.on.aws/
  *
  * Exits 0 only when every check passes. Node 22, no dependencies.
  */
@@ -119,6 +123,13 @@ export const checks = {
       return 'not an OpenAPI document (needs `openapi` and `paths`)';
     }
     return null;
+  },
+
+  /** `base` here is the Function URL: without CloudFront's origin header it must refuse. */
+  async functionUrlRefused(base, fetchImpl) {
+    const res = await fetchText(`${base}${API_PREFIX}/health`, fetchImpl);
+    if (res.status === 403) return null;
+    return `expected 403 for a call around CloudFront, got ${res.status}: ${snippet(res.body)}`;
   }
 };
 
@@ -129,11 +140,19 @@ const PLAN = [
   { name: 'auth-config.json is published', run: checks.authConfig },
   // Retried too: the Lambda may be cold, and CloudFront may still be wiring /api/*.
   { name: 'API health answers with the envelope', run: checks.health, retry: true },
-  { name: 'OpenAPI document is served', run: checks.openapi }
+  { name: 'OpenAPI document is served', run: checks.openapi },
+  // Against the Function URL, not the app URL. Retried: CloudFormation may still be rolling the Lambda.
+  {
+    name: 'Direct Function URL call is refused',
+    run: checks.functionUrlRefused,
+    target: 'functionUrl',
+    retry: true
+  }
 ];
 
 export async function runSmoke({
   url,
+  functionUrl = '',
   attempts = DEFAULT_ATTEMPTS,
   retrySeconds = DEFAULT_RETRY_SECONDS,
   fetchImpl = fetch,
@@ -141,16 +160,24 @@ export async function runSmoke({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
   const base = url.replace(/\/+$/, '');
+  const bases = { url: base, functionUrl: functionUrl.replace(/\/+$/, '') };
   const failed = [];
   let passed = 0;
+  let skipped = 0;
   log(`Smoking ${base}\n`);
 
   for (const step of PLAN) {
+    const target = bases[step.target ?? 'url'];
+    if (target === '') {
+      skipped++;
+      log(`SKIP  ${step.name} (no --function-url; the ApiFunctionUrl stack output was not available)`);
+      continue;
+    }
     const tries = step.retry ? attempts : 1;
     let reason = null;
     for (let attempt = 1; attempt <= tries; attempt++) {
       try {
-        reason = await step.run(base, fetchImpl);
+        reason = await step.run(target, fetchImpl);
       } catch (error) {
         reason = error instanceof Error ? error.message : String(error);
       }
@@ -169,7 +196,7 @@ export async function runSmoke({
     }
   }
 
-  log(`\n${passed} passed, ${failed.length} failed`);
+  log(`\n${passed} passed, ${failed.length} failed${skipped ? ` (${skipped} skipped)` : ''}`);
   if (failed.length) log(`Failed: ${failed.join(', ')}`);
   return failed.length === 0 ? 0 : 1;
 }
@@ -178,6 +205,7 @@ async function main() {
   const { values } = parseArgs({
     options: {
       url: { type: 'string' },
+      'function-url': { type: 'string', default: '' },
       attempts: { type: 'string', default: String(DEFAULT_ATTEMPTS) },
       'retry-seconds': { type: 'string', default: String(DEFAULT_RETRY_SECONDS) }
     }
@@ -187,8 +215,14 @@ async function main() {
     console.error(`deploy-smoke: --url must be absolute, got ${JSON.stringify(url)}`);
     return 2;
   }
+  const functionUrl = values['function-url'].trim();
+  if (functionUrl !== '' && !/^https?:\/\//.test(functionUrl)) {
+    console.error(`deploy-smoke: --function-url must be absolute, got ${JSON.stringify(functionUrl)}`);
+    return 2;
+  }
   return runSmoke({
     url,
+    functionUrl,
     attempts: Math.max(1, Number.parseInt(values.attempts, 10) || DEFAULT_ATTEMPTS),
     retrySeconds: Math.max(0, Number(values['retry-seconds']) || 0)
   });

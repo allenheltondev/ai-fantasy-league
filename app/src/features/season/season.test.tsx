@@ -1,12 +1,14 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
-import type { LeagueApi } from '../../api/league';
+import { LeagueApiContext, type LeagueApi } from '../../api/league';
+import type { EventConnect, LeagueEvent } from '../../realtime/leagueEvents';
 import type { MatchupData, Roster, RosterEntry, SlotCount, StandingsData } from '../../api/types';
 import { fakeApi, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
-import { MATCHUP_POLL_MS } from './MatchupPage';
+import { MATCHUP_POLL_MS, MatchupPage } from './MatchupPage';
 import { planMove, slotOptions, statusLabel } from './slots';
 
 const ALICE = { sub: 'alice', email: 'alice@example.com', given_name: 'Alice' };
@@ -231,6 +233,42 @@ describe('MatchupPage', () => {
       await vi.advanceTimersByTimeAsync(MATCHUP_POLL_MS);
     });
     await waitFor(() => expect(screen.getByTestId('score-team-1')).toHaveTextContent('24.50'));
+  });
+
+  it('refreshes scores on live Scores Updated events from the global topic', async () => {
+    let score = 10;
+    let onEvent: (event: LeagueEvent) => void = () => undefined;
+    const connect: EventConnect = async (target, handlers) => {
+      expect(target.topics).toEqual(['fantasy.league.L1', 'fantasy.global']);
+      onEvent = handlers.onEvent;
+      return () => undefined;
+    };
+    const api = fakeApi({
+      getMatchup: vi.fn(async () => matchupData('in_progress', score)),
+      getRealtime: vi.fn(async () => ({
+        enabled: true,
+        token: 't',
+        endpoint: null,
+        cacheName: 'c',
+        topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
+        expiresAt: null,
+        pollIntervalSeconds: 30
+      }))
+    });
+    render(
+      <LeagueApiContext.Provider value={api}>
+        <MemoryRouter initialEntries={['/leagues/L1/matchup']}>
+          <Routes>
+            <Route path="/leagues/:leagueId/matchup" element={<MatchupPage connect={connect} />} />
+          </Routes>
+        </MemoryRouter>
+      </LeagueApiContext.Provider>
+    );
+    expect(await screen.findByTestId('score-team-1')).toHaveTextContent('10.00');
+    await waitFor(() => expect(api.getRealtime).toHaveBeenCalledWith('L1'));
+    score = 31;
+    act(() => onEvent({ detailType: 'Scores Updated', leagueId: null }));
+    await waitFor(() => expect(screen.getByTestId('score-team-1')).toHaveTextContent('31.00'));
   });
 
   it('shows a final matchup', async () => {

@@ -8,6 +8,7 @@ import {
   type ChatPage,
   type ChatRepository
 } from '../../chat/model.js';
+import { batchWrite, queryAll } from './query.js';
 import { isConditionalCheckFailure, type TableContext } from './table.js';
 
 /** Chat partition: pk `CHAT#<leagueId>`, sk `MSG#<createdAt>#<messageId>` (docs/adr/001-table-design.md). */
@@ -53,5 +54,17 @@ export class DynamoChatRepository implements ChatRepository {
       messages,
       nextCursor: items.length > query.limit && last !== undefined ? encodeCursor(messageSortKey(last)) : null
     };
+  }
+
+  async deleteLeague(leagueId: string): Promise<void> {
+    const keys = await queryAll(this.table, {
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: { ':pk': chatPk(leagueId) },
+      ProjectionExpression: 'pk, sk'
+    });
+    await batchWrite(
+      this.table,
+      keys.map((key) => ({ DeleteRequest: { Key: { pk: key.pk, sk: key.sk } } }))
+    );
   }
 }

@@ -524,7 +524,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -690,7 +690,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -913,7 +913,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -1233,7 +1233,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -1958,7 +1958,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -2252,7 +2252,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -2340,7 +2340,7 @@
       "delete": {
         "operationId": "delete_league",
         "summary": "Delete a league that has not drafted yet (commissioner only)",
-        "description": "Permanently deletes the league with its teams, memberships, and invites. Every member loses access, and invite links stop working. It frees a slot in your league quota. Only the commissioner can delete, and only while the league is in setup; once the draft starts the league plays out its season. This cannot be undone.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Permanently deletes the league with its teams, memberships, invites, and group chat. Every member loses access, and invite links stop working. It frees a slot in your league quota. Only the commissioner can delete, and only while the league is in setup; once the draft starts the league plays out its season. This cannot be undone.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues"
         ],
@@ -2434,7 +2434,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -3139,7 +3139,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -3633,7 +3633,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -4091,7 +4091,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -5034,7 +5034,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -5489,7 +5489,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -5818,7 +5818,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -6085,7 +6085,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -6306,7 +6306,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -6951,7 +6951,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -7154,7 +7154,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -7482,7 +7482,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -7719,7 +7719,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -8315,7 +8315,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -8430,7 +8430,7 @@
       "post": {
         "operationId": "drop_player",
         "summary": "Release a player from your roster",
-        "description": "Releases a player from your roster. He goes on waivers for the league waiver period (`waivers.waiverPeriodDays`, 2 days by default) and becomes a free agent at `clearsAt`; until then other teams can only claim him with a FAAB bid. To swap a player for a pickup in one move, use claim_waiver with `dropPlayerId` instead. PLAYER_NOT_ON_ROSTER means he is not on your team.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Releases a player from your roster. He goes on waivers for the league waiver period (`waivers.waiverPeriodDays`, 2 days by default, rounded up to the next daily waiver run) and becomes a free agent at `clearsAt`; until then other teams can only claim him with a FAAB bid. A player whose game this week has kicked off is locked and cannot be dropped until the week rolls over (PLAYER_LOCKED; get_roster shows `locked`). To swap a player for a pickup in one move, use claim_waiver with `dropPlayerId` instead. PLAYER_NOT_ON_ROSTER means he is not on your team.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "waivers"
         ],
@@ -8567,7 +8567,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -8837,7 +8837,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -9093,7 +9093,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -9336,7 +9336,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -9589,7 +9589,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -10242,7 +10242,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -10506,7 +10506,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -10871,7 +10871,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -11100,7 +11100,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -11631,7 +11631,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -11920,7 +11920,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -12080,7 +12080,7 @@
                             },
                             "preLock": {
                               "type": "boolean",
-                              "description": "This week's lineups have not locked yet."
+                              "description": "Some of this week's games have not kicked off: those players can still change slots."
                             },
                             "tradeDeadlinePassed": {
                               "type": "boolean",
@@ -12356,7 +12356,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -12798,7 +12798,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -13125,7 +13125,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -13560,7 +13560,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -13819,7 +13819,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -14189,7 +14189,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -14277,7 +14277,7 @@
       "post": {
         "operationId": "claim_waiver",
         "summary": "Add a free agent now, or claim a player on waivers with a FAAB bid",
-        "description": "Adds a player to your roster. A free agent (not on a roster and not on waivers) joins immediately at no cost (`outcome: \"added\"`). A player on waivers (recently dropped) gets a pending claim instead (`outcome: \"claim_pending\"`), resolved at the waiver run in `claim.processesAt`: the highest FAAB bid wins, ties go to waiver priority, and your own claims run in their `priority` order. Pass `dropPlayerId` to release someone in the same move; it is required when your roster is full (ROSTER_FULL lists the players you can drop). The dropped player goes on waivers for the league waiver period. Call preview_waiver_claim first to check the outcome and the resulting roster. Errors: PLAYER_NOT_AVAILABLE (on a roster), INSUFFICIENT_FAAB (bid over your budget), ZERO_BID_NOT_ALLOWED, DUPLICATE_WAIVER_CLAIM (cancel the old one first), ACQUISITION_LIMIT_REACHED, and PHASE_NOT_ALLOWED outside the season.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Adds a player to your roster. A free agent (not on a roster and not on waivers) joins immediately at no cost (`outcome: \"added\"`). A player on waivers (recently dropped) gets a pending claim instead (`outcome: \"claim_pending\"`), resolved at the waiver run in `claim.processesAt`: the highest FAAB bid wins, ties go to waiver priority, and your own claims run in their `priority` order. Pass `dropPlayerId` to release someone in the same move; it is required when your roster is full (ROSTER_FULL lists the players you can drop). The dropped player goes on waivers for the league waiver period. Call preview_waiver_claim first to check the outcome and the resulting roster. Errors: PLAYER_NOT_AVAILABLE (on a roster), INSUFFICIENT_FAAB (bid over your budget), ZERO_BID_NOT_ALLOWED, DUPLICATE_WAIVER_CLAIM (cancel the old one first), ACQUISITION_LIMIT_REACHED, PLAYER_LOCKED (the drop player's game has kicked off, or will have when the claim runs), and PHASE_NOT_ALLOWED outside the season. A player is on waivers after a drop, right after the draft (`postDraftPlayers: waivers`), and once his game this week has kicked off (game-time waivers, until the first run after the week).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "waivers"
         ],
@@ -14667,7 +14667,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -14804,7 +14804,7 @@
       "get": {
         "operationId": "list_waiver_claims",
         "summary": "Your waiver claims: pending, awarded, failed, or cancelled",
-        "description": "Lists waiver claims, pending ones by default, in each team's processing order (priority, then age). You see your own team's claims; the commissioner sees every team's and can filter with `teamId`. Failed claims carry `failure` with the reason (for example PLAYER_CLAIMED when someone outbid you) and a fix.",
+        "description": "Lists waiver claims, pending ones by default, in each team's processing order (priority, then age). Bids are sealed: you see every claim of your own team, but another team's claims (and bids) only once they are resolved (`awarded` or `failed`); nobody, not even the commissioner, sees another team's pending or cancelled claims. Filter by team with `teamId`. Failed claims carry `failure` with the reason (for example PLAYER_CLAIMED when someone outbid you) and a fix.",
         "tags": [
           "waivers"
         ],
@@ -14829,7 +14829,7 @@
               "minLength": 1,
               "maxLength": 64
             },
-            "description": "Only this team (commissioner, or your own team)."
+            "description": "Only this team's claims (another team's only once resolved)."
           },
           {
             "name": "status",
@@ -15103,7 +15103,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -15491,7 +15491,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -15860,7 +15860,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -16356,7 +16356,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -16561,7 +16561,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -16916,7 +16916,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -17124,7 +17124,7 @@
                 "rostered"
               ]
             },
-            "description": "League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him)."
+            "description": "League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him)."
           }
         ],
         "responses": {
@@ -17290,7 +17290,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -17549,7 +17549,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -17848,7 +17848,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -18256,7 +18256,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -18858,7 +18858,7 @@
                                 },
                                 "preLock": {
                                   "type": "boolean",
-                                  "description": "This week's lineups have not locked yet."
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
                                 },
                                 "tradeDeadlinePassed": {
                                   "type": "boolean",
@@ -19074,7 +19074,7 @@
               },
               "preLock": {
                 "type": "boolean",
-                "description": "This week's lineups have not locked yet."
+                "description": "Some of this week's games have not kicked off: those players can still change slots."
               },
               "tradeDeadlinePassed": {
                 "type": "boolean",

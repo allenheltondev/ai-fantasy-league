@@ -70,7 +70,11 @@ export class InMemoryLeagueStore {
 }
 
 export class InMemoryLeagueRepository implements LeagueRepository {
-  constructor(private readonly store: InMemoryLeagueStore) {}
+  constructor(
+    private readonly store: InMemoryLeagueStore,
+    /** Clears league data kept outside this store (memory.ts: the waiver repository). */
+    private readonly onDelete: (leagueId: string) => void = () => undefined
+  ) {}
 
   async get(leagueId: string): Promise<League | null> {
     const league = this.store.partition(leagueId).league;
@@ -110,6 +114,7 @@ export class InMemoryLeagueRepository implements LeagueRepository {
   }
 
   async delete(leagueId: string): Promise<void> {
+    this.onDelete(leagueId);
     this.store.drop(leagueId);
   }
 }
@@ -294,10 +299,10 @@ export class InMemoryDraftRepository implements DraftRepository {
   }
 }
 
-export function createInMemoryLeagueRepos() {
+export function createInMemoryLeagueRepos(options: { onDelete?: (leagueId: string) => void } = {}) {
   const store = new InMemoryLeagueStore();
   return {
-    leagues: new InMemoryLeagueRepository(store),
+    leagues: new InMemoryLeagueRepository(store, options.onDelete),
     teams: new InMemoryTeamRepository(store),
     members: new InMemoryMemberRepository(store),
     invites: new InMemoryInviteRepository(store),
