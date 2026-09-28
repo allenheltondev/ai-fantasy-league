@@ -30,6 +30,7 @@ interface Message {
   text: string;
   mentionedTeamIds: string[];
   event: null | { detailType: string; eventId: string };
+  players?: { id: string; name: string; team: string | null; position: string }[];
   createdAt: string;
 }
 
@@ -49,6 +50,17 @@ function stubChatApi(page: Page) {
       mentionedTeamIds: [],
       event: { detailType: 'Draft Completed', eventId: 'e1' },
       createdAt: '2026-09-10T12:00:00.000Z'
+    },
+    {
+      id: 'sys-2',
+      leagueId: 'L1',
+      kind: 'system',
+      author: { teamId: null, teamName: null, name: 'League' },
+      text: 'Waivers processed for week 1: Alice FC added Puka Nacua ($12).',
+      mentionedTeamIds: [],
+      event: { detailType: 'Waivers Processed', eventId: 'e2' },
+      players: [{ id: 'p1', name: 'Puka Nacua', team: 'LAR', position: 'WR' }],
+      createdAt: '2026-09-10T12:00:30.000Z'
     }
   ];
   let clock = Date.parse('2026-09-10T12:01:00.000Z');
@@ -134,7 +146,9 @@ test('posts a chat message, mentions a team, and sees new messages arrive', asyn
   await page.goto('/leagues/L1/chat');
 
   const list = page.getByRole('list', { name: 'Chat messages' });
-  await expect(list.locator('[data-kind="system"]')).toHaveText(/The draft is complete/);
+  await expect(list.locator('[data-kind="system"]').first()).toHaveText(/The draft is complete/);
+  const waivers = page.getByRole('article', { name: 'League announcement: Waivers Processed' });
+  await expect(waivers.getByTestId('player-card')).toHaveText('Puka NacuaWR · LAR');
   await expect(page.getByTestId('chat-status')).toHaveText('Updates every 1s');
 
   const box = page.getByRole('combobox');

@@ -65,7 +65,9 @@ export const ERROR_STATUS = {
   NOT_YOUR_TRADE_ACTION: 403,
   ROSTER_LIMIT_EXCEEDED: 409,
   TRADE_NOT_IN_REVIEW: 409,
-  VOTE_NOT_ALLOWED: 409
+  VOTE_NOT_ALLOWED: 409,
+  // Chat
+  MESSAGE_BLOCKED: 400
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_STATUS;

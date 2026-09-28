@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   SYSTEM_MESSAGE_TEMPLATES,
+  eventPlayers,
   fillTemplate,
   renderSystemMessage,
   type RenderOptions
@@ -11,49 +12,65 @@ const NAMES: Record<string, string> = { 'team-1': 'Allen FC', 'team-2': 'Robo Ba
 const options: RenderOptions = { teamName: (id) => NAMES[id] ?? null };
 const render = (type: string, detail: Record<string, unknown>) => renderSystemMessage(type, detail, options);
 
+describe('eventPlayers', () => {
+  it('finds player refs two levels deep, deduplicated and capped', () => {
+    const p = (id: string, team: unknown = 'SF') => ({ id, name: id.toUpperCase(), team, position: 'WR' });
+    expect(
+      eventPlayers({
+        player: p('a'),
+        awarded: [{ player: p('b', null), dropPlayer: p('a') }, { player: null }],
+        deep: { x: { y: { z: p('too-deep') } } },
+        partial: { id: 'x', name: 'X' },
+        n: 3
+      })
+    ).toEqual([p('a'), { id: 'b', name: 'B', team: null, position: 'WR' }]);
+    const many = Array.from({ length: 20 }, (_, i) => p(`p${i}`));
+    expect(eventPlayers({ many })).toHaveLength(12);
+  });
+});
+
 describe('renderSystemMessage', () => {
   it('renders draft picks with the most specific alternative that resolves', () => {
     expect(
       render('Draft Pick Made', {
         teamId: 'team-2',
-        player: { id: 'p1', name: 'Bijan Robinson' },
+        player: { id: 'p1', name: 'Bijan Robinson', team: 'ATL', position: 'RB' },
         round: 1,
         pick: 3
       })
     ).toEqual({
       text: 'Robo Ballers drafted Bijan Robinson (round 1, pick 3).',
       moment: false,
-      subjectTeamId: null
+      subjectTeamId: null,
+      players: [{ id: 'p1', name: 'Bijan Robinson', team: 'ATL', position: 'RB' }]
     });
     expect(render('Draft Pick Made', { teamId: 'team-2', player: 'Bijan Robinson' })?.text).toBe(
       'Robo Ballers drafted Bijan Robinson.'
     );
-    expect(render('Draft Pick Made', { teamId: 'team-2', playerName: 'Bijan Robinson' })?.text).toBe(
-      'Robo Ballers drafted Bijan Robinson.'
-    );
-    expect(render('Draft Pick Made', { teamId: 'team-9', playerName: 'X' })).toBeNull();
+    expect(render('Draft Pick Made', { teamId: 'team-2', playerName: 'Bijan Robinson' })).toBeNull();
+    expect(render('Draft Pick Made', { teamId: 'team-9', player: 'X' })).toBeNull();
   });
 
-  it('renders waiver awards and the empty case', () => {
+  it('renders waiver awards, preferring the FAAB paid, and says nothing when nothing was awarded', () => {
     expect(
       render('Waivers Processed', {
         week: 5,
         awarded: [
           { teamId: 'team-1', player: { name: 'Puka Nacua' }, bid: 31 },
-          { teamId: 'team-3', player: 'Jaylen Warren' }
+          { teamId: 'team-3', player: 'Jaylen Warren' },
+          { teamId: 'team-2', player: 'Tank Bigsby', bid: 12, cost: 9 }
         ]
       })
     ).toEqual({
-      text: 'Waivers processed for week 5: Allen FC added Puka Nacua ($31), Tuna added Jaylen Warren.',
+      text: 'Waivers processed for week 5: Allen FC added Puka Nacua ($31), Tuna added Jaylen Warren, Robo Ballers added Tank Bigsby ($9).',
       moment: true,
-      subjectTeamId: null
+      subjectTeamId: null,
+      players: []
     });
     expect(render('Waivers Processed', { awarded: [{ teamId: 'team-1', player: 'A' }] })?.text).toBe(
       'Waivers processed: Allen FC added A.'
     );
-    expect(render('Waivers Processed', { week: 6, awarded: [] })?.text).toBe(
-      'Waivers processed for week 6. No claims were awarded.'
-    );
+    expect(render('Waivers Processed', { week: 6, awarded: [] })).toBeNull();
     expect(render('Waivers Processed', { week: 6, awarded: [null] })).toBeNull();
     expect(render('Waivers Processed', { week: 6, awarded: [{ teamId: 'team-1' }] })).toBeNull();
   });
@@ -69,7 +86,8 @@ describe('renderSystemMessage', () => {
     ).toEqual({
       text: 'Trade complete: Allen FC sends A, B to Robo Ballers for C.',
       moment: true,
-      subjectTeamId: 'team-1'
+      subjectTeamId: 'team-1',
+      players: []
     });
     expect(
       render('Trade Processed', { fromTeamId: 'team-1', toTeamId: 'team-2', fromPlayers: [] })?.text
@@ -80,7 +98,8 @@ describe('renderSystemMessage', () => {
     expect(render('Trade Vetoed', {})).toEqual({
       text: 'A trade was vetoed.',
       moment: true,
-      subjectTeamId: null
+      subjectTeamId: null,
+      players: []
     });
     const teams = { fromTeamId: 'team-1', toTeamId: 'team-2' };
     const players = { fromPlayers: [{ name: 'A' }], toPlayers: [{ name: 'C' }] };
@@ -109,8 +128,19 @@ describe('renderSystemMessage', () => {
     expect(render('Week Provisionally Final', { week: 5, topTeamId: 'team-3', topScore: 141.256 })).toEqual({
       text: 'Week 5 is in the books (provisional). Top score: Tuna with 141.26.',
       moment: true,
-      subjectTeamId: 'team-3'
+      subjectTeamId: 'team-3',
+      players: []
     });
+    expect(
+      render('Week Provisionally Final', {
+        week: 5,
+        topTeamId: 'team-3',
+        topScore: 141.2,
+        blowout: { winnerTeamId: 'team-3', loserTeamId: 'team-1', margin: 60.5 }
+      })?.text
+    ).toBe(
+      'Week 5 is in the books (provisional). Top score: Tuna with 141.2. Biggest blowout: Tuna beat Allen FC by 60.5.'
+    );
     expect(render('Week Official Final', { week: 5 })?.text).toBe(
       'Week 5 is official; stat corrections are in.'
     );
@@ -154,7 +184,8 @@ describe('renderSystemMessage', () => {
     ).toEqual({
       text: 'Allen FC, Robo Ballers and 7',
       moment: false,
-      subjectTeamId: null
+      subjectTeamId: null,
+      players: []
     });
     expect(fillTemplate('{a.b.c}', { a: { b: [1] } }, options)).toBeNull();
     expect(fillTemplate('{a}', { a: '   ' }, options)).toBeNull();

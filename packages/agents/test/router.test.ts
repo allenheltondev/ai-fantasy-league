@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { AgentActionRequestedSchema, type BusEvent } from '../src/events.js';
 import {
+  CHAT_COOLDOWNS,
   CHAT_MOMENT_AGENTS,
+  cooldownSlot,
   detailRosterIndex,
   leagueRosterIndex,
   routeEvent,
@@ -68,7 +70,7 @@ describe('routeEvent', () => {
     expect(s.logs.some((l) => l.includes('no_agent_teams'))).toBe(true);
   });
 
-  it('sends waiver windows to every agent team, gated by cooldown', async () => {
+  it('sends waiver windows to every agent team once per league week', async () => {
     const s = await withSeats();
     const first = await s.route(event('Waiver Window Opened', { leagueId: LEAGUE_ID, week: 5 }));
     expect(first.map((d) => [d.teamId, d.decision])).toEqual([
@@ -76,14 +78,39 @@ describe('routeEvent', () => {
       ['team-3', 'requested'],
       ['team-4', 'requested']
     ]);
-    s.clock.advance(20 * 60_000);
+    // The next day's window in the same week is a repeat, whatever the cooldowns say.
+    s.clock.advance(24 * 60 * 60_000);
     const second = await s.route(event('Waiver Window Opened', { leagueId: LEAGUE_ID, week: 5 }, 'evt-2'));
+    expect(second.map((d) => d.decision)).toEqual(['repeat', 'repeat', 'repeat']);
+    // The first window after the rollover goes out again.
+    const next = await s.route(event('Waiver Window Opened', { leagueId: LEAGUE_ID, week: 6 }, 'evt-3'));
+    expect(next.map((d) => d.decision)).toEqual(['requested', 'requested', 'requested']);
+    expect(s.requested().at(-1)?.payload).toEqual({ week: 6 });
+  });
+
+  it('keeps cooldowns per agent and task kind', async () => {
+    const s = await withSeats();
+    // A window without a week has no weekly limit, so the difficulty cooldown decides.
+    await s.route(event('Waiver Window Opened', { leagueId: LEAGUE_ID }));
+    s.clock.advance(20 * 60_000);
+    const second = await s.route(event('Waiver Window Opened', { leagueId: LEAGUE_ID }, 'evt-2'));
     // Rookie cooldown is 240 minutes, Hall of Famer 15.
     expect(second.map((d) => [d.teamId, d.decision])).toEqual([
       ['team-2', 'cooldown'],
       ['team-3', 'requested'],
       ['team-4', 'requested']
     ]);
+    // The rookie's waiver cooldown does not hold back a lineup decision.
+    const news = await s.route(
+      event(
+        'Player Status Changed',
+        { playerId: 'p1', rosteredBy: [{ leagueId: LEAGUE_ID, teamId: 'team-2' }] },
+        'evt-3'
+      )
+    );
+    expect(news.map((d) => d.decision)).toEqual(['requested']);
+    expect(cooldownSlot('a', { kind: 'lineup' })).toBe('a#lineup');
+    expect(cooldownSlot('a', { kind: 'chat_reply', cooldown: CHAT_COOLDOWNS.reply })).toBe('a#chat');
   });
 
   it('lets urgent triggers through a cooldown', async () => {
@@ -104,14 +131,10 @@ describe('routeEvent', () => {
     expect(countered).toMatchObject([{ teamId: 'team-4', decision: 'requested' }]);
   });
 
-  it('checks lineups for a lock, for listed teams or all agents', async () => {
+  it('checks every agent lineup for a lock', async () => {
     const s = await withSeats();
     const all = await s.route(event('Lineup Lock Approaching', { leagueId: LEAGUE_ID, week: 5 }));
     expect(all.map((d) => d.teamId)).toEqual(['team-2', 'team-3', 'team-4']);
-    const listed = await s.route(
-      event('Lineup Lock Approaching', { leagueId: LEAGUE_ID, teamIds: ['team-4', 'team-1'] }, 'evt-2')
-    );
-    expect(listed.map((d) => d.teamId)).toEqual(['team-4']);
     expect(s.requested()[0]?.payload).toEqual({ reason: 'lock', week: 5 });
   });
 
@@ -132,13 +155,26 @@ describe('routeEvent', () => {
     const news = await s.route(
       event(
         'Player News Alert',
-        { playerId: 'p1', rosteredBy: [{ leagueId: LEAGUE_ID, teamId: 'team-4' }] },
+        {
+          newsId: 'n1',
+          title: 'P1 and P2 limited',
+          playerIds: ['p1', 'p2'],
+          rosteredBy: [
+            { leagueId: LEAGUE_ID, teamId: 'team-4' },
+            { leagueId: LEAGUE_ID, teamId: 'team-4' }
+          ]
+        },
         'evt-2'
       )
     );
-    expect(s.requested()[1]?.payload).toEqual({ reason: 'news', playerId: 'p1' });
+    expect(s.requested()[1]?.payload).toEqual({
+      reason: 'news',
+      playerId: 'p1',
+      newsId: 'n1',
+      title: 'P1 and P2 limited'
+    });
     expect(news).toHaveLength(1);
-    expect(await s.route(event('Player News Alert', { playerId: 'p1' }, 'evt-3'))).toEqual([]);
+    expect(await s.route(event('Player News Alert', { playerIds: ['p1'] }, 'evt-3'))).toEqual([]);
     expect(await s.route(event('Player News Alert', {}, 'evt-4'))).toEqual([]);
     expect(await detailRosterIndex.teamsWithPlayer('p', { rosteredBy: 'bad' })).toEqual([]);
   });

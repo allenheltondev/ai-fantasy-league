@@ -1,5 +1,7 @@
 import type { Clock } from '@fantasy/core';
 import { diffPlayers, type PlayerChange } from '@fantasy/data';
+import type { EventDetailOf } from '../events/details.js';
+import type { Player } from '../players/model.js';
 import { inSyncScope, toProfile } from '../players/profile.js';
 import type { SyncedPlayer } from '../repos/reference.js';
 import { mapLimit, type JobDeps, type JobResult } from './deps.js';
@@ -42,14 +44,7 @@ export async function syncPlayers(
     return player === undefined ? [] : [{ player, changes }];
   });
   await mapLimit(alerts, 10, ({ player, changes }) =>
-    deps.events.publish('Player Status Changed', {
-      playerId: player.id,
-      name: player.name,
-      team: player.team,
-      position: player.position,
-      changes: changes.map((c) => ({ field: c.field, from: c.from, to: c.to })),
-      changedAt: updatedAt
-    })
+    deps.events.publish('Player Status Changed', statusChangedDetail(player, changes, updatedAt))
   );
 
   if (records.length > 0) deps.directory.invalidate();
@@ -63,4 +58,20 @@ export async function syncPlayers(
   };
   deps.log.info('player sync finished', result);
   return result;
+}
+
+/** The `Player Status Changed` detail: one player's status, injury, team, or depth-chart changes. */
+export function statusChangedDetail(
+  player: Player,
+  changes: readonly PlayerChange[],
+  changedAt: string
+): EventDetailOf<'Player Status Changed'> {
+  return {
+    playerId: player.id,
+    name: player.name,
+    team: player.team,
+    position: player.position,
+    changes: changes.map((c) => ({ field: c.field, from: c.from, to: c.to })),
+    changedAt
+  };
 }

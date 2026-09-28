@@ -1,3 +1,4 @@
+import type { EventDetailOf } from './details.js';
 import { EventBridgeClient, PutEventsCommand, type PutEventsRequestEntry } from '@aws-sdk/client-eventbridge';
 import {
   CANCEL_SCHEDULED_EVENT,
@@ -24,8 +25,8 @@ export class EventBridgePublisher implements EventPublisher {
     this.#busName = options.busName ?? 'default';
   }
 
-  publish(detailType: FantasyEventType, detail: EventDetail): Promise<void> {
-    return this.#put(detailType, detail);
+  publish<T extends FantasyEventType>(detailType: T, detail: EventDetailOf<T>): Promise<void> {
+    return this.#put(detailType, detail as EventDetail);
   }
 
   scheduleAt(request: ScheduleRequest): Promise<void> {
