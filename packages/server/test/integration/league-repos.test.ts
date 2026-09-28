@@ -196,7 +196,50 @@ describe.each(backends)('%s league repositories', (_name, make) => {
     const inv = invite(l.id);
     await repos.invites.create(inv);
     await repos.schedule.putMatchups([matchup(l.id, 1, 1)]);
+    // The other league-scoped items in docs/adr/001-table-design.md: lineups, waivers, transactions,
+    // and the chat partition (which delete_league clears with chat.deleteLeague).
+    await repos.lineups.put([
+      { leagueId: l.id, teamId: 'team-1', week: 1, entries: [], updatedAt: START, updatedBy: 'user#u1' }
+    ]);
+    await repos.waivers.putWireEntry({
+      leagueId: l.id,
+      playerId: 'p1',
+      droppedByTeamId: 'team-1',
+      droppedAt: START,
+      clearsAt: START
+    });
+    await repos.waivers.addTransactions([
+      {
+        id: 'txn-1',
+        leagueId: l.id,
+        at: START,
+        week: 1,
+        type: 'add',
+        teamId: 'team-1',
+        addPlayerId: 'p1',
+        dropPlayerId: null,
+        cost: null,
+        claimId: null
+      }
+    ]);
+    for (const id of ['m1', 'm2']) {
+      await repos.chat.put({
+        id,
+        leagueId: l.id,
+        kind: 'user',
+        author: { teamId: 'team-1', teamName: 'A', name: 'u1' },
+        text: 'hi',
+        mentionedTeamIds: [],
+        event: null,
+        createdAt: START
+      });
+    }
+    await repos.chat.deleteLeague(l.id);
     await repos.leagues.delete(l.id);
+    expect(await repos.chat.list(l.id, { limit: 10 })).toEqual({ messages: [], nextCursor: null });
+    expect(await repos.lineups.listWeek(l.id, 1)).toEqual([]);
+    expect(await repos.waivers.listWire(l.id)).toEqual([]);
+    expect((await repos.waivers.listTransactions(l.id, { limit: 10 })).items).toEqual([]);
     expect(await repos.leagues.get(l.id)).toBeNull();
     expect(await repos.teams.list(l.id)).toEqual([]);
     expect(await repos.members.listByUser('u1')).not.toContainEqual(

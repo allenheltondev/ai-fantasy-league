@@ -54,6 +54,8 @@ export interface ChatRepository {
   put(message: ChatMessage): Promise<boolean>;
   /** Newest first, `limit` at a time, continuing after `cursor`. */
   list(leagueId: string, query: { limit: number; cursor?: string }): Promise<ChatPage>;
+  /** Deletes every message in a league's chat (delete_league). */
+  deleteLeague(leagueId: string): Promise<void>;
 }
 
 /** Sort key: `MSG#<createdAt>#<id>`, so a partition query is chronological. */
