@@ -1,5 +1,11 @@
 import { hashString, resolveAgentConfig } from '@fantasy/core';
-import { listInSeason, type AgentSeatRecord, type FantasyEventType, type Services } from '@fantasy/server';
+import {
+  listInSeason,
+  type AgentSeatRecord,
+  type EventDetailOf,
+  type FantasyEventType,
+  type Services
+} from '@fantasy/server';
 import { z } from 'zod';
 import type { AgentActionRequested, BusEvent } from './events.js';
 import type { TaskKindRegistry } from './tasks/kinds.js';
@@ -12,16 +18,23 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Event                                        | Task kind      | Teams                                   | Urgent |
  * |----------------------------------------------|----------------|-----------------------------------------|--------|
  * | Draft Turn Started                           | draft_pick     | `detail.teamId` (on the clock)          | yes    |
- * | Waiver Window Opened                         | waivers        | every agent team in the league          | no     |
+ * | Waiver Window Opened (once per league week)  | waivers        | every agent team in the league          | no     |
  * | Trade Proposed / Trade Countered             | trade_response | `detail.toTeamId` (the team to answer)  | yes    |
- * | Player News Alert / Player Status Changed    | lineup         | teams rostering `detail.playerId`       | no     |
- * | Lineup Lock Approaching                      | lineup         | `detail.teamIds`, else every agent team | yes    |
+ * | Player News Alert                            | lineup         | teams rostering any `detail.playerIds`  | no     |
+ * | Player Status Changed                        | lineup         | teams rostering `detail.playerId`       | no     |
+ * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    |
  * | Chat Mention                                 | chat_reply     | `detail.mentionedTeamIds` (people only) | no     |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     |
  *
+ * Rules read the typed event contract (`EventDetailOf` from `@fantasy/server`), so a field an
+ * emitter does not send fails typecheck here. The cross-stream contract suite
+ * (`test/contract/events.test.ts`) feeds real emitter details through this router.
+ *
  * Gating, in order: the team must have an agent seat; the task kind must be registered (kinds
- * not built yet are skipped, so feature streams turn triggers on by registering a kind); non-urgent
- * triggers respect the difficulty's cooldown. Chat triggers have their own cooldowns instead
+ * not built yet are skipped, so feature streams turn triggers on by registering a kind); a `oncePer`
+ * rule fires once per league and key (waiver windows: once per league week, though the waivers job
+ * opens one every day); non-urgent triggers respect the difficulty's cooldown, kept per agent and
+ * task kind (`cooldownSlot`), so a waiver look never delays a lineup decision. Chat triggers have their own cooldowns instead
  * (`CHAT_COOLDOWNS`: per agent, and per league for chat moments), so banter never delays a waiver
  * or lineup decision. Per-trigger action budgets are enforced when the task runs (the tool binding
  * stops mutations at `actionsPerTrigger`). Every decision is logged.
@@ -30,14 +43,24 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * talk each other into an endless thread; agents still banter by reacting to chat moments.
  */
 
-export interface TriggerRule {
+/** What a rule reads: the event's contract detail, every field optional (details are untrusted). */
+export type RuleDetail<T extends FantasyEventType> = Partial<EventDetailOf<T>>;
+
+export interface TriggerRule<T extends FantasyEventType = FantasyEventType> {
   kind: string;
   urgent: boolean;
   /** Its own cooldown instead of the difficulty's (chat). */
   cooldown?: ChatCooldown;
-  /** Which of the league's agent teams this event affects. */
-  teams(detail: Record<string, unknown>, agentTeams: readonly string[], eventId: string): string[];
-  payload(detail: Record<string, unknown>): Record<string, unknown>;
+  /**
+   * Fire at most once per league per key (for example once per week): later events with the same
+   * key are skipped (`repeat`). Undefined means no such limit.
+   */
+  oncePer?(detail: RuleDetail<T>): string | undefined;
+  /** Player events: the players whose rostering teams are affected (found through the roster index). */
+  players?(detail: RuleDetail<T>): string[];
+  /** Which of the league's agent teams this event affects (rules without `players`). */
+  teams(detail: RuleDetail<T>, agentTeams: readonly string[], eventId: string): string[];
+  payload(detail: RuleDetail<T>): Record<string, unknown>;
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
@@ -65,42 +88,52 @@ export const CHAT_COOLDOWNS = {
   moment: { scope: 'chat', agentMinutes: 20, leagueMinutes: 10 }
 } as const satisfies Record<string, ChatCooldown>;
 
-const tradeRule: TriggerRule = {
+const tradeRule: TriggerRule<'Trade Proposed' | 'Trade Countered'> = {
   kind: 'trade_response',
   urgent: true,
   teams: (d, agents) => only([str(d.toTeamId)], agents),
   payload: (d) => ({ tradeId: d.tradeId, fromTeamId: d.fromTeamId })
 };
 
-const newsRule: TriggerRule = {
-  kind: 'lineup',
-  urgent: false,
-  // Filled in by the router from the roster index; see `teamsForPlayer`.
-  teams: () => [],
-  payload: (d) => ({ reason: str(d.status) === undefined ? 'news' : 'status', playerId: d.playerId })
-};
+type RuleMap = { readonly [T in FantasyEventType]?: TriggerRule<T> };
 
-export const TRIGGER_RULES: Readonly<Partial<Record<FantasyEventType, TriggerRule>>> = {
+export const TRIGGER_RULES: RuleMap = {
   'Draft Turn Started': {
     kind: 'draft_pick',
     urgent: true,
     teams: (d, agents) => only([str(d.teamId)], agents),
     payload: (d) => ({ pick: d.pick, round: d.round, deadline: d.deadline })
   },
+  // The waivers job opens a window every day; agents look once a week, on the first window of the
+  // league's week (the run after the rollover).
   'Waiver Window Opened': {
     kind: 'waivers',
     urgent: false,
+    oncePer: (d) => (typeof d.week === 'number' ? `week-${d.week}` : undefined),
     teams: (_d, agents) => [...agents],
     payload: (d) => ({ week: d.week, closesAt: d.closesAt })
   },
   'Trade Proposed': tradeRule,
   'Trade Countered': tradeRule,
-  'Player News Alert': newsRule,
-  'Player Status Changed': newsRule,
+  'Player News Alert': {
+    kind: 'lineup',
+    urgent: false,
+    players: (d) => strs(d.playerIds),
+    teams: () => [],
+    payload: (d) => ({ reason: 'news', playerId: strs(d.playerIds)[0], newsId: d.newsId, title: d.title })
+  },
+  'Player Status Changed': {
+    kind: 'lineup',
+    urgent: false,
+    players: (d) => strs([d.playerId]),
+    teams: () => [],
+    payload: (d) => ({ reason: 'status', playerId: d.playerId })
+  },
   'Lineup Lock Approaching': {
     kind: 'lineup',
     urgent: true,
-    teams: (d, agents) => (Array.isArray(d.teamIds) ? only(strs(d.teamIds), agents) : [...agents]),
+    // A game window locks every team's players in it: every agent team checks its lineup.
+    teams: (_d, agents) => [...agents],
     payload: (d) => ({ reason: 'lock', week: d.week })
   },
   'Chat Mention': {
@@ -168,7 +201,7 @@ export function leagueRosterIndex(services: Services): RosterIndex {
 
 export type RouteDecision =
   | { teamId: string; leagueId: string; decision: 'requested'; taskId: string; kind: string }
-  | { teamId: string; leagueId: string; decision: 'no_handler' | 'cooldown'; kind: string };
+  | { teamId: string; leagueId: string; decision: 'no_handler' | 'cooldown' | 'repeat'; kind: string };
 
 export interface RouterDeps {
   services: Services;
@@ -185,8 +218,8 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
   const { services } = deps;
   const detailType = event['detail-type'];
   const log = services.log.child({ eventId: event.id, detailType });
-  const rule = TRIGGER_RULES[detailType as FantasyEventType];
-  const detail = (event.detail ?? {}) as Record<string, unknown>;
+  const rule = TRIGGER_RULES[detailType as FantasyEventType] as TriggerRule | undefined;
+  const detail = (event.detail ?? {}) as RuleDetail<FantasyEventType>;
   if (rule === undefined || event.source !== 'fantasy') {
     log.info('agent trigger ignored', { reason: 'not_a_trigger' });
     return [];
@@ -194,17 +227,17 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
 
   // (leagueId, seats) pairs this event touches.
   const targets: { leagueId: string; teams: string[] }[] = [];
-  if (rule === newsRule) {
-    const playerId = str(detail.playerId);
-    const rostered =
-      playerId === undefined
-        ? []
-        : await (deps.rosterIndex ?? detailRosterIndex).teamsWithPlayer(playerId, detail);
-    const byLeague = new Map<string, string[]>();
-    for (const r of rostered) byLeague.set(r.leagueId, [...(byLeague.get(r.leagueId) ?? []), r.teamId]);
-    for (const [leagueId, teams] of byLeague) targets.push({ leagueId, teams });
+  if (rule.players !== undefined) {
+    const index = deps.rosterIndex ?? detailRosterIndex;
+    const byLeague = new Map<string, Set<string>>();
+    for (const playerId of new Set(rule.players(detail))) {
+      for (const r of await index.teamsWithPlayer(playerId, detail as Record<string, unknown>)) {
+        byLeague.set(r.leagueId, (byLeague.get(r.leagueId) ?? new Set()).add(r.teamId));
+      }
+    }
+    for (const [leagueId, teams] of byLeague) targets.push({ leagueId, teams: [...teams] });
   } else {
-    const leagueId = str(detail.leagueId);
+    const leagueId = str((detail as { leagueId?: unknown }).leagueId);
     if (leagueId !== undefined) targets.push({ leagueId, teams: [] });
   }
 
@@ -214,11 +247,18 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
     const seats = await services.repos.agents.listSeats(target.leagueId);
     const agentTeams = seats.map((s) => s.teamId);
     const teams =
-      rule === newsRule ? only(target.teams, agentTeams) : rule.teams(detail, agentTeams, event.id);
-    const leagueCooling = teams.length > 0 && (await leagueCooldown(deps, rule, target.leagueId, now));
+      rule.players !== undefined ? only(target.teams, agentTeams) : rule.teams(detail, agentTeams, event.id);
+    const gate =
+      teams.length === 0
+        ? null
+        : (await repeated(deps, rule, target.leagueId, detail, now))
+          ? 'repeat'
+          : (await leagueCooldown(deps, rule, target.leagueId, now))
+            ? 'cooldown'
+            : null;
     for (const teamId of teams) {
-      if (leagueCooling) {
-        decisions.push({ teamId, leagueId: target.leagueId, decision: 'cooldown', kind: rule.kind });
+      if (gate !== null) {
+        decisions.push({ teamId, leagueId: target.leagueId, decision: gate, kind: rule.kind });
         continue;
       }
       const seat = seats.find((s) => s.teamId === teamId) as AgentSeatRecord;
@@ -253,6 +293,14 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
   return decisions;
 }
 
+/**
+ * The agent's cooldown slot: one per agent and task kind, so a waiver look never delays a lineup
+ * decision. Chat kinds share one chat slot (`CHAT_COOLDOWNS`).
+ */
+export function cooldownSlot(agentId: string, rule: Pick<TriggerRule, 'kind' | 'cooldown'>): string {
+  return `${agentId}#${rule.cooldown?.scope ?? rule.kind}`;
+}
+
 async function decide(
   deps: RouterDeps,
   rule: TriggerRule,
@@ -261,7 +309,7 @@ async function decide(
 ): Promise<'requested' | 'no_handler' | 'cooldown'> {
   if (deps.kinds.get(rule.kind) === undefined) return 'no_handler';
   const agents = deps.services.repos.agents;
-  const slot = rule.cooldown === undefined ? seat.agentId : `${seat.agentId}#${rule.cooldown.scope}`;
+  const slot = cooldownSlot(seat.agentId, rule);
   if (!rule.urgent) {
     const state = await agents.getTriggerState(seat.leagueId, slot);
     const minutes = rule.cooldown?.agentMinutes ?? resolveAgentConfig(seat.config).levers.cooldownMinutes;
@@ -290,6 +338,23 @@ async function leagueCooldown(
   const state = await agents.getTriggerState(leagueId, slot);
   if (state !== null && now.getTime() - new Date(state.lastTriggeredAt).getTime() < minutes * 60_000)
     return true;
+  await agents.putTriggerState({ leagueId, agentId: slot, lastTriggeredAt: now.toISOString() });
+  return false;
+}
+
+/** True when a `oncePer` rule already fired in this league for this key; otherwise records the key. */
+async function repeated(
+  deps: RouterDeps,
+  rule: TriggerRule,
+  leagueId: string,
+  detail: RuleDetail<FantasyEventType>,
+  now: Date
+): Promise<boolean> {
+  const key = rule.oncePer?.(detail);
+  if (key === undefined || deps.kinds.get(rule.kind) === undefined) return false;
+  const agents = deps.services.repos.agents;
+  const slot = `league#${rule.kind}#${key}`;
+  if ((await agents.getTriggerState(leagueId, slot)) !== null) return true;
   await agents.putTriggerState({ leagueId, agentId: slot, lastTriggeredAt: now.toISOString() });
   return false;
 }

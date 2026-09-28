@@ -1,4 +1,5 @@
 import type { Clock } from '@fantasy/core';
+import type { EventDetailOf } from '../events/details.js';
 import { NewsTagger } from '../players/tagging.js';
 import type { NewsItem } from '../repos/reference.js';
 import { mapLimit, type JobDeps, type JobResult } from './deps.js';
@@ -47,6 +48,19 @@ export async function ingestNews(
   return result;
 }
 
+/** The `Player News Alert` detail for a stored news item tagged to at least one player. */
+export function newsAlertDetail(item: NewsItem): EventDetailOf<'Player News Alert'> {
+  return {
+    newsId: item.id,
+    title: item.title,
+    url: item.url,
+    source: item.source,
+    publishedAt: item.publishedAt,
+    playerIds: item.playerIds,
+    teams: item.teams
+  };
+}
+
 async function ingestFeed(
   deps: Pick<JobDeps, 'reference' | 'events' | 'log' | 'news'>,
   feed: FeedConfig,
@@ -91,15 +105,7 @@ async function ingestFeed(
     if (!(await deps.reference.news.add(item))) continue;
     outcome.added++;
     if (item.playerIds.length > 0) {
-      await deps.events.publish('Player News Alert', {
-        newsId: item.id,
-        title: item.title,
-        url: item.url,
-        source: item.source,
-        publishedAt: item.publishedAt,
-        playerIds: item.playerIds,
-        teams: item.teams
-      });
+      await deps.events.publish('Player News Alert', newsAlertDetail(item));
     }
   }
   return outcome;

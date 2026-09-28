@@ -33,6 +33,17 @@ export const ChatMessageSchema = z.object({
   mentionedTeamIds: z.array(z.string()).describe('Teams @mentioned in the text.'),
   /** For system messages: the league event it announces. */
   event: z.object({ detailType: z.string(), eventId: z.string() }).nullable(),
+  players: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        team: z.string().nullable(),
+        position: z.string()
+      })
+    )
+    .optional()
+    .describe('System messages: the players the event names, shown as cards. Absent on other messages.'),
   createdAt: z.string()
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;

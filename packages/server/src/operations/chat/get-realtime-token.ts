@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
 import { requireMember } from '../../league/access.js';
+import { actorTeam } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 
@@ -15,7 +16,7 @@ export const getRealtimeToken = defineOperation({
   path: '/leagues/{leagueId}/realtime',
   summary: "Get a short-lived token to subscribe to the league's live updates",
   description: [
-    "Returns a Momento Topics token that can only subscribe (never publish) to this league's topic and the global live-scores topic, with the cache and topic names to subscribe to. It expires after about 30 minutes; ask again before `expiresAt`.",
+    "Returns a Momento Topics token that can only subscribe (never publish) to this league's topic, your own team's private topic (your waiver claim results and trade offers), and the global live-scores topic, with the cache and topic names to subscribe to. It expires after about 30 minutes; ask again before `expiresAt`.",
     'When realtime is not configured (local development) `enabled` is false and the other fields are null: poll the read operations every `pollIntervalSeconds` instead.',
     'People only. Errors: FORBIDDEN if you are not in the league.'
   ].join(' '),
@@ -31,16 +32,22 @@ export const getRealtimeToken = defineOperation({
     topics: z
       .object({
         league: z.string().describe('Chat and league events for this league.'),
-        global: z.string().describe('Events not tied to one league, such as live stat updates.')
+        global: z.string().describe('Events not tied to one league, such as live stat updates.'),
+        team: z
+          .string()
+          .nullable()
+          .describe('Your team only: your waiver claim results and trade offers. Null without a seat.')
       })
       .nullable(),
     expiresAt: z.string().nullable(),
     pollIntervalSeconds: z.number().int()
   }),
   handler: async (ctx, input) => {
-    const { league } = await requireMember(ctx, input.leagueId);
+    const { league, actor } = await requireMember(ctx, input.leagueId);
     const token = await ctx.realtime.issueSubscribeToken({
       leagueId: league.id,
+      // The caller's seat, if they hold one.
+      teamId: actorTeam(actor)?.id ?? null,
       subscriber: principalKey(ctx.principal),
       ttlSeconds: REALTIME_TOKEN_TTL_SECONDS
     });

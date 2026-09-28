@@ -2,6 +2,7 @@ import type { Clock } from '@fantasy/core';
 import {
   GLOBAL_TOPIC,
   leagueTopic,
+  teamTopic,
   type Realtime,
   type RealtimeMessage,
   type RealtimeToken,
@@ -40,11 +41,15 @@ export class MomentoRealtime implements Realtime {
   constructor(private readonly options: { clients: MomentoClients; cacheName: string; clock: Clock }) {}
 
   async issueSubscribeToken(request: RealtimeTokenRequest): Promise<RealtimeToken> {
-    const topics = { league: leagueTopic(request.leagueId), global: GLOBAL_TOPIC };
+    const topics = {
+      league: leagueTopic(request.leagueId),
+      global: GLOBAL_TOPIC,
+      team: request.teamId === null ? null : teamTopic(request.leagueId, request.teamId)
+    };
     const ttlSeconds = Math.min(Math.max(60, Math.floor(request.ttlSeconds)), MAX_TOKEN_TTL_SECONDS);
     const issued = await this.options.clients.tokens.subscribeOnlyToken({
       cacheName: this.options.cacheName,
-      topics: [topics.league, topics.global],
+      topics: [topics.league, topics.global, ...(topics.team === null ? [] : [topics.team])],
       ttlSeconds,
       tokenId: request.subscriber
     });

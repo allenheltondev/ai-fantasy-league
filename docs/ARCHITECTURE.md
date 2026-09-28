@@ -14,8 +14,8 @@ This is the contract every work stream builds against. The product is described 
 - **Identity:** the shared rsc-core Cognito pool (`/readysetcloud/auth/user-pool-id` from SSM). This stack creates its own app client in that pool. The API verifies ID tokens with `aws-jwt-verify`.
 - **Realtime:** Momento Topics, using the API key from the rsc-core secrets SSM parameter. The API vends short-lived, scoped tokens to browsers.
   - **Settings:** the key is the `momento` field of the rsc-core secret (`/readysetcloud/secrets` names it), and the cache is rsc-core's default cache (`/readysetcloud/cache-name`). Realtime is on only when both are configured (`packages/server/src/realtime/config.ts`); otherwise the no-op implementation is used, and nothing in local dev, tests, or CI needs Momento credentials.
-  - **Topics:** `fantasy.league.<leagueId>` carries a league's chat messages and events, and `fantasy.global` carries events with no league (the live-stats job's `Scores Updated`). Items are JSON: `{ type: 'chat', leagueId, message }` or `{ type: 'event', detailType, eventId, time, leagueId, detail }`, with the event detail passed through unchanged.
-  - **Tokens:** `get_realtime_token` (people only) returns a disposable token that can only subscribe to those two topics, for 30 minutes. When realtime is off it returns `enabled: false`, and the app polls `get_chat` every `pollIntervalSeconds`.
+  - **Topics:** `fantasy.league.<leagueId>` carries a league's chat messages and events, `fantasy.team.<leagueId>.<teamId>` (`teamTopic`) carries what only that team may see (its waiver awards, and trade offers, counters, rejections, and expiries it is part of, which never go to the league topic), and `fantasy.global` carries events with no league (the live-stats job's `Scores Updated`). Items are JSON: `{ type: 'chat', leagueId, message }` or `{ type: 'event', detailType, eventId, time, leagueId, detail }`, with the event detail passed through unchanged.
+  - **Tokens:** `get_realtime_token` (people only) returns a disposable token that can only subscribe to the league topic, the caller's own team topic (when they hold a seat), and the global topic, for 30 minutes. When realtime is off it returns `enabled: false`, and the app polls `get_chat` every `pollIntervalSeconds`.
   - **Publisher:** `RealtimePublisherFunction` (`realtime/relay.ts`) relays league events from the bus to the topics. It is the only function besides the API that reads the Momento key.
 - **Agents:** `@readysetcloud/agent` runs Strands on Bedrock. Agents call the league **only** through the operation registry (below) with their own principal.
   - **Flow:** league events → the trigger router Lambda (`packages/agents/src/router.ts`) → `Agent Action Requested` → the agent task Lambda (`packages/agents/src/runner.ts`).
@@ -153,6 +153,8 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 
 ## Events (source `fantasy`)
 
+Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src/events/details.ts`) holds a zod schema per detail type, and `ctx.events.publish` is typed from it, so an emitter that drifts fails typecheck. The contract suite (`packages/agents/test/contract/events.test.ts`) runs the real emitters and feeds their details to every consumer: chat system messages, the realtime relay, and the agent router. A new event type with a consumer gets a schema and a case in that suite.
+
 | Detail type | Emitted when |
 |---|---|
 | `League Created` | A league is created |
@@ -162,8 +164,8 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | `Draft Pick Deadline` | A pick's clock runs out (scheduled with `scheduleAt`; the API function autopicks if the pick is still open) |
 | `Week Rolled Over` | A new NFL week starts (`syncNflState`), or a league moves to its next week (the weekly cycle; carries `leagueId`) |
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
-| `Waiver Window Opened` | Waivers open |
-| `Waivers Processed` | Waiver claims are resolved |
+| `Waiver Window Opened` | Waivers open (after every daily run; agents are triggered only for the first window of each league week) |
+| `Waivers Processed` | Waiver claims are resolved (`awarded`: player refs, `bid`, and `cost` per award; a run with no awards posts nothing in chat) |
 | `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine |
 | `Player News Alert` | News hits a player |
 | `Player Status Changed` | A player's status, injury, team, or depth chart changes |
@@ -171,11 +173,11 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | `Chat Moment` | A league event agents can react to in chat (emitted with the system chat message for big moments) |
 | `Chat Message Posted` | A chat message was stored (`detail.message`); the realtime publisher pushes it to the league topic |
 | `Scores Updated` | Live stats change (`ingestStats`, player ids), or a league's matchup scores change (`scoreLiveWeek`, `leagueId`) |
-| `Week Provisionally Final` | The last Monday night game ends |
+| `Week Provisionally Final` | The last Monday night game ends (carries the recap: `topTeamId`, `topScore`, `blowout`) |
 | `Week Official Final` | The Thursday stat-correction job finishes |
 | `Stat Correction Applied` | A stat correction changes a score |
 | `Agent Action Requested` | An agent is triggered to act |
-| `Member Joined` | A person takes a seat with an invite |
+| `Member Joined` | A person takes a seat with an invite (`name`) |
 | `Member Left` | A person leaves or is removed before the draft (`reason`: `left` or `removed`) |
 | `Settings Changed` | The commissioner changes league settings (`changedPaths`). The chat system message for it is queued by the chat stream. |
 
