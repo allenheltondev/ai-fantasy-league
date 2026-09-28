@@ -1,3 +1,4 @@
+import type { IdCrosswalk } from './nflverse/crosswalk.js';
 import type {
   ByeWeeks,
   NflState,
@@ -32,4 +33,16 @@ export interface DataProvider {
   /** Regular and postseason games with UTC kickoff times. */
   getSchedule(season: number, asOf: Date): Promise<ScheduledGame[]>;
   getByeWeeks(season: number, asOf: Date): Promise<ByeWeeks>;
+  /**
+   * The week's stats with stat corrections applied, for the Thursday official final. Providers
+   * without a separate official source leave it out, and callers use `getWeekStats` (a historical
+   * archive already serves the corrected version once it is known). `crosswalk` maps nflverse GSIS
+   * ids to Sleeper ids.
+   */
+  getOfficialWeekStats?(
+    season: number,
+    week: number,
+    asOf: Date,
+    crosswalk?: IdCrosswalk
+  ): Promise<StatLine[]>;
 }

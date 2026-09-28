@@ -275,3 +275,109 @@ export interface StandingsData {
   throughWeek: number | null;
   standings: StandingsRow[];
 }
+
+export interface BracketSideView {
+  teamId: string | null;
+  teamName: string | null;
+  seed: number | null;
+  score: number | null;
+  from: string;
+}
+
+export interface BracketGameView {
+  id: string;
+  bracket: 'championship' | 'consolation';
+  round: number;
+  week: number;
+  home: BracketSideView;
+  away: BracketSideView;
+  winnerTeamId: string | null;
+  decidedBySeed: boolean;
+}
+
+export interface PlayoffBracketData {
+  status: 'not_started' | 'projected' | 'in_progress' | 'complete';
+  teams: number;
+  byes: number;
+  weeks: number[];
+  reseed: boolean;
+  consolation: boolean;
+  seeds: { seed: number; teamId: string; teamName: string }[];
+  games: BracketGameView[];
+  championTeamId: string | null;
+  consolationChampionTeamId: string | null;
+}
+
+export interface TeamScoreRecord {
+  teamId: string;
+  teamName: string;
+  week: number;
+  points: number;
+}
+
+export interface MarginRecord {
+  week: number;
+  winnerTeamId: string;
+  winnerName: string;
+  loserTeamId: string;
+  loserName: string;
+  winnerScore: number;
+  loserScore: number;
+  margin: number;
+}
+
+export interface SeasonRecordsView {
+  highestScore: TeamScoreRecord | null;
+  lowestScore: TeamScoreRecord | null;
+  biggestBlowout: MarginRecord | null;
+  closestGame: MarginRecord | null;
+}
+
+export interface LeagueHistoryData {
+  seasons: {
+    season: number;
+    championTeamId: string | null;
+    championName: string | null;
+    runnerUpTeamId: string | null;
+    finalStandings: {
+      rank: number;
+      teamId: string;
+      teamName: string;
+      wins: number;
+      losses: number;
+      ties: number;
+    }[];
+    records: SeasonRecordsView;
+    completedAt: string;
+  }[];
+  current: {
+    season: number;
+    records: SeasonRecordsView;
+    headToHead: {
+      teamId: string;
+      teamName: string;
+      opponentId: string;
+      opponentName: string;
+      wins: number;
+      losses: number;
+      ties: number;
+    }[];
+  };
+  achievements: {
+    id: string;
+    achievementId: string;
+    name: string;
+    teamId: string;
+    teamName: string;
+    week: number | null;
+    reason: string;
+  }[];
+  trades: {
+    id: string;
+    at: string;
+    week: number;
+    teamName: string;
+    added: PlayerRef | null;
+    dropped: PlayerRef | null;
+  }[];
+}

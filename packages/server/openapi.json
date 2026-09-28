@@ -1700,6 +1700,14 @@
                                     "points_for",
                                     "head_to_head"
                                   ]
+                                },
+                                "reseed": {
+                                  "default": false,
+                                  "type": "boolean"
+                                },
+                                "consolation": {
+                                  "default": false,
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -1707,7 +1715,9 @@
                                 "byes",
                                 "startWeek",
                                 "endWeek",
-                                "tiebreaker"
+                                "tiebreaker",
+                                "reseed",
+                                "consolation"
                               ],
                               "additionalProperties": false
                             },
@@ -2880,6 +2890,14 @@
                                     "points_for",
                                     "head_to_head"
                                   ]
+                                },
+                                "reseed": {
+                                  "default": false,
+                                  "type": "boolean"
+                                },
+                                "consolation": {
+                                  "default": false,
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -2887,7 +2905,9 @@
                                 "byes",
                                 "startWeek",
                                 "endWeek",
-                                "tiebreaker"
+                                "tiebreaker",
+                                "reseed",
+                                "consolation"
                               ],
                               "additionalProperties": false
                             },
@@ -8739,6 +8759,1007 @@
         }
       }
     },
+    "/api/v1/leagues/{leagueId}/history": {
+      "get": {
+        "operationId": "get_league_history",
+        "summary": "League history: past seasons, records, head-to-head, achievements, and trades",
+        "description": "Returns the league archive: each completed season (champion, runner-up, final standings, playoff results, records), the current season so far (records and head-to-head from every final game), achievements teams have earned, and the trade history. Use it for rivalries and trash talk: `headToHead` has every pair of teams that has met, with the record from the first team's side; records name the highest and lowest single-week scores, the biggest blowout, and the closest game. Before any week is final everything is empty. Only members can read it.",
+        "tags": [
+          "leagues",
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "seasons": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "season": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "championTeamId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "championName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "runnerUpTeamId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "consolationChampionTeamId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "finalStandings": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "rank": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "teamId": {
+                                      "type": "string"
+                                    },
+                                    "teamName": {
+                                      "type": "string"
+                                    },
+                                    "wins": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "losses": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "ties": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "pointsFor": {
+                                      "type": "number"
+                                    },
+                                    "pointsAgainst": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "rank",
+                                    "teamId",
+                                    "teamName",
+                                    "wins",
+                                    "losses",
+                                    "ties",
+                                    "pointsFor",
+                                    "pointsAgainst"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "playoffResults": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "gameId": {
+                                      "type": "string"
+                                    },
+                                    "bracket": {
+                                      "type": "string",
+                                      "enum": [
+                                        "championship",
+                                        "consolation"
+                                      ]
+                                    },
+                                    "round": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "week": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "homeTeamId": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "awayTeamId": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "homeScore": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "awayScore": {
+                                      "type": [
+                                        "number",
+                                        "null"
+                                      ]
+                                    },
+                                    "winnerTeamId": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "gameId",
+                                    "bracket",
+                                    "round",
+                                    "week",
+                                    "homeTeamId",
+                                    "awayTeamId",
+                                    "homeScore",
+                                    "awayScore",
+                                    "winnerTeamId"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "records": {
+                                "type": "object",
+                                "properties": {
+                                  "highestScore": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "teamId": {
+                                            "type": "string"
+                                          },
+                                          "teamName": {
+                                            "type": "string"
+                                          },
+                                          "week": {
+                                            "type": "integer",
+                                            "minimum": -9007199254740991,
+                                            "maximum": 9007199254740991
+                                          },
+                                          "points": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "teamId",
+                                          "teamName",
+                                          "week",
+                                          "points"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "lowestScore": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "teamId": {
+                                            "type": "string"
+                                          },
+                                          "teamName": {
+                                            "type": "string"
+                                          },
+                                          "week": {
+                                            "type": "integer",
+                                            "minimum": -9007199254740991,
+                                            "maximum": 9007199254740991
+                                          },
+                                          "points": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "teamId",
+                                          "teamName",
+                                          "week",
+                                          "points"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "biggestBlowout": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "week": {
+                                            "type": "integer",
+                                            "minimum": -9007199254740991,
+                                            "maximum": 9007199254740991
+                                          },
+                                          "kind": {
+                                            "type": "string",
+                                            "enum": [
+                                              "regular",
+                                              "playoff"
+                                            ]
+                                          },
+                                          "winnerTeamId": {
+                                            "type": "string"
+                                          },
+                                          "winnerName": {
+                                            "type": "string"
+                                          },
+                                          "loserTeamId": {
+                                            "type": "string"
+                                          },
+                                          "loserName": {
+                                            "type": "string"
+                                          },
+                                          "winnerScore": {
+                                            "type": "number"
+                                          },
+                                          "loserScore": {
+                                            "type": "number"
+                                          },
+                                          "margin": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "week",
+                                          "kind",
+                                          "winnerTeamId",
+                                          "winnerName",
+                                          "loserTeamId",
+                                          "loserName",
+                                          "winnerScore",
+                                          "loserScore",
+                                          "margin"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "closestGame": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "week": {
+                                            "type": "integer",
+                                            "minimum": -9007199254740991,
+                                            "maximum": 9007199254740991
+                                          },
+                                          "kind": {
+                                            "type": "string",
+                                            "enum": [
+                                              "regular",
+                                              "playoff"
+                                            ]
+                                          },
+                                          "winnerTeamId": {
+                                            "type": "string"
+                                          },
+                                          "winnerName": {
+                                            "type": "string"
+                                          },
+                                          "loserTeamId": {
+                                            "type": "string"
+                                          },
+                                          "loserName": {
+                                            "type": "string"
+                                          },
+                                          "winnerScore": {
+                                            "type": "number"
+                                          },
+                                          "loserScore": {
+                                            "type": "number"
+                                          },
+                                          "margin": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "week",
+                                          "kind",
+                                          "winnerTeamId",
+                                          "winnerName",
+                                          "loserTeamId",
+                                          "loserName",
+                                          "winnerScore",
+                                          "loserScore",
+                                          "margin"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "Smallest winning margin; ties are not counted."
+                                  }
+                                },
+                                "required": [
+                                  "highestScore",
+                                  "lowestScore",
+                                  "biggestBlowout",
+                                  "closestGame"
+                                ],
+                                "additionalProperties": false,
+                                "description": "Single-game records over every final game, playoffs included."
+                              },
+                              "completedAt": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "season",
+                              "championTeamId",
+                              "championName",
+                              "runnerUpTeamId",
+                              "consolationChampionTeamId",
+                              "finalStandings",
+                              "playoffResults",
+                              "records",
+                              "completedAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Completed seasons, newest first."
+                        },
+                        "current": {
+                          "type": "object",
+                          "properties": {
+                            "season": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "records": {
+                              "type": "object",
+                              "properties": {
+                                "highestScore": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "teamId": {
+                                          "type": "string"
+                                        },
+                                        "teamName": {
+                                          "type": "string"
+                                        },
+                                        "week": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "points": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "teamId",
+                                        "teamName",
+                                        "week",
+                                        "points"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "lowestScore": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "teamId": {
+                                          "type": "string"
+                                        },
+                                        "teamName": {
+                                          "type": "string"
+                                        },
+                                        "week": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "points": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "teamId",
+                                        "teamName",
+                                        "week",
+                                        "points"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "biggestBlowout": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "week": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "regular",
+                                            "playoff"
+                                          ]
+                                        },
+                                        "winnerTeamId": {
+                                          "type": "string"
+                                        },
+                                        "winnerName": {
+                                          "type": "string"
+                                        },
+                                        "loserTeamId": {
+                                          "type": "string"
+                                        },
+                                        "loserName": {
+                                          "type": "string"
+                                        },
+                                        "winnerScore": {
+                                          "type": "number"
+                                        },
+                                        "loserScore": {
+                                          "type": "number"
+                                        },
+                                        "margin": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "week",
+                                        "kind",
+                                        "winnerTeamId",
+                                        "winnerName",
+                                        "loserTeamId",
+                                        "loserName",
+                                        "winnerScore",
+                                        "loserScore",
+                                        "margin"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "closestGame": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "week": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "regular",
+                                            "playoff"
+                                          ]
+                                        },
+                                        "winnerTeamId": {
+                                          "type": "string"
+                                        },
+                                        "winnerName": {
+                                          "type": "string"
+                                        },
+                                        "loserTeamId": {
+                                          "type": "string"
+                                        },
+                                        "loserName": {
+                                          "type": "string"
+                                        },
+                                        "winnerScore": {
+                                          "type": "number"
+                                        },
+                                        "loserScore": {
+                                          "type": "number"
+                                        },
+                                        "margin": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "week",
+                                        "kind",
+                                        "winnerTeamId",
+                                        "winnerName",
+                                        "loserTeamId",
+                                        "loserName",
+                                        "winnerScore",
+                                        "loserScore",
+                                        "margin"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "Smallest winning margin; ties are not counted."
+                                }
+                              },
+                              "required": [
+                                "highestScore",
+                                "lowestScore",
+                                "biggestBlowout",
+                                "closestGame"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Single-game records over every final game, playoffs included."
+                            },
+                            "headToHead": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "teamId": {
+                                    "type": "string"
+                                  },
+                                  "teamName": {
+                                    "type": "string"
+                                  },
+                                  "opponentId": {
+                                    "type": "string"
+                                  },
+                                  "opponentName": {
+                                    "type": "string"
+                                  },
+                                  "wins": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991,
+                                    "description": "From `teamId`'s side."
+                                  },
+                                  "losses": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "ties": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "pointsFor": {
+                                    "type": "number"
+                                  },
+                                  "pointsAgainst": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "teamId",
+                                  "teamName",
+                                  "opponentId",
+                                  "opponentName",
+                                  "wins",
+                                  "losses",
+                                  "ties",
+                                  "pointsFor",
+                                  "pointsAgainst"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "season",
+                            "records",
+                            "headToHead"
+                          ],
+                          "additionalProperties": false,
+                          "description": "This season so far, from every final game."
+                        },
+                        "achievements": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "achievementId": {
+                                "type": "string",
+                                "enum": [
+                                  "league-champion",
+                                  "consolation-champion",
+                                  "weekly-high-score",
+                                  "blowout-win",
+                                  "season-high-score"
+                                ]
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "season": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "week": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Null for a season award such as the championship."
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "awardedAt": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "achievementId",
+                              "name",
+                              "description",
+                              "teamId",
+                              "teamName",
+                              "season",
+                              "week",
+                              "reason",
+                              "awardedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "trades": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "week": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "added": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "dropped": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "at",
+                              "week",
+                              "teamId",
+                              "teamName",
+                              "added",
+                              "dropped"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Processed trades from the transaction log, newest first (one entry per team side)."
+                        }
+                      },
+                      "required": [
+                        "seasons",
+                        "current",
+                        "achievements",
+                        "trades"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/invites": {
       "post": {
         "operationId": "create_invite",
@@ -11815,6 +12836,403 @@
         "x-mutation": true
       }
     },
+    "/api/v1/leagues/{leagueId}/playoffs": {
+      "get": {
+        "operationId": "get_playoff_bracket",
+        "summary": "The playoff bracket: seeds, byes, games, winners, and the champion",
+        "description": "Returns the playoff bracket. Seeds come from the final regular-season standings (so their tiebreakers decide seeding), the top seeds get first-round byes, one round is played per week, and a tied playoff game goes to the better seed. With `playoffs.reseed` the teams left are re-paired each round (best seed against worst); otherwise the bracket is fixed. The consolation bracket for teams that miss the playoffs is included only when `playoffs.consolation` is on. During the regular season `status` is `projected`: the bracket if the season ended today, with a PLAYOFFS_PROJECTED warning. Before the draft it is `not_started` and empty. Only members can read it; use get_matchup for a playoff game's lineups.",
+        "tags": [
+          "leagues",
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "not_started",
+                            "projected",
+                            "in_progress",
+                            "complete"
+                          ],
+                          "description": "`complete` once the championship game is decided."
+                        },
+                        "teams": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "Playoff teams."
+                        },
+                        "byes": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "First-round byes (the top seeds)."
+                        },
+                        "weeks": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "description": "Playoff weeks, one round each."
+                        },
+                        "reseed": {
+                          "type": "boolean"
+                        },
+                        "consolation": {
+                          "type": "boolean"
+                        },
+                        "seeds": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "seed": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "seed",
+                              "teamId",
+                              "teamName"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "games": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Bracket game id, e.g. \"championship-r2-g1\"."
+                              },
+                              "bracket": {
+                                "type": "string",
+                                "enum": [
+                                  "championship",
+                                  "consolation"
+                                ]
+                              },
+                              "round": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "week": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "home": {
+                                "type": "object",
+                                "properties": {
+                                  "teamId": {
+                                    "description": "Null until known (a later round).",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "teamName": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "seed": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "score": {
+                                    "description": "Final score once the game is decided, live score while it is played, else null.",
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "from": {
+                                    "type": "string",
+                                    "description": "Where this side comes from, e.g. \"Seed 3\", \"Winner of championship-r1-g2\", \"Reseeded after round 1\"."
+                                  }
+                                },
+                                "required": [
+                                  "teamId",
+                                  "teamName",
+                                  "seed",
+                                  "score",
+                                  "from"
+                                ],
+                                "additionalProperties": false,
+                                "description": "The better seed once both teams are known."
+                              },
+                              "away": {
+                                "type": "object",
+                                "properties": {
+                                  "teamId": {
+                                    "description": "Null until known (a later round).",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "teamName": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "seed": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "score": {
+                                    "description": "Final score once the game is decided, live score while it is played, else null.",
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "from": {
+                                    "type": "string",
+                                    "description": "Where this side comes from, e.g. \"Seed 3\", \"Winner of championship-r1-g2\", \"Reseeded after round 1\"."
+                                  }
+                                },
+                                "required": [
+                                  "teamId",
+                                  "teamName",
+                                  "seed",
+                                  "score",
+                                  "from"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "winnerTeamId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "decidedBySeed": {
+                                "type": "boolean",
+                                "description": "True when the game was tied and the better seed advanced."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "bracket",
+                              "round",
+                              "week",
+                              "home",
+                              "away",
+                              "winnerTeamId",
+                              "decidedBySeed"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "championTeamId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "consolationChampionTeamId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "teams",
+                        "byes",
+                        "weeks",
+                        "reseed",
+                        "consolation",
+                        "seeds",
+                        "games",
+                        "championTeamId",
+                        "consolationChampionTeamId"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/realtime": {
       "get": {
         "operationId": "get_realtime_token",
@@ -12408,6 +13826,14 @@
                                     "points_for",
                                     "head_to_head"
                                   ]
+                                },
+                                "reseed": {
+                                  "default": false,
+                                  "type": "boolean"
+                                },
+                                "consolation": {
+                                  "default": false,
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -12415,7 +13841,9 @@
                                 "byes",
                                 "startWeek",
                                 "endWeek",
-                                "tiebreaker"
+                                "tiebreaker",
+                                "reseed",
+                                "consolation"
                               ],
                               "additionalProperties": false
                             },
@@ -13543,6 +14971,14 @@
                                     "points_for",
                                     "head_to_head"
                                   ]
+                                },
+                                "reseed": {
+                                  "default": false,
+                                  "type": "boolean"
+                                },
+                                "consolation": {
+                                  "default": false,
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -13550,7 +14986,9 @@
                                 "byes",
                                 "startWeek",
                                 "endWeek",
-                                "tiebreaker"
+                                "tiebreaker",
+                                "reseed",
+                                "consolation"
                               ],
                               "additionalProperties": false
                             },
@@ -20262,6 +21700,14 @@
                                     "points_for",
                                     "head_to_head"
                                   ]
+                                },
+                                "reseed": {
+                                  "default": false,
+                                  "type": "boolean"
+                                },
+                                "consolation": {
+                                  "default": false,
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -20269,7 +21715,9 @@
                                 "byes",
                                 "startWeek",
                                 "endWeek",
-                                "tiebreaker"
+                                "tiebreaker",
+                                "reseed",
+                                "consolation"
                               ],
                               "additionalProperties": false
                             },

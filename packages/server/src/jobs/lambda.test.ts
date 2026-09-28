@@ -17,11 +17,13 @@ describe('loadJobsConfig', () => {
       sleeperBaseUrl: undefined,
       newsFeedsParameter: '/fantasy/news-feeds',
       newsFeeds: undefined,
-      logLevel: 'info'
+      logLevel: 'info',
+      badgeChest: false
     });
     expect(
       loadJobsConfig({ ...ENV, SLEEPER_BASE_URL: 'https://sleeper.example', LOG_LEVEL: 'debug' })
     ).toMatchObject({ sleeperBaseUrl: 'https://sleeper.example', logLevel: 'debug' });
+    expect(loadJobsConfig({ ...ENV, BADGE_CHEST_ENABLED: 'true' }).badgeChest).toBe(true);
   });
 
   it('names what is missing or invalid', () => {
@@ -50,6 +52,7 @@ describe('runJob', () => {
       'ingestNews',
       'scoreLiveWeek',
       'advanceSeason',
+      'officialFinal',
       'processWaivers'
     ]);
     expect(isJobName('syncPlayers')).toBe(true);

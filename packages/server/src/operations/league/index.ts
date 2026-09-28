@@ -4,8 +4,10 @@ import { deleteLeague } from './delete-league.js';
 import { getDefaultSettings } from './get-default-settings.js';
 import { getInvite } from './get-invite.js';
 import { getLeague } from './get-league.js';
+import { getLeagueHistory } from './get-league-history.js';
 import { getLeagueState } from './get-league-state.js';
 import { getMatchup } from './get-matchup.js';
+import { getPlayoffBracket } from './get-playoff-bracket.js';
 import { getStandings } from './get-standings.js';
 import { joinLeague } from './join-league.js';
 import { leaveLeague } from './leave-league.js';
@@ -38,5 +40,7 @@ export const leagueOperations = [
   deleteLeague,
   getStandings,
   getMatchup,
-  getDefaultSettings
+  getDefaultSettings,
+  getPlayoffBracket,
+  getLeagueHistory
 ];

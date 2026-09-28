@@ -123,7 +123,7 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 ## Data
 
 - **One table, `FantasyTable`.** The key design is in `docs/adr/001-table-design.md`, which is owned by issue #20. Repositories are interfaces in `packages/server/src/repos/` with two implementations each: DynamoDB and in-memory (for unit tests).
-- **The weekly cycle** (`packages/server/src/season/`, ADR 002): `scoreLiveWeek` recomputes in-season matchups every 2 minutes during game windows and emits `Scores Updated`; `advanceSeason` (every 15 minutes) marks a week provisionally final after the last Monday night game, snapshots the standings, and rolls the league to the next week, carrying lineups forward and scheduling `Lineup Lock Approaching` before each game window. Every player locks at his own kickoff, checked by `set_lineup`. A league drafted mid-season starts scoring at its next unlocked week (`startLeagueSeason`).
+- **The weekly cycle** (`packages/server/src/season/`, ADR 002): `scoreLiveWeek` recomputes in-season matchups every 2 minutes during game windows and emits `Scores Updated`; `advanceSeason` (every 15 minutes) marks a week provisionally final after the last Monday night game, snapshots the standings, and rolls the league to the next week, carrying lineups forward and scheduling `Lineup Lock Approaching` before each game window. Every player locks at his own kickoff, checked by `set_lineup`. A league drafted mid-season starts scoring at its next unlocked week (`startLeagueSeason`). The playoffs are a bracket rebuilt from the final standings and results (`season/playoffs.ts`), and `officialFinal` (Thursday) applies stat corrections, makes the week official, and awards achievements (`season/official.ts`).
 - **Player universe and stats** are stored in the same table under `PLAYER#` and `STATS#` partitions, and are refreshed by scheduled jobs. One data jobs Lambda (`packages/server/src/jobs/`, the same zip as the API) runs the player sync, NFL state, schedule, live stats, projections, trending, and news jobs on EventBridge Scheduler cadences; `docs/data-sources.md` lists them with their keys, events, and the news feeds. Handlers read only stored data (`ctx.data.reference`).
 - **Sleeper:** `api.sleeper.app` is reachable from CI and AWS, but not from every dev sandbox. Tests use the recorded fixtures in `packages/data/fixtures/sleeper/`, and `scripts/record-fixtures.mjs` refreshes them.
 
@@ -175,7 +175,10 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Scores Updated` | Live stats change (`ingestStats`, player ids), or a league's matchup scores change (`scoreLiveWeek`, `leagueId`) |
 | `Week Provisionally Final` | The last Monday night game ends (carries the recap: `topTeamId`, `topScore`, `blowout`) |
 | `Week Official Final` | The Thursday stat-correction job finishes |
-| `Stat Correction Applied` | A stat correction changes a score |
+| `Stat Correction Applied` | A stat correction changes a matchup's score (`resultFlipped` when the winner changed) |
+| `Season Completed` | The last playoff week is final and the league is `complete` (`championTeamId`, `runnerUpTeamId`) |
+| `Achievement Earned` | A team earns a league achievement (`packages/core/src/history/achievements.ts`); the chat announces it |
+| `Track Activity` | rsc-core badge chest activity for a human's achievement (`userId`, `action` such as `fantasy.championship.won`, `service: fantasy`). Only with `BADGE_CHEST_ENABLED=true` on the data jobs function (the template sets it; tests and local dev leave it off) |
 | `Agent Action Requested` | An agent is triggered to act |
 | `Member Joined` | A person takes a seat with an invite (`name`) |
 | `Member Left` | A person leaves or is removed before the draft (`reason`: `left` or `removed`) |

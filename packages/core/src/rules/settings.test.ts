@@ -35,7 +35,15 @@ describe('yahooDefaultSettings', () => {
       offerExpiryHours: 48,
       expireAtNextLineupLock: true
     });
-    expect(s.playoffs).toEqual({ teams: 6, byes: 2, startWeek: 15, endWeek: 17, tiebreaker: 'points_for' });
+    expect(s.playoffs).toEqual({
+      teams: 6,
+      byes: 2,
+      startWeek: 15,
+      endWeek: 17,
+      tiebreaker: 'points_for',
+      reseed: false,
+      consolation: false
+    });
     expect(s.schedule).toEqual({ startWeek: 1, regularSeasonEndWeek: 14 });
   });
 
