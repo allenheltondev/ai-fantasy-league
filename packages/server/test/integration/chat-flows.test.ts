@@ -64,7 +64,8 @@ for (const backend of ['memory', 'dynamo'] as const) {
         messageId: data<{ message: ChatMessage }>(res).message.id,
         authorTeamId: 'team-2',
         authorType: 'user',
-        mentionedTeamIds: ['team-3', 'team-1']
+        mentionedTeamIds: ['team-3', 'team-1'],
+        replyToAgentDepth: 0
       });
       await as(h, BOB).post(`${L}/chat/messages`, { text: 'no mentions here, alice@example.com' });
       expect(h.events.events.filter((e) => e.detailType === 'Chat Mention')).toHaveLength(1);

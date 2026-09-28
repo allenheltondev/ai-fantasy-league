@@ -99,7 +99,15 @@ export interface LeagueReplayReport {
     vetoVotes: number;
   };
   /** Messages by author kind, and by room: each fixed room by id, then all `matchup` and `dm` rooms. */
-  chat: { messages: number; byKind: Record<string, number>; byRoom: Record<string, number> };
+  chat: {
+    messages: number;
+    byKind: Record<string, number>;
+    byRoom: Record<string, number>;
+    /** Agent messages by room kind (#153). */
+    agentByRoom: Record<string, number>;
+    /** Agent-to-agent retorts (`replyToAgentDepth` 1 or more). */
+    retorts: number;
+  };
   events: {
     delivered: Record<string, number>;
     deferredReleased: number;
@@ -142,7 +150,9 @@ const sorted = <T>(record: Record<string, T>): Record<string, T> =>
 async function chatCounts(services: Services, league: League): Promise<LeagueReplayReport['chat']> {
   const byKind: Record<string, number> = {};
   const byRoom: Record<string, number> = {};
+  const agentByRoom: Record<string, number> = {};
   let messages = 0;
+  let retorts = 0;
   const matchups = await services.repos.schedule.listMatchups(league.id);
   const teams = await services.repos.teams.list(league.id);
   const dms = new Set<string>();
@@ -164,11 +174,19 @@ async function chatCounts(services: Services, league: League): Promise<LeagueRep
         messages++;
         byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
         byRoom[label] = (byRoom[label] ?? 0) + 1;
+        if (m.kind === 'agent') agentByRoom[label] = (agentByRoom[label] ?? 0) + 1;
+        if ((m.replyToAgentDepth ?? 0) > 0) retorts++;
       }
       cursor = page.nextCursor ?? undefined;
     } while (cursor !== undefined);
   }
-  return { messages, byKind: sorted(byKind), byRoom: sorted(byRoom) };
+  return {
+    messages,
+    byKind: sorted(byKind),
+    byRoom: sorted(byRoom),
+    agentByRoom: sorted(agentByRoom),
+    retorts
+  };
 }
 
 export async function buildLeagueReport(input: {
@@ -394,7 +412,11 @@ export function renderLeagueReport(report: LeagueReplayReport): string {
       .map(([k, n]) => `${k} ${n}`)
       .join(', ')}; by room: ${Object.entries(report.chat.byRoom)
       .map(([k, n]) => `${k} ${n}`)
-      .join(', ')}).`,
+      .join(', ')}; agents by room: ${
+      Object.entries(report.chat.agentByRoom)
+        .map(([k, n]) => `${k} ${n}`)
+        .join(', ') || 'none'
+    }; agent-to-agent retorts ${report.chat.retorts}).`,
     '',
     '## Weeks',
     '',

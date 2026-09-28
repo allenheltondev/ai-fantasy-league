@@ -103,14 +103,17 @@ describe('agent league memory', () => {
     const long = 'x'.repeat(1000);
     m = rememberEvent(m, {
       type: 'chat',
+      roomId: 'trash-talk',
+      at: AT,
       messages: Array.from({ length: 12 }, (_, i) => ({
         author: `A${i}`,
         text: i === 11 ? long : 'hi',
         at: AT
       }))
     });
-    expect(m.chat).toHaveLength(MEMORY_LIMITS.chat);
-    expect(m.chat.at(-1)?.text.length).toBe(MEMORY_LIMITS.text);
+    const room = m.chatRooms[0];
+    expect(room?.messages).toHaveLength(MEMORY_LIMITS.chat);
+    expect(room?.messages.at(-1)?.text.length).toBe(MEMORY_LIMITS.text);
     expect(AgentLeagueMemorySchema.safeParse(m).success).toBe(true);
   });
 
@@ -141,7 +144,15 @@ describe('agent league memory', () => {
       at: AT
     });
     m = rememberEvent(m, {
+      type: 'relationship',
+      teamId: 'team-3',
+      note: 'Rivalry after the week 1 blowout.',
+      at: AT
+    });
+    m = rememberEvent(m, {
       type: 'chat',
+      roomId: 'trash-talk',
+      at: AT,
       messages: [{ author: 'Allen', text: 'Your kicker stinks.', at: AT }]
     });
     const names = (id: string) => ({ 'team-3': 'Bench Mob', 'team-4': 'Taco Corp' })[id] ?? id;
@@ -152,7 +163,8 @@ describe('agent league memory', () => {
       'Trade with Taco Corp (processed): Got their RB.',
       'Your note: I like rb3.',
       'You did waivers -> claim_waiver: Bid $12 on wr9.',
-      'Last chat you were in: Allen: Your kicker stinks.'
+      'Between you and Bench Mob: Rivalry after the week 1 blowout.',
+      'Last chat you were in here: Allen: Your kicker stinks.'
     ]);
     const tight = summarizeMemory(m, { tokenBudget: 30 });
     expect(tight.length).toBeLessThan(all.length);
@@ -185,6 +197,25 @@ describe('agent league memory', () => {
         outcome: fc.constantFrom('proposed', 'rejected', 'processed', 'vetoed' as const),
         summary: fc.string({ maxLength: 400 }),
         at: fc.constant(AT)
+      }),
+      fc.record({
+        type: fc.constant('relationship' as const),
+        teamId: fc.constantFrom('t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10'),
+        note: fc.string({ maxLength: 400 }),
+        at: fc.constant(AT)
+      }),
+      fc.record({
+        type: fc.constant('chat' as const),
+        roomId: fc.constantFrom('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'),
+        at: fc.constant(AT),
+        messages: fc.array(
+          fc.record({
+            author: fc.string({ maxLength: 80 }),
+            text: fc.string({ maxLength: 400 }),
+            at: fc.constant(AT)
+          }),
+          { maxLength: 12 }
+        )
       })
     );
     fc.assert(
@@ -193,10 +224,52 @@ describe('agent league memory', () => {
         expect(AgentLeagueMemorySchema.safeParse(m).success).toBe(true);
         expect(m.rivals.length).toBeLessThanOrEqual(MEMORY_LIMITS.rivals);
         expect(m.trades.length).toBeLessThanOrEqual(MEMORY_LIMITS.trades);
+        expect(m.relationships.length).toBeLessThanOrEqual(MEMORY_LIMITS.relationships);
+        expect(m.chatRooms.length).toBeLessThanOrEqual(MEMORY_LIMITS.chatRooms);
+        expect(new Set(m.relationships.map((r) => r.teamId)).size).toBe(m.relationships.length);
         const lines = summarizeMemory(m, { tokenBudget: budget });
         expect(lines.reduce((sum, l) => sum + estimateTokens(l) + 1, 0)).toBeLessThanOrEqual(budget);
       })
     );
+  });
+
+  it('keeps one chat snapshot per room and one relationship note per team, bounded and clipped', () => {
+    let m = emptyMemory();
+    for (let i = 0; i < MEMORY_LIMITS.chatRooms + 3; i++) {
+      m = rememberEvent(m, {
+        type: 'chat',
+        roomId: `room-${i}`,
+        at: AT,
+        messages: [{ author: 'A', text: `in room ${i}`, at: AT }]
+      });
+    }
+    // The same room again replaces its snapshot and becomes the newest.
+    m = rememberEvent(m, {
+      type: 'chat',
+      roomId: 'room-5',
+      at: AT,
+      messages: [{ author: 'B', text: 'again', at: AT }]
+    });
+    expect(m.chatRooms).toHaveLength(MEMORY_LIMITS.chatRooms);
+    expect(m.chatRooms.at(-1)).toMatchObject({ roomId: 'room-5', messages: [{ text: 'again' }] });
+    expect(m.chatRooms.filter((r) => r.roomId === 'room-5')).toHaveLength(1);
+    expect(m.chatRooms.some((r) => r.roomId === 'room-0')).toBe(false);
+
+    for (let i = 0; i < MEMORY_LIMITS.relationships + 4; i++) {
+      m = rememberEvent(m, { type: 'relationship', teamId: `t${i}`, note: `note ${i}`, at: AT });
+    }
+    m = rememberEvent(m, { type: 'relationship', teamId: 't9', note: 'x'.repeat(500), at: AT });
+    m = rememberEvent(m, { type: 'relationship', teamId: 't10', note: '   ', at: AT });
+    expect(m.relationships).toHaveLength(MEMORY_LIMITS.relationships);
+    expect(m.relationships.at(-1)).toMatchObject({ teamId: 't9' });
+    expect(m.relationships.at(-1)?.note.length).toBe(MEMORY_LIMITS.relationshipText);
+    expect(m.relationships.find((r) => r.teamId === 't10')?.note).toBe('note 10');
+    expect(AgentLeagueMemorySchema.safeParse(m).success).toBe(true);
+  });
+
+  it('drops a pre-rooms chat snapshot when reading stored memory', () => {
+    const stored = { notes: ['n'], chat: [{ author: 'Allen', text: 'old', at: AT }] };
+    expect(AgentLeagueMemorySchema.parse(stored)).toEqual({ ...emptyMemory(), notes: ['n'] });
   });
 
   it('applies a league event once per event id, so a redelivery never bumps a grudge twice', () => {

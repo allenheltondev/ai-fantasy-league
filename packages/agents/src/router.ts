@@ -1,5 +1,7 @@
-import { hashString, resolveAgentConfig } from '@fantasy/core';
+import { banterVerdict, hashString, isDmRoomId, resolveAgentConfig } from '@fantasy/core';
 import {
+  AGENT_CHAT_BUDGETS,
+  agentChatBudget,
   listInSeason,
   type AgentSeatRecord,
   type EventDetailOf,
@@ -25,7 +27,7 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Player News Alert                            | lineup         | teams rostering any `detail.playerIds`  | no     |
  * | Player Status Changed                        | lineup         | teams rostering `detail.playerId`       | no     |
  * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    |
- * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (people only) | no     |
+ * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     |
  *
  * Chat tasks carry the `roomId` of the mention or moment and answer there. A matchup-room moment
@@ -44,8 +46,15 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * or lineup decision. Per-trigger action budgets are enforced when the task runs (the tool binding
  * stops mutations at `actionsPerTrigger`). Every decision is logged.
  *
- * Mentions in messages written by agents do not trigger agent replies, so two agents can never
- * talk each other into an endless thread; agents still banter by reacting to chat moments.
+ * Agent-to-agent banter (#153): a mention in a message written by an agent triggers a retort only
+ * when the message is not itself a retort (`replyToAgentDepth` 0; the retort is posted as a reply,
+ * so it carries depth 1 and triggers nothing), the room is not a DM, the league's daily banter
+ * budget is not used up (`banterRemaining`, counted server-side), and the mentioned agent's
+ * personality bites (`banter` propensity, a roll seeded by the event and team, so it replays the
+ * same). People come first: a retort yields while the agent is answering a person (its chat slot
+ * fired within the reply cooldown), and it keeps its own cooldown slot (`CHAT_COOLDOWNS.banter`),
+ * so it never spends the reply cooldown a person's mention needs. The daily chat budgets apply on
+ * top (the chat task checks them). So two agents can never talk each other into an endless thread.
  */
 
 /** What a rule reads: the event's contract detail, every field optional (details are untrusted). */
@@ -54,8 +63,13 @@ export type RuleDetail<T extends FantasyEventType> = Partial<EventDetailOf<T>>;
 export interface TriggerRule<T extends FantasyEventType = FantasyEventType> {
   kind: string;
   urgent: boolean;
-  /** Its own cooldown instead of the difficulty's (chat). */
-  cooldown?: ChatCooldown;
+  /** Its own cooldown instead of the difficulty's (chat); may depend on the event (banter). */
+  cooldown?: ChatCooldown | ((detail: RuleDetail<T>) => ChatCooldown);
+  /**
+   * A per-team gate checked before cooldowns (banter): null lets the team through, otherwise the
+   * decision to log instead of a task.
+   */
+  admit?(input: AdmitInput<T>): Promise<GateDecision | null>;
   /**
    * Fire at most once per league per key (for example once per week): later events with the same
    * key are skipped (`repeat`). Undefined means no such limit.
@@ -67,6 +81,21 @@ export interface TriggerRule<T extends FantasyEventType = FantasyEventType> {
   teams(detail: RuleDetail<T>, agentTeams: readonly string[], eventId: string): string[];
   payload(detail: RuleDetail<T>): Record<string, unknown>;
 }
+
+/** Why a rule's `admit` turned a team away. */
+export type GateDecision = 'budget' | 'declined' | 'yield';
+
+export interface AdmitInput<T extends FantasyEventType = FantasyEventType> {
+  services: Services;
+  detail: RuleDetail<T>;
+  seat: AgentSeatRecord;
+  leagueId: string;
+  eventId: string;
+  now: Date;
+}
+
+/** A rule with its cooldown worked out for one event. */
+type ResolvedRule = Omit<TriggerRule, 'cooldown'> & { cooldown?: ChatCooldown };
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 const strs = (v: unknown): string[] =>
@@ -90,8 +119,49 @@ export interface ChatCooldown {
 /** Chat cooldowns, per agent and per league. Daily message budgets are enforced by the chat tasks. */
 export const CHAT_COOLDOWNS = {
   reply: { scope: 'chat', agentMinutes: 2 },
-  moment: { scope: 'chat', agentMinutes: 20, leagueMinutes: 10 }
+  moment: { scope: 'chat', agentMinutes: 20, leagueMinutes: 10 },
+  /** Retorts to other agents: a slot of their own, so they never hold up an answer to a person. */
+  banter: { scope: 'banter', agentMinutes: 30 }
 } as const satisfies Record<string, ChatCooldown>;
+
+/** A mention an agent wrote. */
+function agentMention(d: RuleDetail<'Chat Mention'>): boolean {
+  return d.authorType === 'agent';
+}
+/** A retort is possible only at depth 0; a missing depth counts as deep, so it triggers nothing. */
+const mentionDepth = (d: RuleDetail<'Chat Mention'>) =>
+  typeof d.replyToAgentDepth === 'number' ? d.replyToAgentDepth : Number.POSITIVE_INFINITY;
+
+/**
+ * Banter gate for one mentioned agent: yields to a person first, then the league's banter budget,
+ * then the personality's appetite (seeded by event and team).
+ */
+async function admitBanter(input: AdmitInput<'Chat Mention'>): Promise<GateDecision | null> {
+  const { services, detail, seat, leagueId, eventId, now } = input;
+  if (!agentMention(detail)) return null;
+  const chat = await services.repos.agents.getTriggerState(
+    leagueId,
+    `${seat.agentId}#${CHAT_COOLDOWNS.reply.scope}`
+  );
+  if (
+    chat !== null &&
+    now.getTime() - new Date(chat.lastTriggeredAt).getTime() < CHAT_COOLDOWNS.reply.agentMinutes * 60_000
+  )
+    return 'yield';
+  const activity = await services.repos.chat.activity(
+    leagueId,
+    new Date(now.getTime() - AGENT_CHAT_BUDGETS.windowMs).toISOString()
+  );
+  const verdict = banterVerdict({
+    depth: mentionDepth(detail),
+    roomId: str(detail.roomId) ?? '',
+    banterRemaining: agentChatBudget(activity, seat.teamId, now).banterRemaining,
+    propensity: resolveAgentConfig(seat.config).personality.banter,
+    seed: `${eventId}:${seat.teamId}`
+  });
+  if (verdict === 'ok') return null;
+  return verdict === 'budget' ? 'budget' : 'declined';
+}
 
 const tradeRule: TriggerRule<'Trade Proposed' | 'Trade Countered'> = {
   kind: 'trade_response',
@@ -165,14 +235,16 @@ export const TRIGGER_RULES: RuleMap = {
   'Chat Mention': {
     kind: 'chat_reply',
     urgent: false,
-    cooldown: CHAT_COOLDOWNS.reply,
+    cooldown: (d) => (agentMention(d) ? CHAT_COOLDOWNS.banter : CHAT_COOLDOWNS.reply),
+    // An agent's mention reaches other agents only as a depth-0 mention outside a DM.
     teams: (d, agents) =>
-      d.authorType === 'agent'
+      agentMention(d) && (mentionDepth(d) > 0 || isDmRoomId(str(d.roomId) ?? 'dm-'))
         ? []
         : only(
             strs(d.mentionedTeamIds).filter((id) => id !== d.authorTeamId),
             agents
           ),
+    admit: admitBanter,
     payload: (d) => ({ messageId: d.messageId, roomId: d.roomId })
   },
   'Chat Moment': {
@@ -229,7 +301,12 @@ export function leagueRosterIndex(services: Services): RosterIndex {
 
 export type RouteDecision =
   | { teamId: string; leagueId: string; decision: 'requested'; taskId: string; kind: string }
-  | { teamId: string; leagueId: string; decision: 'no_handler' | 'cooldown' | 'repeat'; kind: string };
+  | {
+      teamId: string;
+      leagueId: string;
+      decision: 'no_handler' | 'cooldown' | 'repeat' | GateDecision;
+      kind: string;
+    };
 
 export interface RouterDeps {
   services: Services;
@@ -246,12 +323,19 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
   const { services } = deps;
   const detailType = event['detail-type'];
   const log = services.log.child({ eventId: event.id, detailType });
-  const rule = TRIGGER_RULES[detailType as FantasyEventType] as TriggerRule | undefined;
+  const raw = TRIGGER_RULES[detailType as FantasyEventType] as TriggerRule | undefined;
   const detail = (event.detail ?? {}) as RuleDetail<FantasyEventType>;
-  if (rule === undefined || event.source !== 'fantasy') {
+  if (raw === undefined || event.source !== 'fantasy') {
     log.info('agent trigger ignored', { reason: 'not_a_trigger' });
     return [];
   }
+  const { cooldown, ...rest } = raw;
+  const rule: ResolvedRule = {
+    ...rest,
+    ...(cooldown === undefined
+      ? {}
+      : { cooldown: typeof cooldown === 'function' ? cooldown(detail) : cooldown })
+  };
 
   // (leagueId, seats) pairs this event touches.
   const targets: { leagueId: string; teams: string[] }[] = [];
@@ -290,6 +374,14 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
         continue;
       }
       const seat = seats.find((s) => s.teamId === teamId) as AgentSeatRecord;
+      const turnedAway =
+        rule.admit === undefined || deps.kinds.get(rule.kind) === undefined
+          ? null
+          : await rule.admit({ services, detail, seat, leagueId: target.leagueId, eventId: event.id, now });
+      if (turnedAway !== null) {
+        decisions.push({ teamId, leagueId: target.leagueId, decision: turnedAway, kind: rule.kind });
+        continue;
+      }
       const decision = await decide(deps, rule, seat, now);
       if (decision !== 'requested') {
         decisions.push({ teamId, leagueId: target.leagueId, decision, kind: rule.kind });
@@ -325,13 +417,13 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
  * The agent's cooldown slot: one per agent and task kind, so a waiver look never delays a lineup
  * decision. Chat kinds share one chat slot (`CHAT_COOLDOWNS`).
  */
-export function cooldownSlot(agentId: string, rule: Pick<TriggerRule, 'kind' | 'cooldown'>): string {
+export function cooldownSlot(agentId: string, rule: Pick<ResolvedRule, 'kind' | 'cooldown'>): string {
   return `${agentId}#${rule.cooldown?.scope ?? rule.kind}`;
 }
 
 async function decide(
   deps: RouterDeps,
-  rule: TriggerRule,
+  rule: ResolvedRule,
   seat: AgentSeatRecord,
   now: Date
 ): Promise<'requested' | 'no_handler' | 'cooldown'> {
@@ -355,7 +447,7 @@ async function decide(
 /** True when the rule fired in this league too recently; otherwise starts a new league window. */
 async function leagueCooldown(
   deps: RouterDeps,
-  rule: TriggerRule,
+  rule: ResolvedRule,
   leagueId: string,
   now: Date
 ): Promise<boolean> {
@@ -373,7 +465,7 @@ async function leagueCooldown(
 /** True when a `oncePer` rule already fired in this league for this key; otherwise records the key. */
 async function repeated(
   deps: RouterDeps,
-  rule: TriggerRule,
+  rule: ResolvedRule,
   leagueId: string,
   detail: RuleDetail<FantasyEventType>,
   now: Date

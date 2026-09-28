@@ -2,6 +2,7 @@ import type { Clock, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
 import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
 import type { FakeScript } from '../fake-model.js';
+import type { ChatMemoryScope } from '../memory.js';
 import { MEMORY_NOTE_MAX } from '../prompt.js';
 import type { ToolBox } from '../tools.js';
 
@@ -94,6 +95,8 @@ export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
   apply(ctx: TaskContext, payload: P, prep: Prep, decision: D): Promise<TaskOutcome>;
   fallback(ctx: TaskContext, payload: P, prep: Prep): Promise<TaskOutcome>;
   fakeScript?(ctx: TaskContext, payload: P, prep: Prep): FakeScript;
+  /** Chat kinds: the room and teams whose chat memory the prompt may show (`memoryForPrompt`). */
+  memoryScope?(ctx: TaskContext, payload: P, prep: Prep): ChatMemoryScope;
 }
 
 /** A kind with its types closed over, as the runtime sees it. */
@@ -103,6 +106,7 @@ export interface PreparedTask {
   apply(decision: unknown): Promise<TaskOutcome>;
   fallback(): Promise<TaskOutcome>;
   fakeScript?: () => FakeScript;
+  memoryScope?: ChatMemoryScope;
 }
 
 export interface TaskKind {
@@ -125,12 +129,14 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
       const payload = spec.payload.parse(rawPayload);
       const prep = await spec.prepare(ctx, payload);
       const fakeScript = spec.fakeScript;
+      const memoryScope = spec.memoryScope?.(ctx, payload, prep);
       return {
         instructions: spec.instructions(ctx, payload, prep),
         decision: spec.decision,
         apply: (decision) => spec.apply(ctx, payload, prep, spec.decision.parse(decision)),
         fallback: () => spec.fallback(ctx, payload, prep),
-        ...(fakeScript === undefined ? {} : { fakeScript: () => fakeScript(ctx, payload, prep) })
+        ...(fakeScript === undefined ? {} : { fakeScript: () => fakeScript(ctx, payload, prep) }),
+        ...(memoryScope === undefined ? {} : { memoryScope })
       };
     }
   };

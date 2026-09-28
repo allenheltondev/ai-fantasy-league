@@ -54,7 +54,8 @@ export class DynamoChatRepository implements ChatRepository {
       roomId: message.roomId,
       kind: message.kind,
       teamId: message.author.teamId,
-      createdAt: message.createdAt
+      createdAt: message.createdAt,
+      replyToAgentDepth: message.replyToAgentDepth ?? 0
     };
     const items: Record<string, unknown>[] = [
       {
@@ -146,7 +147,8 @@ export class DynamoChatRepository implements ChatRepository {
       roomId: String(item.roomId),
       kind: CHAT_MESSAGE_KINDS.find((k) => k === item.kind) ?? 'user',
       teamId: typeof item.teamId === 'string' ? item.teamId : null,
-      createdAt: String(item.createdAt)
+      createdAt: String(item.createdAt),
+      replyToAgentDepth: typeof item.replyToAgentDepth === 'number' ? item.replyToAgentDepth : 0
     }));
   }
 

@@ -234,7 +234,7 @@ export async function runAgentAction(
     config,
     league,
     teamId: seat.teamId,
-    memory: summarizeMemory(memoryForPrompt(memory, kind.modelRole), {
+    memory: summarizeMemory(memoryForPrompt(memory, kind.modelRole, prepared.memoryScope), {
       tokenBudget: MEMORY_BUDGETS[config.levers.reasoningEffort],
       teamName: (id) => teams.find((t) => t.id === id)?.name ?? id
     }),

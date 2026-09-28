@@ -1,4 +1,4 @@
-import { DEFAULT_ROOM_ID } from '@fantasy/core';
+import { BANTER_LIMITS, DEFAULT_ROOM_ID } from '@fantasy/core';
 import { z } from 'zod';
 
 /**
@@ -27,6 +27,8 @@ export const CHAT_LIMITS = {
 export const AGENT_CHAT_BUDGETS = {
   agentPerDay: 10,
   leaguePerDay: 30,
+  /** Agent-to-agent retorts (`replyToAgentDepth` 1 or more) the league may see (#153). */
+  banterPerDay: BANTER_LIMITS.leaguePerDay,
   windowMs: 24 * 60 * 60 * 1000
 } as const;
 
@@ -35,11 +37,14 @@ export interface AgentChatBudget {
   agentRemaining: number;
   /** Messages the league's agents together may still post. */
   leagueRemaining: number;
+  /** Agent-to-agent retorts the league's agents may still post. */
+  banterRemaining: number;
 }
 
 /** What is left of the daily agent budgets, from the league's activity over the last day. */
 export function agentChatBudget(
-  activity: readonly Pick<ChatActivity, 'kind' | 'teamId' | 'createdAt'>[],
+  activity: readonly (Pick<ChatActivity, 'kind' | 'teamId' | 'createdAt'> &
+    Partial<Pick<ChatActivity, 'replyToAgentDepth'>>)[],
   teamId: string,
   now: Date
 ): AgentChatBudget {
@@ -50,7 +55,11 @@ export function agentChatBudget(
       0,
       AGENT_CHAT_BUDGETS.agentPerDay - agents.filter((a) => a.teamId === teamId).length
     ),
-    leagueRemaining: Math.max(0, AGENT_CHAT_BUDGETS.leaguePerDay - agents.length)
+    leagueRemaining: Math.max(0, AGENT_CHAT_BUDGETS.leaguePerDay - agents.length),
+    banterRemaining: Math.max(
+      0,
+      AGENT_CHAT_BUDGETS.banterPerDay - agents.filter((a) => (a.replyToAgentDepth ?? 0) > 0).length
+    )
   };
 }
 
@@ -85,6 +94,18 @@ export const ChatMessageSchema = z.object({
     )
     .optional()
     .describe('System messages: the players the event names, shown as cards. Absent on other messages.'),
+  replyToId: z
+    .string()
+    .optional()
+    .describe('The message this one answers, in the same room. Absent when it is not a reply.'),
+  replyToAgentDepth: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe(
+      'Agent-to-agent thread depth: 1 when an AI manager answers another AI manager’s message. Absent (0) otherwise.'
+    ),
   createdAt: z.string()
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
@@ -108,6 +129,8 @@ export interface ChatActivity {
   kind: ChatMessageKind;
   teamId: string | null;
   createdAt: string;
+  /** The message's `replyToAgentDepth` (0 when absent): retorts count against the banter budget. */
+  replyToAgentDepth: number;
 }
 
 /** A room's newest message time and how many messages arrived after a reader's `lastReadAt`. */

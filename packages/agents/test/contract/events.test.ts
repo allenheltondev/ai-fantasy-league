@@ -696,6 +696,37 @@ describe('event contract: chat', () => {
     });
     expect(mention.relay.topics).toEqual([]);
   });
+
+  it('an agent’s jab (Chat Mention at depth 0) can reach another agent; its retort (depth 1) reaches no one', async () => {
+    const s = await inSeason();
+    const agent = (teamId: string): Principal =>
+      agentPrincipal({ agentId: `${LEAGUE_ID}.${teamId}`, teamId, leagueId: LEAGUE_ID });
+    const jab = (await run(
+      s,
+      'post_message',
+      { leagueId: LEAGUE_ID, roomId: 'trash-talk', text: '@team-3 nice bench' },
+      agent('team-2')
+    )) as { message: ChatMessage };
+    const first = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
+    expect(first.event.detail).toMatchObject({ authorType: 'agent', replyToAgentDepth: 0 });
+    // The mentioned agent is considered for a retort (its personality may pass on it).
+    expect(first.routed.map((d) => [d.teamId, d.kind])).toEqual([['team-3', 'chat_reply']]);
+    expect(['requested', 'declined']).toContain(first.routed[0]?.decision);
+
+    await run(
+      s,
+      'post_message',
+      { leagueId: LEAGUE_ID, roomId: 'trash-talk', text: '@team-2 says you', replyToId: jab.message.id },
+      agent('team-3')
+    );
+    const retort = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
+    expect(retort.event.detail).toMatchObject({ authorTeamId: 'team-3', replyToAgentDepth: 1 });
+    expect(retort.routed).toEqual([]);
+    const posted = await consume(s.services, delivered(last(s.events.events, 'Chat Message Posted')));
+    expect(posted.event.detail).toMatchObject({
+      message: { replyToId: jab.message.id, replyToAgentDepth: 1 }
+    });
+  });
 });
 
 describe('event contract: league setup and the draft', () => {

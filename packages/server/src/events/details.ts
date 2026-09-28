@@ -230,7 +230,14 @@ export const EVENT_DETAIL_SCHEMAS = {
     messageId: id,
     authorTeamId: z.string().nullable(),
     authorType: z.enum(CHAT_MESSAGE_KINDS),
-    mentionedTeamIds: z.array(id)
+    mentionedTeamIds: z.array(id),
+    replyToAgentDepth: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Agent-to-agent thread depth of the message (#153): 0 unless an AI manager answered another AI manager. An agent-authored mention at depth 1 or more never triggers an agent.'
+      )
   }),
   'Chat Moment': z.object({
     leagueId: id,

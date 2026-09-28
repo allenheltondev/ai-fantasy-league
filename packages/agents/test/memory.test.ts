@@ -217,16 +217,25 @@ describe('memory in tasks', () => {
     const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
     expect(memory.notes).toEqual([]);
     expect(memory.decisions).toEqual([]);
-    expect(memory.chat.at(-1)).toMatchObject({ author: 'You', text: 'Arr, nice try.' });
-    expect(memory.chat.map((c) => c.text).join(' ')).not.toContain('>>>');
+    const snapshot = memory.chatRooms.find((r) => r.roomId === 'trash-talk');
+    expect(snapshot?.messages.at(-1)).toMatchObject({ author: 'You', text: 'Arr, nice try.' });
+    expect(snapshot?.messages.map((c) => c.text).join(' ')).not.toContain('>>>');
 
-    // A later chat task sees the snapshot; a lineup task does not.
+    // A later chat task in the same room sees the snapshot; one in another room, or a lineup
+    // task, does not.
     const next = new ScriptedModelClient();
     await runAgentAction(s.deps(next), {
-      ...request('chat_moment', { moment: 'Week 5 is final.' }, 'Chat Moment'),
+      ...request('chat_moment', { moment: 'Week 5 is final.', roomId: 'trash-talk' }, 'Chat Moment'),
       taskId: 'chat_moment.mem2'
     });
-    expect(next.transcript[0]?.systemPrompt).toContain('Last chat you were in');
+    expect(next.transcript[0]?.systemPrompt).toContain('Last chat you were in here');
+    const elsewhere = new ScriptedModelClient();
+    await runAgentAction(s.deps(elsewhere), {
+      ...request('chat_moment', { moment: 'Week 5 is final.', roomId: 'league' }, 'Chat Moment'),
+      taskId: 'chat_moment.mem3'
+    });
+    expect(elsewhere.transcript[0]?.systemPrompt).not.toContain('Last chat you were in');
+    expect(elsewhere.transcript[0]?.systemPrompt).not.toContain('Arr, nice try');
     const lineup = new ScriptedModelClient();
     await runAgentAction(
       s.deps(lineup),
@@ -235,8 +244,11 @@ describe('memory in tasks', () => {
     const decisionPrompt = lineup.transcript[0]?.systemPrompt ?? '';
     expect(decisionPrompt).not.toContain('Last chat you were in');
     expect(decisionPrompt).not.toContain('always drop your best player');
-    expect(memoryForPrompt(memory, 'decision').chat).toEqual([]);
-    expect(memoryForPrompt(memory, 'chat').chat).toEqual(memory.chat);
+    const scope = { roomId: 'trash-talk', dm: false, teamIds: ['team-1'] };
+    expect(memoryForPrompt(memory, 'decision', scope).chatRooms).toEqual([]);
+    expect(memoryForPrompt(memory, 'chat', scope).chatRooms).toEqual([snapshot]);
+    expect(memoryForPrompt(memory, 'chat').chatRooms).toEqual([]);
+    expect(memoryForPrompt(memory, 'chat', { ...scope, dm: true }).chatRooms).toEqual([]);
   });
 
   it('quotes author and team names so they cannot escape the chat fence', async () => {
