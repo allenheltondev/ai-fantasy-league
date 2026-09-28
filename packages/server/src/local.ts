@@ -17,7 +17,6 @@ import { seedDemoSeason } from './dev/season-demo.js';
 import { EventLoop, type EventSubscriber } from './events/loop.js';
 import { InMemoryEventPublisher } from './events/publisher.js';
 import { serverSubscribers } from './events/subscribers.js';
-import { seasonJobs } from './jobs/schedules.js';
 import { createApp } from './http/app.js';
 import { createLogger, parseLogLevel, type Logger } from './log.js';
 import { registry } from './operations/index.js';
@@ -98,7 +97,8 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
       { leagueId: 'demo-season', owner: { sub: `local-${demo}`, name: demo }, now: services.clock.now() }
     );
   }
-  const loop = options.eventLoop === undefined ? null : startEventLoop(services, events, options.eventLoop);
+  const loop =
+    options.eventLoop === undefined ? null : await startEventLoop(services, events, options.eventLoop);
   const app = createApp({ registry, services, verifier: localVerifier(env) });
 
   const server = await new Promise<ReturnType<typeof serve>>((resolve) => {
@@ -120,11 +120,13 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
   };
 }
 
-function startEventLoop(
+async function startEventLoop(
   services: Services,
   events: InMemoryEventPublisher,
   options: NonNullable<LocalServerOptions['eventLoop']>
-): EventLoop {
+): Promise<EventLoop> {
+  // Loaded only here: the season jobs import @fantasy/data, which the plain dev server (and e2e) skip.
+  const { seasonJobs } = await import('./jobs/schedules.js');
   const loop = new EventLoop({
     publisher: events,
     clock: services.clock,

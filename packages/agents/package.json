@@ -11,7 +11,7 @@
     }
   },
   "scripts": {
-    "dev": "npm run build -w @fantasy/core && FANTASY_LOCAL_AUTH=1 tsx src/dev.ts",
+    "dev": "npm run build -w @fantasy/core -w @fantasy/data && FANTASY_LOCAL_AUTH=1 tsx src/dev.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
