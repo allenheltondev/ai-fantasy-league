@@ -64,10 +64,11 @@ describe('signed in', () => {
     expect(await screen.findByRole('heading', { name: 'Create League' })).toBeInTheDocument();
   });
 
-  it('redirects a league to its matchup and lists every section', async () => {
+  it('opens a league on its Home dashboard and lists every section', async () => {
     signInAs(ALICE);
     renderApp('/leagues/L1');
-    expect(await screen.findByTestId('league-section-matchup')).toBeInTheDocument();
+    expect(await screen.findByTestId('league-section-home')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Draft' })).toBeInTheDocument();
     // The header names the league, not its id.
     expect(await screen.findByRole('heading', { level: 1, name: 'Sunday Funday' })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'League sections' });

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { EmptyState, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { MatchupData, MatchupLineup, MatchupSide, RedZoneTeam, ScoringLogEntry } from '../../api/types';
@@ -47,6 +47,9 @@ const STATUS_LABEL = { scheduled: 'Upcoming', in_progress: 'Live', final: 'Final
 /** The Matchup section (#58): both lineups side by side with live scores. */
 export function MatchupPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
+  // `?team=` opens another team's matchup (tapped on the league dashboard, #166).
+  const [params] = useSearchParams();
+  const viewTeam = params.get('team') ?? undefined;
   const api = useLeagueApi();
   // The scoring log (#162): entries pushed with `Scores Updated`, and a bump to reload its newest page.
   const [pushed, setPushed] = useState<{ matchupId: string; entries: ScoringLogEntry[] }[]>([]);
@@ -66,8 +69,8 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
     }
   });
   const loaded = useLoad(
-    () => api.getMatchup(leagueId),
-    leagueId,
+    () => api.getMatchup(leagueId, viewTeam),
+    `${leagueId}:${viewTeam ?? ''}`,
     live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS
   );
   // The NFL games strip and red-zone highlights are extras: while they load or fail, the matchup shows without them.
@@ -104,7 +107,7 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
             {STATUS_LABEL[matchup.status]}
           </StatusBadge>
         </p>
-        <WinCelebration leagueId={leagueId} data={loaded.data} />
+        {viewTeam === undefined && <WinCelebration leagueId={leagueId} data={loaded.data} />}
         <div className="grid gap-4 md:grid-cols-2">
           <Side
             side={matchup.home}
@@ -123,6 +126,7 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
           leagueId={leagueId}
           matchupId={matchup.id}
           myTeamId={loaded.data.teamId}
+          teamId={viewTeam}
           sides={[matchup.home, matchup.away]}
           redZone={redZone}
           pushed={mergeEntries(...pushed.filter((p) => p.matchupId === matchup.id).map((p) => p.entries))}
@@ -136,11 +140,18 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
   return (
     <div data-testid="league-section-matchup" className="space-y-4">
       <h2 className="text-xl font-semibold">Matchup</h2>
+      {viewTeam !== undefined && (
+        <Link to="." className="text-sm font-medium text-primary-700 hover:underline">
+          Back to your matchup
+        </Link>
+      )}
       {body}
-      <MatchupOutlookPanel
-        leagueId={leagueId}
-        pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
-      />
+      {viewTeam === undefined && (
+        <MatchupOutlookPanel
+          leagueId={leagueId}
+          pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
+        />
+      )}
     </div>
   );
 }

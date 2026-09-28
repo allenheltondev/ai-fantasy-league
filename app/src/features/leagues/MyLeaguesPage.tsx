@@ -13,6 +13,7 @@ import { useLeagueApi } from '../../api/league';
 import type { MyLeague, Phase } from '../../api/types';
 import { errorText } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { HomeDashboard } from '../home/HomeDashboard';
 
 export const PHASE_LABELS: Record<Phase, { label: string; tone: StatusBadgeTone }> = {
   setup: { label: 'Setup', tone: 'primary' },
@@ -64,13 +65,18 @@ export function MyLeaguesPage() {
           action={<CreateButton />}
         />
       ) : (
-        <ul className="grid gap-4 md:grid-cols-2" aria-label="Leagues">
-          {leagues.data.map((league) => (
-            <li key={league.id}>
-              <LeagueCard league={league} />
-            </li>
-          ))}
-        </ul>
+        <>
+          {/* Your league at a glance (#166): matchups, standings, and the move board. */}
+          <HomeDashboard leagues={leagues.data} />
+          <h2 className="text-xl font-semibold">All leagues</h2>
+          <ul className="grid gap-4 md:grid-cols-2" aria-label="Leagues">
+            {leagues.data.map((league) => (
+              <li key={league.id}>
+                <LeagueCard league={league} />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );

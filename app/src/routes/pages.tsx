@@ -9,6 +9,7 @@ import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
 import { useLoad } from '../lib/useLoad';
 import { CreateLeagueWizard } from '../features/create/CreateLeagueWizard';
+import { LeagueHomePage } from '../features/home/LeagueDashboard';
 import { MyLeaguesPage } from '../features/leagues/MyLeaguesPage';
 import { MatchupPage } from '../features/season/MatchupPage';
 import { RosterPage } from '../features/season/RosterPage';
@@ -21,6 +22,7 @@ import { LeagueNotifications } from '../realtime/LeagueNotifications';
 import type { LeagueOutletContext } from './leagueContext';
 
 export const LEAGUE_SECTIONS = [
+  { path: 'home', label: 'Home' },
   { path: 'draft', label: 'Draft' },
   { path: 'roster', label: 'Roster' },
   { path: 'matchup', label: 'Matchup' },
@@ -90,6 +92,7 @@ export function LeagueLayout() {
 }
 
 export function LeagueSectionPage({ section }: { section: LeagueSectionPath }) {
+  if (section === 'home') return <LeagueHomePage />;
   if (section === 'settings') return <SettingsPage />;
   if (section === 'roster') return <RosterPage />;
   if (section === 'matchup') return <MatchupPage />;

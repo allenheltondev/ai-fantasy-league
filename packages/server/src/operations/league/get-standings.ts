@@ -4,7 +4,8 @@ import { requireMember } from '../../league/access.js';
 import { leagueManagers, teamManager, TeamManagerSchema, type ManagerLookup } from '../../league/managers.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
-import type { Matchup, Team } from '../../repos/types.js';
+import type { Ctx } from '../../context.js';
+import type { League, Matchup, Team } from '../../repos/types.js';
 
 const StandingsRowSchema = z.object({
   rank: z.number().int(),
@@ -70,13 +71,12 @@ export const getStandings = defineOperation({
         }
       ]);
     }
-    const snapshot = await ctx.repos.schedule.latestStandings(league.id);
-    const rows =
-      snapshot?.rows ??
-      computeStandings(league.settings, [], { teamIds: teams.map((t) => t.id), seed: league.scheduleSeed });
-    const throughWeek = snapshot?.week ?? null;
-    const managers = await leagueManagers(ctx, league.id, teams);
-    const standings = rows.map((row) => standingsRow(row, teams, managers));
+    const { throughWeek, standings } = await loadStandings(
+      ctx,
+      league,
+      teams,
+      await leagueManagers(ctx, league.id, teams)
+    );
     if (!input.detail) return { throughWeek, standings };
     const games = (await ctx.repos.schedule.listMatchups(league.id)).filter(
       (m) => m.kind === 'regular' && m.status === 'final' && throughWeek !== null && m.week <= throughWeek
@@ -87,6 +87,26 @@ export const getStandings = defineOperation({
     };
   }
 });
+
+/**
+ * The season's standings rows as of the latest snapshot (every team 0-0 before the first final
+ * week). Shared with get_league_dashboard.
+ */
+export async function loadStandings(
+  ctx: Pick<Ctx, 'repos'>,
+  league: League,
+  teams: readonly Team[],
+  managers: ManagerLookup
+): Promise<{ throughWeek: number | null; standings: z.infer<typeof StandingsRowSchema>[] }> {
+  const snapshot = await ctx.repos.schedule.latestStandings(league.id);
+  const rows =
+    snapshot?.rows ??
+    computeStandings(league.settings, [], { teamIds: teams.map((t) => t.id), seed: league.scheduleSeed });
+  return {
+    throughWeek: snapshot?.week ?? null,
+    standings: rows.map((row) => standingsRow(row, teams, managers))
+  };
+}
 
 function teamResults(teamId: string, games: readonly Matchup[]) {
   return games

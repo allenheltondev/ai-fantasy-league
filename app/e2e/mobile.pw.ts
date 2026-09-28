@@ -358,9 +358,10 @@ for (const viewport of VIEWPORTS) {
       await expect(bobPage).toHaveURL(/\/settings$/);
       await friend.close();
 
-      // My leagues.
+      // My leagues, with the league's dashboard before the draft (#166): seats filled, the lobby.
       await page.goto('/');
       await expect(page.getByRole('list', { name: 'Leagues' })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Draft' })).toContainText('seats filled');
       await expectFits(page, 'my leagues');
 
       // The draft lobby before the draft (#134): a countdown to a scheduled start (ten days after the
@@ -385,6 +386,11 @@ for (const viewport of VIEWPORTS) {
       await page.goto(`/leagues/${leagueId}/draft`);
       await expect(page.getByRole('table', { name: 'Draft board' })).toBeVisible();
       await expectFits(page, 'draft (in progress)');
+      // The league's Home while drafting: who is on the clock (#166).
+      await page.goto(`/leagues/${leagueId}/home`);
+      await expect(page.getByRole('region', { name: 'Draft' })).toContainText('On the clock');
+      await expectFits(page, 'league home (drafting)');
+      await page.goto(`/leagues/${leagueId}/draft`);
 
       // Draft research (#136): the best-available table, an open player card, and the depth chart.
       const firstAvailable = page.locator('[data-testid^="available-"]').first();
@@ -405,11 +411,21 @@ for (const viewport of VIEWPORTS) {
       const context = await phone(browser, viewport, SEASON_WHO);
       const page = await context.newPage();
 
-      // League home lands on the matchup.
+      // League home is the dashboard (#166): the matchup strip, standings, and the move board.
       await page.goto('/leagues/demo-season');
-      await expect(page).toHaveURL(/\/matchup$/);
+      await expect(page).toHaveURL(/\/home$/);
+      await expect(
+        page.getByRole('region', { name: 'Matchups' }).locator('[data-yours="true"]')
+      ).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Move board' })).toBeVisible();
+      await expectFits(page, 'league home (dashboard)');
+      await page.goto('/');
+      await expect(page.getByRole('region', { name: 'Standings' })).toBeVisible();
+      await expectFits(page, 'my leagues (in season)');
+
+      await page.goto('/leagues/demo-season/matchup');
       await expect(page.getByRole('region', { name: `${SEASON_WHO}'s Team` })).toBeVisible();
-      await expectFits(page, 'league home / matchup');
+      await expectFits(page, 'matchup');
 
       await page.goto('/leagues/demo-season/roster');
       await expect(page.getByRole('table', { name: 'Starters' })).toBeVisible();
@@ -547,6 +563,81 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByText('3rd & Goal at MIA 4').first()).toBeVisible();
       await expect(plays.first().getByTestId('log-play')).toContainText('Josh Allen 12 Yd Run');
       await expectFits(page, 'matchup (live)');
+      await context.close();
+    });
+
+    test('a busy league dashboard fits the screen', async ({ browser }) => {
+      const context = await phone(browser, viewport, SEASON_WHO);
+      const page = await context.newPage();
+      // The real dashboard, played live and after a busy week of moves (#166): a trade with long
+      // names on both sides, a waiver award, an add/drop, and a champion.
+      await page.route(/\/api\/v1\/leagues\/demo-season\/dashboard(\?|$)/, async (route) => {
+        const response = await route.fetch({
+          headers: { ...route.request().headers(), authorization: `Bearer dev:${SEASON_WHO}` }
+        });
+        const body = (await response.json()) as { data: Record<string, unknown> };
+        const data = body.data as {
+          matchups: { status: string; home: { score: number | null }; away: { score: number | null } }[];
+          standings: { rows: Record<string, unknown>[] };
+        };
+        data.matchups.forEach((m, i) => {
+          m.status = 'in_progress';
+          m.home.score = 101.25 + i;
+          m.away.score = 88.4;
+        });
+        const rows = data.standings.rows;
+        const side = (row: Record<string, unknown> | undefined, extra: Record<string, unknown>) => ({
+          teamId: row?.teamId,
+          teamName: row?.teamName,
+          ownerName: row?.ownerName,
+          manager: row?.manager,
+          added: [],
+          dropped: [],
+          cost: null,
+          ...extra
+        });
+        const longName = {
+          id: 'fx-long',
+          name: 'Christopher Maximilian Longname-Smithson',
+          team: 'JAX',
+          position: 'WR'
+        };
+        const other = { id: 'fx-other', name: 'Amon-Ra St. Brown', team: 'DET', position: 'WR' };
+        body.data.moves = [
+          {
+            id: 'tr-busy',
+            type: 'trade',
+            at: '2026-09-10T12:00:00.000Z',
+            week: 1,
+            teams: [
+              side(rows[0], { added: [longName, other] }),
+              side(rows[1], { added: [other], dropped: [longName] })
+            ]
+          },
+          {
+            id: 'w-busy',
+            type: 'waiver',
+            at: '2026-09-10T11:00:00.000Z',
+            week: 1,
+            teams: [side(rows[2], { added: [longName], cost: 37 })]
+          },
+          {
+            id: 'a-busy',
+            type: 'add',
+            at: '2026-09-10T10:00:00.000Z',
+            week: 1,
+            teams: [side(rows[3], { added: [other], dropped: [longName] })]
+          }
+        ];
+        body.data.hasMoreMoves = true;
+        body.data.champion = side(rows[1], {});
+        await route.fulfill({ response, json: body });
+      });
+      await page.goto('/leagues/demo-season/home');
+      await expect(page.getByRole('region', { name: 'Champion' })).toBeVisible();
+      await expect(page.getByRole('article', { name: /^Trade: / })).toContainText('Longname-Smithson');
+      await expect(page.getByRole('button', { name: 'Show more' })).toBeVisible();
+      await expectFits(page, 'league home (busy)');
       await context.close();
     });
   });

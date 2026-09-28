@@ -158,5 +158,12 @@ export const WAIVER_CASES: Record<string, Case[]> = {
     { label: 'log', path: `${W}/transactions?limit=5`, status: 200 },
     { label: 'detail', path: `${W}/transactions?detail=true`, status: 200 },
     { label: 'outsider', path: `${W}/transactions`, init: { token: outsider }, status: 403 }
+  ],
+  get_league_dashboard: [
+    { label: 'before the draft', path: '/api/v1/leagues/lg-c/dashboard', status: 200 },
+    { label: 'in season', path: '/api/v1/leagues/lg-cs/dashboard', status: 200 },
+    { label: 'with moves', path: `${W}/dashboard?moves=2`, status: 200 },
+    { label: 'too many moves', path: `${W}/dashboard?moves=0`, status: 400 },
+    { label: 'outsider', path: `${W}/dashboard`, init: { token: outsider }, status: 403 }
   ]
 };

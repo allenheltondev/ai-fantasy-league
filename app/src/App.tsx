@@ -41,7 +41,7 @@ export function App({ api = leagueApi }: { api?: LeagueApi }) {
             <Route index element={<HomePage />} />
             <Route path="leagues/new" element={<CreateLeaguePage />} />
             <Route path="leagues/:leagueId" element={<LeagueLayout />}>
-              <Route index element={<Navigate to="matchup" replace />} />
+              <Route index element={<Navigate to="home" replace />} />
               {LEAGUE_SECTIONS.map((section) => (
                 <Route
                   key={section.path}

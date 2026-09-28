@@ -4,6 +4,7 @@ import type {
   AgentCatalog,
   AgentSeatConfig,
   DefaultSettings,
+  LeagueDashboardData,
   LeagueDetail,
   LeagueSettings,
   LeagueState,
@@ -173,6 +174,35 @@ export function state(overrides: Partial<LeagueState> = {}): LeagueState {
   };
 }
 
+/** get_league_dashboard (#166) for a league in setup: the draft not yet scheduled, no moves. */
+export function dashboard(overrides: Partial<LeagueDashboardData> = {}): LeagueDashboardData {
+  return {
+    leagueId: 'L1',
+    name: 'Sunday Funday',
+    season: 2026,
+    phase: 'setup',
+    week: null,
+    yourTeamId: 'team-1',
+    draft: {
+      status: 'not_started',
+      scheduledAt: null,
+      seatsFilled: 3,
+      seats: 4,
+      picksMade: 0,
+      totalPicks: null,
+      onTheClock: null,
+      deadline: null,
+      yourPickIn: null
+    },
+    matchups: [],
+    standings: { throughWeek: null, rows: [] },
+    moves: [],
+    hasMoreMoves: false,
+    champion: null,
+    ...overrides
+  };
+}
+
 /** A fake league API: every call resolves with a sensible default unless overridden. */
 export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
   const api: LeagueApi = {
@@ -326,7 +356,8 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     })),
     getMatchupOutlook: vi.fn(async () => {
       throw new Error('getMatchupOutlook is not faked in this test');
-    })
+    }),
+    getLeagueDashboard: vi.fn(async () => dashboard())
   };
   return { ...api, ...overrides };
 }
