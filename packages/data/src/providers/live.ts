@@ -10,7 +10,7 @@ import {
 import { reconcileWithNflverse } from '../nflverse/reconcile.js';
 import { computeByeWeeks } from '../nflverse/schedule.js';
 import type { DataProvider, TrendingOptions } from '../provider.js';
-import type { SleeperClient } from '../sleeper/client.js';
+import type { ProjectionSource, SleeperClient } from '../sleeper/client.js';
 import {
   normalizePlayers,
   normalizeState,
@@ -55,6 +55,7 @@ export class LiveDataProvider implements DataProvider {
   readonly #nflverse: NflverseClient;
   readonly #options: LiveProviderOptions;
   readonly #schedules = new Map<number, Promise<ScheduledGame[]>>();
+  readonly #projectionSources = new Map<string, ProjectionSource>();
 
   constructor(options: LiveProviderOptions) {
     this.#sleeper = options.sleeper;
@@ -105,8 +106,15 @@ export class LiveDataProvider implements DataProvider {
     );
   }
 
+  /** Sleeper's v1 projections, or its app endpoint when v1 has none (#184; `projectionSource`). */
   async getWeekProjections(season: number, week: number, _asOf: Date): Promise<ProjectionLine[]> {
-    return normalizeWeekStats(await this.#sleeper.weekProjections(season, week), season, week, 'projections');
+    const { stats, source } = await this.#sleeper.weekProjectionsWithSource(season, week);
+    this.#projectionSources.set(`${season}#${week}`, source);
+    return normalizeWeekStats(stats, season, week, 'projections');
+  }
+
+  projectionSource(season: number, week: number): ProjectionSource | undefined {
+    return this.#projectionSources.get(`${season}#${week}`);
   }
 
   async getTrending(

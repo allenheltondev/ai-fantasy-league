@@ -1,0 +1,265 @@
+[
+ {
+  "category": "proj",
+  "company": "rotowire",
+  "date": "2026-09-13",
+  "game_id": "202610125",
+  "opponent": "BAL",
+  "player": {
+   "fantasy_positions": [
+    "QB"
+   ],
+   "first_name": "Patrick",
+   "last_name": "Mahomes",
+   "injury_status": null,
+   "position": "QB",
+   "team": "KC"
+  },
+  "player_id": "4046",
+  "season": "2026",
+  "season_type": "regular",
+  "sport": "nfl",
+  "stats": {
+   "adp_dd_ppr": 24.0,
+   "gp": 1.0,
+   "pass_att": 36.2,
+   "pass_cmp": 23.9,
+   "pass_yd": 262.3,
+   "pass_td": 1.86,
+   "pass_int": 0.55,
+   "rush_att": 4.9,
+   "rush_yd": 23.4,
+   "rush_td": 0.21,
+   "fum_lost": 0.12,
+   "pos_adp_dd_ppr": 3.0,
+   "pts_std": 21.2,
+   "pts_half_ppr": 21.2,
+   "pts_ppr": 21.2
+  },
+  "status": null,
+  "team": "KC",
+  "week": 1,
+  "last_modified": 1789132830000,
+  "updated_at": 1789132830000
+ },
+ {
+  "category": "proj",
+  "company": "rotowire",
+  "date": "2026-09-13",
+  "game_id": "202610126",
+  "opponent": "WAS",
+  "player": {
+   "fantasy_positions": [
+    "QB"
+   ],
+   "first_name": "Jalen",
+   "last_name": "Hurts",
+   "injury_status": null,
+   "position": "QB",
+   "team": "PHI"
+  },
+  "player_id": "6904",
+  "season": "2026",
+  "season_type": "regular",
+  "sport": "nfl",
+  "stats": {
+   "adp_dd_ppr": 15.0,
+   "gp": 1.0,
+   "pass_att": 29.58,
+   "pass_cmp": 20.11,
+   "pass_yd": 258.4,
+   "pass_td": 1.69,
+   "pass_int": 0.47,
+   "rush_att": 7.0,
+   "rush_yd": 30.51,
+   "rush_td": 0.53,
+   "fum_lost": 0.17,
+   "pos_adp_dd_ppr": 1.0,
+   "pts_std": 22.75,
+   "pts_half_ppr": 22.75,
+   "pts_ppr": 22.75
+  },
+  "status": null,
+  "team": "PHI",
+  "week": 1,
+  "last_modified": 1789132830000,
+  "updated_at": 1789132830000
+ },
+ {
+  "category": "proj",
+  "company": "rotowire",
+  "date": "2026-09-10",
+  "game_id": "202610132",
+  "opponent": "SF",
+  "player": {
+   "fantasy_positions": [
+    "WR"
+   ],
+   "first_name": "Puka",
+   "last_name": "Nacua",
+   "injury_status": null,
+   "position": "WR",
+   "team": "LAR"
+  },
+  "player_id": "9493",
+  "season": "2026",
+  "season_type": "regular",
+  "sport": "nfl",
+  "stats": {
+   "adp_dd_ppr": 2.0,
+   "gp": 1.0,
+   "rec_tgt": 9.66,
+   "rec": 7.58,
+   "rec_yd": 94.55,
+   "rec_td": 0.59,
+   "rush_att": 0.45,
+   "rush_yd": 2.83,
+   "fum_lost": 0.03,
+   "pos_adp_dd_ppr": 1.0,
+   "pts_std": 13.39,
+   "pts_half_ppr": 17.18,
+   "pts_ppr": 20.96
+  },
+  "status": null,
+  "team": "LAR",
+  "week": 1,
+  "last_modified": 1789132830000,
+  "updated_at": 1789132830000
+ },
+ {
+  "category": "proj",
+  "company": "rotowire",
+  "date": null,
+  "game_id": null,
+  "opponent": null,
+  "player": {
+   "fantasy_positions": [
+    "QB"
+   ],
+   "first_name": "Aaron",
+   "last_name": "Rodgers",
+   "injury_status": null,
+   "position": "QB",
+   "team": null
+  },
+  "player_id": "96",
+  "season": "2026",
+  "season_type": "regular",
+  "sport": "nfl",
+  "stats": {
+   "adp_dd_ppr": 1000.0
+  },
+  "status": null,
+  "team": null,
+  "week": 1
+ },
+ {
+  "category": "proj",
+  "company": "rotowire",
+  "date": "2026-09-13",
+  "game_id": "202610125",
+  "opponent": "BAL",
+  "player": {
+   "fantasy_positions": [
+    "K"
+   ],
+   "first_name": "Harrison",
+   "last_name": "Butker",
+   "injury_status": null,
+   "position": "K",
+   "team": "KC"
+  },
+  "player_id": "4227",
+  "season": "2026",
+  "season_type": "regular",
+  "sport": "nfl",
+  "stats": {
+   "adp_dd_ppr": 999.0,
+   "gp": 1.0,
+   "fga": 2.06,
+   "fgm": 1.74,
+   "fgm_30_39": 0.56,
+   "fgm_40_49": 0.63,
+   "xpa": 2.45,
+   "xpm": 2.32,
+   "pos_adp_dd_ppr": 999.0,
+   "pts_std": 7.62,
+   "pts_half_ppr": 7.62,
+   "pts_ppr": 7.62
+  },
+  "status": null,
+  "team": "KC",
+  "week": 1,
+  "last_modified": 1789132830000,
+  "updated_at": 1789132830000
+ },
+ {
+  "category": "proj",
+  "company": "rotowire",
+  "date": "2026-09-13",
+  "game_id": "202610125",
+  "opponent": "BAL",
+  "player": {
+   "fantasy_positions": [
+    "DEF"
+   ],
+   "first_name": "Kansas City",
+   "last_name": "Chiefs",
+   "injury_status": null,
+   "position": "DEF",
+   "team": "KC"
+  },
+  "player_id": "KC",
+  "season": "2026",
+  "season_type": "regular",
+  "sport": "nfl",
+  "stats": {
+   "adp_dd_ppr": 180.0,
+   "gp": 1.0,
+   "sack": 2.4,
+   "int": 0.8,
+   "fum_rec": 0.6,
+   "pts_allow": 22.1,
+   "yds_allow": 331.0,
+   "pts_std": 5.1,
+   "pts_half_ppr": 5.1,
+   "pts_ppr": 5.1
+  },
+  "status": null,
+  "team": "KC",
+  "week": 1,
+  "last_modified": 1789132830000,
+  "updated_at": 1789132830000
+ },
+ {
+  "category": "proj",
+  "company": "rotowire",
+  "date": "2026-09-13",
+  "game_id": "202610140",
+  "opponent": "NYG",
+  "player": {
+   "fantasy_positions": [
+    "WR"
+   ],
+   "first_name": "CeeDee",
+   "last_name": "Lamb",
+   "injury_status": null,
+   "position": "WR",
+   "team": "DAL"
+  },
+  "player_id": "6786",
+  "season": "2026",
+  "season_type": "regular",
+  "sport": "nfl",
+  "stats": {
+   "adp_dd_ppr": 8.0,
+   "gp": 1.0,
+   "rec": 6.1
+  },
+  "status": null,
+  "team": "DAL",
+  "week": 6,
+  "last_modified": 1789132830000,
+  "updated_at": 1789132830000
+ }
+]

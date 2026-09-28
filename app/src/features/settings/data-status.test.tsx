@@ -25,7 +25,13 @@ function status(overrides: Partial<DataStatus> = {}): DataStatus {
       {
         season: 2026,
         week: 5,
-        projections: { capturedAt: '2026-09-28T19:00:00.000Z', count: 412, hash: 'abc' },
+        projections: { capturedAt: '2026-09-28T19:00:00.000Z', count: 412, hash: 'abc', source: 'app' },
+        statLines: 0
+      },
+      {
+        season: 2026,
+        week: 6,
+        projections: { capturedAt: '2026-09-28T19:00:00.000Z', count: 20, hash: 'def', source: 'v1' },
         statLines: 0
       }
     ],
@@ -105,9 +111,12 @@ describe('settings: data status (#181)', () => {
     expect(within(panel).getByText('Week 4')).toBeInTheDocument();
 
     const weeks = within(panel).getByRole('table', { name: 'Weekly projections and stats' });
-    const [, week4, week5] = within(weeks).getAllByRole('row');
-    expect(week4).toHaveTextContent(/^4None—0$/);
+    const [, week4, week5, week6] = within(weeks).getAllByRole('row');
+    expect(week4).toHaveTextContent(/^4None——0$/);
     expect(week5).toHaveTextContent('412 players');
+    // Which Sleeper endpoint served each snapshot (#184).
+    expect(week5).toHaveTextContent('app (fallback)');
+    expect(week6).toHaveTextContent(/20 players.*v1/);
 
     const research = within(panel).getByRole('table', { name: 'Draft research' });
     expect(within(research).getAllByRole('row')[1]).toHaveTextContent(/2025640\s*18/);

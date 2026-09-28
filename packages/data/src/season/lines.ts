@@ -1,5 +1,6 @@
 import { LAST_NFL_WEEK, STAT_LABELS } from '@fantasy/core';
 import type { DataProvider } from '../provider.js';
+import type { ProjectionSource } from '../sleeper/client.js';
 import { compareIds } from '../sleeper/normalize.js';
 import type { PlayerSeasonLines, StatLine, StatMap } from '../types.js';
 
@@ -63,6 +64,11 @@ export interface FetchedSeason {
   lines: PlayerSeasonLines[];
   /** Weeks the source had any line for. */
   weeks: number[];
+  /**
+   * Projections only, from a provider that reports it (`projectionSource`, #184): the weeks each
+   * upstream endpoint served.
+   */
+  sources?: Partial<Record<ProjectionSource, number[]>>;
 }
 
 /**
@@ -71,13 +77,14 @@ export interface FetchedSeason {
  * within the shared rate limit); a week the source has nothing for yet contributes nothing.
  */
 export async function fetchSeasonLines(
-  provider: Pick<DataProvider, 'getWeekStats' | 'getWeekProjections'>,
+  provider: Pick<DataProvider, 'getWeekStats' | 'getWeekProjections' | 'projectionSource'>,
   kind: SeasonLinesKind,
   season: number,
   asOf: Date
 ): Promise<FetchedSeason> {
   const all: StatLine[] = [];
   const weeks: number[] = [];
+  const sources: Partial<Record<ProjectionSource, number[]>> = {};
   for (let week = 1; week <= LAST_NFL_WEEK; week++) {
     const lines =
       kind === 'stats'
@@ -85,6 +92,12 @@ export async function fetchSeasonLines(
         : await provider.getWeekProjections(season, week, asOf);
     if (lines.length > 0) weeks.push(week);
     all.push(...lines);
+    const source = kind === 'projections' ? provider.projectionSource?.(season, week) : undefined;
+    if (source !== undefined) (sources[source] ??= []).push(week);
   }
-  return { lines: buildSeasonLines(season, all), weeks };
+  return {
+    lines: buildSeasonLines(season, all),
+    weeks,
+    ...(Object.keys(sources).length > 0 && { sources })
+  };
 }

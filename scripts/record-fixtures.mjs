@@ -9,6 +9,15 @@
 //   node scripts/record-fixtures.mjs --season 2025 --weeks 1,2 --out /tmp/fixtures
 //   node scripts/record-fixtures.mjs --scoring --weeks 1,2     # scoring validation sets (below)
 //   node scripts/record-fixtures.mjs --espn-summary 401772901  # only one ESPN game summary (#164)
+//   node scripts/record-fixtures.mjs --sleeper-app-projections 2026 4  # both projection endpoints (#184)
+//
+// --sleeper-app-projections <season> <week> records one week's projections from both Sleeper
+// endpoints, as returned, so their real shapes can be committed (#184):
+//   fixtures/sleeper/projection-sources/v1_{season}_{week}.json   api.sleeper.app/v1/projections map
+//   fixtures/sleeper/projection-sources/app_{season}_{week}.json  api.sleeper.com/projections rows
+//   fixtures/sleeper/projection-sources/summary_{season}_{week}.json  status, counts, and keys of each
+// Both are trimmed to the fixture players (the app's rows to theirs, or its first rows when none
+// match); the summary counts the whole response. An HTTP error is recorded in the summary.
 //
 // --scoring records the scoring validation sets (#30) instead: every player's weekly stat line with
 // the source's own fantasy points, trimmed to the scoring stat keys.
@@ -29,6 +38,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 const SLEEPER = 'https://api.sleeper.app';
+const SLEEPER_APP = 'https://api.sleeper.com';
 const NFLVERSE = {
   idMap: 'https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv',
   weeklyStats: (season) =>
@@ -65,7 +75,7 @@ const EXTRA_GSIS = ['00-0041239', '00-0041399'];
 /** Namesakes kept in the id map for ambiguity tests. */
 const EXTRA_SLEEPER_IN_IDMAP = ['13524'];
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
   options: {
     season: { type: 'string', default: '2025' },
     weeks: { type: 'string', default: '1,2' },
@@ -73,8 +83,10 @@ const { values } = parseArgs({
     sleeper: { type: 'boolean', default: false },
     nflverse: { type: 'boolean', default: false },
     scoring: { type: 'boolean', default: false },
-    'espn-summary': { type: 'string' }
-  }
+    'espn-summary': { type: 'string' },
+    'sleeper-app-projections': { type: 'string' }
+  },
+  allowPositionals: true
 });
 const season = Number(values.season);
 const weeks = values.weeks.split(',').map(Number);
@@ -284,7 +296,100 @@ async function recordEspnSummary(eventId) {
   console.log(`espn summary ${eventId}: ${kept.scoringPlays.length} scoring plays -> ${dir}`);
 }
 
-if (values['espn-summary'] !== undefined) {
+/** Fetches without throwing on an HTTP error, so a failing endpoint is recorded, not fatal. */
+async function tryGet(url) {
+  try {
+    const res = await fetch(url, { headers: { accept: 'application/json' } });
+    const text = await res.text();
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = undefined;
+    }
+    return { status: res.status, body, text: body === undefined ? text.slice(0, 500) : undefined };
+  } catch (error) {
+    return { status: null, body: undefined, text: String(error) };
+  }
+}
+
+const shapeOf = (body) => (body === null ? 'null' : Array.isArray(body) ? 'array' : typeof body);
+const NOT_A_PROJECTION = /^(pos_)?(adp|rank)_/;
+const projects = (stats) =>
+  stats !== null &&
+  typeof stats === 'object' &&
+  Object.entries(stats).some(([k, v]) => typeof v === 'number' && !NOT_A_PROJECTION.test(k));
+
+/** One week of projections from Sleeper's v1 endpoint and from its app's endpoint (#184). */
+async function recordProjectionSources(season, week) {
+  if (!Number.isInteger(season) || !Number.isInteger(week) || week < 1 || week > 18) {
+    throw new Error(
+      '--sleeper-app-projections takes a season and a week, e.g. --sleeper-app-projections 2026 4'
+    );
+  }
+  const dir = join(out, 'sleeper', 'projection-sources');
+  mkdirSync(dir, { recursive: true });
+  const positions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].map((p) => `position[]=${p}`).join('&');
+  const v1Url = `${SLEEPER}/v1/projections/nfl/regular/${season}/${week}`;
+  const appUrl = `${SLEEPER_APP}/projections/nfl/${season}/${week}?season_type=regular&${positions}`;
+  const [v1, app] = [await tryGet(v1Url), await tryGet(appUrl)];
+
+  const v1Entries = v1.body && typeof v1.body === 'object' && !Array.isArray(v1.body) ? v1.body : {};
+  writeJson(
+    join(dir, `v1_${season}_${week}.json`),
+    v1.body === undefined ? null : pick(v1Entries, PLAYER_IDS)
+  );
+
+  const rows = Array.isArray(app.body) ? app.body : [];
+  const ours = rows.filter((r) => PLAYER_IDS.includes(String(r?.player_id)));
+  writeJson(
+    join(dir, `app_${season}_${week}.json`),
+    app.body === undefined
+      ? null
+      : Array.isArray(app.body)
+        ? ours.length > 0
+          ? ours
+          : rows.slice(0, 10)
+        : app.body
+  );
+
+  const keys = (objects) =>
+    [...new Set(objects.flatMap((o) => (o && typeof o === 'object' ? Object.keys(o) : [])))].sort();
+  const summary = {
+    recordedAt: new Date().toISOString(),
+    season,
+    week,
+    v1: {
+      url: v1Url,
+      status: v1.status,
+      shape: shapeOf(v1.body),
+      entries: Object.keys(v1Entries).length,
+      withProjectedStats: Object.values(v1Entries).filter(projects).length,
+      statKeys: keys(Object.values(v1Entries)).slice(0, 80),
+      ...(v1.text !== undefined && { text: v1.text })
+    },
+    app: {
+      url: appUrl,
+      status: app.status,
+      shape: shapeOf(app.body),
+      rows: rows.length,
+      withProjectedStats: rows.filter((r) => projects(r?.stats)).length,
+      rowKeys: keys(rows),
+      statKeys: keys(rows.map((r) => r?.stats)).slice(0, 80),
+      weeks: [...new Set(rows.map((r) => r?.week))],
+      ...(app.text !== undefined && { text: app.text })
+    }
+  };
+  writeFileSync(join(dir, `summary_${season}_${week}.json`), JSON.stringify(summary, null, 2) + '\n');
+  console.log(
+    `projection sources ${season} week ${week}: v1 HTTP ${v1.status}, ${summary.v1.withProjectedStats}/${summary.v1.entries} entries with stats; ` +
+      `app HTTP ${app.status}, ${summary.app.withProjectedStats}/${summary.app.rows} rows with stats -> ${dir}`
+  );
+}
+
+if (values['sleeper-app-projections'] !== undefined) {
+  await recordProjectionSources(Number(values['sleeper-app-projections']), Number(positionals[0]));
+} else if (values['espn-summary'] !== undefined) {
   await recordEspnSummary(values['espn-summary']);
 } else if (values.scoring) {
   if (doNflverse) await recordScoringNflverse();

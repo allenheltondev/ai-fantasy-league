@@ -46,21 +46,24 @@ export async function ingestProjections(
   const weeks: Record<string, unknown>[] = [];
   for (const week of target.weeks) {
     const lines = inUniverse(await deps.provider.getWeekProjections(target.season, week, now), ids);
+    // Which Sleeper endpoint served the week (v1, or the app fallback, #184), for the data status.
+    const source = deps.provider.projectionSource?.(target.season, week);
+    const from = source === undefined ? {} : { source };
     if (lines.length === 0) {
-      weeks.push({ week, stored: false, reason: 'no_projections' });
+      weeks.push({ week, stored: false, reason: 'no_projections', ...from });
       continue;
     }
     const hash = projectionHash(lines);
     const latest = await deps.reference.projections.latestSnapshot(target.season, week, now);
     if (latest?.hash === hash) {
-      weeks.push({ week, stored: false, reason: 'unchanged' });
+      weeks.push({ week, stored: false, reason: 'unchanged', ...from });
       continue;
     }
     await deps.reference.projections.putSnapshot(
-      { season: target.season, week, capturedAt: now.toISOString(), hash, count: lines.length },
+      { season: target.season, week, capturedAt: now.toISOString(), hash, count: lines.length, ...from },
       lines
     );
-    weeks.push({ week, stored: true, count: lines.length });
+    weeks.push({ week, stored: true, count: lines.length, ...from });
   }
   const result: JobResult = { status: 'ok', season: target.season, weeks };
   deps.log.info('projections ingested', result);

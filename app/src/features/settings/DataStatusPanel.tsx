@@ -18,6 +18,9 @@ const SEASON_TYPES: Record<NonNullable<DataStatus['nflState']>['seasonType'], st
   off: 'offseason'
 };
 
+/** Which Sleeper endpoint served a projection snapshot (#184). */
+const PROJECTION_SOURCES: Record<'v1' | 'app', string> = { v1: 'v1', app: 'app (fallback)' };
+
 const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : '—');
 
 function RunCell({ run }: { run: DataJobRun | null }) {
@@ -115,6 +118,7 @@ export function DataStatusPanel({ leagueId }: { leagueId: string }) {
                 <th scope="col">Week</th>
                 <th scope="col">Projections</th>
                 <th scope="col">Captured</th>
+                <th scope="col">Source</th>
                 <th scope="col">Stat lines</th>
               </tr>
             </thead>
@@ -126,6 +130,7 @@ export function DataStatusPanel({ leagueId }: { leagueId: string }) {
                   </th>
                   <td>{w.projections === null ? 'None' : `${w.projections.count} players`}</td>
                   <td>{when(w.projections?.capturedAt)}</td>
+                  <td>{w.projections?.source ? PROJECTION_SOURCES[w.projections.source] : '—'}</td>
                   <td>{w.statLines}</td>
                 </tr>
               ))}

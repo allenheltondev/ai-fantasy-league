@@ -513,7 +513,8 @@ export interface DataStatus {
   weeks: {
     season: number;
     week: number;
-    projections: { capturedAt: string; count: number; hash: string } | null;
+    /** `source`: the Sleeper endpoint that served the snapshot (#184); null before it was recorded. */
+    projections: { capturedAt: string; count: number; hash: string; source?: 'v1' | 'app' | null } | null;
     statLines: number;
   }[];
   research: { stats: DataSeasonSet | null; projections: DataSeasonSet | null };

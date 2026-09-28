@@ -61,6 +61,17 @@ export const fixtureRoute: Route = (url) => {
       return json(null);
     }
   }
+  // api.sleeper.com projections (the #184 fallback): a hand-authored week, or an empty list.
+  const app = url.host === 'api.sleeper.com' ? /^\/projections\/nfl\/(\d+)\/(\d+)$/.exec(p) : null;
+  if (app) {
+    try {
+      return new Response(
+        fixtureText(`sleeper/projection-sources/hand-authored/app_${app[1]}_${app[2]}.json`)
+      );
+    } catch {
+      return json([]);
+    }
+  }
   const trending = /^\/v1\/players\/nfl\/trending\/(add|drop)$/.exec(p);
   if (trending) return new Response(fixtureText(`sleeper/trending_${trending[1]}.json`));
   if (p.endsWith('/db_playerids.csv')) return text(fixtureText('nflverse/db_playerids.csv'));

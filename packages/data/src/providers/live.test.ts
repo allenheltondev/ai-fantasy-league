@@ -54,6 +54,22 @@ describe('LiveDataProvider (mocked Sleeper + nflverse)', () => {
     });
   });
 
+  it('records which endpoint served each projection week (#184)', async () => {
+    const { provider, calls } = live();
+    expect(provider.projectionSource(2025, 1)).toBeUndefined();
+    await provider.getWeekProjections(2025, 1, asOf);
+    expect(provider.projectionSource(2025, 1)).toBe('v1');
+    // 2026 week 1 has no v1 fixture (null), so the app endpoint's recorded rows serve it.
+    const lines = await provider.getWeekProjections(2026, 1, asOf);
+    expect(provider.projectionSource(2026, 1)).toBe('app');
+    expect(calls.at(-1)).toMatch(/^https:\/\/api\.sleeper\.com\/projections\/nfl\/2026\/1\?/);
+    expect(lines.find((l) => l.playerId === '6904')).toMatchObject({
+      season: 2026,
+      week: 1,
+      stats: { pass_yd: 258.4 }
+    });
+  });
+
   it('reconciles the Sleeper week with nflverse for the official final', async () => {
     const { provider } = live();
     const sleeper = await provider.getWeekStats(2025, 1, asOf);

@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      app_projections:
+        description: Also record one week of projections from both Sleeper endpoints (v1 and api.sleeper.com, #184) as "<season> <week>", e.g. "2026 4" (optional)
+        required: false
+        type: string
+        default: ''
       espn_event:
         description: Also record ESPN's game summary (scoring plays) for this ESPN event id (optional, uploaded only)
         required: false
@@ -82,6 +87,20 @@ jobs:
           SEASON: ${{ inputs.season }}
           WEEKS: ${{ inputs.scoring_weeks }}
         run: node scripts/record-fixtures.mjs --scoring --sleeper --season "$SEASON" --weeks "$WEEKS" --out recorded/fixtures
+      - name: Record both Sleeper projection endpoints
+        # The raw v1 and app (api.sleeper.com) responses for one week, plus a summary of each
+        # (status, counts, keys), to fixtures/sleeper/projection-sources/ (#184).
+        if: ${{ inputs.app_projections != '' }}
+        env:
+          APP_PROJECTIONS: ${{ inputs.app_projections }}
+        run: |
+          read -r SEASON WEEK <<< "$APP_PROJECTIONS"
+          node scripts/record-fixtures.mjs --sleeper-app-projections "$SEASON" "$WEEK" --out recorded/fixtures
+          {
+            echo '```json'
+            cat "recorded/fixtures/sleeper/projection-sources/summary_${SEASON}_${WEEK}.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Record an ESPN game summary
         # The scoring plays fixture (#164), hand-written until a live payload is recorded.
         if: ${{ inputs.espn_event != '' }}

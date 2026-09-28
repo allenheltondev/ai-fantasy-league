@@ -73,6 +73,31 @@ describe('syncSeasonResearch', () => {
     expect(await deps.reference.seasons.getMeta('stats', 2025)).toMatchObject({ weeks: [1, 2] });
   });
 
+  it('reports which Sleeper endpoint served each projection week (#184)', async () => {
+    const { provider, deps } = await setup(PRESEASON_2026);
+    provider.projections[1] = [line('1', 2026, 1, { rec: 4 })];
+    provider.projectionSources = Object.fromEntries(
+      Array.from({ length: 18 }, (_, i) => [i + 1, i < 3 ? 'v1' : 'app'] as const)
+    );
+    const result = await syncSeasonResearch(deps, deps.clock);
+    expect(result.sets).toEqual([
+      { kind: 'stats', season: 2025, stored: false, reason: 'no_data' },
+      {
+        kind: 'projections',
+        season: 2026,
+        stored: true,
+        players: 1,
+        weeks: 1,
+        sources: { v1: [1, 2, 3], app: Array.from({ length: 15 }, (_, i) => i + 4) }
+      }
+    ]);
+    const s = await syncSeasonResearch(deps, new FixedClock('2026-08-21T12:00:00.000Z'));
+    expect(s.sets).toMatchObject([{}, { reason: 'unchanged', sources: { v1: [1, 2, 3] } }]);
+    provider.projections = {};
+    const empty = await syncSeasonResearch(deps, new FixedClock('2026-08-22T12:00:00.000Z'));
+    expect(empty.sets).toMatchObject([{}, { reason: 'no_data', sources: { v1: [1, 2, 3] } }]);
+  });
+
   it('pulls final stats once, and projections daily in the preseason when they change', async () => {
     const { provider, deps } = await setup(PRESEASON_2026);
     provider.weekly = Object.fromEntries(
