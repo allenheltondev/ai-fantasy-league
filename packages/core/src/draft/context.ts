@@ -137,12 +137,15 @@ export function positionScarcity<P extends Position>(
   available: readonly DraftablePlayer[],
   gone: readonly string[],
   positions: readonly P[],
-  top: number
+  top: number,
+  /** Positions counted across the whole pool instead: ones the ranking leaves out (team defenses). */
+  unranked: readonly P[] = []
 ): PositionScarcity<P>[] {
   const best = available.slice(0, Math.max(0, top));
   const goneSet = new Set(gone);
   return positions.map((position) => {
-    const at = best.filter((p) => p.positions[0] === position);
+    const from = unranked.includes(position) ? available : best;
+    const at = from.filter((p) => p.positions[0] === position);
     return { position, left: at.length, likelyGone: at.filter((p) => goneSet.has(p.playerId)).length };
   });
 }

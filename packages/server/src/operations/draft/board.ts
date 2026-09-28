@@ -324,7 +324,14 @@ export async function buildBoard(
     bestAvailable: available,
     yourRoster: yourTeamId === null ? null : yourRosterView(state, yourTeamId, input.settings, ref),
     likelyGone: gone.map((id) => ref(id, [])),
-    scarcity: positionScarcity(undrafted.map(draftable), gone, OFFENSE_POSITIONS, SCARCITY_TOP)
+    scarcity: positionScarcity(
+      undrafted.map(draftable),
+      gone,
+      OFFENSE_POSITIONS,
+      SCARCITY_TOP,
+      // Sleeper ranks no team defense, so none is ever in the top 100: count every one still there.
+      OFFENSE_POSITIONS.filter((pos) => !undrafted.some((p) => p.position === pos && p.rank !== null))
+    )
   };
 }
 

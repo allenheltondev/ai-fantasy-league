@@ -193,6 +193,17 @@ describe('positionScarcity', () => {
     ]);
   });
 
+  it('counts an unranked position (team defenses) across the whole pool, not just the top n', () => {
+    const players = (['WR', 'WR', 'DEF', 'DEF', 'DEF'] as const).map((p, i) => ({
+      playerId: `p${i}`,
+      positions: [p]
+    }));
+    expect(positionScarcity(players, ['p2'], ['WR', 'DEF'], 2, ['DEF'])).toEqual([
+      { position: 'WR', left: 2, likelyGone: 0 },
+      { position: 'DEF', left: 3, likelyGone: 1 }
+    ]);
+  });
+
   it('never counts more than the top n, nor more gone than left', () => {
     fc.assert(
       fc.property(
