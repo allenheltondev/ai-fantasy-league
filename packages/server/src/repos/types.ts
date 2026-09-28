@@ -109,6 +109,16 @@ export interface LeagueDeadlines {
   nextWaiverRunAt: string | null;
   /** When the trade deadline passes (kickoff of `trades.deadlineWeek`). */
   tradeDeadlineAt: string | null;
+  /**
+   * The current week's kickoff times, earliest first (written at each rollover). `preLock` and the
+   * next lineup lock are derived from them, so they move on after Thursday night.
+   */
+  lineupLocksAt?: string[];
+  /**
+   * With `waivers.postDraftPlayers: waivers`, every undrafted player is on waivers until this
+   * waiver run (the first after the draft). Absent or null otherwise.
+   */
+  postDraftWaiversUntil?: string | null;
 }
 
 export interface League {

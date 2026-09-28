@@ -53,6 +53,20 @@ export function firstKickoff(games: readonly WeekGame[]): string | null {
   return gameWindows(games)[0]?.startsAt ?? null;
 }
 
+/** The week's distinct kickoff times, earliest first: each one locks the players in its games. */
+export function kickoffTimes(games: readonly WeekGame[]): string[] {
+  return [...new Set(games.map((g) => instantMs(g.kickoff)))]
+    .sort((a, b) => a - b)
+    .map((ms) => new Date(ms).toISOString());
+}
+
+/** The first of `kickoffs` still in the future at `now`, or null once every one has passed. */
+export function nextKickoff(kickoffs: readonly Instant[], now: Instant): string | null {
+  const at = instantMs(now);
+  const next = kickoffs.map(instantMs).filter((ms) => ms > at);
+  return next.length === 0 ? null : new Date(Math.min(...next)).toISOString();
+}
+
 /**
  * When the week's last game is over (usually the Monday night game): its kickoff plus
  * `gameDurationMs`. Null when there are no games.
@@ -159,4 +173,55 @@ export function playoffMatchups(
       .filter((g) => g.week === week && g.home.teamId !== null && g.away.teamId !== null)
       .map((g) => ({ homeTeamId: g.home.teamId as string, awayTeamId: g.away.teamId as string }))
   );
+}
+
+/** A scored game, as the weekly recap sees it. */
+export interface ScoredGame {
+  homeTeamId: string;
+  awayTeamId: string;
+  homeScore: number | null;
+  awayScore: number | null;
+}
+
+/** The recap of a finished week: its top-scoring team and its biggest winning margin. */
+export interface WeekHighlights {
+  topTeamId: string | null;
+  topScore: number | null;
+  blowout: { winnerTeamId: string; loserTeamId: string; margin: number } | null;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * The week's top score (ties go to the lower team id, so the recap is deterministic) and its
+ * biggest blowout (ties go to the earlier game). Unscored sides are ignored; a tie game is no
+ * blowout.
+ */
+export function weekHighlights(games: readonly ScoredGame[]): WeekHighlights {
+  let top: { teamId: string; score: number } | null = null;
+  let blowout: WeekHighlights['blowout'] = null;
+  for (const g of games) {
+    for (const [teamId, score] of [
+      [g.homeTeamId, g.homeScore],
+      [g.awayTeamId, g.awayScore]
+    ] as const) {
+      if (score === null) continue;
+      if (top === null || score > top.score || (score === top.score && teamId < top.teamId))
+        top = { teamId, score };
+    }
+    if (g.homeScore === null || g.awayScore === null || g.homeScore === g.awayScore) continue;
+    const margin = round2(Math.abs(g.homeScore - g.awayScore));
+    if (blowout !== null && margin <= blowout.margin) continue;
+    const homeWon = g.homeScore > g.awayScore;
+    blowout = {
+      winnerTeamId: homeWon ? g.homeTeamId : g.awayTeamId,
+      loserTeamId: homeWon ? g.awayTeamId : g.homeTeamId,
+      margin
+    };
+  }
+  return {
+    topTeamId: top === null ? null : top.teamId,
+    topScore: top === null ? null : round2(top.score),
+    blowout
+  };
 }

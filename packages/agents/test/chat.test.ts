@@ -331,7 +331,7 @@ describe('routing chat triggers', () => {
       id: 'e4',
       'detail-type': 'Player News Alert',
       source: 'fantasy',
-      detail: { playerId: 'rb1', rosteredBy: [{ leagueId: LEAGUE_ID, teamId: 'team-2' }] }
+      detail: { playerIds: ['rb1'], rosteredBy: [{ leagueId: LEAGUE_ID, teamId: 'team-2' }] }
     });
     expect(news.map((d) => d.decision)).toEqual(['requested']);
   });

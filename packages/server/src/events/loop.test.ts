@@ -13,6 +13,18 @@ import { EventLoop, type EventSubscriber, type LoopClock } from './loop.js';
 import { InMemoryEventPublisher } from './publisher.js';
 import { serverSubscribers } from './subscribers.js';
 
+/** The publisher without the event contracts, so tests can publish arbitrary details. */
+interface LoosePublisher {
+  publish(detailType: string, detail: Record<string, unknown>): Promise<void>;
+  scheduleAt(request: {
+    at: Date;
+    name?: string;
+    whenPast?: 'send' | 'skip' | 'error';
+    event: { detailType: string; detail: Record<string, unknown> };
+  }): Promise<void>;
+}
+const loose = (publisher: InMemoryEventPublisher) => publisher as unknown as LoosePublisher;
+
 /** A clock the loop can move, like the simulator's. */
 class MovableClock implements LoopClock {
   constructor(private t: number) {}
@@ -50,13 +62,13 @@ describe('EventLoop', () => {
       name: 'chain',
       detailTypes: ['League Created'],
       handle: async () => {
-        await publisher.publish('Draft Pick Made', { n: 1 });
+        await loose(publisher).publish('Draft Pick Made', { n: 1 });
       }
     };
     const loop = new EventLoop({ publisher, clock, subscribers: [chain, all.subscriber] });
     loop.subscribe(only.subscriber);
-    await publisher.publish('League Created', {});
-    await publisher.publish('Member Joined', {});
+    await loose(publisher).publish('League Created', {});
+    await loose(publisher).publish('Member Joined', {});
     expect(await loop.drain()).toBe(3);
     expect(all.seen.map((s) => [s.id, s.type])).toEqual([
       ['evt-0', 'League Created'],
@@ -81,7 +93,7 @@ describe('EventLoop', () => {
       onFailure: (f) => failures.push(f.handler)
     });
     const schedule = (name: string | undefined, minutes: number, whenPast?: 'send' | 'skip' | 'error') =>
-      publisher.scheduleAt({
+      loose(publisher).scheduleAt({
         at: at(minutes),
         ...(name === undefined ? {} : { name }),
         ...(whenPast === undefined ? {} : { whenPast }),
@@ -123,7 +135,7 @@ describe('EventLoop', () => {
           next: nextRunFn('rate(10 minutes)'),
           run: async (now) => {
             runs.push(now.toISOString());
-            await publisher.publish('Scores Updated', {});
+            await loose(publisher).publish('Scores Updated', {});
           }
         },
         {
@@ -158,9 +170,9 @@ describe('EventLoop', () => {
       publisher,
       clock: new MovableClock(T0),
       maxEventsPerDrain: 5,
-      subscribers: [{ name: 'echo', handle: () => publisher.publish('Scores Updated', {}) }]
+      subscribers: [{ name: 'echo', handle: () => loose(publisher).publish('Scores Updated', {}) }]
     });
-    await publisher.publish('Scores Updated', {});
+    await loose(publisher).publish('Scores Updated', {});
     await expect(loop.drain()).rejects.toThrow(/without settling/);
   });
 
@@ -174,12 +186,12 @@ describe('EventLoop', () => {
       const loop = new EventLoop({ publisher, clock: systemClock, subscribers: [subscriber], log });
       loop.start(100);
       loop.start(100); // already running
-      await publisher.publish('League Created', {});
+      await loose(publisher).publish('League Created', {});
       await vi.advanceTimersByTimeAsync(250);
       expect(seen).toHaveLength(1);
       // A tick that throws is logged, and the loop keeps ticking.
-      loop.subscribe({ name: 'loop', handle: () => publisher.publish('League Created', {}) });
-      await publisher.publish('League Created', {});
+      loop.subscribe({ name: 'loop', handle: () => loose(publisher).publish('League Created', {}) });
+      await loose(publisher).publish('League Created', {});
       await vi.advanceTimersByTimeAsync(100);
       await loop.stop();
       expect(errors).toContain('event loop tick failed');

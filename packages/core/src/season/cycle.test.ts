@@ -8,11 +8,52 @@ import {
   applyLineupMoves,
   firstKickoff,
   gameWindows,
+  kickoffTimes,
+  nextKickoff,
   nextLeagueWeek,
   playoffMatchups,
   reconcileLineup,
-  weekEndsAt
+  weekEndsAt,
+  weekHighlights
 } from './cycle.js';
+
+describe('kickoffTimes and nextKickoff', () => {
+  const week = [
+    { kickoff: '2026-09-13T17:00:00.000Z', homeTeam: 'NYG', awayTeam: 'DAL' },
+    { kickoff: '2026-09-13T17:00:00.000Z', homeTeam: 'CHI', awayTeam: 'DET' },
+    { kickoff: '2026-09-11T00:15:00.000Z', homeTeam: 'KC', awayTeam: 'BAL' },
+    { kickoff: '2026-09-13T20:25:00.000Z', homeTeam: 'SEA', awayTeam: 'LAR' }
+  ];
+
+  it('lists distinct kickoffs in order and finds the next one still ahead', () => {
+    const kickoffs = kickoffTimes(week);
+    expect(kickoffs).toEqual([
+      '2026-09-11T00:15:00.000Z',
+      '2026-09-13T17:00:00.000Z',
+      '2026-09-13T20:25:00.000Z'
+    ]);
+    expect(nextKickoff(kickoffs, '2026-09-01T00:00:00.000Z')).toBe(kickoffs[0]);
+    expect(nextKickoff(kickoffs, '2026-09-11T00:15:00.000Z')).toBe(kickoffs[1]);
+    expect(nextKickoff(kickoffs, '2026-09-13T20:25:00.000Z')).toBeNull();
+    expect(kickoffTimes([])).toEqual([]);
+  });
+
+  it('nextKickoff is the smallest kickoff after now', () => {
+    const iso = (n: number) => new Date(Date.UTC(2026, 8, 10) + n * 60_000).toISOString();
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: 0, max: 1000 }), { maxLength: 10 }),
+        fc.integer({ min: -1, max: 1001 }),
+        (offsets, at) => {
+          const after = offsets.filter((o) => o > at);
+          expect(nextKickoff(offsets.map(iso), iso(at))).toBe(
+            after.length === 0 ? null : iso(Math.min(...after))
+          );
+        }
+      )
+    );
+  });
+});
 
 const game = (kickoff: string, homeTeam: string, awayTeam: string) => ({ kickoff, homeTeam, awayTeam });
 
@@ -188,5 +229,57 @@ describe('playoffMatchups', () => {
   it('fails when the standings cannot fill the bracket or a week is missing', () => {
     expect(playoffMatchups(settings, final.slice(0, 3), [], 15).ok).toBe(false);
     expect(playoffMatchups(settings, final, [{ week: 15, results: [] }], 16).ok).toBe(false);
+  });
+});
+
+describe('weekHighlights', () => {
+  const game = (home: string, away: string, homeScore: number | null, awayScore: number | null) => ({
+    homeTeamId: home,
+    awayTeamId: away,
+    homeScore,
+    awayScore
+  });
+
+  it('finds the top score and the biggest blowout', () => {
+    expect(
+      weekHighlights([game('t1', 't2', 101.456, 99), game('t3', 't4', 70, 130.2), game('t5', 't6', 88, 88)])
+    ).toEqual({
+      topTeamId: 't4',
+      topScore: 130.2,
+      blowout: { winnerTeamId: 't4', loserTeamId: 't3', margin: 60.2 }
+    });
+  });
+
+  it('breaks ties deterministically and ignores unscored games', () => {
+    expect(weekHighlights([game('t2', 't1', 90, 90), game('t3', 't4', null, 95)])).toEqual({
+      topTeamId: 't4',
+      topScore: 95,
+      blowout: null
+    });
+    expect(weekHighlights([game('t2', 't1', 90, 80), game('t3', 't4', 90, 80)])).toEqual({
+      topTeamId: 't2',
+      topScore: 90,
+      blowout: { winnerTeamId: 't2', loserTeamId: 't1', margin: 10 }
+    });
+    expect(weekHighlights([])).toEqual({ topTeamId: null, topScore: null, blowout: null });
+  });
+
+  it('property: the top score is at least every scored side, and the blowout margin is the largest', () => {
+    const score = fc.option(
+      fc.integer({ min: 0, max: 20000 }).map((n) => n / 100),
+      { nil: null }
+    );
+    fc.assert(
+      fc.property(fc.array(fc.tuple(score, score), { maxLength: 8 }), (pairs) => {
+        const games = pairs.map(([h, a], i) => game(`h${i}`, `a${i}`, h, a));
+        const result = weekHighlights(games);
+        const scores = pairs.flat().filter((s): s is number => s !== null);
+        expect(result.topScore).toBe(scores.length === 0 ? null : Math.max(...scores));
+        const margins = pairs
+          .filter(([h, a]) => h !== null && a !== null && h !== a)
+          .map(([h, a]) => Math.round(Math.abs((h as number) - (a as number)) * 100) / 100);
+        expect(result.blowout?.margin ?? null).toBe(margins.length === 0 ? null : Math.max(...margins));
+      })
+    );
   });
 });

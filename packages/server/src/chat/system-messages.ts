@@ -65,6 +65,7 @@ async function post(
     text: rendered.text,
     mentionedTeamIds: [],
     event: { detailType, eventId: event.id },
+    ...(rendered.players.length === 0 ? {} : { players: rendered.players }),
     createdAt: eventTime(event, services.clock.now())
   };
   if (!(await services.repos.chat.put(message))) return { status: 'duplicate', messageId: message.id };
