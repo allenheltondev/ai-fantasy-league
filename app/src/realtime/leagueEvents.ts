@@ -58,7 +58,17 @@ export function parseEventItem(raw: string): LeagueEvent | null {
   }
 }
 
+declare global {
+  interface Window {
+    /** Dev builds only: a stand-in for Momento that e2e tests install to push events (see below). */
+    __fantasyEvents?: EventConnect;
+  }
+}
+
 export const connectMomentoEvents: EventConnect = async (target, handlers) => {
+  // The e2e suite runs the dev server and cannot reach Momento, so a page script may stand in for
+  // it there and push events. Production builds drop this branch (`import.meta.env.DEV` is false).
+  if (import.meta.env.DEV && window.__fantasyEvents) return window.__fantasyEvents(target, handlers);
   const sdk = await import('@gomomento/sdk-web');
   const client = new sdk.TopicClient({
     configuration: sdk.TopicConfigurations.Browser.latest(),

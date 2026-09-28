@@ -116,6 +116,20 @@ describe('league event helpers', () => {
     // The first topic's subscription is closed when the second fails.
     expect(sdk.__state.subs[0]?.unsubscribe).toHaveBeenCalled();
   });
+
+  it('lets a dev-build page script stand in for Momento (the e2e suite pushes events this way)', async () => {
+    const close = vi.fn();
+    const standIn = vi.fn<EventConnect>(async () => close);
+    window.__fantasyEvents = standIn;
+    try {
+      const target = { token: 't', cacheName: 'c', topics: ['a'] };
+      const handlers = { onEvent: vi.fn(), onError: vi.fn() };
+      expect(await connectMomentoEvents(target, handlers)).toBe(close);
+      expect(standIn).toHaveBeenCalledWith(target, handlers);
+    } finally {
+      delete window.__fantasyEvents;
+    }
+  });
 });
 
 function fakeConnect() {

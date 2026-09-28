@@ -113,6 +113,7 @@ has a 90-day `ttl`.
 | NFL state | `NFLSTATE` | `CURRENT` | none | Season and week. Drives week rollover. Written conditionally on its `revision` (`<season>:<seasonType>:<week>`), so a rollover is announced once. |
 | NFL schedule | `NFLSCHED#<season>#W05` | `GAME#<kickoff>#<gameId>` | none | Per-player lineup locks at kickoff, and the game windows for live scoring. A flexed game leaves a stale copy under its old kickoff; reads keep the most recently synced copy of each game id. |
 | Season schedule | `NFLSCHED#<season>` | `SEASON` | none | Bye weeks, game count, and when the schedule was synced. |
+| Live NFL games | `NFLGAMES#<season>` | `W05` | none | The latest read of ESPN's scoreboard for the week (scores, status, possession, red zone), replaced on every live-scoring run. Possession and the red zone are only served while the read is under 10 minutes old. 14-day `ttl`. |
 
 ### Operational records
 
@@ -134,6 +135,7 @@ has a 90-day `ttl`.
 | `get_roster` | GetItem `ROSTER#<teamId>` |
 | `get_standings` | Query `STANDINGS#`, reverse, limit 1 |
 | `get_matchup`, `get_matchup_outlook` | Query `MATCHUP#W05#`, plus lineups and projections |
+| `get_nfl_games` | Query `NFLSCHED#<season>#W05`, plus GetItem `NFLGAMES#<season>` / `W05` |
 | `search_players`, `get_player` (by name) | In-memory index from GSI1 `PLAYERIDX#<pos>` |
 | `get_player` (by id) | GetItem `PLAYER#id` / `PROFILE` |
 | `get_projections` | Latest `PROJ#…` pointer as of now, then the snapshot partition (or GetItem for one player) |
