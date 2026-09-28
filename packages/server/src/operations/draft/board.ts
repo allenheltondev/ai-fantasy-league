@@ -10,6 +10,7 @@ import {
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { draftPool, draftRecapOf, secondsLeft } from '../../league/draft.js';
+import { leagueManagers, teamManager, TeamManagerSchema } from '../../league/managers.js';
 import { SEAT_TYPES, DRAFT_STATUSES, type DraftRecord, type Team } from '../../repos/types.js';
 import { matchPlayers } from '../../players/match.js';
 import { loadResearch, type Research } from '../../players/research.js';
@@ -61,7 +62,14 @@ export const DraftBoardSchema = z.object({
   startedAt: z.string(),
   completedAt: z.string().nullable(),
   order: z
-    .array(z.object({ teamId: z.string(), teamName: z.string(), seatType: z.enum(SEAT_TYPES) }))
+    .array(
+      z.object({
+        teamId: z.string(),
+        teamName: z.string(),
+        seatType: z.enum(SEAT_TYPES),
+        manager: TeamManagerSchema
+      })
+    )
     .describe('Round-1 order. Even rounds run in reverse (snake).'),
   onTheClock: OnTheClockSchema.nullable().describe('Null once the draft is complete.'),
   yourTeamId: z.string().nullable(),
@@ -176,6 +184,7 @@ export async function buildBoard(
   const now = ctx.clock.now();
   const name = (id: string) => teams.find((t) => t.id === id)?.name ?? id;
   const pool = await draftPool(ctx);
+  const managers = await leagueManagers(ctx, record.leagueId, teams);
   const players = new Map((await ctx.data.players.all()).map((p) => [p.id, p]));
   const byes = (await ctx.data.reference.schedule.getSeason(input.season))?.byes ?? {};
   const byeOf = (id: string) => {
@@ -230,7 +239,8 @@ export async function buildBoard(
     order: state.teamIds.map((teamId) => ({
       teamId,
       teamName: name(teamId),
-      seatType: teams.find((t) => t.id === teamId)?.seatType ?? 'agent'
+      seatType: teams.find((t) => t.id === teamId)?.seatType ?? 'agent',
+      manager: teamManager(managers, teamId)
     })),
     onTheClock:
       slot === null

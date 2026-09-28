@@ -202,6 +202,42 @@ describe('settings: AI managers', () => {
       })
     ).toEqual({ personalityId: 'p1', difficulty: 'pro', archetype: '' });
   });
+
+  it("fills in the manager's name and avatar from the seat when the config has none (#159)", () => {
+    const view = {
+      seat: {
+        teamId: 'team-4',
+        manager: { name: 'Ana Soto', avatarSeed: 'ana' },
+        personality: catalog().personalities[1]!,
+        difficulty: { id: 'pro', displayName: 'Pro' }
+      },
+      commissioner: null
+    };
+    expect(seatConfig(view)).toMatchObject({ name: 'Ana Soto', avatarSeed: 'ana' });
+    const stored = { personalityId: 'p1', difficulty: 'pro', archetype: 'balanced', name: 'Ravi Park' };
+    expect(
+      seatConfig({ ...view, commissioner: { current: { version: 3, config: stored }, history: [] } })
+    ).toEqual({
+      ...stored,
+      avatarSeed: 'ana'
+    });
+  });
+
+  it('renames a manager through configure_agent_seat (#159)', async () => {
+    const user = userEvent.setup();
+    const api = await open();
+    const card = await screen.findByTestId('agent-card');
+    await user.click(within(card).getByRole('button', { name: /^Rename / }));
+    const input = within(card).getByLabelText('Manager name');
+    await user.clear(input);
+    await user.type(input, 'Imani Brooks{Enter}');
+    expect(api.configureAgentSeat).toHaveBeenCalledWith(
+      'L1',
+      'team-4',
+      expect.objectContaining({ name: 'Imani Brooks' })
+    );
+    expect(await within(card).findByRole('heading', { name: 'Imani Brooks' })).toBeInTheDocument();
+  });
 });
 
 describe('settings: invites', () => {

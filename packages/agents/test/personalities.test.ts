@@ -40,7 +40,7 @@ describe('personality prompts', () => {
       const chat = prompt(p.id, CHAT);
       const decision = prompt(p.id, DECISION);
       for (const text of [chat, decision]) {
-        expect(text).toContain(`You are "${p.displayName}"`);
+        expect(text).toContain(`You play the part of "${p.displayName}"`);
         expect(text).toContain(`Voice: ${p.voice}`);
         expect(text).toContain(p.sampleLines[0]);
       }

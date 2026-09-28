@@ -1,5 +1,7 @@
 /** The `get_draft_board` response (packages/server/src/operations/draft/board.ts). */
 
+import type { Manager } from '../api/types';
+
 export interface PlayerRef {
   id: string;
   name: string;
@@ -19,7 +21,7 @@ export interface DraftBoard {
   pickSeconds: number;
   startedAt: string;
   completedAt: string | null;
-  order: { teamId: string; teamName: string; seatType: 'human' | 'agent' }[];
+  order: { teamId: string; teamName: string; seatType: 'human' | 'agent'; manager?: Manager | null }[];
   onTheClock:
     | (DraftSlot & { teamId: string; teamName: string; deadline: string | null; secondsLeft: number | null })
     | null;

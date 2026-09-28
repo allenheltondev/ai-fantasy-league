@@ -13,15 +13,23 @@ interface Seat {
   config: AgentSeatConfig | null;
 }
 
-/** The config a seat shows: the commissioner's full config, or the public persona for everyone else. */
+/**
+ * The config a seat shows: the commissioner's full config, or the public persona for everyone else,
+ * with the manager's name and avatar (#159) filled in from the seat when the config has none yet.
+ */
 export function seatConfig(view: AgentSeatView): AgentSeatConfig {
-  return (
-    view.commissioner?.current.config ?? {
-      personalityId: view.seat.personality.id,
-      difficulty: view.seat.difficulty.id,
-      archetype: ''
-    }
-  );
+  const config = view.commissioner?.current.config ?? {
+    personalityId: view.seat.personality.id,
+    difficulty: view.seat.difficulty.id,
+    archetype: ''
+  };
+  const manager = view.seat.manager;
+  if (manager === undefined) return config;
+  return {
+    ...config,
+    name: config.name ?? manager.name,
+    avatarSeed: config.avatarSeed ?? manager.avatarSeed
+  };
 }
 
 async function loadSeats(api: LeagueApi, leagueId: string, teams: TeamDetail[]) {

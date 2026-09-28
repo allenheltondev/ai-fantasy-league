@@ -27,7 +27,7 @@ interface Board {
   onTheClock: { overall: number; teamId: string; teamName: string; deadline: string | null } | null;
   yourNextPick: { picksAway: number } | null;
   yourNeeds: string[];
-  order: { teamId: string }[];
+  order: { teamId: string; manager: { name: string } | null }[];
   picks: {
     overall: number;
     teamId: string;
@@ -150,6 +150,11 @@ describe('draft over HTTP (dynalite)', () => {
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const started = data<Board>(res);
     expect(started.order.map((o) => o.teamId)).toEqual(order);
+    // AI teams show their manager (#159); people's teams show none.
+    expect(started.order[0]?.manager).toBeNull();
+    const agentNames = started.order.slice(2).map((o) => o.manager?.name);
+    expect(agentNames.every((n) => typeof n === 'string' && n.length > 0)).toBe(true);
+    expect(new Set(agentNames).size).toBe(agentNames.length);
     expect(started.onTheClock).toMatchObject({ overall: 1, teamId: 'team-2', teamName: "Bob's Team" });
     expect(started.yourNextPick).toMatchObject({ overall: 2, picksAway: 1 });
     expect(started.bestAvailable[0]?.player.id).toBe('fx-chase');

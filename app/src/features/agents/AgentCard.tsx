@@ -1,44 +1,175 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button, Card, CardBody, Drawer, Input, Select, StatusBadge, TextArea } from '@readysetcloud/ui';
 import type { AgentCatalog, AgentLevers, AgentSeatConfig } from '../../api/types';
 import { AgentAvatar } from '../../components/AgentAvatar';
-import { difficultyTone, withAdvanced } from './agentConfig';
+import {
+  MANAGER_NAME_MAX,
+  difficultyTone,
+  managerNameError,
+  rollAvatarSeed,
+  rollManagerName,
+  withAdvanced
+} from './agentConfig';
 
 export interface AgentCardProps {
   /** Which seat this is, e.g. "Seat 3". */
   seatLabel: string;
   config: AgentSeatConfig;
   catalog: AgentCatalog;
+  /** Names the other seats use: a new or rerolled name must differ from them. */
+  takenNames?: readonly string[];
   /** Leave out for a read-only card. */
   onChange?: (config: AgentSeatConfig) => void;
   onShuffle?: () => void;
   busy?: boolean;
 }
 
-/** One AI manager: who it is, how good it is, and the controls to change either. */
-export function AgentCard({ seatLabel, config, catalog, onChange, onShuffle, busy = false }: AgentCardProps) {
+/** The manager's name: the seat's own (#159), else its personality's title for older seats. */
+export function managerName(config: AgentSeatConfig, catalog: AgentCatalog): string {
+  return (
+    config.name ??
+    catalog.personalities.find((p) => p.id === config.personalityId)?.displayName ??
+    config.personalityId
+  );
+}
+
+/** A 44px square icon button (32px from `sm` up) with an accessible name. */
+function IconButton({
+  label,
+  disabled,
+  onClick,
+  children
+}: {
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="min-w-11 shrink-0 px-2"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        width={18}
+        height={18}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        {children}
+      </svg>
+    </Button>
+  );
+}
+
+const DICE = (
+  <>
+    <rect x="3" y="3" width="18" height="18" rx="3" />
+    <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+    <circle cx="16" cy="16" r="1.2" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+  </>
+);
+const PENCIL = <path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" strokeLinejoin="round" />;
+const REFRESH = <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" strokeLinecap="round" strokeLinejoin="round" />;
+
+/** One AI manager: its name and avatar, who it plays, how good it is, and the controls to change them. */
+export function AgentCard({
+  seatLabel,
+  config,
+  catalog,
+  takenNames = [],
+  onChange,
+  onShuffle,
+  busy = false
+}: AgentCardProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const personality = catalog.personalities.find((p) => p.id === config.personalityId);
   const difficulty = catalog.difficulties.find((d) => d.id === config.difficulty);
   const archetype = catalog.archetypes.find((a) => a.id === config.archetype);
-  const name = personality?.displayName ?? config.personalityId;
+  const name = managerName(config, catalog);
+  const personalityName = personality?.displayName ?? config.personalityId;
+  const canRoll = catalog.managerNames !== undefined;
 
   return (
     <Card data-testid="agent-card" aria-label={`${seatLabel}: ${name}`} className="min-w-0">
       <CardBody className="space-y-3">
         <div className="flex items-start gap-3">
-          <AgentAvatar seed={personality?.avatarSeed ?? config.personalityId} label={`${name} avatar`} />
+          <div className="flex shrink-0 flex-col items-center gap-1">
+            <AgentAvatar
+              seed={config.avatarSeed ?? personality?.avatarSeed ?? config.personalityId}
+              label={`${name} avatar`}
+            />
+            {onChange && (
+              <IconButton
+                label={`New avatar for ${name}`}
+                disabled={busy}
+                onClick={() => onChange({ ...config, avatarSeed: rollAvatarSeed() })}
+              >
+                {REFRESH}
+              </IconButton>
+            )}
+          </div>
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{seatLabel}</p>
-            <h3 className="break-words font-display text-base font-semibold leading-tight sm:text-lg">
-              {name}
-            </h3>
-            <p
-              className="line-clamp-2 text-sm text-muted-foreground sm:line-clamp-1"
-              title={personality?.bio}
-            >
-              {personality?.bio}
-            </p>
+            {onChange && editing ? (
+              <NameEditor
+                seatLabel={seatLabel}
+                initial={config.name ?? ''}
+                takenNames={takenNames}
+                onCancel={() => setEditing(false)}
+                onSave={(next) => {
+                  setEditing(false);
+                  if (next !== config.name) onChange({ ...config, name: next });
+                }}
+              />
+            ) : (
+              <div className="flex min-w-0 items-center gap-1">
+                <h3 className="min-w-0 break-words font-display text-base font-semibold leading-tight sm:text-lg">
+                  {name}
+                </h3>
+                {onChange && (
+                  <>
+                    <IconButton label={`Rename ${name}`} disabled={busy} onClick={() => setEditing(true)}>
+                      {PENCIL}
+                    </IconButton>
+                    {canRoll && (
+                      <IconButton
+                        label={`Reroll name for ${name}`}
+                        disabled={busy}
+                        onClick={() => {
+                          const next = rollManagerName(catalog, config.personalityId, takenNames);
+                          if (next !== null) onChange({ ...config, name: next });
+                        }}
+                      >
+                        {DICE}
+                      </IconButton>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            <div className="text-sm">
+              {name === personalityName ? null : (
+                <p className="break-words font-medium" data-testid="personality-title">
+                  {personalityName}
+                </p>
+              )}
+              {personality?.bio === undefined ? null : (
+                <p className="line-clamp-2 text-muted-foreground sm:line-clamp-1" title={personality.bio}>
+                  {personality.bio}
+                </p>
+              )}
+            </div>
           </div>
           <StatusBadge
             tone={difficultyTone(catalog, config.difficulty)}
@@ -91,6 +222,63 @@ export function AgentCard({ seatLabel, config, catalog, onChange, onShuffle, bus
         />
       )}
     </Card>
+  );
+}
+
+/** Inline rename: Enter or Save keeps the name, Escape or Cancel drops it. */
+function NameEditor({
+  seatLabel,
+  initial,
+  takenNames,
+  onSave,
+  onCancel
+}: {
+  seatLabel: string;
+  initial: string;
+  takenNames: readonly string[];
+  onSave: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const [touched, setTouched] = useState(false);
+  const error = managerNameError(value, takenNames);
+  return (
+    <form
+      className="space-y-2"
+      aria-label={`Rename the ${seatLabel} manager`}
+      onSubmit={(e) => {
+        e.preventDefault();
+        setTouched(true);
+        if (error === null) onSave(value.trim());
+      }}
+    >
+      <Input
+        label="Manager name"
+        value={value}
+        maxLength={MANAGER_NAME_MAX}
+        autoFocus
+        autoComplete="off"
+        {...(touched && error !== null ? { error } : {})}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setTouched(true);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+      />
+      <div className="flex gap-2">
+        <Button type="submit" variant="primary" size="sm">
+          Save name
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

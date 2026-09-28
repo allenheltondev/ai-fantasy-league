@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
-import { AgentAvatar, avatarCells, hashSeed } from './AgentAvatar';
+import { AgentAvatar, ManagerTag, avatarCells, hashSeed } from './AgentAvatar';
 import { ApiErrorAlert, errorText } from './ApiErrorAlert';
 import { ConfirmButton } from './ConfirmButton';
 import { TableScroll } from './TableScroll';
@@ -18,6 +18,21 @@ describe('AgentAvatar', () => {
     const img = screen.getByRole('img', { name: 'The Spreadsheet avatar' });
     expect(img).toHaveAttribute('width', '32');
     expect(img.querySelectorAll('rect')).toHaveLength(cells.length);
+  });
+});
+
+describe('ManagerTag', () => {
+  it("shows an AI manager's avatar and name, and nothing for people", () => {
+    const { rerender } = render(
+      <ManagerTag manager={{ name: 'Ana Soto', avatarSeed: 'a', personality: 'The Oracle' }} />
+    );
+    expect(screen.getByTestId('manager-tag')).toHaveTextContent('Ana Soto');
+    expect(screen.getByTestId('manager-tag')).toHaveAttribute('title', 'The Oracle');
+    rerender(<ManagerTag manager={{ name: 'Ana Soto', avatarSeed: 'a' }} />);
+    expect(screen.getByTestId('manager-tag')).not.toHaveAttribute('title');
+    expect(screen.getByRole('img', { name: 'Ana Soto avatar' })).toBeInTheDocument();
+    rerender(<ManagerTag manager={null} />);
+    expect(screen.queryByTestId('manager-tag')).not.toBeInTheDocument();
   });
 });
 

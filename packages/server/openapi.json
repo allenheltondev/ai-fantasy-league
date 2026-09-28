@@ -48,7 +48,7 @@
       "get": {
         "operationId": "get_agent_catalog",
         "summary": "The agent presets: personalities, difficulties, strategies, and models",
-        "description": "Lists every choice configure_agent_seat accepts: the personality presets (with a bio and avatar seed), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name. Pass `suggest` (1-24) to also get that many varied seat configs (no repeated personality, difficulties and strategies spread evenly), the same mix randomize_agent_seats would write; the same `seed` gives the same mix. Reading the catalog changes nothing.",
+        "description": "Lists every choice configure_agent_seat accepts: the personality presets (with a bio, avatar seed, and nicknames), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name. `managerNames` is the pool AI manager names are drawn from (\"First Last\", sometimes `First \"Nickname\" Last` with a personality nickname, at most 40 characters); any name that fits the limit is accepted. Pass `suggest` (1-24) to also get that many varied seat configs (no repeated personality or manager name, difficulties and strategies spread evenly, a fresh avatar each), the same mix randomize_agent_seats would write; the same `seed` gives the same mix. Reading the catalog changes nothing.",
         "tags": [
           "agents"
         ],
@@ -132,6 +132,13 @@
                               },
                               "avatarSeed": {
                                 "type": "string"
+                              },
+                              "nicknames": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "Nicknames a manager with this personality may carry."
                               }
                             },
                             "required": [
@@ -139,10 +146,34 @@
                               "displayName",
                               "teamNameSuggestion",
                               "bio",
-                              "avatarSeed"
+                              "avatarSeed",
+                              "nicknames"
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "managerNames": {
+                          "type": "object",
+                          "properties": {
+                            "first": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "last": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "first",
+                            "last"
+                          ],
+                          "additionalProperties": false,
+                          "description": "The first and last names AI manager names are drawn from."
                         },
                         "difficulties": {
                           "type": "array",
@@ -347,6 +378,20 @@
                                         ],
                                         "description": "Strategy archetype."
                                       },
+                                      "name": {
+                                        "description": "The AI manager's name, 1-40 characters on one line. Omit to keep a generated default.",
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 40,
+                                        "pattern": "^[^\\p{Cc}\\p{Cf}]*$"
+                                      },
+                                      "avatarSeed": {
+                                        "description": "Seed for the manager's avatar picture. Omit to keep a generated default.",
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 40,
+                                        "pattern": "^[A-Za-z0-9_-]+$"
+                                      },
                                       "advanced": {
                                         "description": "Advanced drawer settings.",
                                         "type": "object",
@@ -477,6 +522,7 @@
                       },
                       "required": [
                         "personalities",
+                        "managerNames",
                         "difficulties",
                         "archetypes",
                         "modelTiers",
@@ -1144,6 +1190,41 @@
                               "type": "integer",
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
+                            },
+                            "manager": {
+                              "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                    },
+                                    "avatarSeed": {
+                                      "type": "string",
+                                      "description": "Seed the app hashes into the avatar picture."
+                                    },
+                                    "personality": {
+                                      "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "avatarSeed",
+                                    "personality"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "The AI manager playing an agent team."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
@@ -1888,6 +1969,41 @@
                                 "minimum": -9007199254740991,
                                 "maximum": 9007199254740991
                               },
+                              "manager": {
+                                "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                      },
+                                      "avatarSeed": {
+                                        "type": "string",
+                                        "description": "Seed the app hashes into the avatar picture."
+                                      },
+                                      "personality": {
+                                        "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "avatarSeed",
+                                      "personality"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "The AI manager playing an agent team."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "ownerUserId": {
                                 "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                                 "type": [
@@ -2558,7 +2674,7 @@
       "get": {
         "operationId": "get_league",
         "summary": "Get a league: settings, weeks, commissioner, and every team",
-        "description": "Returns the full league: its rule settings (scoring, roster slots, waivers, trades, playoffs), the NFL weeks it plays, the commissioner, and every team with its seat type, owner, draft slot, FAAB left, and waiver priority. Use `version` as expectedVersion when calling update_league_settings. For a quick \"what can I do now\" view use get_league_state instead. Only members of the league (and its agents) can read it; others get FORBIDDEN.",
+        "description": "Returns the full league: its rule settings (scoring, roster slots, waivers, trades, playoffs), the NFL weeks it plays, the commissioner, and every team with its seat type, owner, draft slot, FAAB left, waiver priority, and (agent teams) its AI manager’s name and avatar. Use `version` as expectedVersion when calling update_league_settings. For a quick \"what can I do now\" view use get_league_state instead. Only members of the league (and its agents) can read it; others get FORBIDDEN.",
         "tags": [
           "leagues"
         ],
@@ -3103,6 +3219,41 @@
                                 "type": "integer",
                                 "minimum": -9007199254740991,
                                 "maximum": 9007199254740991
+                              },
+                              "manager": {
+                                "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                      },
+                                      "avatarSeed": {
+                                        "type": "string",
+                                        "description": "Seed the app hashes into the avatar picture."
+                                      },
+                                      "personality": {
+                                        "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "avatarSeed",
+                                      "personality"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "The AI manager playing an agent team."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "ownerUserId": {
                                 "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
@@ -3798,8 +3949,8 @@
     "/api/v1/leagues/{leagueId}/agents/{teamId}": {
       "put": {
         "operationId": "configure_agent_seat",
-        "summary": "Set the personality, difficulty, and strategy of an agent seat",
-        "description": "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat. Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor). Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite. Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids or out-of-range levers.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup, drafting, regular_season, playoffs.",
+        "summary": "Set an agent seat's manager name, avatar, personality, difficulty, and strategy",
+        "description": "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat. Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor). `name` (1-40 characters on one line, unique in the league) is what the manager calls itself in chat; `avatarSeed` picks its avatar picture. Leave either out to keep the seat's current one. Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite. Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids, out-of-range levers, a malformed name or avatar seed, or a name another manager in the league already uses.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup, drafting, regular_season, playoffs.",
         "tags": [
           "agents"
         ],
@@ -3923,6 +4074,20 @@
                                   ],
                                   "description": "Strategy archetype."
                                 },
+                                "name": {
+                                  "description": "The AI manager's name, 1-40 characters on one line. Omit to keep a generated default.",
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 40,
+                                  "pattern": "^[^\\p{Cc}\\p{Cf}]*$"
+                                },
+                                "avatarSeed": {
+                                  "description": "Seed for the manager's avatar picture. Omit to keep a generated default.",
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 40,
+                                  "pattern": "^[A-Za-z0-9_-]+$"
+                                },
                                 "advanced": {
                                   "description": "Advanced drawer settings.",
                                   "type": "object",
@@ -4036,6 +4201,25 @@
                               ],
                               "additionalProperties": false
                             },
+                            "manager": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "description": "The AI manager's name (a generated default until one is set)."
+                                },
+                                "avatarSeed": {
+                                  "type": "string",
+                                  "description": "Seed the app hashes into the avatar picture."
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "avatarSeed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "The AI manager's name and avatar: the stored ones, or stable defaults for this seat."
+                            },
                             "effective": {
                               "type": "object",
                               "properties": {
@@ -4116,6 +4300,7 @@
                             "updatedAt",
                             "updatedBy",
                             "config",
+                            "manager",
                             "effective"
                           ],
                           "additionalProperties": false,
@@ -4313,6 +4498,20 @@
                     ],
                     "description": "Strategy archetype."
                   },
+                  "name": {
+                    "description": "The AI manager's name, 1-40 characters on one line. Omit to keep a generated default.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[^\\p{Cc}\\p{Cf}]*$"
+                  },
+                  "avatarSeed": {
+                    "description": "Seed for the manager's avatar picture. Omit to keep a generated default.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
                   "advanced": {
                     "description": "Advanced drawer settings.",
                     "type": "object",
@@ -4485,6 +4684,25 @@
                             "teamId": {
                               "type": "string"
                             },
+                            "manager": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "description": "The AI manager's name (a generated default until one is set)."
+                                },
+                                "avatarSeed": {
+                                  "type": "string",
+                                  "description": "Seed the app hashes into the avatar picture."
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "avatarSeed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "The AI manager's name and avatar: the stored ones, or stable defaults for this seat."
+                            },
                             "personality": {
                               "type": "object",
                               "properties": {
@@ -4565,11 +4783,12 @@
                           },
                           "required": [
                             "teamId",
+                            "manager",
                             "personality",
                             "difficulty"
                           ],
                           "additionalProperties": false,
-                          "description": "What everyone in the league can see about an agent seat: its persona and difficulty."
+                          "description": "What everyone in the league can see about an agent seat: its manager, persona, and difficulty."
                         },
                         "commissioner": {
                           "anyOf": [
@@ -4654,6 +4873,20 @@
                                             "waiver_hawk"
                                           ],
                                           "description": "Strategy archetype."
+                                        },
+                                        "name": {
+                                          "description": "The AI manager's name, 1-40 characters on one line. Omit to keep a generated default.",
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 40,
+                                          "pattern": "^[^\\p{Cc}\\p{Cf}]*$"
+                                        },
+                                        "avatarSeed": {
+                                          "description": "Seed for the manager's avatar picture. Omit to keep a generated default.",
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 40,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
                                         },
                                         "advanced": {
                                           "description": "Advanced drawer settings.",
@@ -4768,6 +5001,25 @@
                                       ],
                                       "additionalProperties": false
                                     },
+                                    "manager": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "description": "The AI manager's name (a generated default until one is set)."
+                                        },
+                                        "avatarSeed": {
+                                          "type": "string",
+                                          "description": "Seed the app hashes into the avatar picture."
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "avatarSeed"
+                                      ],
+                                      "additionalProperties": false,
+                                      "description": "The AI manager's name and avatar: the stored ones, or stable defaults for this seat."
+                                    },
                                     "effective": {
                                       "type": "object",
                                       "properties": {
@@ -4848,6 +5100,7 @@
                                     "updatedAt",
                                     "updatedBy",
                                     "config",
+                                    "manager",
                                     "effective"
                                   ],
                                   "additionalProperties": false,
@@ -4926,6 +5179,20 @@
                                               "waiver_hawk"
                                             ],
                                             "description": "Strategy archetype."
+                                          },
+                                          "name": {
+                                            "description": "The AI manager's name, 1-40 characters on one line. Omit to keep a generated default.",
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 40,
+                                            "pattern": "^[^\\p{Cc}\\p{Cf}]*$"
+                                          },
+                                          "avatarSeed": {
+                                            "description": "Seed for the manager's avatar picture. Omit to keep a generated default.",
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 40,
+                                            "pattern": "^[A-Za-z0-9_-]+$"
                                           },
                                           "advanced": {
                                             "description": "Advanced drawer settings.",
@@ -5200,7 +5467,7 @@
       "post": {
         "operationId": "randomize_agent_seats",
         "summary": "Fill agent seats with a random, varied mix of agents",
-        "description": "Commissioner only, before the draft (league phase \"setup\"). Gives each listed team a different personality, and spreads difficulties and strategies evenly across them. The same `seed` always produces the same seats; leave it out for a fresh mix. Existing configs for those teams are replaced (as new versions). Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED after the draft starts; INVALID_INPUT for duplicate team ids, human seats, or more teams than the league allows; TEAM_NOT_FOUND for a team that is not in the league.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup.",
+        "description": "Commissioner only, before the draft (league phase \"setup\"). Gives each listed team a different personality, a new manager name (unique in the league) and avatar, and spreads difficulties and strategies evenly across them. The same `seed` always produces the same seats; leave it out for a fresh mix. Existing configs for those teams are replaced (as new versions). Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED after the draft starts; INVALID_INPUT for duplicate team ids, human seats, or more teams than the league allows; TEAM_NOT_FOUND for a team that is not in the league.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup.",
         "tags": [
           "agents"
         ],
@@ -5319,6 +5586,20 @@
                                     ],
                                     "description": "Strategy archetype."
                                   },
+                                  "name": {
+                                    "description": "The AI manager's name, 1-40 characters on one line. Omit to keep a generated default.",
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[^\\p{Cc}\\p{Cf}]*$"
+                                  },
+                                  "avatarSeed": {
+                                    "description": "Seed for the manager's avatar picture. Omit to keep a generated default.",
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
                                   "advanced": {
                                     "description": "Advanced drawer settings.",
                                     "type": "object",
@@ -5432,6 +5713,25 @@
                                 ],
                                 "additionalProperties": false
                               },
+                              "manager": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "description": "The AI manager's name (a generated default until one is set)."
+                                  },
+                                  "avatarSeed": {
+                                    "type": "string",
+                                    "description": "Seed the app hashes into the avatar picture."
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "avatarSeed"
+                                ],
+                                "additionalProperties": false,
+                                "description": "The AI manager's name and avatar: the stored ones, or stable defaults for this seat."
+                              },
                               "effective": {
                                 "type": "object",
                                 "properties": {
@@ -5512,6 +5812,7 @@
                               "updatedAt",
                               "updatedBy",
                               "config",
+                              "manager",
                               "effective"
                             ],
                             "additionalProperties": false,
@@ -5829,7 +6130,11 @@
                                       },
                                       "name": {
                                         "type": "string",
-                                        "description": "Display name: the person, the agent team, or \"League\"."
+                                        "description": "Display name: the person, the AI manager (e.g. \"Marcus Hale\"), or \"League\"."
+                                      },
+                                      "avatarSeed": {
+                                        "description": "AI managers: the seed of the manager's avatar picture. Absent for people and the league.",
+                                        "type": "string"
                                       }
                                     },
                                     "required": [
@@ -6209,7 +6514,11 @@
                                 },
                                 "name": {
                                   "type": "string",
-                                  "description": "Display name: the person, the agent team, or \"League\"."
+                                  "description": "Display name: the person, the AI manager (e.g. \"Marcus Hale\"), or \"League\"."
+                                },
+                                "avatarSeed": {
+                                  "description": "AI managers: the seed of the manager's avatar picture. Absent for people and the league.",
+                                  "type": "string"
                                 }
                               },
                               "required": [
@@ -8515,12 +8824,48 @@
                                   "human",
                                   "agent"
                                 ]
+                              },
+                              "manager": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                      },
+                                      "avatarSeed": {
+                                        "type": "string",
+                                        "description": "Seed the app hashes into the avatar picture."
+                                      },
+                                      "personality": {
+                                        "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "avatarSeed",
+                                      "personality"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "The AI manager playing an agent team."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
                               }
                             },
                             "required": [
                               "teamId",
                               "teamName",
-                              "seatType"
+                              "seatType",
+                              "manager"
                             ],
                             "additionalProperties": false
                           },
@@ -9825,6 +10170,41 @@
                                       "agent"
                                     ]
                                   },
+                                  "manager": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "name": {
+                                            "type": "string",
+                                            "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                          },
+                                          "avatarSeed": {
+                                            "type": "string",
+                                            "description": "Seed the app hashes into the avatar picture."
+                                          },
+                                          "personality": {
+                                            "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "name",
+                                          "avatarSeed",
+                                          "personality"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "The AI manager playing an agent team."
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                                  },
                                   "here": {
                                     "type": "boolean",
                                     "description": "In the draft room now. Agent seats are always here."
@@ -9840,6 +10220,7 @@
                                   "teamId",
                                   "teamName",
                                   "seatType",
+                                  "manager",
                                   "here",
                                   "lastSeenAt"
                                 ],
@@ -9870,6 +10251,41 @@
                                   "agent"
                                 ]
                               },
+                              "manager": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                      },
+                                      "avatarSeed": {
+                                        "type": "string",
+                                        "description": "Seed the app hashes into the avatar picture."
+                                      },
+                                      "personality": {
+                                        "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "avatarSeed",
+                                      "personality"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "The AI manager playing an agent team."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                              },
                               "here": {
                                 "type": "boolean",
                                 "description": "In the draft room now. Agent seats are always here."
@@ -9885,6 +10301,7 @@
                               "teamId",
                               "teamName",
                               "seatType",
+                              "manager",
                               "here",
                               "lastSeenAt"
                             ],
@@ -11482,12 +11899,48 @@
                                   "human",
                                   "agent"
                                 ]
+                              },
+                              "manager": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                      },
+                                      "avatarSeed": {
+                                        "type": "string",
+                                        "description": "Seed the app hashes into the avatar picture."
+                                      },
+                                      "personality": {
+                                        "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "avatarSeed",
+                                      "personality"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "The AI manager playing an agent team."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
                               }
                             },
                             "required": [
                               "teamId",
                               "teamName",
-                              "seatType"
+                              "seatType",
+                              "manager"
                             ],
                             "additionalProperties": false
                           },
@@ -14776,6 +15229,41 @@
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
                             },
+                            "manager": {
+                              "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                    },
+                                    "avatarSeed": {
+                                      "type": "string",
+                                      "description": "Seed the app hashes into the avatar picture."
+                                    },
+                                    "personality": {
+                                      "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "avatarSeed",
+                                    "personality"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "The AI manager playing an agent team."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                               "type": [
@@ -15079,6 +15567,41 @@
                                         "number",
                                         "null"
                                       ]
+                                    },
+                                    "manager": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                            },
+                                            "avatarSeed": {
+                                              "type": "string",
+                                              "description": "Seed the app hashes into the avatar picture."
+                                            },
+                                            "personality": {
+                                              "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                              "type": [
+                                                "string",
+                                                "null"
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "avatarSeed",
+                                            "personality"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "The AI manager playing an agent team."
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
                                     }
                                   },
                                   "required": [
@@ -15103,6 +15626,41 @@
                                         "number",
                                         "null"
                                       ]
+                                    },
+                                    "manager": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "name": {
+                                              "type": "string",
+                                              "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                            },
+                                            "avatarSeed": {
+                                              "type": "string",
+                                              "description": "Seed the app hashes into the avatar picture."
+                                            },
+                                            "personality": {
+                                              "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                              "type": [
+                                                "string",
+                                                "null"
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "avatarSeed",
+                                            "personality"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "The AI manager playing an agent team."
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
                                     }
                                   },
                                   "required": [
@@ -16857,6 +17415,41 @@
                               "type": "integer",
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
+                            },
+                            "manager": {
+                              "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                    },
+                                    "avatarSeed": {
+                                      "type": "string",
+                                      "description": "Seed the app hashes into the avatar picture."
+                                    },
+                                    "personality": {
+                                      "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "avatarSeed",
+                                    "personality"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "The AI manager playing an agent team."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
@@ -19162,6 +19755,41 @@
                               "teamName": {
                                 "type": "string"
                               },
+                              "manager": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                      },
+                                      "avatarSeed": {
+                                        "type": "string",
+                                        "description": "Seed the app hashes into the avatar picture."
+                                      },
+                                      "personality": {
+                                        "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "avatarSeed",
+                                      "personality"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "The AI manager playing an agent team."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The AI manager playing this team (its name and avatar); null when a person plays it."
+                              },
                               "record": {
                                 "type": "string",
                                 "description": "Wins-losses, or wins-losses-ties, e.g. \"7-3\"."
@@ -19254,6 +19882,7 @@
                               "rank",
                               "teamId",
                               "teamName",
+                              "manager",
                               "record",
                               "wins",
                               "losses",
@@ -19403,7 +20032,7 @@
       "get": {
         "operationId": "get_league_state",
         "summary": "What is happening in the league now, and what can I do?",
-        "description": "The starting point for acting in a league. Returns the phase (setup, drafting, regular_season, playoffs, complete), the current NFL week, sub-phase flags (waivers open, lineups not yet locked, trade deadline passed), your own team, whether you are the commissioner, the operations you may call right now (`allowedActions`), the key deadlines, and every team with its name and seat type (human or agent). Call it before acting and after anything changes. Only members of the league (and its agents) can read it. `detail: true` adds the league’s full rule settings (scoring, roster slots, waivers, trades, playoffs) and each team’s FAAB left, waiver priority, and roster size.",
+        "description": "The starting point for acting in a league. Returns the phase (setup, drafting, regular_season, playoffs, complete), the current NFL week, sub-phase flags (waivers open, lineups not yet locked, trade deadline passed), your own team, whether you are the commissioner, the operations you may call right now (`allowedActions`), the key deadlines, and every team with its name and seat type (human or agent), and for agent teams the AI manager’s name and avatar (`manager`). Call it before acting and after anything changes. Only members of the league (and its agents) can read it. `detail: true` adds the league’s full rule settings (scoring, roster slots, waivers, trades, playoffs) and each team’s FAAB left, waiver priority, and roster size.",
         "tags": [
           "leagues"
         ],
@@ -19536,6 +20165,41 @@
                                   "type": "integer",
                                   "minimum": -9007199254740991,
                                   "maximum": 9007199254740991
+                                },
+                                "manager": {
+                                  "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                        },
+                                        "avatarSeed": {
+                                          "type": "string",
+                                          "description": "Seed the app hashes into the avatar picture."
+                                        },
+                                        "personality": {
+                                          "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "avatarSeed",
+                                        "personality"
+                                      ],
+                                      "additionalProperties": false,
+                                      "description": "The AI manager playing an agent team."
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 },
                                 "ownerUserId": {
                                   "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
@@ -19699,6 +20363,41 @@
                                 "type": "integer",
                                 "minimum": -9007199254740991,
                                 "maximum": 9007199254740991
+                              },
+                              "manager": {
+                                "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                      },
+                                      "avatarSeed": {
+                                        "type": "string",
+                                        "description": "Seed the app hashes into the avatar picture."
+                                      },
+                                      "personality": {
+                                        "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "avatarSeed",
+                                      "personality"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "The AI manager playing an agent team."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "faabRemaining": {
                                 "description": "FAAB left. Present when `detail` is true.",
@@ -20904,6 +21603,41 @@
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
                             },
+                            "manager": {
+                              "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                    },
+                                    "avatarSeed": {
+                                      "type": "string",
+                                      "description": "Seed the app hashes into the avatar picture."
+                                    },
+                                    "personality": {
+                                      "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "avatarSeed",
+                                    "personality"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "The AI manager playing an agent team."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                               "type": [
@@ -21668,6 +22402,41 @@
                               "type": "integer",
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
+                            },
+                            "manager": {
+                              "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "description": "The AI manager's name, e.g. \"Marcus Hale\"."
+                                    },
+                                    "avatarSeed": {
+                                      "type": "string",
+                                      "description": "Seed the app hashes into the avatar picture."
+                                    },
+                                    "personality": {
+                                      "description": "The personality it plays, e.g. \"The Spreadsheet\"; null until the seat is configured.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "name",
+                                    "avatarSeed",
+                                    "personality"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "The AI manager playing an agent team."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",

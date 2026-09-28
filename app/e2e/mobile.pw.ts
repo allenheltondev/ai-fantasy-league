@@ -253,6 +253,18 @@ for (const viewport of VIEWPORTS) {
       ]) {
         expect((await control.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
       }
+      // The manager's name (#159): rename inline and reroll, with thumb-sized controls, still fitting.
+      for (const name of [/^Rename /, /^Reroll name for /, /^New avatar for /]) {
+        const box = await last.getByRole('button', { name }).boundingBox();
+        expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+        expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+      }
+      await last.getByRole('button', { name: /^Rename / }).tap();
+      await last.getByLabel('Manager name').fill('Wilhelmina "Double Time" Fitzgerald');
+      await expectFits(page, 'create: AI manager rename');
+      await last.getByRole('button', { name: 'Save name' }).tap();
+      await expect(last.getByRole('heading', { name: 'Wilhelmina "Double Time" Fitzgerald' })).toBeVisible();
+      await expectFits(page, 'create: AI manager long name');
 
       // Back to Seats for a second person, so there is someone to invite; then Review.
       await page.getByRole('button', { name: 'Back' }).click();

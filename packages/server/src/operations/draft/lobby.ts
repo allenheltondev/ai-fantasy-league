@@ -1,6 +1,7 @@
 import { DRAFT_ORDER_MODES } from '@fantasy/core';
 import { z } from 'zod';
 import { requireMember } from '../../league/access.js';
+import { leagueManagers, teamManager, TeamManagerSchema } from '../../league/managers.js';
 import { actionError, actorTeam, assertAction } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
@@ -13,6 +14,7 @@ const LobbyTeamSchema = z.object({
   teamId: z.string(),
   teamName: z.string(),
   seatType: z.enum(SEAT_TYPES),
+  manager: TeamManagerSchema,
   here: z.boolean().describe('In the draft room now. Agent seats are always here.'),
   lastSeenAt: z.string().nullable()
 });
@@ -63,6 +65,7 @@ export const checkInDraftLobby = defineOperation({
       const at = seen[key];
       return at !== undefined && now.getTime() - Date.parse(at) <= LOBBY_PRESENCE_SECONDS * 1000;
     };
+    const managers = await leagueManagers(ctx, league.id, teams);
     const view = [...teams]
       .sort((a, b) => a.draftSlot - b.draftSlot)
       .map((team) => {
@@ -71,6 +74,7 @@ export const checkInDraftLobby = defineOperation({
           teamId: team.id,
           teamName: team.name,
           seatType: team.seatType,
+          manager: teamManager(managers, team.id),
           here: agent || recent(team.id),
           lastSeenAt: seen[team.id] ?? null
         };

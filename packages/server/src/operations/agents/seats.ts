@@ -11,6 +11,8 @@ import { principalKey } from '../../auth/principal.js';
 import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import { agentIdFor, type AgentSeatRecord } from '../../repos/agents.js';
+import type { LeagueAccess } from '../../league/access.js';
+import { isAgentPlayed, leagueManagers } from '../../league/managers.js';
 import type { League } from '../../repos/types.js';
 import { defineOperation } from '../../registry/operation.js';
 import {
@@ -89,16 +91,31 @@ async function writeSeat(
   return record;
 }
 
+const nameKey = (name: string) => name.trim().toLowerCase();
+
+/**
+ * Names already used in the league by anyone but `except`: the other AI managers (stored or
+ * default) and the people holding seats. Manager names are unique so chat and @mentions stay clear.
+ */
+async function namesInUse(ctx: Ctx, access: LeagueAccess, except: ReadonlySet<string>): Promise<string[]> {
+  const managers = await leagueManagers(ctx, access.league.id, access.teams);
+  return access.teams
+    .filter((t) => !except.has(t.id))
+    .map((t) => (isAgentPlayed(t) ? managers.get(t.id)?.name : t.ownerName) ?? null)
+    .filter((n): n is string => n !== null && n !== '');
+}
+
 export const configureAgentSeat = defineOperation({
   name: 'configure_agent_seat',
   method: 'PUT',
   path: '/leagues/{leagueId}/agents/{teamId}',
-  summary: 'Set the personality, difficulty, and strategy of an agent seat',
+  summary: "Set an agent seat's manager name, avatar, personality, difficulty, and strategy",
   description: [
     "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat.",
     'Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor).',
+    "`name` (1-40 characters on one line, unique in the league) is what the manager calls itself in chat; `avatarSeed` picks its avatar picture. Leave either out to keep the seat's current one.",
     'Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite.',
-    'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids or out-of-range levers.'
+    'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids, out-of-range levers, a malformed name or avatar seed, or a name another manager in the league already uses.'
   ].join(' '),
   tags: ['agents'],
   mutation: true,
@@ -119,12 +136,33 @@ export const configureAgentSeat = defineOperation({
   handler: async (ctx, input) => {
     const access = await requireCommissioner(ctx, input.leagueId);
     requireAgentSeat(access, input.teamId);
-    const { leagueId: _leagueId, teamId, expectedVersion, ...config } = input;
+    const { leagueId: _leagueId, teamId, expectedVersion, ...fields } = input;
+    const config = AgentSeatConfigSchema.parse(fields);
+    // Name and avatar carry over when left out, so a settings change never renames the manager.
+    const current = await ctx.repos.agents.getSeat(access.league.id, teamId);
+    const name = config.name ?? current?.config.name;
+    const avatarSeed = config.avatarSeed ?? current?.config.avatarSeed;
+    if (config.name !== undefined) {
+      const taken = await namesInUse(ctx, access, new Set([teamId]));
+      if (taken.some((n) => nameKey(n) === nameKey(config.name as string))) {
+        throw new ApiError(
+          'INVALID_INPUT',
+          `Another manager in this league is already named "${config.name}".`,
+          {
+            fix: `Pick a name no one else in the league uses (taken: ${taken.join(', ')}), or leave \`name\` out to keep this seat's current name.`
+          }
+        );
+      }
+    }
     const record = await writeSeat(
       ctx,
       access.league,
       teamId,
-      AgentSeatConfigSchema.parse(config),
+      {
+        ...config,
+        ...(name === undefined ? {} : { name }),
+        ...(avatarSeed === undefined ? {} : { avatarSeed })
+      },
       expectedVersion
     );
     return { seat: commissionerSeat(record) };
@@ -138,7 +176,7 @@ export const randomizeAgentSeatsOperation = defineOperation({
   summary: 'Fill agent seats with a random, varied mix of agents',
   description: [
     'Commissioner only, before the draft (league phase "setup").',
-    'Gives each listed team a different personality, and spreads difficulties and strategies evenly across them.',
+    'Gives each listed team a different personality, a new manager name (unique in the league) and avatar, and spreads difficulties and strategies evenly across them.',
     'The same `seed` always produces the same seats; leave it out for a fresh mix. Existing configs for those teams are replaced (as new versions).',
     'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED after the draft starts; INVALID_INPUT for duplicate team ids, human seats, or more teams than the league allows; TEAM_NOT_FOUND for a team that is not in the league.'
   ].join(' '),
@@ -168,7 +206,8 @@ export const randomizeAgentSeatsOperation = defineOperation({
     }
     for (const teamId of input.teamIds) requireAgentSeat(access, teamId);
     const seed = input.seed ?? `${league.id}:${ctx.clock.now().toISOString()}`;
-    const configs = randomizeAgentSeats(input.teamIds.length, seed);
+    const taken = await namesInUse(ctx, access, new Set(input.teamIds));
+    const configs = randomizeAgentSeats(input.teamIds.length, seed, taken);
     const seats = [];
     for (const [i, teamId] of input.teamIds.entries()) {
       const record = await writeSeat(ctx, league, teamId, configs[i] as AgentSeatConfig, undefined);

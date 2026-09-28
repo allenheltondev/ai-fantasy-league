@@ -8,6 +8,7 @@ import {
   type Matchup,
   type Team
 } from '../repos/types.js';
+import { TeamManagerSchema, teamManager, type ManagerLookup } from './managers.js';
 import { isOpenSeat } from './seats.js';
 
 /** Output shapes shared by the league operations, and the mappers that build them. */
@@ -44,7 +45,10 @@ export const TeamSummarySchema = z.object({
     .describe('`human`: a person plays it (or it is kept open for one). `agent`: an AI plays it.'),
   open: z.boolean().describe('True when no person holds this seat, so someone joining could take it.'),
   ownerName: z.string().nullable(),
-  draftSlot: z.number().int()
+  draftSlot: z.number().int(),
+  manager: TeamManagerSchema.optional().describe(
+    'The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).'
+  )
 });
 
 export const TeamDetailSchema = TeamSummarySchema.extend({
@@ -58,20 +62,22 @@ export const TeamDetailSchema = TeamSummarySchema.extend({
   rosterSize: z.number().int()
 });
 
-export function teamSummary(team: Team): z.infer<typeof TeamSummarySchema> {
+/** Pass `managers` (league/managers.ts) to include each team's AI manager. */
+export function teamSummary(team: Team, managers?: ManagerLookup): z.infer<typeof TeamSummarySchema> {
   return {
     id: team.id,
     name: team.name,
     seatType: team.seatType,
     open: isOpenSeat(team),
     ownerName: team.ownerName,
-    draftSlot: team.draftSlot
+    draftSlot: team.draftSlot,
+    ...(managers === undefined ? {} : { manager: teamManager(managers, team.id) })
   };
 }
 
-export function teamDetail(team: Team): z.infer<typeof TeamDetailSchema> {
+export function teamDetail(team: Team, managers?: ManagerLookup): z.infer<typeof TeamDetailSchema> {
   return {
-    ...teamSummary(team),
+    ...teamSummary(team, managers),
     ownerUserId: team.ownerUserId,
     agentConfigId: team.agentConfigId,
     faabRemaining: team.faabRemaining,
@@ -142,7 +148,11 @@ export const LeagueDetailSchema = z.object({
   updatedAt: z.string()
 });
 
-export function leagueDetail(league: League, teams: readonly Team[]): z.infer<typeof LeagueDetailSchema> {
+export function leagueDetail(
+  league: League,
+  teams: readonly Team[],
+  managers?: ManagerLookup
+): z.infer<typeof LeagueDetailSchema> {
   return {
     id: league.id,
     name: league.name,
@@ -153,7 +163,7 @@ export function leagueDetail(league: League, teams: readonly Team[]): z.infer<ty
     commissioner: { userId: league.commissionerId, name: league.commissionerName },
     settings: league.settings,
     weeks: leagueWeeksView(league),
-    teams: teams.map(teamDetail),
+    teams: teams.map((t) => teamDetail(t, managers)),
     createdAt: league.createdAt,
     updatedAt: league.updatedAt
   };
@@ -198,7 +208,8 @@ export function inviteView(invite: Invite, now: Date): z.infer<typeof InviteView
 export const MatchupSideSchema = z.object({
   teamId: z.string(),
   teamName: z.string(),
-  score: z.number().nullable().describe('Null until the week is scored.')
+  score: z.number().nullable().describe('Null until the week is scored.'),
+  manager: TeamManagerSchema.optional()
 });
 
 export const MatchupViewSchema = z.object({
@@ -210,14 +221,24 @@ export const MatchupViewSchema = z.object({
   away: MatchupSideSchema
 });
 
-export function matchupView(m: Matchup, teams: readonly Team[]): z.infer<typeof MatchupViewSchema> {
+export function matchupView(
+  m: Matchup,
+  teams: readonly Team[],
+  managers?: ManagerLookup
+): z.infer<typeof MatchupViewSchema> {
   const name = (id: string) => teams.find((t) => t.id === id)?.name ?? id;
+  const manager = (id: string) => (managers === undefined ? {} : { manager: teamManager(managers, id) });
   return {
     id: m.id,
     week: m.week,
     kind: m.kind,
     status: m.status,
-    home: { teamId: m.homeTeamId, teamName: name(m.homeTeamId), score: m.homeScore },
-    away: { teamId: m.awayTeamId, teamName: name(m.awayTeamId), score: m.awayScore }
+    home: {
+      teamId: m.homeTeamId,
+      teamName: name(m.homeTeamId),
+      score: m.homeScore,
+      ...manager(m.homeTeamId)
+    },
+    away: { teamId: m.awayTeamId, teamName: name(m.awayTeamId), score: m.awayScore, ...manager(m.awayTeamId) }
   };
 }

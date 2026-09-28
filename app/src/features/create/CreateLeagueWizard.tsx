@@ -230,7 +230,9 @@ function Wizard({ catalog }: { catalog: AgentCatalog }) {
                       .map((a) => {
                         const p = catalog.personalities.find((x) => x.id === a.personalityId);
                         const d = catalog.difficulties.find((x) => x.id === a.difficulty);
-                        return `${p?.displayName ?? a.personalityId} (${d?.displayName ?? a.difficulty})`;
+                        const persona = p?.displayName ?? a.personalityId;
+                        const who = a.name === undefined ? persona : `${a.name}, ${persona}`;
+                        return `${who} (${d?.displayName ?? a.difficulty})`;
                       })
                       .join(', ')}
               </dd>

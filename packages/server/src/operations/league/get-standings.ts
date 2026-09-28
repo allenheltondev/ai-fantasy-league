@@ -1,6 +1,7 @@
 import { computeStandings, formatRecord, type StandingsRow } from '@fantasy/core';
 import { z } from 'zod';
 import { requireMember } from '../../league/access.js';
+import { leagueManagers, teamManager, TeamManagerSchema, type ManagerLookup } from '../../league/managers.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
 import type { Matchup, Team } from '../../repos/types.js';
@@ -9,6 +10,7 @@ const StandingsRowSchema = z.object({
   rank: z.number().int(),
   teamId: z.string(),
   teamName: z.string(),
+  manager: TeamManagerSchema,
   record: z.string().describe('Wins-losses, or wins-losses-ties, e.g. "7-3".'),
   wins: z.number().int(),
   losses: z.number().int(),
@@ -73,7 +75,8 @@ export const getStandings = defineOperation({
       snapshot?.rows ??
       computeStandings(league.settings, [], { teamIds: teams.map((t) => t.id), seed: league.scheduleSeed });
     const throughWeek = snapshot?.week ?? null;
-    const standings = rows.map((row) => standingsRow(row, teams));
+    const managers = await leagueManagers(ctx, league.id, teams);
+    const standings = rows.map((row) => standingsRow(row, teams, managers));
     if (!input.detail) return { throughWeek, standings };
     const games = (await ctx.repos.schedule.listMatchups(league.id)).filter(
       (m) => m.kind === 'regular' && m.status === 'final' && throughWeek !== null && m.week <= throughWeek
@@ -104,11 +107,16 @@ function teamResults(teamId: string, games: readonly Matchup[]) {
     });
 }
 
-function standingsRow(row: StandingsRow, teams: readonly Team[]): z.infer<typeof StandingsRowSchema> {
+function standingsRow(
+  row: StandingsRow,
+  teams: readonly Team[],
+  managers: ManagerLookup
+): z.infer<typeof StandingsRowSchema> {
   return {
     rank: row.rank,
     teamId: row.teamId,
     teamName: teams.find((t) => t.id === row.teamId)?.name ?? row.teamId,
+    manager: teamManager(managers, row.teamId),
     record: formatRecord(row),
     wins: row.wins,
     losses: row.losses,

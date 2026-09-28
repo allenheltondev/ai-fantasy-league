@@ -2,6 +2,7 @@ import { useParams } from 'react-router';
 import { EmptyState, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { MatchupData, MatchupLineup, MatchupSide, RedZoneTeam } from '../../api/types';
+import { ManagerTag } from '../../components/AgentAvatar';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
@@ -174,8 +175,11 @@ function Side({
       data-leading={leading || undefined}
       className={`motion-side rounded-lg border border-border p-4${leading ? ' motion-leader' : ''}`}
     >
-      <h3 className="flex items-baseline justify-between font-semibold">
-        <span>{side.teamName}</span>
+      <h3 className="flex items-baseline justify-between gap-2 font-semibold">
+        <span className="flex min-w-0 flex-col">
+          <span className="break-words">{side.teamName}</span>
+          <ManagerTag manager={side.manager} />
+        </span>
         <AnimatedNumber className="text-2xl" data-testid={`score-${side.teamId}`} value={side.score ?? 0} />
       </h3>
       <table className="mt-2 w-full text-sm">

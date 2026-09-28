@@ -22,6 +22,7 @@ import { requireMember } from '../../league/access.js';
 import { assertAction } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
+import { leagueManagers } from '../../league/managers.js';
 import { chatAuthor, mentionTargets } from './shared.js';
 import { newId, type Ctx } from '../../context.js';
 
@@ -64,7 +65,8 @@ export const postMessage = defineOperation({
     assertAction('post_message', access.league, access.actor, now);
     const { room, parsed } = await resolveRoom(ctx, access, input.roomId);
     requireOpenRoom(room);
-    const author = chatAuthor(access.actor);
+    const managers = await leagueManagers(ctx, access.league.id, access.teams);
+    const author = chatAuthor(access.actor, managers);
     const moderated = moderateChatText(input.text);
     if (!moderated.ok) {
       throw new ApiError(
@@ -125,7 +127,7 @@ export const postMessage = defineOperation({
     const authorTeamId = author.author.teamId;
     const mentioned = mentionedTeamIds(
       text,
-      roomMentionTargets(parsed, mentionTargets(access.teams), authorTeamId)
+      roomMentionTargets(parsed, mentionTargets(access.teams, managers), authorTeamId)
     );
     const message: ChatMessage = {
       id: newId(ctx),

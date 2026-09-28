@@ -135,7 +135,7 @@ export async function runAgentAction(
   }
 
   const principal = agentPrincipal({ agentId: seat.agentId, teamId: seat.teamId, leagueId: league.id });
-  const config = resolveAgentConfig(seat.config);
+  const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
   const prefix = keyPrefix(request.taskId);
   const system = new ToolBox({
     registry: deps.registry,

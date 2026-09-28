@@ -30,6 +30,7 @@ import {
   type DraftRecap,
   type DraftRecapEntry
 } from './board';
+import { ManagerTag } from '../components/AgentAvatar';
 import { DraftLobby } from './DraftLobby';
 import { useDraftQueue } from './queue';
 
@@ -274,7 +275,10 @@ export function DraftPage({
                         scope="col"
                         className={team.teamId === board.yourTeamId ? 'text-primary-800' : ''}
                       >
-                        {team.teamName}
+                        <span className="flex flex-col items-start">
+                          <span>{team.teamName}</span>
+                          <ManagerTag manager={team.manager} size={16} />
+                        </span>
                       </th>
                     ))}
                   </tr>

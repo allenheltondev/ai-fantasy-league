@@ -1,4 +1,4 @@
-import { FixedClock } from '@fantasy/core';
+import { FixedClock, effectiveManager } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
 import { START } from '../../../test/support/harness.js';
 import { seedLeague } from '../../../test/support/leagues.js';
@@ -480,5 +480,110 @@ describe('agent seat operations', () => {
     expect(fresh.body).toMatchObject({ data: { suggestion: { seed: expect.any(String) } } });
     const tooMany = await run('get_agent_catalog', { suggest: 25 });
     expect(tooMany.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
+  });
+
+  it('names managers: set, kept when left out, unique in the league, and shown to members (#159)', async () => {
+    const { run } = await setup();
+    const named = await run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      name: '  Marcus "Hype" Hale ',
+      avatarSeed: 'hale-1'
+    });
+    expect(named.body).toMatchObject({
+      data: {
+        seat: {
+          config: { name: 'Marcus "Hype" Hale', avatarSeed: 'hale-1' },
+          manager: { name: 'Marcus "Hype" Hale', avatarSeed: 'hale-1' }
+        }
+      }
+    });
+    // A settings change without a name keeps the manager's name and avatar.
+    const kept = await run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'pro'
+    });
+    expect(kept.body).toMatchObject({
+      data: { seat: { config: { name: 'Marcus "Hype" Hale', avatarSeed: 'hale-1' } } }
+    });
+    const clash = await run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-3',
+      ...SEAT,
+      name: 'marcus "hype" hale'
+    });
+    expect(clash.body).toMatchObject({
+      error: {
+        code: 'INVALID_INPUT',
+        fix: expect.stringContaining('Pick a name no one else in the league uses')
+      }
+    });
+    const person = await run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-3',
+      ...SEAT,
+      name: 'Member'
+    });
+    expect(person.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
+    for (const bad of [{ name: 'Two\nLines' }, { name: 'x'.repeat(41) }, { avatarSeed: 'no spaces' }]) {
+      const res = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-3', ...SEAT, ...bad });
+      expect(res.body).toMatchObject({ error: { code: 'INVALID_INPUT', fix: expect.any(String) } });
+    }
+    const member = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-2' }, MEMBER);
+    expect(member.body).toMatchObject({
+      data: { seat: { manager: { name: 'Marcus "Hype" Hale', avatarSeed: 'hale-1' } } }
+    });
+    const state = await run('get_league_state', { leagueId: 'lg-1' }, MEMBER);
+    const teams = (state.body as { data: { teams: { id: string; manager: unknown }[] } }).data.teams;
+    expect(teams.find((t) => t.id === 'team-2')?.manager).toEqual({
+      name: 'Marcus "Hype" Hale',
+      avatarSeed: 'hale-1',
+      personality: 'Hype Man'
+    });
+    // Not configured yet: a stable default name from the agent id.
+    expect(teams.find((t) => t.id === 'team-3')?.manager).toEqual({
+      ...effectiveManager(null, 'lg-1.team-3'),
+      personality: null
+    });
+    expect(teams.find((t) => t.id === 'team-1')?.manager).toBeNull();
+    const league = await run('get_league', { leagueId: 'lg-1' }, MEMBER);
+    expect(league.body).toMatchObject({
+      data: {
+        teams: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'team-2',
+            manager: expect.objectContaining({ name: 'Marcus "Hype" Hale' })
+          })
+        ])
+      }
+    });
+  });
+
+  it('randomizes unique names and avatars that avoid the rest of the league (#159)', async () => {
+    const { run } = await setup();
+    await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT, name: 'Ruth Carter' });
+    const res = await run('randomize_agent_seats', { leagueId: 'lg-1', teamIds: ['team-3'], seed: 'n' });
+    const seat = (
+      res.body as { data: { seats: { config: { name: string; avatarSeed: string }; manager: unknown }[] } }
+    ).data.seats[0];
+    expect(seat?.config.name).toEqual(expect.any(String));
+    expect(seat?.config.name).not.toBe('Ruth Carter');
+    expect(seat?.manager).toEqual({ name: seat?.config.name, avatarSeed: seat?.config.avatarSeed });
+    const catalog = await run('get_agent_catalog', { suggest: 3, seed: 'c' });
+    const data = (
+      catalog.body as {
+        data: {
+          managerNames: { first: string[]; last: string[] };
+          personalities: { nicknames: string[] }[];
+          suggestion: { seats: { name: string; avatarSeed: string }[] };
+        };
+      }
+    ).data;
+    expect(data.managerNames.first.length).toBeGreaterThan(20);
+    expect(data.personalities.every((p) => p.nicknames.length > 0)).toBe(true);
+    expect(new Set(data.suggestion.seats.map((x) => x.name)).size).toBe(3);
   });
 });

@@ -124,7 +124,12 @@ describe('chat api', () => {
         return { data: { defaultRoomId: 'trash-talk', rooms: [] }, league: null, warnings: [] };
       if (path.endsWith('/read')) return { data: {}, league: null, warnings: [] };
       return {
-        data: { teams: [{ id: 'team-1', name: 'A', ownerName: null, extra: true }] },
+        data: {
+          teams: [
+            { id: 'team-1', name: 'A', ownerName: null, extra: true },
+            { id: 'team-2', name: 'B', ownerName: null, manager: { name: 'Mei Park', avatarSeed: 'm' } }
+          ]
+        },
         league: null,
         warnings: []
       };
@@ -134,7 +139,11 @@ describe('chat api', () => {
     expect(await api.list('L1')).toEqual({ messages: [message], nextCursor: null });
     expect(await api.post('L1', 'hi')).toEqual(message);
     expect(await api.realtime('L1')).toEqual({ enabled: false });
-    expect(await api.teams('L1')).toEqual([{ id: 'team-1', name: 'A', ownerName: null }]);
+    // An AI team answers to its manager's name (#159).
+    expect(await api.teams('L1')).toEqual([
+      { id: 'team-1', name: 'A', ownerName: null },
+      { id: 'team-2', name: 'B', ownerName: 'Mei Park', avatarSeed: 'm' }
+    ]);
     expect(calls[0]).toEqual([
       '/leagues/L%201/chat/messages',
       { query: { limit: 5, after: undefined, roomId: undefined } }

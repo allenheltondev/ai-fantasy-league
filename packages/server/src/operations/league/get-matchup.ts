@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ApiError } from '../../errors.js';
 import { requireMember, requireTeam } from '../../league/access.js';
 import { actorTeam } from '../../league/phase.js';
+import { leagueManagers } from '../../league/managers.js';
 import { LeagueIdSchema, matchupView, MatchupViewSchema, TeamIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
 import { detailFlag } from '../players.js';
@@ -84,7 +85,12 @@ export const getMatchup = defineOperation({
         matchup.status !== 'final' && matchup.week === league.week && hasStats
           ? { ...matchup, homeScore: lineups.home.points, awayScore: lineups.away.points }
           : matchup;
-      const result = { week, teamId: team.id, matchup: matchupView(live, teams), lineups };
+      const result = {
+        week,
+        teamId: team.id,
+        matchup: matchupView(live, teams, await leagueManagers(ctx, league.id, teams)),
+        lineups
+      };
       // A week before the league's first week (a draft that ran into the season) is void.
       if (matchup.status !== 'final' && league.week !== null && matchup.week < league.week) {
         return withWarnings(result, [

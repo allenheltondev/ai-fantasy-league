@@ -21,6 +21,13 @@ import {
 import { tradeAppetite, waiverMinGain } from './behavior.js';
 import { MODEL_KEYS, getModel, modelChain, type ModelKey } from './models.js';
 import {
+  AvatarSeedSchema,
+  ManagerNameSchema,
+  effectiveManager,
+  rollAvatarSeed,
+  rollManagerName
+} from './names.js';
+import {
   PERSONALITIES,
   PERSONALITY_IDS,
   getPersonality,
@@ -41,6 +48,12 @@ export const AgentSeatConfigSchema = z.strictObject({
   personalityId: z.enum(PERSONALITY_IDS).describe('Personality preset id.'),
   difficulty: DifficultySchema.describe('Difficulty tier.'),
   archetype: ArchetypeSchema.describe('Strategy archetype.'),
+  name: ManagerNameSchema.optional().describe(
+    "The AI manager's name, 1-40 characters on one line. Omit to keep a generated default."
+  ),
+  avatarSeed: AvatarSeedSchema.optional().describe(
+    "Seed for the manager's avatar picture. Omit to keep a generated default."
+  ),
   advanced: z
     .strictObject({
       modelOverride: z
@@ -62,6 +75,9 @@ export const AgentSeatConfigSchema = z.strictObject({
 export type AgentSeatConfig = z.infer<typeof AgentSeatConfigSchema>;
 
 export interface ResolvedAgentConfig {
+  /** The manager's name: the stored one, or the default for the seat's key. */
+  name: string;
+  avatarSeed: string;
   personality: PersonalityPreset;
   difficulty: DifficultyTier;
   archetype: StrategyArchetype;
@@ -102,9 +118,10 @@ function mergeLevers(base: DifficultyLevers, overrides: LeverOverrides | undefin
   });
 }
 
-function personaPrompt(p: PersonalityPreset): string {
+function personaPrompt(name: string, p: PersonalityPreset): string {
   return [
-    `You are "${p.displayName}". ${p.bio}`,
+    `Your name is ${name}. You play the part of "${p.displayName}": ${p.bio}`,
+    `Refer to yourself as ${name}, and sign off as ${name} when you sign a message.`,
     `Voice: ${p.voice}`,
     `Trash talk: ${p.trashTalkStyle} Keep it about fantasy football, playful and never cruel.`,
     `Example lines: ${p.sampleLines.map((l) => `"${l}"`).join(' ')}`
@@ -137,9 +154,21 @@ function difficultyPrompt(tier: DifficultyTier, levers: DifficultyLevers): strin
   ].join('\n');
 }
 
+export interface ResolveAgentConfigOptions {
+  /**
+   * Stable key for the seat's default name and avatar when the config has none: the agent id
+   * (`<leagueId>.<teamId>`). Defaults to the personality id.
+   */
+  managerKey?: string;
+}
+
 /** Turns a stored seat config into everything the runtime needs: models, levers, and prompt pieces. */
-export function resolveAgentConfig(input: AgentSeatConfig): ResolvedAgentConfig {
+export function resolveAgentConfig(
+  input: AgentSeatConfig,
+  options: ResolveAgentConfigOptions = {}
+): ResolvedAgentConfig {
   const config = AgentSeatConfigSchema.parse(input);
+  const manager = effectiveManager(config, options.managerKey ?? config.personalityId);
   const personality = getPersonality(config.personalityId);
   const difficulty = getDifficulty(config.difficulty);
   const archetype = getArchetype(config.archetype);
@@ -147,6 +176,8 @@ export function resolveAgentConfig(input: AgentSeatConfig): ResolvedAgentConfig 
   const decision = modelChain(levers.decisionModelTier, config.advanced?.modelOverride);
   const chat = modelChain(levers.chatModelTier);
   return {
+    name: manager.name,
+    avatarSeed: manager.avatarSeed,
     personality,
     difficulty,
     archetype,
@@ -167,7 +198,7 @@ export function resolveAgentConfig(input: AgentSeatConfig): ResolvedAgentConfig 
     waiverAggressiveness: archetype.waiverAggressiveness,
     tradeFrequency: archetype.tradeFrequency,
     prompt: {
-      persona: personaPrompt(personality),
+      persona: personaPrompt(manager.name, personality),
       strategy: strategyPrompt(archetype, levers),
       difficulty: difficultyPrompt(difficulty, levers),
       customFlavor: config.advanced?.customFlavor ?? null
@@ -180,10 +211,15 @@ export const MAX_RANDOM_SEATS = PERSONALITIES.length;
 
 /**
  * A varied, deterministic lineup of agent seats: no duplicate personalities, difficulties spread as
- * evenly as possible (counts differ by at most one), and archetypes spread the same way. The same
- * `count` and `seed` always produce the same seats.
+ * evenly as possible (counts differ by at most one), and archetypes spread the same way. Every seat
+ * gets its own manager name (none repeats, nor any in `avoidNames`) and a fresh avatar seed. The
+ * same `count`, `seed`, and `avoidNames` always produce the same seats.
  */
-export function randomizeAgentSeats(count: number, seed: string | number): AgentSeatConfig[] {
+export function randomizeAgentSeats(
+  count: number,
+  seed: string | number,
+  avoidNames: Iterable<string> = []
+): AgentSeatConfig[] {
   if (!Number.isInteger(count) || count < 0 || count > MAX_RANDOM_SEATS) {
     throw new RangeError(`count must be an integer from 0 to ${MAX_RANDOM_SEATS}`);
   }
@@ -191,11 +227,18 @@ export function randomizeAgentSeats(count: number, seed: string | number): Agent
   const personalities: PersonalityId[] = seededShuffle(PERSONALITY_IDS, random).slice(0, count);
   const difficulties = spread(DIFFICULTIES, count, random);
   const archetypes = spread(ARCHETYPES, count, random);
-  return personalities.map((personalityId, i) => ({
-    personalityId,
-    difficulty: difficulties[i] as Difficulty,
-    archetype: archetypes[i] as Archetype
-  }));
+  const taken = [...avoidNames];
+  return personalities.map((personalityId, i) => {
+    const name = rollManagerName(random, { avoid: taken, personalityId });
+    taken.push(name);
+    return {
+      personalityId,
+      difficulty: difficulties[i] as Difficulty,
+      archetype: archetypes[i] as Archetype,
+      name,
+      avatarSeed: rollAvatarSeed(random)
+    };
+  });
 }
 
 /** `count` items drawn in freshly shuffled rounds of `items`, so every value appears evenly. */

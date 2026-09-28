@@ -1,6 +1,7 @@
 import { useParams, useSearchParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
+import { ManagerTag } from '../../components/AgentAvatar';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { STACKED_BLOCK, STACKED_HEAD, STACKED_LABEL, STACKED_ROW } from '../../lib/stackedTable';
@@ -93,7 +94,12 @@ function StandingsTable() {
               style={stagger(index).style}
             >
               <td className="max-sm:row-span-2 max-sm:self-start max-sm:font-semibold">{row.rank}</td>
-              <td className="break-words max-sm:col-span-2 max-sm:font-medium">{row.teamName}</td>
+              <td className="break-words max-sm:col-span-2 max-sm:font-medium">
+                <span className="flex min-w-0 flex-col">
+                  <span>{row.teamName}</span>
+                  <ManagerTag manager={row.manager} size={16} />
+                </span>
+              </td>
               <td className="max-sm:text-right">{row.record}</td>
               <td data-label="PF" className={`max-sm:col-start-2 ${STACKED_LABEL}`}>
                 {row.pointsFor.toFixed(2)}

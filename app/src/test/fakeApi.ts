@@ -27,8 +27,10 @@ export function catalog(suggest: number | null = 7): AgentCatalog {
       displayName: `Persona ${i}`,
       teamNameSuggestion: `Team P${i}`,
       bio: `Bio of persona ${i}.`,
-      avatarSeed: `seed-${i}`
+      avatarSeed: `seed-${i}`,
+      nicknames: [`Nick${i}`]
     })),
+    managerNames: { first: ['Ana', 'Ravi', 'Mei'], last: ['Soto', 'Park', 'Hale'] },
     difficulties: DIFFICULTIES.map((id, i) => ({
       id,
       displayName: ['Rookie', 'Amateur', 'Pro', 'All-Pro', 'Hall of Famer'][i] as string,

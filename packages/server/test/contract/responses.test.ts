@@ -190,6 +190,21 @@ const CASES: Record<string, Case[]> = {
       status: 200
     },
     {
+      label: 'named manager',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
+      init: {
+        body: { ...SEAT, name: 'Marcus "Spreadsheet" Hale', avatarSeed: 'hale-1' },
+        idempotencyKey: 'contract-cfg-4'
+      },
+      status: 200
+    },
+    {
+      label: 'multi-line name',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
+      init: { body: { ...SEAT, name: 'Two\nLines' }, idempotencyKey: 'contract-cfg-5' },
+      status: 400
+    },
+    {
       label: 'not commissioner',
       path: '/api/v1/leagues/lg-1/agents/team-2',
       init: { body: SEAT, idempotencyKey: 'contract-cfg-2', token: OTHER_USER },

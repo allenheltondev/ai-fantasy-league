@@ -1,6 +1,7 @@
 import { Button, Select } from '@readysetcloud/ui';
 import type { AgentCatalog, AgentSeatConfig } from '../../api/types';
 import { AgentCard } from './AgentCard';
+import { otherNames } from './agentConfig';
 
 export interface AgentSeatItem {
   key: string;
@@ -23,7 +24,7 @@ export interface AgentGridProps {
   editor?: AgentGridEditor;
 }
 
-/** The AI manager cards, with "Randomize all" and one difficulty for every card. */
+/** The AI manager cards, with "Randomize all" (new personalities, names, and avatars) and one difficulty for every card. */
 export function AgentGrid({ seats, catalog, busy = false, editor }: AgentGridProps) {
   return (
     <div className="space-y-4">
@@ -58,6 +59,10 @@ export function AgentGrid({ seats, catalog, busy = false, editor }: AgentGridPro
             seatLabel={seat.label}
             config={seat.config}
             catalog={catalog}
+            takenNames={otherNames(
+              seats.map((s) => s.config),
+              index
+            )}
             busy={busy}
             {...(editor
               ? {
