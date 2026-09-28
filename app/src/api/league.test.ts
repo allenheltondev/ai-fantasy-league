@@ -94,6 +94,13 @@ describe('createLeagueApi', () => {
     expect(fetch.mock.calls[3]?.[1]).toEqual({ method: 'PUT', body: { week: 3, moves } });
   });
 
+  it('maps the playoff bracket and history reads', async () => {
+    const { fetch, api } = setup();
+    await api.getPlayoffBracket('L1');
+    await api.getLeagueHistory('L1');
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(['/leagues/L1/playoffs', '/leagues/L1/history']);
+  });
+
   it('useLeagueApi needs a provider', () => {
     expect(() => renderHook(() => useLeagueApi())).toThrow(/LeagueApiContext/);
   });

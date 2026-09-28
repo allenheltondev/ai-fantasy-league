@@ -72,7 +72,15 @@ export function settings(overrides: Partial<LeagueSettings> = {}): LeagueSetting
       offerExpiryHours: 48,
       expireAtNextLineupLock: true
     },
-    playoffs: { teams: 4, byes: 0, startWeek: 16, endWeek: 17, tiebreaker: 'points_for' },
+    playoffs: {
+      teams: 4,
+      byes: 0,
+      startWeek: 16,
+      endWeek: 17,
+      tiebreaker: 'points_for',
+      reseed: false,
+      consolation: false
+    },
     ...overrides
   };
 }
@@ -251,7 +259,29 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       throw new Error('setLineup is not faked in this test');
     }),
     getMatchup: vi.fn(async () => ({ week: 1, teamId: 'team-1', matchup: null, lineups: null })),
-    getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] }))
+    getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] })),
+    getPlayoffBracket: vi.fn(async () => ({
+      status: 'not_started' as const,
+      teams: 4,
+      byes: 0,
+      weeks: [16, 17],
+      reseed: false,
+      consolation: false,
+      seeds: [],
+      games: [],
+      championTeamId: null,
+      consolationChampionTeamId: null
+    })),
+    getLeagueHistory: vi.fn(async () => ({
+      seasons: [],
+      current: {
+        season: 2026,
+        records: { highestScore: null, lowestScore: null, biggestBlowout: null, closestGame: null },
+        headToHead: []
+      },
+      achievements: [],
+      trades: []
+    }))
   };
   return { ...api, ...overrides };
 }

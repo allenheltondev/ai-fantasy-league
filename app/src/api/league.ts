@@ -9,11 +9,13 @@ import type {
   Invite,
   InvitePreview,
   LeagueDetail,
+  LeagueHistoryData,
   LeagueSettings,
   LeagueState,
   LineupMove,
   MatchupData,
   MyLeague,
+  PlayoffBracketData,
   Roster,
   ScoringPreset,
   SeatType,
@@ -85,7 +87,10 @@ export function createLeagueApi(api: ApiFetch) {
       return { roster: res.data, warnings: res.warnings as { code: string; message: string }[] };
     },
     getMatchup: (id: string) => call<MatchupData>(`${league(id)}/matchup`),
-    getStandings: (id: string) => call<StandingsData>(`${league(id)}/standings`)
+    getStandings: (id: string) => call<StandingsData>(`${league(id)}/standings`),
+    // Playoffs and history (#78, #81)
+    getPlayoffBracket: (id: string) => call<PlayoffBracketData>(`${league(id)}/playoffs`),
+    getLeagueHistory: (id: string) => call<LeagueHistoryData>(`${league(id)}/history`)
   };
 }
 
