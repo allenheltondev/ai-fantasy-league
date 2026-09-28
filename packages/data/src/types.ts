@@ -3,6 +3,8 @@
  * Sleeper or nflverse payloads. Team codes are Sleeper's (`LAR`, not nflverse's `LA`).
  */
 
+import type { ScoringPlayKind } from '@fantasy/core';
+
 /** Sleeper stat key, for example `pass_yd`, `rec`, `pts_half_ppr`. */
 export type StatKey = string;
 
@@ -130,6 +132,27 @@ export interface LiveGame {
   yardsToGoal: number | null;
   /** When the game was read (the caller's `asOf`). */
   updatedAt: string;
+}
+
+/**
+ * One scoring play from ESPN's game summary (#164): its description, kind, when in the game, the
+ * scoring team (Sleeper's code), and the score after it. Everything but the id, kind, and text may
+ * be null when ESPN leaves it out.
+ */
+export interface ScoringPlay {
+  /** ESPN's play id, unique within a game. */
+  id: string;
+  kind: ScoringPlayKind;
+  /** ESPN's play type, e.g. "Passing Touchdown", or null. */
+  typeText: string | null;
+  /** "Travis Kelce 18 Yd pass from Patrick Mahomes (Harrison Butker Kick)". */
+  text: string;
+  period: number | null;
+  /** The game clock at the play, e.g. "8:32", or null. */
+  clock: string | null;
+  team: string | null;
+  awayScore: number | null;
+  homeScore: number | null;
 }
 
 /** Bye week per team code for one regular season. */

@@ -1,0 +1,87 @@
+{
+  "_fixture": "Hand-written from ESPN's documented summary shape (scoringPlays) for the DAL @ PHI game of scoreboard_regular_2026_4.json; site.api.espn.com is not reachable from the dev sandbox. Replace with a recorded payload (scripts/record-fixtures.mjs --espn-summary <event id>) once games are reachable.",
+  "boxscore": { "teams": [] },
+  "header": {
+    "id": "401772901",
+    "competitions": [
+      {
+        "id": "401772901",
+        "competitors": [
+          { "id": "21", "homeAway": "home", "team": { "id": "21", "abbreviation": "PHI" }, "score": "14" },
+          { "id": "6", "homeAway": "away", "team": { "id": "6", "abbreviation": "DAL" }, "score": "10" }
+        ]
+      }
+    ]
+  },
+  "drives": { "previous": [] },
+  "scoringPlays": [
+    {
+      "id": "4017729010912",
+      "type": { "id": "59", "text": "Field Goal Good", "abbreviation": "FG" },
+      "text": "Brandon Aubrey 48 Yd Field Goal",
+      "awayScore": 3,
+      "homeScore": 0,
+      "period": { "number": 1 },
+      "clock": { "value": 552, "displayValue": "9:12" },
+      "team": {
+        "id": "6",
+        "uid": "s:20~l:28~t:6",
+        "displayName": "Dallas Cowboys",
+        "abbreviation": "DAL",
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/dal.png"
+      },
+      "scoringType": { "name": "field-goal", "displayName": "Field Goal", "abbreviation": "FG" }
+    },
+    {
+      "id": "4017729010340",
+      "type": { "id": "68", "text": "Rushing Touchdown", "abbreviation": "TD" },
+      "text": "Saquon Barkley 12 Yd Run (Jake Elliott Kick)",
+      "awayScore": 3,
+      "homeScore": 7,
+      "period": { "number": 1 },
+      "clock": { "value": 220, "displayValue": "3:40" },
+      "team": {
+        "id": "21",
+        "uid": "s:20~l:28~t:21",
+        "displayName": "Philadelphia Eagles",
+        "abbreviation": "PHI",
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png"
+      },
+      "scoringType": { "name": "touchdown", "displayName": "Touchdown", "abbreviation": "TD" }
+    },
+    {
+      "id": "4017729011455",
+      "type": { "id": "67", "text": "Passing Touchdown", "abbreviation": "TD" },
+      "text": "CeeDee Lamb 25 Yd pass from Dak Prescott (Brandon Aubrey Kick)",
+      "awayScore": 10,
+      "homeScore": 7,
+      "period": { "number": 2 },
+      "clock": { "value": 895, "displayValue": "14:55" },
+      "team": {
+        "id": "6",
+        "uid": "s:20~l:28~t:6",
+        "displayName": "Dallas Cowboys",
+        "abbreviation": "DAL",
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/dal.png"
+      },
+      "scoringType": { "name": "touchdown", "displayName": "Touchdown", "abbreviation": "TD" }
+    },
+    {
+      "id": "4017729011120",
+      "type": { "id": "67", "text": "Passing Touchdown", "abbreviation": "TD" },
+      "text": "A.J. Brown 31 Yd pass from Jalen Hurts (Jake Elliott Kick)",
+      "awayScore": 10,
+      "homeScore": 14,
+      "period": { "number": 2 },
+      "clock": { "value": 680, "displayValue": "11:20" },
+      "team": {
+        "id": "21",
+        "uid": "s:20~l:28~t:21",
+        "displayName": "Philadelphia Eagles",
+        "abbreviation": "PHI",
+        "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png"
+      },
+      "scoringType": { "name": "touchdown", "displayName": "Touchdown", "abbreviation": "TD" }
+    }
+  ]
+}

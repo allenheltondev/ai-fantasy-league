@@ -125,6 +125,7 @@ has a 90-day `ttl`.
 | NFL schedule | `NFLSCHED#<season>#W05` | `GAME#<kickoff>#<gameId>` | none | Per-player lineup locks at kickoff, and the game windows for live scoring. A flexed game leaves a stale copy under its old kickoff; reads keep the most recently synced copy of each game id. |
 | Season schedule | `NFLSCHED#<season>` | `SEASON` | none | Bye weeks, game count, and when the schedule was synced. |
 | Live NFL games | `NFLGAMES#<season>` | `W05` | none | The latest read of ESPN's scoreboard for the week (scores, status, possession, red zone), replaced on every live-scoring run. Possession and the red zone are only served while the read is under 10 minutes old. 14-day `ttl`. |
+| Scoring plays (#164) | `NFLPLAYS#<season>#W05` | `GAME#<espnId>` | none | One game's scoring plays from ESPN's summary (description, kind, team, period, clock, score after), read by live scoring when the game's score moves. Each play keeps `seenAt`, the first read that had it, which the scoring log matches entries against. 14-day `ttl`, like the live NFL games. |
 | Scoring log event (#162) | `SCORELOG#<season>#W05` | `PLAYER#<playerId>#<at>` | none | The player's whole stat line after each change the live stats job (or the official final's corrections, `kind = correction`) saw. Stored once for every league; a matchup's log queries each lineup player's prefix and scores the events with the league's rules at read time (core `scorePlayerEvents`: score(after) − score(previous event), so a player's entries sum to his week score). Lines where only Sleeper's precomputed points, games, or snaps moved are not events. `ttl` 200 days, past the season. |
 
 ### Operational records
@@ -166,7 +167,7 @@ has a 90-day `ttl`.
 | Process trade | Version-checked `TRADE#` stamp, then ordered idempotent writes: `OWN#` locks, both `TEAM#` rosters, `WAIVERWIRE#` drops, `TXN#`, the week's `LINEUP#`, and finally `TRADE#` (no transactions) |
 | Waiver processing job | GSI2 `LEAGUEPHASE#regular_season` and `#playoffs`, then per league: put `WAIVERRUN#<day>`, query `WAIVER#` and `WAIVERWIRE#`, write teams, claims, and `TXN#` |
 | Scoring job | Query `STATS#<season>#W05`, then the week's lineups and matchups |
-| `get_scoring_log` | Query `MATCHUP#W05#`, both lineups, then one `begins_with(PLAYER#<id>#)` query per lineup player on `SCORELOG#<season>#W05`; paged in memory (newest first, cursor = the last entry's `<at>#<playerId>`) |
+| `get_scoring_log` | Query `MATCHUP#W05#`, both lineups, then one `begins_with(PLAYER#<id>#)` query per lineup player on `SCORELOG#<season>#W05`; paged in memory (newest first, cursor = the last entry's `<at>#<playerId>`); plus one query on `NFLPLAYS#<season>#W05` when an entry is a touchdown or a made field goal (#164) |
 | Season jobs (live scoring, weekly cycle) | GSI2 queries `LEAGUEPHASE#regular_season` and `LEAGUEPHASE#playoffs` |
 | Idempotent replay | GetItem or conditional put on `IDEMP#…` |
 | Audit by league or actor | Query `AUDIT#LEAGUE#id`, or GSI2 `AUDIT#PRINCIPAL#…` |

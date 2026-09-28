@@ -13,13 +13,25 @@ export const SCORING_LOG_PAGE = 20;
 
 export type LogFilter = 'both' | 'mine' | 'theirs';
 
+/** The entry's play description (#164), if it has a usable one. */
+export function playText(entry: ScoringLogEntry): string | null {
+  const text = entry.play?.text;
+  return typeof text === 'string' && text.trim() !== '' ? text : null;
+}
+
 /**
  * Merges log entries from pages and live pushes: one per id, newest first. Entry ids are
- * `<at>#<playerId>`, so id order is time order.
+ * `<at>#<playerId>`, so id order is time order. The first copy of an entry wins, unless a later
+ * one has the play description it lacks (#164).
  */
 export function mergeEntries(...lists: readonly (readonly ScoringLogEntry[])[]): ScoringLogEntry[] {
   const byId = new Map<string, ScoringLogEntry>();
-  for (const list of lists) for (const e of list) if (!byId.has(e.id)) byId.set(e.id, e);
+  for (const list of lists) {
+    for (const e of list) {
+      const kept = byId.get(e.id);
+      if (kept === undefined || (playText(kept) === null && playText(e) !== null)) byId.set(e.id, e);
+    }
+  }
   return [...byId.values()].sort((a, b) => (a.id < b.id ? 1 : -1));
 }
 
@@ -52,7 +64,8 @@ interface OlderPages {
  * The matchup's scoring log (#162): every scoring change for both lineups, newest first, filled by
  * the live stats. New entries (from a poll, or pushed with `Scores Updated`) pop in; touchdowns
  * stand out, and a player whose team is in the red zone right now carries the red-zone highlight on
- * his latest entry (#132). Filter by team, include the bench, and load older plays a page at a time.
+ * his latest entry (#132). A touchdown or field goal shows ESPN's play description under its stats
+ * when the server matched one (#164). Filter by team, include the bench, and load older plays a page at a time.
  */
 export function ScoringLog({
   leagueId,
@@ -231,6 +244,7 @@ function LogRow({
     .filter(Boolean)
     .join(' ');
   const teamName = entry.teamName;
+  const play = playText(entry);
   return (
     <li
       data-testid={`log-entry-${entry.player.id}`}
@@ -263,6 +277,11 @@ function LogRow({
           {zone !== null && <RedZoneChip zone={zone} className="" />}
         </p>
         <p className="break-words text-sm">{entry.summary}</p>
+        {play !== null && (
+          <p data-testid="log-play" className="break-words text-sm italic text-muted-foreground">
+            {play}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           <time dateTime={entry.at}>{TIME.format(new Date(entry.at))}</time>
           <span aria-hidden="true"> · </span>

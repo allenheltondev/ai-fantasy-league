@@ -1,5 +1,5 @@
 import { scoringPreset, sumPoints, yahooDefaultSettings } from '@fantasy/core';
-import type { StatLine } from '@fantasy/data';
+import type { DataProvider, ScoringPlay, StatLine } from '@fantasy/data';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ingestStats } from '../../src/jobs/ingest-stats.js';
 import { scoreLiveWeek } from '../../src/jobs/season.js';
@@ -9,12 +9,13 @@ import { createHarness, type Harness } from '../support/harness.js';
 import { nflState, StubProvider } from '../support/jobs.js';
 import { as, data, errorCode, type Caller } from '../support/league-client.js';
 import { ALICE, BOB, CAROL, seedLeague } from '../support/leagues.js';
-import { SEASON, SUNDAY_KICKOFF, seedNflSchedule, seedSeasonLeague } from '../support/season.js';
+import { liveGame, SEASON, SUNDAY_KICKOFF, seedNflSchedule, seedSeasonLeague } from '../support/season.js';
 
 /**
  * The matchup scoring log (#162) end to end over HTTP (dynalite): the live stats job stores each
  * change once for every league, get_scoring_log scores it with each league's rules, and the live
- * push carries the new entries. team-1 is Alice's, team-2 an agent seat, team-3 Bob's.
+ * push carries the new entries. team-1 is Alice's, team-2 an agent seat, team-3 Bob's. Touchdowns
+ * carry ESPN's play description when one stored play fits (#164).
  */
 
 interface Entry {
@@ -24,11 +25,12 @@ interface Entry {
   teamId: string;
   slot: string;
   starter: boolean;
-  player: { id: string; name: string };
+  player: { id: string; name: string; team: string | null };
   changes: { stat: string; delta: number }[];
   summary: string;
   points: number;
   touchdown: boolean;
+  play: { text: string } | null;
 }
 interface LogPage {
   week: number;
@@ -59,6 +61,29 @@ const line = (playerId: string, stats: Record<string, number>): StatLine => ({
   season: SEASON,
   week: 1,
   stats
+});
+const ESPN_ID = '401999001';
+const runPlay = (id: string, text: string, team: string | null): ScoringPlay & { seenAt: string } => ({
+  id,
+  kind: 'touchdown',
+  typeText: 'Rushing Touchdown',
+  text,
+  period: 1,
+  clock: '9:00',
+  team,
+  awayScore: 0,
+  homeScore: 7,
+  seenAt: '2026-09-13T17:33:00.000Z'
+});
+const gamePlays = (plays: (ScoringPlay & { seenAt: string })[]) => ({
+  season: SEASON,
+  week: 1,
+  espnId: ESPN_ID,
+  gameKey: null,
+  homeScore: 7,
+  awayScore: 0,
+  plays,
+  updatedAt: '2026-09-13T17:33:00.000Z'
 });
 const jobDeps = () => ({
   provider,
@@ -170,6 +195,53 @@ describe('the scoring log', () => {
     });
   });
 
+  it("describes a touchdown with ESPN's play when exactly one fits, and never guesses", async () => {
+    const td = data<LogPage>(await alice.get(LOG)).entries[0]!;
+    expect(td).toMatchObject({ touchdown: true, play: null });
+    const { name, team } = td.player;
+    await h.services.data.reference.nflPlays.put(
+      gamePlays([runPlay('1', `${name} 6 Yd Run (Jake Moody Kick)`, team)])
+    );
+
+    const log = data<LogPage>(await alice.get(LOG));
+    expect(log.entries[0]).toMatchObject({ id: td.id, play: { text: `${name} 6 Yd Run (Jake Moody Kick)` } });
+    // Entries without a touchdown or a field goal never get one.
+    expect(log.entries.slice(1).every((e) => e.play === null)).toBe(true);
+
+    // A second run by him close in time: either could be this entry's, so neither is shown.
+    await h.services.data.reference.nflPlays.put(
+      gamePlays([
+        runPlay('1', `${name} 6 Yd Run (Jake Moody Kick)`, team),
+        { ...runPlay('2', `${name} 2 Yd Run (Jake Moody Kick)`, team), seenAt: '2026-09-13T17:35:00.000Z' }
+      ])
+    );
+    expect(data<LogPage>(await alice.get(LOG)).entries[0]?.play).toBeNull();
+    // Another team's play, or another player's, is never his.
+    await h.services.data.reference.nflPlays.put(
+      gamePlays([
+        runPlay('1', `${name} 6 Yd Run (Jake Moody Kick)`, team === 'DAL' ? 'PHI' : 'DAL'),
+        runPlay('2', 'Someone Else 6 Yd Run', team)
+      ])
+    );
+    expect(data<LogPage>(await alice.get(LOG)).entries[0]?.play).toBeNull();
+
+    await h.services.data.reference.nflPlays.put(
+      gamePlays([runPlay('1', `${name} 6 Yd Run (Jake Moody Kick)`, team)])
+    );
+  });
+
+  it('still serves the log when the plays cannot be read', async () => {
+    const plays = h.services.data.reference.nflPlays;
+    const listWeek = plays.listWeek.bind(plays);
+    plays.listWeek = () => Promise.reject(new Error('throttled'));
+    try {
+      const log = data<LogPage>(await alice.get(LOG));
+      expect(log.entries[0]).toMatchObject({ touchdown: true, play: null });
+    } finally {
+      plays.listWeek = listWeek;
+    }
+  });
+
   it("adds up to each player's points in get_matchup, and the bench on request", async () => {
     const matchup = data<MatchupBody>(await alice.get('/leagues/lg-log/matchup'));
     const players = [...matchup.lineups.home.players, ...matchup.lineups.away.players];
@@ -273,6 +345,42 @@ describe('the scoring log', () => {
       expect(pushed?.detail).not.toHaveProperty('scoringLog');
     } finally {
       log.listPlayers = listPlayers;
+    }
+  });
+
+  it("pushes a new touchdown with the play the same run read from ESPN's summary", async () => {
+    const td = data<LogPage>(await alice.get(LOG)).entries.find((e) => e.touchdown)!;
+    const { name, team } = td.player;
+    const second = `${name} 11 Yd Run (Jake Moody Kick)`;
+    const live = provider as StubProvider & Pick<DataProvider, 'getLiveGames' | 'getScoringPlays'>;
+    live.getLiveGames = async () => [liveGame('espn-log', { espnId: ESPN_ID, homeScore: 14, awayScore: 0 })];
+    live.getScoringPlays = async () => [
+      runPlay('1', `${name} 6 Yd Run (Jake Moody Kick)`, team),
+      { ...runPlay('2', second, team), homeScore: 14 }
+    ];
+    try {
+      h.clock.advance(10 * 60_000);
+      provider.stats = [line(starter, { rush_att: 6, rush_yd: 41, rush_td: 2, off_snp: 16 })];
+      await ingestStats(jobDeps(), h.clock);
+      const before = h.events.events.length;
+      await scoreLiveWeek(jobDeps(), h.clock);
+      const pushed = h.events.events
+        .slice(before)
+        .find((e) => e.detailType === 'Scores Updated' && e.detail.leagueId === 'lg-log');
+      const logs = (pushed?.detail as { scoringLog: { entries: Entry[] }[] }).scoringLog;
+      const entry = logs.flatMap((l) => l.entries).find((e) => e.player.id === starter && e.touchdown);
+      expect(entry).toMatchObject({ at: h.clock.now().toISOString(), play: { text: second } });
+      // The earlier touchdown keeps its own play: the new one was first seen too late for it.
+      const log = data<LogPage>(await alice.get(LOG));
+      expect(log.entries.find((e) => e.id === td.id)?.play?.text).toBe(`${name} 6 Yd Run (Jake Moody Kick)`);
+      const stored = await h.services.data.reference.nflPlays.listWeek(SEASON, 1);
+      expect(stored[0]?.plays.map((p) => [p.id, p.seenAt])).toEqual([
+        ['1', '2026-09-13T17:33:00.000Z'],
+        ['2', h.clock.now().toISOString()]
+      ]);
+    } finally {
+      delete (live as Partial<typeof live>).getLiveGames;
+      delete (live as Partial<typeof live>).getScoringPlays;
     }
   });
 });

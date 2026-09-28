@@ -341,6 +341,31 @@ beforeAll(async () => {
       stats: { rush_yd: 16, rush_td: 1 }
     }
   ]);
+  // The touchdown's play description (#164), so `play` is documented with a value too.
+  const cmc = (await h.repos.players.get('fx-cmc'))!;
+  await h.services.data.reference.nflPlays.put({
+    season: 2026,
+    week: 1,
+    espnId: '401999002',
+    gameKey: null,
+    homeScore: 7,
+    awayScore: 0,
+    plays: [
+      {
+        id: '1',
+        kind: 'touchdown',
+        typeText: 'Rushing Touchdown',
+        text: `${cmc.name} 18 Yd Run (Jake Moody Kick)`,
+        period: 1,
+        clock: '9:00',
+        team: cmc.team,
+        awayScore: 0,
+        homeScore: 7,
+        seenAt: '2026-09-13T17:31:00.000Z'
+      }
+    ],
+    updatedAt: '2026-09-13T17:31:00.000Z'
+  });
   await seedDraftContractLeague(h.repos);
   await seedContractWaivers(h.repos);
   await seedContractTrades(h.repos);

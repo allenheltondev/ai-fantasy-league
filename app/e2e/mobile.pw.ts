@@ -99,7 +99,11 @@ const SCORING_LOG = (home: string, away: string) => {
       {
         summary: '+31 pass yds, +12 rush yds, +2 carries, +1 completion, +1 pass TD, +1 rush TD',
         points: 11.44,
-        touchdown: true
+        touchdown: true,
+        // ESPN's play description (#164): long, so it has to wrap under the summary.
+        play: {
+          text: 'Josh Allen 12 Yd Run (Two-Point Pass Conversion: Josh Allen pass to Khalil Shakir is Good)'
+        }
       }
     ),
     entry(
@@ -515,7 +519,8 @@ for (const viewport of VIEWPORTS) {
           }
         })
       );
-      // And a busy scoring log (#162): a long touchdown line, a correction, and the bench.
+      // And a busy scoring log (#162): a long touchdown line with its play (#164), a correction,
+      // and the bench.
       await page.route(/\/api\/v1\/leagues\/demo-season\/matchup\/scoring-log/, (route) =>
         route.fulfill({
           json: {
@@ -540,6 +545,7 @@ for (const viewport of VIEWPORTS) {
       await page.getByRole('checkbox', { name: 'Include bench' }).check();
       await expect(plays).toHaveCount(3);
       await expect(page.getByText('3rd & Goal at MIA 4').first()).toBeVisible();
+      await expect(plays.first().getByTestId('log-play')).toContainText('Josh Allen 12 Yd Run');
       await expectFits(page, 'matchup (live)');
       await context.close();
     });
