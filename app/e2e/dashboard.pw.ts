@@ -101,18 +101,17 @@ test('the league opens on its dashboard and the move board updates live', async 
   ];
   await callApi(context, 'post', `/leagues/${L}/waivers/claims`, { playerId: agent.id });
   await push(page, 'Waivers Processed');
-  const newest = board.getByRole('listitem').first();
-  await expect(newest.getByRole('article', { name: `Free-agent add: ${TEAM}` })).toBeVisible();
-  await expect(newest.getByRole('list', { name: `${TEAM} adds` })).toContainText(agent.name);
+  await expect(
+    board.getByRole('article', { name: `Free-agent add: ${TEAM}` }).filter({ hasText: agent.name })
+  ).toBeVisible();
 
   await callApi(context, 'post', `/leagues/${L}/drops`, { playerId: agent.id });
   await push(page, 'Trade Processed');
+  // The e2e server's clock is fixed, so the add and the drop share a timestamp and their order on
+  // the board is not defined: look for the drop anywhere in the feed.
   await expect(
-    board
-      .getByRole('listitem')
-      .first()
-      .getByRole('article', { name: `Drop: ${TEAM}` })
-  ).toContainText(agent.name);
+    board.getByRole('article', { name: `Drop: ${TEAM}` }).filter({ hasText: agent.name })
+  ).toBeVisible();
 
   // A tap on your matchup opens it.
   await yours.click();
