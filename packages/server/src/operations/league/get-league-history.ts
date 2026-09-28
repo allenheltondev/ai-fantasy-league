@@ -7,15 +7,17 @@ import {
   type SeasonRecords
 } from '@fantasy/core';
 import { z } from 'zod';
-import type { Ctx } from '../../context.js';
 import { requireMember } from '../../league/access.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { PlayerRefSchema } from '../../players/model.js';
 import { defineOperation } from '../../registry/operation.js';
 import type { Team } from '../../repos/types.js';
-import type { TransactionRecord } from '../../repos/waivers.js';
+import { leagueTransactions, valuedTrades, type ValuedTrade } from '../../season/model-stats.js';
 import { playedGames } from '../../season/playoffs.js';
 import { playerRefs, refOf } from '../waivers/shared.js';
+
+/** How many best and worst trades the history lists. */
+const TRADE_RECORDS = 3;
 
 const TeamScoreSchema = z
   .object({ teamId: z.string(), teamName: z.string(), week: z.number().int(), points: z.number() })
@@ -51,6 +53,23 @@ const HeadToHeadSchema = z.object({
   ties: z.number().int(),
   pointsFor: z.number(),
   pointsAgainst: z.number()
+});
+
+const TradeValueRecordSchema = z.object({
+  tradeId: z.string(),
+  at: z.string(),
+  week: z.number().int(),
+  teamId: z.string(),
+  teamName: z.string(),
+  partnerTeamId: z.string(),
+  partnerName: z.string(),
+  received: z.array(PlayerRefSchema),
+  sent: z.array(PlayerRefSchema).describe('Players this team sent, plus any it dropped to make room.'),
+  valueDelta: z
+    .number()
+    .describe(
+      "The team's player value won (+) or lost (-): rest-of-season points over replacement received minus sent and dropped, projected from the trade's week."
+    )
 });
 
 const SeasonSchema = z.object({
@@ -95,6 +114,7 @@ export const getLeagueHistory = defineOperation({
   summary: 'League history: past seasons, records, head-to-head, achievements, and trades',
   description: [
     'Returns the league archive: each completed season (champion, runner-up, final standings, playoff results, records), the current season so far (records and head-to-head from every final game), achievements teams have earned, and the trade history.',
+    '`tradeRecords` ranks the best and worst trades by value delta (the trade value math applied to each processed trade).',
     "Use it for rivalries and trash talk: `headToHead` has every pair of teams that has met, with the record from the first team's side; records name the highest and lowest single-week scores, the biggest blowout, and the closest game.",
     'Before any week is final everything is empty. Only members can read it.'
   ].join(' '),
@@ -136,22 +156,51 @@ export const getLeagueHistory = defineOperation({
           dropped: PlayerRefSchema.nullable()
         })
       )
-      .describe('Processed trades from the transaction log, newest first (one entry per team side).')
+      .describe('Processed trades from the transaction log, newest first (one entry per team side).'),
+    tradeRecords: z
+      .object({
+        best: z.array(TradeValueRecordSchema).describe('Biggest value wins, best first (at most 3).'),
+        worst: z.array(TradeValueRecordSchema).describe('Biggest value losses, worst first (at most 3).')
+      })
+      .describe('The best and worst trades by value delta, one entry per team side of a processed trade.')
   }),
   handler: async (ctx, input) => {
     const { league, teams } = await requireMember(ctx, input.leagueId);
-    const [seasons, matchups, achievements, trades] = await Promise.all([
+    const deps = { repos: ctx.repos, reference: ctx.data.reference, log: ctx.log };
+    const [seasons, matchups, achievements, transactions] = await Promise.all([
       ctx.repos.history.listSeasons(league.id),
       ctx.repos.schedule.listMatchups(league.id),
       ctx.repos.history.listAchievements(league.id),
-      tradeTransactions(ctx, league.id)
+      leagueTransactions(deps, league.id)
     ]);
+    // Trades from the transaction log (`TXN#` records whose type is `trade`), newest first.
+    const trades = transactions.filter((t) => t.type === 'trade').reverse();
+    const valued = await valuedTrades(deps, league, teams, ctx.clock.now(), transactions);
     const name = (id: string) => teamName(teams, id);
     const games = playedGames(matchups);
-    const refs = await playerRefs(
-      ctx,
-      trades.flatMap((t) => [t.addPlayerId, t.dropPlayerId])
-    );
+    const refs = await playerRefs(ctx, [
+      ...trades.flatMap((t) => [t.addPlayerId, t.dropPlayerId]),
+      ...valued.flatMap((t) => t.sides.flatMap((s) => [...s.receives, ...s.sends, ...s.drops]))
+    ]);
+    const tradeRecord = (t: ValuedTrade, side: ValuedTrade['sides'][number]) => ({
+      tradeId: t.tradeId,
+      at: t.at,
+      week: t.week,
+      teamId: side.teamId,
+      teamName: name(side.teamId),
+      partnerTeamId: side.partnerTeamId,
+      partnerName: name(side.partnerTeamId),
+      received: side.receives.map((id) => refOf(refs, id)),
+      sent: [...side.sends, ...side.drops].map((id) => refOf(refs, id)),
+      valueDelta: side.valueDelta
+    });
+    const sides = valued.flatMap((t) => t.sides.map((side) => ({ t, side })));
+    const ranked = (keep: (delta: number) => boolean, order: number) =>
+      sides
+        .filter(({ side }) => keep(side.valueDelta))
+        .sort((a, b) => order * (b.side.valueDelta - a.side.valueDelta) || b.t.at.localeCompare(a.t.at))
+        .slice(0, TRADE_RECORDS)
+        .map(({ t, side }) => tradeRecord(t, side));
     return {
       seasons: seasons.map((s) => ({
         season: s.season,
@@ -199,24 +248,11 @@ export const getLeagueHistory = defineOperation({
         teamName: name(t.teamId),
         added: t.addPlayerId === null ? null : refOf(refs, t.addPlayerId),
         dropped: t.dropPlayerId === null ? null : refOf(refs, t.dropPlayerId)
-      }))
+      })),
+      tradeRecords: { best: ranked((d) => d > 0, 1), worst: ranked((d) => d < 0, -1) }
     };
   }
 });
-
-/**
- * Trades from the transaction log (`TXN#` records whose type is `trade`), newest first. The trade
- * work stream writes them; until it does (or if a record cannot be read) there are none.
- */
-async function tradeTransactions(ctx: Ctx, leagueId: string): Promise<TransactionRecord[]> {
-  try {
-    const all = await ctx.repos.waivers.listTransactionsSince(leagueId, '');
-    return all.filter((t) => (t.type as string) === 'trade').reverse();
-  } catch (error) {
-    ctx.log.warn('could not read trade history', { leagueId, error });
-    return [];
-  }
-}
 
 /** A team's name, or its id for a team no longer in the league. */
 function teamName(teams: readonly Team[], id: string): string {

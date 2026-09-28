@@ -21,6 +21,7 @@ import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Lineup, Repos } from '../repos/types.js';
 import { applyPriorities } from '../waivers/process.js';
 import { resolveWeekLineups, weekGames, type SeasonDeps } from './lineups.js';
+import { publishModelPowerRankings } from './model-stats.js';
 import { rebuildPlayoffs, recordSeasonHistory, writePlayoffGames } from './playoffs.js';
 import { recordStandings, scoreLine, updateMatchupScores } from './scoring.js';
 
@@ -117,6 +118,7 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
     phase: step.phase,
     rolledOverAt: now.toISOString()
   });
+  await publishModelPowerRankings(deps, saved, week, now);
   await scheduleLockWarnings(deps, saved, nextGames, now);
   return { leagueId: league.id, status: 'rolled_over', finalWeek: week, week: step.week, phase: step.phase };
 }

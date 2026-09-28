@@ -163,6 +163,81 @@ describe('trade history (in-memory transaction log)', () => {
         ['t1', 'fx-cmc', null]
       ]);
       expect(body.seasons).toEqual([]);
+      expect(body.tradeRecords).toEqual({ best: [], worst: [] });
+    } finally {
+      await mem.close();
+    }
+  });
+
+  it('ranks the best and worst trades by value delta', async () => {
+    const mem = await createHarness({ registry });
+    try {
+      const reference = mem.services.data.reference;
+      await seedNflSchedule(reference);
+      await seedSeasonLeague({ repos: mem.repos, reference }, { id: 'lg-tv', owners: [ALICE] });
+      await reference.projections.putSnapshot(
+        { season: 2026, week: 3, capturedAt: '2026-08-01T12:00:00.000Z', hash: 'tv', count: 2 },
+        [
+          { playerId: 'fx-cmc', season: 2026, week: 3, stats: { rush_yd: 250 } },
+          { playerId: 'fx-jtaylor', season: 2026, week: 3, stats: { rush_yd: 60 } }
+        ]
+      );
+      const at = '2026-09-22T12:00:00.000Z';
+      await mem.repos.trades.create({
+        leagueId: 'lg-tv',
+        trade: {
+          tradeId: 'tv1',
+          sides: [
+            { teamId: 'team-1', sends: ['fx-cmc'], drops: [] },
+            { teamId: 'team-2', sends: ['fx-jtaylor'], drops: [] }
+          ],
+          status: 'processed',
+          proposedAt: at,
+          expiresAt: at,
+          counterOf: null,
+          counterChain: [],
+          vetoVotes: [],
+          reviewEndsAt: null,
+          commissionerApproved: false,
+          voidReason: null,
+          history: []
+        },
+        message: null,
+        createdBy: 'user#alice',
+        processingAt: at,
+        updatedAt: at,
+        version: 1
+      });
+      const txn = (teamId: string, playerId: string): TransactionRecord => ({
+        id: `tv1.${playerId}`,
+        leagueId: 'lg-tv',
+        at,
+        week: 3,
+        type: 'trade',
+        teamId,
+        addPlayerId: playerId,
+        dropPlayerId: null,
+        cost: null,
+        claimId: null,
+        tradeId: 'tv1'
+      });
+      await mem.repos.waivers.addTransactions([txn('team-2', 'fx-cmc'), txn('team-1', 'fx-jtaylor')]);
+      const res = await as(mem, ALICE).get('/leagues/lg-tv/history');
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      const { tradeRecords } = getLeagueHistory.output.parse(data(res));
+      expect(tradeRecords.best).toEqual([
+        expect.objectContaining({
+          tradeId: 'tv1',
+          week: 3,
+          teamId: 'team-2',
+          partnerTeamId: 'team-1',
+          received: [expect.objectContaining({ id: 'fx-cmc' })],
+          sent: [expect.objectContaining({ id: 'fx-jtaylor' })]
+        })
+      ]);
+      expect(tradeRecords.worst).toEqual([expect.objectContaining({ teamId: 'team-1' })]);
+      expect(tradeRecords.best[0]?.valueDelta).toBeGreaterThan(0);
+      expect(tradeRecords.worst[0]?.valueDelta).toBe(-(tradeRecords.best[0]?.valueDelta ?? 0));
     } finally {
       await mem.close();
     }

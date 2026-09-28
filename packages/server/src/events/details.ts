@@ -283,6 +283,31 @@ export const EVENT_DETAIL_SCHEMAS = {
     week: week.nullable().describe('Null for a season award.'),
     awardedAt: iso
   }),
+  'Model Power Rankings': z.object({
+    leagueId: id,
+    season: z.number().int(),
+    week: week.describe('The week that just ended.'),
+    leaderModelName: z.string().describe('The top model (or "Human" when people lead).'),
+    rankings: z
+      .array(
+        z.object({
+          rank: z.number().int().min(1),
+          modelKey: z.string().describe('A catalog model key, or "human".'),
+          modelName: z.string(),
+          teams: z.number().int().min(1),
+          wins: z.number().int(),
+          losses: z.number().int(),
+          ties: z.number().int(),
+          winRate: z.number().nullable(),
+          tradeValue: z.number().describe('Player value won (+) or lost (-) in processed trades.'),
+          waiverHitRate: z.number().nullable(),
+          costUsd: z.number()
+        })
+      )
+      .min(1),
+    lines: z.array(z.string()).min(1).describe('One chat line per model, best first.'),
+    postedAt: iso
+  }),
   'Track Activity': z.object({
     id: id.describe('Idempotency key for the rsc-core badge engine.'),
     userId: id.describe('The Cognito sub of the team owner.'),

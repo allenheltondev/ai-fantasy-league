@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { yahooDefaultSettings, type LeagueSettings } from '../rules/settings.js';
 import { rp } from '../trades/fixtures.test-helpers.js';
 import type { TradeSide } from '../trades/trade.js';
-import { tradeValue } from './trade-value.js';
+import { tradePlayersValue, tradeValue } from './trade-value.js';
 import { replacementLevels } from './value.js';
 
 const base = yahooDefaultSettings(4);
@@ -103,5 +103,37 @@ describe('tradeValue', () => {
       options
     );
     expect(ghost.sides[1]).toMatchObject({ teamId: 'Z', lineupBefore: 0, valueBefore: 0 });
+  });
+});
+
+describe('tradePlayersValue', () => {
+  const players = Object.fromEntries(
+    Object.values(rosters)
+      .flat()
+      .map((p) => [p.playerId, p])
+  );
+  const replacement = replacementLevels(settings, Object.values(rosters).flat(), projections, options);
+
+  it('values a processed trade from its players alone, matching tradeValue', () => {
+    const trade = { sides: [side('A', ['ar2'], ['aw']), side('B', ['bw2'])] as [TradeSide, TradeSide] };
+    const [a, b] = tradePlayersValue(trade, players, projections, { ...options, replacement });
+    const full = tradeValue(settings, rosters, trade, projections, { ...options, replacement });
+    expect(a.valueDelta).toBeCloseTo(full.sides[0].valueDelta, 1);
+    expect(b.valueDelta).toBeCloseTo(full.sides[1].valueDelta, 1);
+    expect(a.valueDelta).toBeCloseTo(a.received - a.given, 5);
+    expect(a.teamId).toBe('A');
+    expect(b.given).toBe(a.received);
+  });
+
+  it('counts unknown players as worth nothing', () => {
+    const [a, b] = tradePlayersValue(
+      { sides: [side('A', ['ghost']), side('B', ['bq'])] },
+      players,
+      projections,
+      { ...options, replacement }
+    );
+    expect(a.given).toBe(0);
+    expect(b.received).toBe(0);
+    expect(a.valueDelta).toBeGreaterThan(0);
   });
 });
