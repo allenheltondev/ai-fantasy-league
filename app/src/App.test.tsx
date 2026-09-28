@@ -68,6 +68,8 @@ describe('signed in', () => {
     signInAs(ALICE);
     renderApp('/leagues/L1');
     expect(await screen.findByTestId('league-section-matchup')).toBeInTheDocument();
+    // The header names the league, not its id.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sunday Funday' })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'League sections' });
     for (const section of LEAGUE_SECTIONS) {
       expect(within(nav).getByRole('link', { name: section.label })).toHaveAttribute(

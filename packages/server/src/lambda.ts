@@ -12,6 +12,7 @@ import { createCognitoVerifier } from './auth/verifier.js';
 import { loadLambdaConfig } from './config.js';
 import { EventBridgePublisher } from './events/eventbridge.js';
 import { createApp } from './http/app.js';
+import { originSecretsFromEnv } from './http/origin.js';
 import { createLogger } from './log.js';
 import { registry } from './operations/index.js';
 import { createDynamoRepos } from './repos/dynamo/index.js';
@@ -50,7 +51,9 @@ export function createLambdaApp(env: Record<string, string | undefined> = proces
     userPoolId: config.userPoolId,
     clientId: config.userPoolClientId
   });
-  return createApp({ registry, services, verifier });
+  // Behind CloudFront only: requests without the origin-verify header are refused (fails closed
+  // when the secret is missing, see loadLambdaConfig).
+  return createApp({ registry, services, verifier, originSecrets: originSecretsFromEnv(env) });
 }
 
 let cached: ((event: FunctionUrlEvent, context?: LambdaContext) => Promise<APIGatewayProxyResult>) | null =

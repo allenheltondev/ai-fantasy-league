@@ -57,6 +57,19 @@ export interface ClaimResult {
   claim: Claim | null;
 }
 
+/** One move from list_transactions. */
+export interface Transaction {
+  id: string;
+  at: string;
+  week: number;
+  type: 'add' | 'drop' | 'waiver_claim';
+  teamId: string;
+  teamName: string;
+  added: PlayerRef | null;
+  dropped: PlayerRef | null;
+  cost: number | null;
+}
+
 /** "2026-09-13 08:00 UTC": a fixed, unambiguous form for waiver times. */
 export function formatTime(iso: string): string {
   return `${iso.slice(0, 16).replace('T', ' ')} UTC`;

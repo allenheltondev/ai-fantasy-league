@@ -11,12 +11,18 @@ import { executeOperation } from '../registry/execute.js';
 import type { AnyOperation } from '../registry/operation.js';
 import type { Registry } from '../registry/registry.js';
 import { coerceParams } from './coerce.js';
+import { requireOriginSecret } from './origin.js';
 
 export interface AppOptions {
   registry: Registry;
   services: Services;
   /** Verifies bearer tokens. Null means sign-in is not configured: every token is rejected. */
   verifier: TokenVerifier | null;
+  /**
+   * Origin-verify secrets CloudFront sends (http/origin.ts). When set, every request without one of
+   * them is refused with 403. Unset for the local dev server, which has no CloudFront in front.
+   */
+  originSecrets?: readonly string[];
 }
 
 const BEARER = /^Bearer\s+(\S+)$/i;
@@ -29,6 +35,7 @@ export function createApp(options: AppOptions): Hono {
   const { registry, services, verifier } = options;
   const app = new Hono();
   const openApi = generateOpenApi(registry);
+  if (options.originSecrets !== undefined) app.use('*', requireOriginSecret(options.originSecrets));
 
   app.get(`${API_PREFIX}/openapi.json`, (c) => c.json(openApi));
 
