@@ -4,6 +4,7 @@ import { useLeagueApi } from '../../api/league';
 import type { AgentCatalog, AgentSeatConfig, AgentSeatRevision, TeamDetail } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { TableScroll } from '../../components/TableScroll';
 
 type Field = 'personality' | 'difficulty' | 'strategy' | 'model';
 
@@ -96,35 +97,37 @@ export function SeatHistoryPanel({ leagueId, teams }: { leagueId: string; teams:
 function HistoryTable({ history, catalog }: { history: AgentSeatRevision[]; catalog: AgentCatalog }) {
   const newest = Math.max(...history.map((h) => h.version));
   return (
-    <table className="w-full text-sm" aria-label="Seat version history">
-      <thead>
-        <tr className="text-left text-muted-foreground">
-          <th scope="col">Version</th>
-          <th scope="col">Saved</th>
-          <th scope="col">By</th>
-          <th scope="col">Config</th>
-          <th scope="col">Changes</th>
-        </tr>
-      </thead>
-      <tbody>
-        {history.map((revision, i) => {
-          const seat = describeSeat(revision.config, catalog);
-          return (
-            <tr key={revision.version}>
-              <td>
-                v{revision.version}{' '}
-                {revision.version === newest && <StatusBadge tone="success">Current</StatusBadge>}
-              </td>
-              <td>{new Date(revision.updatedAt).toLocaleString()}</td>
-              <td>{who(revision.updatedBy)}</td>
-              <td>
-                {seat.personality} · {seat.difficulty} · {seat.strategy} · {seat.model}
-              </td>
-              <td>{seatChanges(revision.config, history[i + 1]?.config, catalog).join('; ')}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <TableScroll label="Seat version history">
+      <table className="w-full text-sm" aria-label="Seat version history">
+        <thead>
+          <tr className="text-left text-muted-foreground">
+            <th scope="col">Version</th>
+            <th scope="col">Saved</th>
+            <th scope="col">By</th>
+            <th scope="col">Config</th>
+            <th scope="col">Changes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {history.map((revision, i) => {
+            const seat = describeSeat(revision.config, catalog);
+            return (
+              <tr key={revision.version}>
+                <td>
+                  v{revision.version}{' '}
+                  {revision.version === newest && <StatusBadge tone="success">Current</StatusBadge>}
+                </td>
+                <td>{new Date(revision.updatedAt).toLocaleString()}</td>
+                <td>{who(revision.updatedBy)}</td>
+                <td>
+                  {seat.personality} · {seat.difficulty} · {seat.strategy} · {seat.model}
+                </td>
+                <td>{seatChanges(revision.config, history[i + 1]?.config, catalog).join('; ')}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </TableScroll>
   );
 }
