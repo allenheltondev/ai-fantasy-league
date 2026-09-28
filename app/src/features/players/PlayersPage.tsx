@@ -4,6 +4,7 @@ import { Alert, Button, Input, Select, StatusBadge } from '@readysetcloud/ui';
 import { apiFetch } from '../../api';
 import { ClaimPanel } from './ClaimPanel';
 import { MyClaims } from './MyClaims';
+import { Transactions } from './Transactions';
 import { describeError, formatTime, type LeagueStateData, type SearchPlayer } from './types';
 
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
@@ -164,6 +165,7 @@ export function PlayersPage() {
         </table>
       )}
       <MyClaims leagueId={leagueId} refreshKey={refreshKey} onChanged={refresh} />
+      <Transactions leagueId={leagueId} refreshKey={refreshKey} />
     </div>
   );
 }

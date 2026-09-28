@@ -31,12 +31,25 @@ export interface TeamDetail {
   draftSlot: number;
 }
 
+/** A scoring bucket: `min` to `max` inclusive (`max` null means no upper bound) scores `points`. */
+export interface TierBand {
+  min: number;
+  max: number | null;
+  points: number;
+}
+
+/** Bucketed scoring for one stat, such as points allowed by a team defense. */
+export interface TierRule {
+  stat: string;
+  bands: TierBand[];
+}
+
 /** League rules. Nested groups are kept loose: the rules editor walks them by dotted path. */
 export interface LeagueSettings {
   teamCount: number;
   schedule: Record<string, unknown>;
   roster: { slots: Record<string, number>; irEligibleStatuses: string[] };
-  scoring: { perStat: Record<string, number>; tiers: unknown[] };
+  scoring: { perStat: Record<string, number>; tiers: TierRule[] };
   waivers: Record<string, unknown>;
   trades: Record<string, unknown>;
   playoffs: Record<string, unknown>;

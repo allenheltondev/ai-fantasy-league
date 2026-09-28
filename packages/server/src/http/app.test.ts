@@ -7,6 +7,7 @@ import { silentLogger } from '../log.js';
 import { createInMemoryRepos } from '../repos/memory.js';
 import { createServices } from '../services.js';
 import { authenticate, createApp } from './app.js';
+import { originSecretsFromEnv, requireOriginSecret } from './origin.js';
 
 let h: Harness;
 beforeEach(async () => {
@@ -127,6 +128,55 @@ describe('REST adapter', () => {
     expect((await onError.request('/api/v1/me', { headers: { authorization: 'Bearer x' } })).status).toBe(
       500
     );
+  });
+});
+
+describe('origin verification', () => {
+  function appWith(originSecrets?: readonly string[]) {
+    const services = createServices({
+      clock: new FixedClock('2026-09-10T12:00:00Z'),
+      repos: createInMemoryRepos(),
+      events: new InMemoryEventPublisher(),
+      log: silentLogger
+    });
+    return createApp({ registry: testRegistry, services, verifier: null, originSecrets });
+  }
+
+  it('refuses a direct call without the header, before auth runs, on every route', async () => {
+    const app = appWith(['s3cret-current']);
+    for (const path of ['/api/v1/health', '/api/v1/openapi.json', '/api/v1/nope']) {
+      const res = await app.request(path, { headers: { authorization: 'Bearer anything' } });
+      expect(res.status, path).toBe(403);
+      expect(await res.json()).toMatchObject({ error: { code: 'FORBIDDEN', fix: expect.any(String) } });
+    }
+    const wrong = await app.request('/api/v1/health', { headers: { 'x-origin-verify': 's3cret-currenX' } });
+    expect(wrong.status).toBe(403);
+    const short = await app.request('/api/v1/health', { headers: { 'x-origin-verify': 's3cret' } });
+    expect(short.status).toBe(403);
+  });
+
+  it('accepts the current and the previous secret, so a rotation has no downtime', async () => {
+    const app = appWith(['new-secret', 'old-secret']);
+    for (const secret of ['new-secret', 'old-secret']) {
+      const res = await app.request('/api/v1/health', { headers: { 'x-origin-verify': secret } });
+      expect(res.status, secret).toBe(200);
+    }
+  });
+
+  it('is off when no secrets are configured (the local dev server)', async () => {
+    expect((await appWith().request('/api/v1/health')).status).toBe(200);
+    expect(() => requireOriginSecret([])).toThrow(/at least one/);
+  });
+
+  it('reads the current and previous secret from the environment', () => {
+    expect(originSecretsFromEnv({})).toEqual([]);
+    expect(originSecretsFromEnv({ ORIGIN_VERIFY_SECRET: ' a ', ORIGIN_VERIFY_SECRET_PREVIOUS: 'b' })).toEqual(
+      ['a', 'b']
+    );
+    expect(originSecretsFromEnv({ ORIGIN_VERIFY_SECRET: 'a', ORIGIN_VERIFY_SECRET_PREVIOUS: 'a' })).toEqual([
+      'a'
+    ]);
+    expect(originSecretsFromEnv({ ORIGIN_VERIFY_SECRET_PREVIOUS: '  ' })).toEqual([]);
   });
 });
 

@@ -103,6 +103,15 @@ function stubChatApi(page: Page) {
         return json(route, { messages: [...messages].reverse(), nextCursor: null });
       });
       await page.route('**/api/v1/leagues/L1', (route) => json(route, { id: 'L1', teams: TEAMS }));
+      await page.route('**/api/v1/leagues/L1/state', (route) =>
+        json(route, {
+          leagueId: 'L1',
+          name: 'Group Chat League',
+          phase: 'setup',
+          week: null,
+          allowedActions: []
+        })
+      );
     }
   };
 }
