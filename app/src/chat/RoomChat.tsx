@@ -1,15 +1,30 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Button } from '@readysetcloud/ui';
 import { ApiError } from '../api';
 import { AgentAvatar } from '../components/AgentAvatar';
 import type { ChatApi, ChatMessage, ChatRoom, ChatTeam } from './api';
 import type { Connect } from './realtime';
+import {
+  AiBadge,
+  describeTeam,
+  highlightMentions,
+  isAiManaged,
+  managerName,
+  mentionName,
+  roomMembers,
+  suggestTeams,
+  TeamFace
+} from './mentions';
 import { useLeagueChat } from './useLeagueChat';
 
-/** One chat room (#71, #144): its messages, kept current, and the composer. */
+export { highlightMentions, suggestTeams } from './mentions';
+
+/**
+ * One chat room (#71, #144): its messages, kept current, and the composer, which shows who is in
+ * the room and can be @mentioned (#177).
+ */
 
 export const MAX_MESSAGE_LENGTH = 1000;
-const MAX_SUGGESTIONS = 6;
 
 export function RoomChat({
   leagueId,
@@ -18,7 +33,8 @@ export function RoomChat({
   connect,
   onOther,
   onSeen,
-  panel = false
+  panel = false,
+  yourTeamId = null
 }: {
   leagueId: string;
   room: ChatRoom;
@@ -30,6 +46,8 @@ export function RoomChat({
   onSeen(): void;
   /** Fill a side panel (the draft room, #170): a small title, and the messages take the height. */
   panel?: boolean;
+  /** The viewer's team: left out of a DM's mentions, since only the other team can be mentioned. */
+  yourTeamId?: string | null;
 }) {
   const chat = useLeagueChat(leagueId, api, connect, room.roomId, onOther);
   const listRef = useRef<HTMLOListElement>(null);
@@ -46,7 +64,10 @@ export function RoomChat({
   }, [chat.messages.length]);
 
   // In a DM only the other team can be mentioned.
-  const mentionable = room.kind === 'dm' ? chat.teams.filter((t) => room.teamIds.includes(t.id)) : chat.teams;
+  const mentionable = roomMembers(chat.teams, room, yourTeamId);
+  const hint = mentionable.some(isAiManaged)
+    ? 'Type @ to talk to an AI manager.'
+    : 'Type @ to mention a team.';
 
   return (
     <section
@@ -90,11 +111,10 @@ export function RoomChat({
       ) : (
         <Composer
           teams={mentionable}
+          everyone={chat.teams}
           onSend={chat.send}
           placeholder={
-            room.kind === 'dm'
-              ? `Message ${room.title} privately.`
-              : `Message ${room.title}. Type @ to mention a team.`
+            room.kind === 'dm' ? `Message ${room.title} privately.` : `Message ${room.title}. ${hint}`
           }
         />
       )}
@@ -105,26 +125,6 @@ export function RoomChat({
 function time(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
-/** Wraps @mentions of known teams (by name, manager, or id) in <strong>. */
-export function highlightMentions(text: string, teams: readonly ChatTeam[]): ReactNode[] {
-  const names = teams
-    .flatMap((t) => [t.name, t.ownerName ?? '', t.id])
-    .filter((n) => n.trim().length > 0)
-    .sort((a, b) => b.length - a.length)
-    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  if (names.length === 0) return [text];
-  const pattern = new RegExp(`(@(?:${names.join('|')}))(?![\\p{L}\\p{N}_])`, 'giu');
-  return text.split(pattern).map((part, i) =>
-    i % 2 === 1 ? (
-      <strong key={i} className="font-semibold text-primary-700">
-        {part}
-      </strong>
-    ) : (
-      part
-    )
-  );
 }
 
 /** An AI manager's avatar: the one on the message, else its team's current one (older messages). */
@@ -202,21 +202,16 @@ export function mentionQuery(text: string, caret: number): { start: number; quer
   return { start: before.length - (match[2] as string).length - 1, query: match[2] as string };
 }
 
-/** Teams whose name or manager starts with what was typed. A name typed in full needs no suggestion. */
-export function suggestTeams(teams: readonly ChatTeam[], query: string): ChatTeam[] {
-  const q = query.toLowerCase();
-  return teams
-    .filter((t) => t.name.toLowerCase() !== q)
-    .filter((t) => t.name.toLowerCase().startsWith(q) || (t.ownerName ?? '').toLowerCase().startsWith(q))
-    .slice(0, MAX_SUGGESTIONS);
-}
-
 function Composer({
   teams,
+  everyone,
   onSend,
   placeholder
 }: {
+  /** Who can be mentioned here. */
   teams: readonly ChatTeam[];
+  /** Every team in the league: a mention's name must not match another team. */
+  everyone: readonly ChatTeam[];
   onSend(text: string): Promise<void>;
   placeholder: string;
 }) {
@@ -234,6 +229,7 @@ function Composer({
     const at = pendingCaret.current;
     if (at === null) return;
     pendingCaret.current = null;
+    input.current?.focus();
     input.current?.setSelectionRange(at, at);
   }, [text]);
 
@@ -241,16 +237,22 @@ function Composer({
   const suggestions = mention === null || dismissed ? [] : suggestTeams(teams, mention.query);
   const open = suggestions.length > 0;
 
-  // Suggestions (and so `choose`) only exist while a mention is being typed.
-  const choose = (team: ChatTeam) => {
-    const start = (mention as { start: number }).start;
-    const next = `${text.slice(0, start)}@${team.name} ${text.slice(caret)}`;
-    const nextCaret = start + team.name.length + 2;
-    setText(next);
+  /** Replaces the text from `from` to the caret with `insert`, and puts the caret after it. */
+  const splice = (from: number, insert: string) => {
+    const nextCaret = from + insert.length;
+    setText(`${text.slice(0, from)}${insert}${text.slice(caret)}`);
     setCaret(nextCaret);
     setActive(0);
+    setDismissed(false);
     pendingCaret.current = nextCaret;
   };
+  /** At the caret, after a space unless the message or a line starts there. */
+  const insertAtCaret = (insert: string) =>
+    splice(caret, caret === 0 || /\s/.test(text[caret - 1] as string) ? insert : ` ${insert}`);
+
+  // Suggestions (and so `choose`) only exist while a mention is being typed.
+  const choose = (team: ChatTeam) =>
+    splice((mention as { start: number }).start, `@${mentionName(team, everyone)} `);
 
   const send = async () => {
     const trimmed = text.trim();
@@ -292,58 +294,109 @@ function Composer({
 
   return (
     <form
-      className="relative flex flex-col gap-2"
+      className="relative flex min-w-0 flex-col gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         void send();
       }}
     >
+      {teams.length > 0 ? (
+        <div className="flex min-w-0 items-center gap-2" data-testid="chat-members">
+          <span id="chat-members-label" className="shrink-0 text-xs text-muted-foreground">
+            In this room
+          </span>
+          <ul aria-labelledby="chat-members-label" className="flex min-w-0 gap-1 overflow-x-auto">
+            {teams.map((team) => (
+              <li key={team.id} className="shrink-0">
+                <button
+                  type="button"
+                  aria-label={`Mention ${describeTeam(team)}`}
+                  title={describeTeam(team)}
+                  className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 text-xs hover:bg-muted md:min-h-8"
+                  onClick={() => insertAtCaret(`@${mentionName(team, everyone)} `)}
+                >
+                  <TeamFace team={team} size={18} />
+                  {managerName(team)}
+                  {isAiManaged(team) ? (
+                    <span className="rounded bg-primary-100 px-1 font-medium text-primary-800">AI</span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <label htmlFor="chat-input" className="sr-only">
         Message
       </label>
-      <textarea
-        id="chat-input"
-        ref={input}
-        rows={2}
-        maxLength={MAX_MESSAGE_LENGTH}
-        value={text}
-        placeholder={placeholder}
-        className="w-full resize-none rounded-md border border-border bg-background p-2"
-        aria-autocomplete="list"
-        aria-controls={open ? 'chat-mentions' : undefined}
-        aria-expanded={open}
-        role="combobox"
-        onChange={(e) => {
-          setText(e.target.value);
-          setCaret(e.target.selectionStart);
-          setDismissed(false);
-          setActive(0);
-        }}
-        onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-        onKeyDown={onKeyDown}
-      />
+      <div className="flex min-w-0 items-start gap-2">
+        <textarea
+          id="chat-input"
+          ref={input}
+          rows={2}
+          maxLength={MAX_MESSAGE_LENGTH}
+          value={text}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 resize-none rounded-md border border-border bg-background p-2"
+          aria-autocomplete="list"
+          aria-controls={open ? 'chat-mentions' : undefined}
+          aria-activedescendant={open ? `chat-mention-${active}` : undefined}
+          aria-expanded={open}
+          role="combobox"
+          onChange={(e) => {
+            setText(e.target.value);
+            setCaret(e.target.selectionStart);
+            setDismissed(false);
+            setActive(0);
+          }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          onKeyDown={onKeyDown}
+        />
+        {teams.length > 0 ? (
+          <button
+            type="button"
+            aria-label="Mention someone"
+            aria-haspopup="listbox"
+            title="Mention someone"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border text-lg font-semibold text-primary-700 hover:bg-muted"
+            onClick={() => insertAtCaret('@')}
+          >
+            @
+          </button>
+        ) : null}
+      </div>
       {open ? (
         <ul
           id="chat-mentions"
           role="listbox"
           aria-label="Mention a team"
-          className="absolute bottom-full mb-1 w-64 rounded-md border border-border bg-background shadow"
+          className="absolute bottom-full z-10 mb-1 max-h-72 w-80 max-w-full overflow-y-auto rounded-md border border-border bg-background shadow"
         >
           {suggestions.map((team, i) => (
             <li
               key={team.id}
+              id={`chat-mention-${i}`}
               role="option"
               aria-selected={i === active}
-              className={`cursor-pointer px-3 py-1 text-sm ${i === active ? 'bg-primary-100' : ''}`}
+              aria-label={describeTeam(team)}
+              className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm ${
+                i === active ? 'bg-primary-100' : ''
+              }`}
               onMouseDown={(e) => {
                 e.preventDefault();
                 choose(team);
               }}
             >
-              {team.name}
-              {team.ownerName === null ? null : (
-                <span className="text-muted-foreground"> · {team.ownerName}</span>
-              )}
+              <TeamFace team={team} size={24} />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{managerName(team)}</span>
+                <span className="flex min-w-0 items-baseline gap-1">
+                  {managerName(team) === team.name ? null : (
+                    <span className="truncate text-xs text-muted-foreground">{team.name}</span>
+                  )}
+                  <AiBadge team={team} />
+                </span>
+              </span>
             </li>
           ))}
         </ul>

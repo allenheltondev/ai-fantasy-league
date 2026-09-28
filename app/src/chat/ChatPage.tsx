@@ -121,6 +121,7 @@ function LeagueChat({
           connect={connect}
           onOther={onOther}
           onSeen={onSeen}
+          yourTeamId={yourTeamId}
         />
       </div>
     </section>
