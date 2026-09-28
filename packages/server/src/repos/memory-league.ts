@@ -4,6 +4,8 @@ import type {
   InviteRepository,
   League,
   LeagueRepository,
+  Lineup,
+  LineupRepository,
   Matchup,
   Member,
   MemberRepository,
@@ -23,6 +25,7 @@ interface Partition {
   invites: Map<string, Invite>;
   matchups: Map<string, Matchup>;
   standings: Map<number, StandingsSnapshot>;
+  lineups: Map<string, Lineup>;
 }
 
 export class InMemoryLeagueStore {
@@ -37,7 +40,8 @@ export class InMemoryLeagueStore {
         members: new Map(),
         invites: new Map(),
         matchups: new Map(),
-        standings: new Map()
+        standings: new Map(),
+        lineups: new Map()
       };
       this.#partitions.set(leagueId, partition);
     }
@@ -84,6 +88,17 @@ export class InMemoryLeagueRepository implements LeagueRepository {
       .partitions()
       .flatMap((p) => (p.league !== null && p.league.createdBy === userId ? [clone(p.league)] : []))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+
+  async listInSeason(): Promise<League[]> {
+    return this.store
+      .partitions()
+      .flatMap((p) =>
+        p.league !== null && (p.league.phase === 'regular_season' || p.league.phase === 'playoffs')
+          ? [clone(p.league)]
+          : []
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
   }
 
   async delete(leagueId: string): Promise<void> {
@@ -221,6 +236,33 @@ export class InMemoryScheduleRepository implements ScheduleRepository {
   }
 }
 
+export class InMemoryLineupRepository implements LineupRepository {
+  constructor(private readonly store: InMemoryLeagueStore) {}
+
+  async get(leagueId: string, teamId: string, week: number): Promise<Lineup | null> {
+    const lineup = this.store.partition(leagueId).lineups.get(`${week}#${teamId}`);
+    return lineup === undefined ? null : clone(lineup);
+  }
+
+  async latest(leagueId: string, teamId: string, week: number): Promise<Lineup | null> {
+    const found = [...this.store.partition(leagueId).lineups.values()]
+      .filter((l) => l.teamId === teamId && l.week <= week)
+      .sort((a, b) => b.week - a.week)[0];
+    return found === undefined ? null : clone(found);
+  }
+
+  async put(lineups: readonly Lineup[]): Promise<void> {
+    for (const l of lineups) this.store.partition(l.leagueId).lineups.set(`${l.week}#${l.teamId}`, clone(l));
+  }
+
+  async listWeek(leagueId: string, week: number): Promise<Lineup[]> {
+    return [...this.store.partition(leagueId).lineups.values()]
+      .filter((l) => l.week === week)
+      .sort((a, b) => a.teamId.localeCompare(b.teamId))
+      .map(clone);
+  }
+}
+
 /** The league repositories over one shared store. */
 export function createInMemoryLeagueRepos() {
   const store = new InMemoryLeagueStore();
@@ -229,6 +271,7 @@ export function createInMemoryLeagueRepos() {
     teams: new InMemoryTeamRepository(store),
     members: new InMemoryMemberRepository(store),
     invites: new InMemoryInviteRepository(store),
-    schedule: new InMemoryScheduleRepository(store)
+    schedule: new InMemoryScheduleRepository(store),
+    lineups: new InMemoryLineupRepository(store)
   };
 }

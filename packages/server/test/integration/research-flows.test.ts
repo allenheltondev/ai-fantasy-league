@@ -208,6 +208,7 @@ describe('jobs feeding the API (DynamoDB)', () => {
     h.clock.set('2025-09-09T12:00:00.000Z');
     const deps: JobDeps = {
       provider: new FixtureDataProvider(),
+      repos: h.repos,
       reference: h.services.data.reference,
       events: h.events,
       directory: h.services.data.players,

@@ -30,6 +30,12 @@ describe('slot eligibility', () => {
     expect(isEligibleForSlot('QB', ['WR', 'TE'])).toBe(false);
   });
 
+  it('reserve slots take a player whose positions are unknown', () => {
+    expect(isEligibleForSlot('BN', [])).toBe(true);
+    expect(isEligibleForSlot('IR', [])).toBe(true);
+    expect(isEligibleForSlot('WR', [])).toBe(false);
+  });
+
   it('lists starting slots a player could fill', () => {
     expect(eligibleStarterSlots(['RB'])).toEqual(['RB', 'W/R/T', 'Q/W/R/T', 'W/R']);
     expect(eligibleStarterSlots(['K'])).toEqual(['K']);

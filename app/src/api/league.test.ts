@@ -75,6 +75,25 @@ describe('createLeagueApi', () => {
     expect(fetch.mock.calls[17]?.[1]).toEqual({ query: { suggest: 3 } });
   });
 
+  it('maps the season calls and keeps set_lineup warnings', async () => {
+    const { fetch, api } = setup();
+    await api.getRoster('L1', 'team-1');
+    await api.getMatchup('L1');
+    await api.getStandings('L1');
+    const moves = [{ playerId: 'p1', slot: 'WR' }];
+    expect(await api.setLineup('L1', 'team-1', 3, moves)).toEqual({
+      roster: { path: '/leagues/L1/teams/team-1/lineup' },
+      warnings: []
+    });
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      '/leagues/L1/teams/team-1/roster',
+      '/leagues/L1/matchup',
+      '/leagues/L1/standings',
+      '/leagues/L1/teams/team-1/lineup'
+    ]);
+    expect(fetch.mock.calls[3]?.[1]).toEqual({ method: 'PUT', body: { week: 3, moves } });
+  });
+
   it('useLeagueApi needs a provider', () => {
     expect(() => renderHook(() => useLeagueApi())).toThrow(/LeagueApiContext/);
   });

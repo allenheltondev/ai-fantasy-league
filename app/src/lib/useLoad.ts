@@ -8,8 +8,11 @@ export interface Loaded<T> {
   reload: () => void;
 }
 
-/** Runs `load` on mount and whenever `key` changes; the latest call wins. */
-export function useLoad<T>(load: () => Promise<T>, key: string): Loaded<T> {
+/**
+ * Runs `load` on mount and whenever `key` changes; the latest call wins. With `pollMs` it loads
+ * again on that interval (live scores), keeping the data on screen in between.
+ */
+export function useLoad<T>(load: () => Promise<T>, key: string, pollMs?: number): Loaded<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +42,12 @@ export function useLoad<T>(load: () => Promise<T>, key: string): Loaded<T> {
   }, [key, generation]);
 
   const reload = useCallback(() => setGeneration((g) => g + 1), []);
+
+  useEffect(() => {
+    if (pollMs === undefined) return undefined;
+    const timer = setInterval(reload, pollMs);
+    return () => clearInterval(timer);
+  }, [pollMs, reload]);
 
   return { data, error, loading, reload };
 }

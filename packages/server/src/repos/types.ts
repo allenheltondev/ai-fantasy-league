@@ -1,4 +1,4 @@
-import type { LeagueSettings, StandingsRow } from '@fantasy/core';
+import type { LeagueSettings, LineupEntry, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
 import type { AgentRepository } from './agents.js';
 
@@ -142,6 +142,8 @@ export interface LeagueRepository {
   update(league: League): Promise<League>;
   /** Every league this user created (GSI1 `CREATOR#<sub>`), oldest first. */
   listByCreator(userId: string): Promise<League[]>;
+  /** Every league in `regular_season` or `playoffs` (GSI2 `LEAGUES#IN_SEASON`), for the season jobs. */
+  listInSeason(): Promise<League[]>;
   /** Deletes the whole league partition: the league, its teams, members, invites, and schedule. */
   delete(leagueId: string): Promise<void>;
 }
@@ -261,6 +263,28 @@ export interface ScheduleRepository {
   latestStandings(leagueId: string): Promise<StandingsSnapshot | null>;
 }
 
+/** A team's lineup for one week (`LINEUP#W05#<teamId>`). */
+export interface Lineup {
+  leagueId: string;
+  teamId: string;
+  week: number;
+  /** Every rostered player with his slot. */
+  entries: LineupEntry[];
+  updatedAt: string;
+  /** `user#<sub>`, `agent#<agentId>`, or `system` when the season cycle carried it forward. */
+  updatedBy: string;
+}
+
+export interface LineupRepository {
+  get(leagueId: string, teamId: string, week: number): Promise<Lineup | null>;
+  /** The team's lineup for the latest week at or before `week`, or null when it has none. */
+  latest(leagueId: string, teamId: string, week: number): Promise<Lineup | null>;
+  /** Writes lineups, replacing any for the same team and week. */
+  put(lineups: readonly Lineup[]): Promise<void>;
+  /** Every team's lineup for one week. */
+  listWeek(leagueId: string, week: number): Promise<Lineup[]>;
+}
+
 export interface Repos {
   idempotency: IdempotencyRepository;
   audit: AuditRepository;
@@ -270,6 +294,7 @@ export interface Repos {
   members: MemberRepository;
   invites: InviteRepository;
   schedule: ScheduleRepository;
+  lineups: LineupRepository;
   /** Agent seats, notes, task records, and usage rollups (repos/agents.ts). */
   agents: AgentRepository;
 }

@@ -1,13 +1,11 @@
-import { FixedClock, type AgentSeatConfig, yahooDefaultSettings } from '@fantasy/core';
+import { FixedClock, type AgentSeatConfig, type RosterSlot, yahooDefaultSettings } from '@fantasy/core';
 import {
-  ApiError,
   InMemoryEventPublisher,
   agentIdFor,
   createInMemoryRepos,
   createLogger,
   createRegistry,
   createServices,
-  defineOperation,
   newTeam,
   operations,
   type League,
@@ -16,7 +14,6 @@ import {
   type Repos,
   type Services
 } from '@fantasy/server';
-import { z } from 'zod';
 import { OFF_SWITCH, type KillSwitch } from '../src/kill-switch.js';
 import type { ModelClient } from '../src/model.js';
 import type { RunnerDeps } from '../src/runner.js';
@@ -67,61 +64,14 @@ export function roster(): RosterRow[] {
   ];
 }
 
-/**
- * Stand-ins for the season-loop operations the lineup task needs (get_roster, set_lineup), with
- * the contract the lineup task expects. Research tools (get_projections, get_news, ...) are the real
- * operations, fed by `seedResearch`.
- */
-export function fakeLineupOps(state: {
-  rosters: Map<string, RosterRow[]>;
-  lineups: { teamId: string; lineup: unknown }[];
-}) {
-  const own = (principal: { type: string; teamId?: string }, teamId: string) => {
-    if (principal.type === 'agent' && principal.teamId !== teamId) {
-      throw new ApiError('FORBIDDEN', 'You can only change your own team.', { fix: 'Use your own teamId.' });
-    }
-  };
-  const getRoster = defineOperation({
-    name: 'get_roster',
-    method: 'GET',
-    path: '/leagues/{leagueId}/teams/{teamId}/roster',
-    summary: 'Get a roster (test)',
-    description: 'Test stand-in for the lineup stream.',
-    mutation: false,
-    input: z.object({ leagueId: z.string(), teamId: z.string(), week: z.number().int().optional() }),
-    output: z.object({ week: z.number().int(), roster: z.array(z.record(z.string(), z.unknown())) }),
-    handler: async (_ctx, input) => ({ week: 5, roster: state.rosters.get(input.teamId) ?? [] })
-  });
-  const setLineup = defineOperation({
-    name: 'set_lineup',
-    method: 'PUT',
-    path: '/leagues/{leagueId}/teams/{teamId}/lineup',
-    summary: 'Set a lineup (test)',
-    description: 'Test stand-in for the lineup stream.',
-    mutation: true,
-    input: z.object({
-      leagueId: z.string(),
-      teamId: z.string(),
-      week: z.number().int().optional(),
-      lineup: z.array(z.object({ playerId: z.string(), slot: z.string() }))
-    }),
-    output: z.object({ ok: z.boolean() }),
-    handler: async (ctx, input) => {
-      own(ctx.principal as { type: string; teamId?: string }, input.teamId);
-      state.lineups.push({ teamId: input.teamId, lineup: input.lineup });
-      return { ok: true };
-    }
-  });
-  return [getRoster, setLineup];
-}
-
 export interface Setup {
   repos: Repos;
   services: Services;
   clock: FixedClock;
   events: InMemoryEventPublisher;
   registry: Registry;
-  state: { rosters: Map<string, RosterRow[]>; lineups: { teamId: string; lineup: unknown }[] };
+  /** Lineups the agents saved through set_lineup, oldest first. */
+  savedLineups(teamId?: string): Promise<{ teamId: string; lineup: { playerId: string; slot: string }[] }[]>;
   logs: string[];
   deps(
     model: ModelClient,
@@ -154,30 +104,31 @@ export async function setup(
   options: { withLineupOps?: boolean; league?: Partial<League> } = {}
 ): Promise<Setup> {
   const repos = createInMemoryRepos();
-  await seedLeague(repos, league(options.league));
+  const l = league(options.league);
+  await seedLeague(repos, l);
   const clock = new FixedClock(START);
   const events = new InMemoryEventPublisher();
   const logs: string[] = [];
   const services = createServices({ clock, repos, events, log: createLogger({ sink: (l) => logs.push(l) }) });
   await seedResearch(repos, services);
-  const state = {
-    rosters: new Map([
-      [AGENT_TEAM, roster()],
-      ['team-3', roster()]
-    ]),
-    lineups: [] as { teamId: string; lineup: unknown }[]
-  };
-  const registry = createRegistry([
-    ...operations,
-    ...(options.withLineupOps === false ? [] : fakeLineupOps(state))
-  ]);
+  await seedRosters(repos, l);
+  const registry = createRegistry(
+    options.withLineupOps === false
+      ? operations.filter((op) => op.name !== 'get_roster' && op.name !== 'set_lineup')
+      : operations
+  );
   return {
     repos,
     services,
     clock,
     events,
     registry,
-    state,
+    async savedLineups(teamId = AGENT_TEAM) {
+      const saved = await repos.lineups.get(LEAGUE_ID, teamId, l.week ?? 5);
+      return saved === null || !saved.updatedBy.startsWith('agent#')
+        ? []
+        : [{ teamId, lineup: saved.entries }];
+    },
     logs,
     deps: (model, o = {}) => ({
       registry,
@@ -202,7 +153,10 @@ export async function setup(
   };
 }
 
-/** The roster's players in the player directory, and a projection snapshot where only rb3 projects. */
+/**
+ * The roster's players in the player directory, a projection snapshot where only rb3 projects,
+ * and the week's NFL schedule: SF (every player's team) kicks off Sunday afternoon.
+ */
 async function seedResearch(repos: Repos, services: Services): Promise<void> {
   await repos.players.putMany(
     roster().map((r) => ({
@@ -226,6 +180,45 @@ async function seedResearch(repos: Repos, services: Services): Promise<void> {
     { season, week, capturedAt: '2026-10-01T12:00:00.000Z', hash: 'agents-test', count: 1 },
     [{ playerId: 'rb3', season, week, stats: { rush_yd: 300 } }]
   );
+  await services.data.reference.schedule.putSeason(
+    season,
+    [
+      {
+        gameId: `${season}_05_LAR_SF`,
+        season,
+        seasonType: 'regular',
+        week,
+        kickoff: SF_KICKOFF,
+        homeTeam: 'SF',
+        awayTeam: 'LAR',
+        status: 'scheduled'
+      }
+    ],
+    {},
+    new Date(START)
+  );
+}
+
+/** The kickoff of every rostered player's game in week 5 (after START, so nobody is locked). */
+export const SF_KICKOFF = '2026-10-04T20:25:00.000Z';
+
+/** team-2 and team-3 roster `roster()`, with its (weak) lineup saved for the current week. */
+async function seedRosters(repos: Repos, l: League): Promise<void> {
+  for (const teamId of [AGENT_TEAM, 'team-3']) {
+    const team = await repos.teams.get(l.id, teamId);
+    if (team === null) continue;
+    await repos.teams.update({ ...team, roster: roster().map((r) => r.playerId) });
+    await repos.lineups.put([
+      {
+        leagueId: l.id,
+        teamId,
+        week: l.week ?? 5,
+        entries: roster().map((r) => ({ playerId: r.playerId, slot: r.slot as RosterSlot })),
+        updatedAt: START,
+        updatedBy: 'user#seed'
+      }
+    ]);
+  }
 }
 
 /** The league with its four teams: team-1 is the commissioner's (a person); team-2..team-4 are agent seats. */

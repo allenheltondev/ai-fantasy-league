@@ -7,7 +7,7 @@ import { runAgentAction } from '../src/runner.js';
 import { lineupTask } from '../src/tasks/lineup.js';
 import { noopTask } from '../src/tasks/noop.js';
 import { BaseDecisionSchema, createTaskKindRegistry, defineTaskKind } from '../src/tasks/kinds.js';
-import { AGENT_TEAM, LEAGUE_ID, setup } from './support.js';
+import { AGENT_TEAM, LEAGUE_ID, SF_KICKOFF, setup } from './support.js';
 
 const AGENT_ID = `${LEAGUE_ID}.${AGENT_TEAM}`;
 const PRO = { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'balanced' } as const;
@@ -53,20 +53,16 @@ describe('runAgentAction with the fake model', () => {
       week: 5,
       trigger: { detailType: 'Lineup Lock Approaching', eventId: 'evt-1' }
     });
-    expect(record.toolsCalled.map((c) => c.name)).toEqual([
-      'get_news',
-      'get_roster',
-      'get_projections',
-      'set_lineup'
-    ]);
+    expect(record.toolsCalled.map((c) => c.name)).toEqual(['get_news', 'get_roster', 'set_lineup']);
     expect(record.usage).toHaveLength(1);
     expect(record.usage[0]).toMatchObject({ modelKey: 'kimi-k2-thinking', estimatedTokens: true });
     expect(record.costUsd).toBeGreaterThan(0);
     expect(model.transcript[0]?.modelId).toBe('moonshot.kimi-k2-thinking');
     expect(model.transcript[0]?.systemPrompt).toContain('The Spreadsheet');
     expect(model.transcript[0]?.systemPrompt).toContain('RB: RB3 (rb3, 30 pts)');
-    expect(s.state.lineups).toHaveLength(1);
-    expect(starters(s.state.lineups[0]?.lineup)).toMatchObject({
+    const saved = await s.savedLineups();
+    expect(saved).toHaveLength(1);
+    expect(starters(saved[0]?.lineup)).toMatchObject({
       qb1: 'QB',
       rb3: 'RB',
       rb1: 'RB',
@@ -83,7 +79,7 @@ describe('runAgentAction with the fake model', () => {
     const replay = await runAgentAction(s.deps(model), request());
     expect(replay).toEqual(record);
     expect(model.transcript).toHaveLength(1);
-    expect(s.state.lineups).toHaveLength(1);
+    expect(await s.savedLineups()).toEqual(saved);
   });
 
   it('uses the task kind default script and the memory in the prompt', async () => {
@@ -108,33 +104,52 @@ describe('runAgentAction with the fake model', () => {
         })
       });
     await runAgentAction(legal.deps(swap('te2', 'te1')), request());
-    expect(starters(legal.state.lineups[0]?.lineup)).toMatchObject({ te2: 'TE' });
+    expect(starters((await legal.savedLineups())[0]?.lineup)).toMatchObject({ te2: 'TE' });
 
     const illegal = await setup();
     await illegal.seat(AGENT_TEAM, PRO);
     const record = await runAgentAction(illegal.deps(swap('k1', 'qb1')), request());
     expect(record.reasoningSummary).toContain('not legal');
-    expect(starters(illegal.state.lineups[0]?.lineup)).toMatchObject({ qb1: 'QB', k1: 'K' });
+    expect(starters((await illegal.savedLineups())[0]?.lineup)).toMatchObject({ qb1: 'QB', k1: 'K' });
   });
 
   it('does nothing when the lineup is already optimal', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, PRO);
     await runAgentAction(s.deps(new ScriptedModelClient()), request());
-    const optimal = s.state.lineups[0]?.lineup as { playerId: string; slot: string }[];
-    s.state.rosters.set(
-      AGENT_TEAM,
-      (s.state.rosters.get(AGENT_TEAM) ?? []).map((r) => ({
-        ...r,
-        slot: optimal.find((e) => e.playerId === r.playerId)?.slot ?? 'BN'
-      }))
-    );
+    const optimal = await s.savedLineups();
     const record = await runAgentAction(
       s.deps(new ScriptedModelClient()),
       request({ taskId: 'lineup.evt2' })
     );
     expect(record.finalAction).toBe('lineup_unchanged');
-    expect(s.state.lineups).toHaveLength(1);
+    expect(await s.savedLineups()).toEqual(optimal);
+  });
+
+  it('leaves locked players alone once their game kicks off', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, PRO);
+    s.clock.set(new Date(Date.parse(SF_KICKOFF) + 60_000));
+    const record = await runAgentAction(s.deps(new ScriptedModelClient()), request());
+    expect(record.finalAction).toBe('lineup_unchanged');
+    expect(await s.savedLineups()).toEqual([]);
+  });
+
+  it('records a refused set_lineup (outside the season) instead of failing', async () => {
+    const s = await setup({ league: { phase: 'drafting' } });
+    await s.seat(AGENT_TEAM, PRO);
+    const record = await runAgentAction(s.deps(new ScriptedModelClient()), request());
+    expect(record).toMatchObject({ status: 'completed', finalAction: 'set_lineup_failed' });
+    expect(record.reasoningSummary).toContain('not allowed');
+  });
+
+  it('still sets a lineup when the week has no stored games', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, PRO);
+    await s.services.data.reference.schedule.putSeason(2026, [], {}, s.clock.now());
+    const record = await runAgentAction(s.deps(new ScriptedModelClient()), request());
+    expect(record.finalAction).toBe('set_lineup');
+    expect(starters((await s.savedLineups())[0]?.lineup)).toMatchObject({ qb1: 'QB', rb3: 'RB' });
   });
 
   describe('deterministic fallbacks', () => {
@@ -153,7 +168,7 @@ describe('runAgentAction with the fake model', () => {
         usage: []
       });
       expect(model.transcript).toHaveLength(0);
-      expect(starters(s.state.lineups[0]?.lineup)).toMatchObject({ rb3: 'RB' });
+      expect(starters((await s.savedLineups())[0]?.lineup)).toMatchObject({ rb3: 'RB' });
     });
 
     it('uses the optimizer when the league is over its weekly budget', async () => {
@@ -341,7 +356,7 @@ describe('runAgentAction with the fake model', () => {
         script: (req) => ({
           steps: [
             { tool: 'get_roster', args: { teamId: 'team-3' } },
-            { tool: 'set_lineup', args: { teamId: 'team-3', lineup: [] } }
+            { tool: 'set_lineup', args: { teamId: 'team-3', moves: [{ playerId: 'qb1', slot: 'QB' }] } }
           ],
           decision: { summary: `tools: ${req.tools.length}`, confirm: true }
         })
@@ -353,7 +368,7 @@ describe('runAgentAction with the fake model', () => {
       expect(results[1]).toMatchObject({
         error: { code: 'FORBIDDEN', message: 'You can only act for your own team.' }
       });
-      expect(s.state.lineups.every((l) => l.teamId === AGENT_TEAM)).toBe(true);
+      expect(await s.savedLineups('team-3')).toEqual([]);
       expect(record.toolsCalled).toContainEqual({
         name: 'set_lineup',
         mutation: true,

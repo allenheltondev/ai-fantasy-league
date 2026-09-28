@@ -47,7 +47,9 @@ describe('runJob', () => {
       'ingestStats',
       'ingestProjections',
       'ingestTrending',
-      'ingestNews'
+      'ingestNews',
+      'scoreLiveWeek',
+      'advanceSeason'
     ]);
     expect(isJobName('syncPlayers')).toBe(true);
     expect(isJobName('toString')).toBe(false);

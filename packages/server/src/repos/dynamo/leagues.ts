@@ -5,13 +5,23 @@ import { ENTITY, LeagueRecordSchema, leagueKey, leaguePk } from './league-record
 import { batchWrite, queryAll } from './query.js';
 import { isConditionalCheckFailure, TABLE_KEYS, type TableContext } from './table.js';
 
-/** The league item carries GSI1 `CREATOR#<sub>` so a user's created leagues (the quota) are one query. */
+/** GSI2 partition of the leagues the season jobs visit (sparse: only in-season leagues carry it). */
+export const IN_SEASON_INDEX = 'LEAGUES#IN_SEASON';
+
+/**
+ * The league item carries GSI1 `CREATOR#<sub>` so a user's created leagues (the quota) are one
+ * query, and, while the league is in season, GSI2 `LEAGUES#IN_SEASON` so the season jobs find every
+ * active league with one query. Every write is a full put, so the GSI2 keys drop off by themselves
+ * when the league completes.
+ */
 export function leagueItem(league: League): Record<string, unknown> {
+  const inSeason = league.phase === 'regular_season' || league.phase === 'playoffs';
   return {
     ...leagueKey(league.id),
     entity: ENTITY.league,
     GSI1PK: `CREATOR#${league.createdBy}`,
     GSI1SK: `LEAGUE#${league.createdAt}#${league.id}`,
+    ...(inSeason ? { GSI2PK: IN_SEASON_INDEX, GSI2SK: league.id } : {}),
     ...league
   };
 }
@@ -72,6 +82,17 @@ export class DynamoLeagueRepository implements LeagueRepository {
       KeyConditionExpression: '#pk = :pk',
       ExpressionAttributeNames: { '#pk': gsi1.pk },
       ExpressionAttributeValues: { ':pk': `CREATOR#${userId}` }
+    });
+    return items.map((item) => LeagueRecordSchema.parse(item));
+  }
+
+  async listInSeason(): Promise<League[]> {
+    const { gsi2 } = TABLE_KEYS;
+    const items = await queryAll(this.table, {
+      IndexName: gsi2.name,
+      KeyConditionExpression: '#pk = :pk',
+      ExpressionAttributeNames: { '#pk': gsi2.pk },
+      ExpressionAttributeValues: { ':pk': IN_SEASON_INDEX }
     });
     return items.map((item) => LeagueRecordSchema.parse(item));
   }

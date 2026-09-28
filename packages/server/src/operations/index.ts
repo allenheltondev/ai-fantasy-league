@@ -8,6 +8,7 @@ import { configureAgentSeat, getAgentSeat, randomizeAgentSeatsOperation } from '
 import { getNews } from './research/get-news.js';
 import { getProjections } from './research/get-projections.js';
 import { getTrendingPlayers } from './research/get-trending-players.js';
+import { seasonOperations } from './season/index.js';
 
 /** Every operation the API serves. Add new operations here. */
 export const operations = [
@@ -21,6 +22,8 @@ export const operations = [
   getNews,
   // League lifecycle, membership, and settings
   ...leagueOperations,
+  // Season loop: rosters and lineups (#52)
+  ...seasonOperations,
   // Agent platform (#39, #45)
   configureAgentSeat,
   randomizeAgentSeatsOperation,

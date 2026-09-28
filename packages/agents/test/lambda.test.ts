@@ -48,10 +48,6 @@ describe('agent Lambda handlers', () => {
       ...(await importOriginal<typeof import('../src/lambda/env.js')>()),
       createAgentServices: () => s.services
     }));
-    vi.doMock('@fantasy/server', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('@fantasy/server')>()),
-      registry: s.registry
-    }));
 
     const router = await import('../src/lambda/router.js');
     const routed = await router.handler({
@@ -71,6 +67,6 @@ describe('agent Lambda handlers', () => {
       detail: requested?.detail
     });
     expect(record).toMatchObject({ status: 'completed', finalAction: 'set_lineup', teamId: AGENT_TEAM });
-    expect(s.state.lineups).toHaveLength(1);
+    expect(await s.savedLineups()).toHaveLength(1);
   });
 });

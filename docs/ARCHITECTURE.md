@@ -9,7 +9,7 @@ This is the contract every work stream builds against. The product is described 
 - **Backend:** AWS SAM (`infra/template.yaml`) in us-east-1:
   - Lambda (arm64, Node 22) and API Gateway-free routing: CloudFront `/api/*` → Lambda Function URL, the same pattern as llm-eval-harness. The SPA bucket is private behind CloudFront OAC. The Function URL is `AuthType NONE`, because OAC for Function URLs needs the viewer to send a body hash on POST/PUT, which browsers can't do. The API verifies the Cognito ID token on every route except health and OpenAPI.
   - The SPA learns its Cognito app client at runtime from `/auth-config.json`, which `make deploy-frontend` writes from the stack outputs.
-  - DynamoDB for data, EventBridge (the default bus shared with rsc-core), Step Functions for workflows, and the rsc-core deferred-event scheduler for timed events.
+  - DynamoDB for data, EventBridge (the default bus shared with rsc-core), EventBridge Scheduler for recurring jobs, and the rsc-core deferred-event scheduler for timed events. The weekly cycle is clock-driven jobs plus deferred events rather than Step Functions (`docs/adr/002-weekly-cycle.md`).
 - **Frontend:** a Vite + React 19 SPA in `app/`, served from S3 + CloudFront at `fantasy.readysetcloud.io` (Staging uses the CloudFront domain). It uses `@readysetcloud/ui` for components, tokens, the Tailwind preset, and auth (`@readysetcloud/ui/auth`).
 - **Identity:** the shared rsc-core Cognito pool (`/readysetcloud/auth/user-pool-id` from SSM). This stack creates its own app client in that pool. The API verifies ID tokens with `aws-jwt-verify`.
 - **Realtime:** Momento Topics, using the API key from the rsc-core secrets SSM parameter. The API vends short-lived, scoped tokens to browsers.
@@ -39,7 +39,7 @@ packages/
               - the operation registry and the REST adapter (Hono)
               - the OpenAPI generator and the MCP server
               - auth, repositories (DynamoDB and in-memory)
-              - event handlers, scheduled jobs, and Step Functions task handlers
+              - event handlers and scheduled jobs (data, live scoring, the weekly cycle)
   agents/   The agent runtime:
               - prompt assembly from catalogs, config, and memory
               - tool binding from the registry, trigger routing, per-agent memory
@@ -119,6 +119,7 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 ## Data
 
 - **One table, `FantasyTable`.** The key design is in `docs/adr/001-table-design.md`, which is owned by issue #20. Repositories are interfaces in `packages/server/src/repos/` with two implementations each: DynamoDB and in-memory (for unit tests).
+- **The weekly cycle** (`packages/server/src/season/`, ADR 002): `scoreLiveWeek` recomputes in-season matchups every 2 minutes during game windows and emits `Scores Updated`; `advanceSeason` (every 15 minutes) marks a week provisionally final after the last Monday night game, snapshots the standings, and rolls the league to the next week, carrying lineups forward and scheduling `Lineup Lock Approaching` before each game window. Every player locks at his own kickoff, checked by `set_lineup`. A league drafted mid-season starts scoring at its next unlocked week (`startLeagueSeason`).
 - **Player universe and stats** are stored in the same table under `PLAYER#` and `STATS#` partitions, and are refreshed by scheduled jobs. One data jobs Lambda (`packages/server/src/jobs/`, the same zip as the API) runs the player sync, NFL state, schedule, live stats, projections, trending, and news jobs on EventBridge Scheduler cadences; `docs/data-sources.md` lists them with their keys, events, and the news feeds. Handlers read only stored data (`ctx.data.reference`).
 - **Sleeper:** `api.sleeper.app` is reachable from CI and AWS, but not from every dev sandbox. Tests use the recorded fixtures in `packages/data/fixtures/sleeper/`, and `scripts/record-fixtures.mjs` refreshes them.
 
@@ -154,7 +155,7 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | `Draft Turn Started` | A team is on the clock |
 | `Draft Pick Made` | A pick is made |
 | `Draft Completed` | The draft ends |
-| `Week Rolled Over` | A new NFL week starts |
+| `Week Rolled Over` | A new NFL week starts (`syncNflState`), or a league moves to its next week (the weekly cycle; carries `leagueId`) |
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
 | `Waiver Window Opened` | Waivers open |
 | `Waivers Processed` | Waiver claims are resolved |
@@ -163,7 +164,7 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | `Player Status Changed` | A player's status, injury, team, or depth chart changes |
 | `Chat Mention` | Someone is mentioned in chat |
 | `Chat Moment` | A league event agents can react to in chat |
-| `Scores Updated` | Live scores change |
+| `Scores Updated` | Live stats change (`ingestStats`, player ids), or a league's matchup scores change (`scoreLiveWeek`, `leagueId`) |
 | `Week Provisionally Final` | The last Monday night game ends |
 | `Week Official Final` | The Thursday stat-correction job finishes |
 | `Stat Correction Applied` | A stat correction changes a score |

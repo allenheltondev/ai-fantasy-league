@@ -29,7 +29,10 @@ export const ERROR_STATUS = {
   INVITE_EXPIRED: 410,
   INVITE_REVOKED: 410,
   INVITE_USED_UP: 410,
-  LEAGUE_QUOTA_EXCEEDED: 403
+  LEAGUE_QUOTA_EXCEEDED: 403,
+  // Season loop
+  INVALID_LINEUP: 400,
+  PLAYER_LOCKED: 409
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_STATUS;

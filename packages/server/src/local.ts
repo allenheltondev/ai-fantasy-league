@@ -13,6 +13,7 @@ import { createDevVerifier, isLocalAuthEnabled } from './auth/dev.js';
 import { createCognitoVerifier, type TokenVerifier } from './auth/verifier.js';
 import type { Services } from './context.js';
 import { startLocalTable } from './dev/dynalite.js';
+import { seedDemoSeason } from './dev/season-demo.js';
 import { InMemoryEventPublisher } from './events/publisher.js';
 import { createApp } from './http/app.js';
 import { createLogger, parseLogLevel, type Logger } from './log.js';
@@ -73,6 +74,14 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
     limits: limitsFromEnv(env),
     reference: createDynamoReferenceStore(table)
   });
+  // FANTASY_LOCAL_SEASON_DEMO=<handle>: an in-season league (`demo-season`) for dev user local-<handle>.
+  const demo = env.FANTASY_LOCAL_SEASON_DEMO;
+  if (demo !== undefined && demo !== '') {
+    await seedDemoSeason(
+      { repos, reference: services.data.reference },
+      { leagueId: 'demo-season', owner: { sub: `local-${demo}`, name: demo }, now: services.clock.now() }
+    );
+  }
   const app = createApp({ registry, services, verifier: localVerifier(env) });
 
   const server = await new Promise<ReturnType<typeof serve>>((resolve) => {

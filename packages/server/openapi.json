@@ -6702,7 +6702,7 @@
       "get": {
         "operationId": "get_matchup",
         "summary": "A team's head-to-head matchup for a week",
-        "description": "Returns one team's matchup for a week: both teams and their scores (null until the week is scored), and whether it is scheduled, in progress, or final. Defaults: your own team and the current week (before the season, the first week). Pass `teamId` for any team in the league and `week` for any week the league plays. Before the draft there is no schedule yet: `matchup` is null and a NO_SCHEDULE_YET warning says so. A week with no game for the team (a playoff bye, or eliminated) also returns null. Only members can read it.",
+        "description": "Returns one team's matchup for a week: both teams and their scores (null until the week is scored), and whether it is scheduled, in progress, or final. Defaults: your own team and the current week (before the season, the first week). Pass `teamId` for any team in the league and `week` for any week the league plays. `lineups` shows both teams' lineups with each player's projected and actual points; while the week is live the scores are recomputed from the latest stats on every read, so poll this for live scoring. Before the draft there is no schedule yet: `matchup` is null and a NO_SCHEDULE_YET warning says so. A week with no game for the team (a playoff bye, or eliminated) also returns null. Only members can read it.",
         "tags": [
           "leagues",
           "season"
@@ -6852,12 +6852,365 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "lineups": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "home": {
+                                  "type": "object",
+                                  "properties": {
+                                    "teamId": {
+                                      "type": "string"
+                                    },
+                                    "points": {
+                                      "type": "number",
+                                      "description": "The starters' points so far."
+                                    },
+                                    "players": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "player": {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string",
+                                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                              },
+                                              "name": {
+                                                "type": "string",
+                                                "description": "Full display name."
+                                              },
+                                              "team": {
+                                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                                "type": [
+                                                  "string",
+                                                  "null"
+                                                ]
+                                              },
+                                              "position": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "QB",
+                                                  "RB",
+                                                  "WR",
+                                                  "TE",
+                                                  "K",
+                                                  "DEF"
+                                                ],
+                                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                              }
+                                            },
+                                            "required": [
+                                              "id",
+                                              "name",
+                                              "team",
+                                              "position"
+                                            ],
+                                            "additionalProperties": false,
+                                            "description": "A player reference: always id, name, team, and position."
+                                          },
+                                          "slot": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "WR",
+                                              "RB",
+                                              "TE",
+                                              "W/R/T",
+                                              "Q/W/R/T",
+                                              "W/T",
+                                              "W/R",
+                                              "K",
+                                              "DEF",
+                                              "DL",
+                                              "LB",
+                                              "DB",
+                                              "IDP",
+                                              "BN",
+                                              "IR"
+                                            ],
+                                            "description": "Where the player sits this week: a starting slot, BN (bench), or IR."
+                                          },
+                                          "status": {
+                                            "type": "string",
+                                            "enum": [
+                                              "active",
+                                              "questionable",
+                                              "doubtful",
+                                              "out",
+                                              "ir",
+                                              "pup",
+                                              "nfi",
+                                              "suspended",
+                                              "covid",
+                                              "na"
+                                            ],
+                                            "description": "Availability: active, questionable, doubtful, out, ir, pup, nfi, suspended, covid, na."
+                                          },
+                                          "injuryStatus": {
+                                            "description": "The raw injury designation, e.g. \"Questionable\", or null.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "byeWeek": {
+                                            "anyOf": [
+                                              {
+                                                "type": "integer",
+                                                "minimum": -9007199254740991,
+                                                "maximum": 9007199254740991
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ],
+                                            "description": "The NFL team's bye week, or null when unknown."
+                                          },
+                                          "onBye": {
+                                            "type": "boolean",
+                                            "description": "True when his NFL team has no game this week (or he has no team)."
+                                          },
+                                          "kickoff": {
+                                            "description": "His game's kickoff this week (ISO 8601), or null on a bye.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "locked": {
+                                            "type": "boolean",
+                                            "description": "True once his game has kicked off: he cannot change slots until next week."
+                                          },
+                                          "projectedPoints": {
+                                            "description": "Projected points this week under league scoring, or null.",
+                                            "type": [
+                                              "number",
+                                              "null"
+                                            ]
+                                          },
+                                          "points": {
+                                            "description": "Points scored this week so far, or null before he has stats.",
+                                            "type": [
+                                              "number",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "player",
+                                          "slot",
+                                          "status",
+                                          "injuryStatus",
+                                          "byeWeek",
+                                          "onBye",
+                                          "kickoff",
+                                          "locked",
+                                          "projectedPoints",
+                                          "points"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      "description": "Starters first in slot order, then the bench."
+                                    }
+                                  },
+                                  "required": [
+                                    "teamId",
+                                    "points",
+                                    "players"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "away": {
+                                  "type": "object",
+                                  "properties": {
+                                    "teamId": {
+                                      "type": "string"
+                                    },
+                                    "points": {
+                                      "type": "number",
+                                      "description": "The starters' points so far."
+                                    },
+                                    "players": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "player": {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string",
+                                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                              },
+                                              "name": {
+                                                "type": "string",
+                                                "description": "Full display name."
+                                              },
+                                              "team": {
+                                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                                "type": [
+                                                  "string",
+                                                  "null"
+                                                ]
+                                              },
+                                              "position": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "QB",
+                                                  "RB",
+                                                  "WR",
+                                                  "TE",
+                                                  "K",
+                                                  "DEF"
+                                                ],
+                                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                              }
+                                            },
+                                            "required": [
+                                              "id",
+                                              "name",
+                                              "team",
+                                              "position"
+                                            ],
+                                            "additionalProperties": false,
+                                            "description": "A player reference: always id, name, team, and position."
+                                          },
+                                          "slot": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "WR",
+                                              "RB",
+                                              "TE",
+                                              "W/R/T",
+                                              "Q/W/R/T",
+                                              "W/T",
+                                              "W/R",
+                                              "K",
+                                              "DEF",
+                                              "DL",
+                                              "LB",
+                                              "DB",
+                                              "IDP",
+                                              "BN",
+                                              "IR"
+                                            ],
+                                            "description": "Where the player sits this week: a starting slot, BN (bench), or IR."
+                                          },
+                                          "status": {
+                                            "type": "string",
+                                            "enum": [
+                                              "active",
+                                              "questionable",
+                                              "doubtful",
+                                              "out",
+                                              "ir",
+                                              "pup",
+                                              "nfi",
+                                              "suspended",
+                                              "covid",
+                                              "na"
+                                            ],
+                                            "description": "Availability: active, questionable, doubtful, out, ir, pup, nfi, suspended, covid, na."
+                                          },
+                                          "injuryStatus": {
+                                            "description": "The raw injury designation, e.g. \"Questionable\", or null.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "byeWeek": {
+                                            "anyOf": [
+                                              {
+                                                "type": "integer",
+                                                "minimum": -9007199254740991,
+                                                "maximum": 9007199254740991
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ],
+                                            "description": "The NFL team's bye week, or null when unknown."
+                                          },
+                                          "onBye": {
+                                            "type": "boolean",
+                                            "description": "True when his NFL team has no game this week (or he has no team)."
+                                          },
+                                          "kickoff": {
+                                            "description": "His game's kickoff this week (ISO 8601), or null on a bye.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "locked": {
+                                            "type": "boolean",
+                                            "description": "True once his game has kicked off: he cannot change slots until next week."
+                                          },
+                                          "projectedPoints": {
+                                            "description": "Projected points this week under league scoring, or null.",
+                                            "type": [
+                                              "number",
+                                              "null"
+                                            ]
+                                          },
+                                          "points": {
+                                            "description": "Points scored this week so far, or null before he has stats.",
+                                            "type": [
+                                              "number",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "player",
+                                          "slot",
+                                          "status",
+                                          "injuryStatus",
+                                          "byeWeek",
+                                          "onBye",
+                                          "kickoff",
+                                          "locked",
+                                          "projectedPoints",
+                                          "points"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      "description": "Starters first in slot order, then the bench."
+                                    }
+                                  },
+                                  "required": [
+                                    "teamId",
+                                    "points",
+                                    "players"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "home",
+                                "away"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Both lineups, or null when there is no matchup."
                         }
                       },
                       "required": [
                         "week",
                         "teamId",
-                        "matchup"
+                        "matchup",
+                        "lineups"
                       ],
                       "additionalProperties": false
                     },
@@ -8489,6 +8842,516 @@
         "x-mutation": false
       }
     },
+    "/api/v1/leagues/{leagueId}/teams/{teamId}/lineup": {
+      "put": {
+        "operationId": "set_lineup",
+        "summary": "Move players between slots in your team's lineup",
+        "description": "Moves players to slots for a week (default: the current week). Pass `moves`, each a player (`playerId` preferred, or `player` name) and a `slot`: a starting slot (QB, RB, WR, TE, W/R/T, K, DEF, ...), BN, or IR. Players you do not list stay where they are. Nobody is displaced for you: to start a bench player in a full slot, also move one of that slot’s players to BN in the same call (a swap is two moves). The result must be a legal lineup, or nothing changes and INVALID_LINEUP lists every problem with its fix (ineligible position, overfilled slot, IR without an IR status, a player not on your roster). Each player locks at his game's kickoff: moving a locked player, or moving someone into a locked player's slot in a way that moves him, returns PLAYER_LOCKED. get_roster shows `locked` per player. Starting a player on bye or ruled out is allowed but returns a warning. Only the team owner or the agent that plays the team can set its lineup, during the regular season and playoffs.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Team id, e.g. \"team-3\"."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "teamId": {
+                          "type": "string"
+                        },
+                        "week": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "changed": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "from": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "WR",
+                                  "RB",
+                                  "TE",
+                                  "W/R/T",
+                                  "Q/W/R/T",
+                                  "W/T",
+                                  "W/R",
+                                  "K",
+                                  "DEF",
+                                  "DL",
+                                  "LB",
+                                  "DB",
+                                  "IDP",
+                                  "BN",
+                                  "IR"
+                                ]
+                              },
+                              "to": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "WR",
+                                  "RB",
+                                  "TE",
+                                  "W/R/T",
+                                  "Q/W/R/T",
+                                  "W/T",
+                                  "W/R",
+                                  "K",
+                                  "DEF",
+                                  "DL",
+                                  "LB",
+                                  "DB",
+                                  "IDP",
+                                  "BN",
+                                  "IR"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "player",
+                              "from",
+                              "to"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Players whose slot changed."
+                        },
+                        "players": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "slot": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "WR",
+                                  "RB",
+                                  "TE",
+                                  "W/R/T",
+                                  "Q/W/R/T",
+                                  "W/T",
+                                  "W/R",
+                                  "K",
+                                  "DEF",
+                                  "DL",
+                                  "LB",
+                                  "DB",
+                                  "IDP",
+                                  "BN",
+                                  "IR"
+                                ],
+                                "description": "Where the player sits this week: a starting slot, BN (bench), or IR."
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "questionable",
+                                  "doubtful",
+                                  "out",
+                                  "ir",
+                                  "pup",
+                                  "nfi",
+                                  "suspended",
+                                  "covid",
+                                  "na"
+                                ],
+                                "description": "Availability: active, questionable, doubtful, out, ir, pup, nfi, suspended, covid, na."
+                              },
+                              "injuryStatus": {
+                                "description": "The raw injury designation, e.g. \"Questionable\", or null.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "byeWeek": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The NFL team's bye week, or null when unknown."
+                              },
+                              "onBye": {
+                                "type": "boolean",
+                                "description": "True when his NFL team has no game this week (or he has no team)."
+                              },
+                              "kickoff": {
+                                "description": "His game's kickoff this week (ISO 8601), or null on a bye.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "locked": {
+                                "type": "boolean",
+                                "description": "True once his game has kicked off: he cannot change slots until next week."
+                              },
+                              "projectedPoints": {
+                                "description": "Projected points this week under league scoring, or null.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "points": {
+                                "description": "Points scored this week so far, or null before he has stats.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "player",
+                              "slot",
+                              "status",
+                              "injuryStatus",
+                              "byeWeek",
+                              "onBye",
+                              "kickoff",
+                              "locked",
+                              "projectedPoints",
+                              "points"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "The whole lineup after the change."
+                        }
+                      },
+                      "required": [
+                        "teamId",
+                        "week",
+                        "changed",
+                        "players"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "week": {
+                    "description": "NFL week (default: the league's current week).",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 18
+                  },
+                  "moves": {
+                    "minItems": 1,
+                    "maxItems": 40,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "playerId": {
+                          "description": "The player id. Preferred when you have it; wins if `player` is also given.",
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "player": {
+                          "description": "The player name when you do not have an id. Nicknames (\"CMC\") and team or position hints (\"mccaffrey sf\") work. Ambiguous names return AMBIGUOUS_PLAYER with candidates.",
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "slot": {
+                          "type": "string",
+                          "enum": [
+                            "QB",
+                            "WR",
+                            "RB",
+                            "TE",
+                            "W/R/T",
+                            "Q/W/R/T",
+                            "W/T",
+                            "W/R",
+                            "K",
+                            "DEF",
+                            "DL",
+                            "LB",
+                            "DB",
+                            "IDP",
+                            "BN",
+                            "IR"
+                          ],
+                          "description": "Where to put him: a starting slot the league uses, BN (bench), or IR."
+                        }
+                      },
+                      "required": [
+                        "slot"
+                      ],
+                      "description": "One player and the slot to move him to."
+                    },
+                    "description": "The moves to make, applied together."
+                  }
+                },
+                "required": [
+                  "moves"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/leagues/{leagueId}/teams/{teamId}/name": {
       "put": {
         "operationId": "rename_team",
@@ -8767,6 +9630,419 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/leagues/{leagueId}/teams/{teamId}/roster": {
+      "get": {
+        "operationId": "get_roster",
+        "summary": "A team's roster and lineup for a week",
+        "description": "Returns a team's players and where each sits in the week's lineup (a starting slot, BN for bench, or IR), with position, NFL team, bye week, injury status, projected and actual points, and whether he is locked. A player locks at his own game's kickoff: after that he cannot change slots until next week (set_lineup returns PLAYER_LOCKED). The week defaults to the current one. A week with no saved lineup shows the latest earlier lineup carried forward (`carriedFromWeek`); new players sit on the bench. Warnings flag starters on bye or ruled out and empty starting slots, so you can fix them with set_lineup before lock. `slots` lists how many of each slot the league uses. Any member can read any team. Use get_league_state for your own teamId.",
+        "tags": [
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Team id, e.g. \"team-3\"."
+          },
+          {
+            "name": "week",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18
+            },
+            "description": "NFL week (default: the league's current week)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "teamId": {
+                          "type": "string"
+                        },
+                        "teamName": {
+                          "type": "string"
+                        },
+                        "season": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "week": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "lineupSaved": {
+                          "type": "boolean",
+                          "description": "True when the team saved a lineup for exactly this week."
+                        },
+                        "carriedFromWeek": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "When no lineup was saved for this week: the week it was carried forward from."
+                        },
+                        "slots": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "slot": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "WR",
+                                  "RB",
+                                  "TE",
+                                  "W/R/T",
+                                  "Q/W/R/T",
+                                  "W/T",
+                                  "W/R",
+                                  "K",
+                                  "DEF",
+                                  "DL",
+                                  "LB",
+                                  "DB",
+                                  "IDP",
+                                  "BN",
+                                  "IR"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "slot",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "players": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "slot": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "WR",
+                                  "RB",
+                                  "TE",
+                                  "W/R/T",
+                                  "Q/W/R/T",
+                                  "W/T",
+                                  "W/R",
+                                  "K",
+                                  "DEF",
+                                  "DL",
+                                  "LB",
+                                  "DB",
+                                  "IDP",
+                                  "BN",
+                                  "IR"
+                                ],
+                                "description": "Where the player sits this week: a starting slot, BN (bench), or IR."
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "questionable",
+                                  "doubtful",
+                                  "out",
+                                  "ir",
+                                  "pup",
+                                  "nfi",
+                                  "suspended",
+                                  "covid",
+                                  "na"
+                                ],
+                                "description": "Availability: active, questionable, doubtful, out, ir, pup, nfi, suspended, covid, na."
+                              },
+                              "injuryStatus": {
+                                "description": "The raw injury designation, e.g. \"Questionable\", or null.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "byeWeek": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The NFL team's bye week, or null when unknown."
+                              },
+                              "onBye": {
+                                "type": "boolean",
+                                "description": "True when his NFL team has no game this week (or he has no team)."
+                              },
+                              "kickoff": {
+                                "description": "His game's kickoff this week (ISO 8601), or null on a bye.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "locked": {
+                                "type": "boolean",
+                                "description": "True once his game has kicked off: he cannot change slots until next week."
+                              },
+                              "projectedPoints": {
+                                "description": "Projected points this week under league scoring, or null.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "points": {
+                                "description": "Points scored this week so far, or null before he has stats.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "player",
+                              "slot",
+                              "status",
+                              "injuryStatus",
+                              "byeWeek",
+                              "onBye",
+                              "kickoff",
+                              "locked",
+                              "projectedPoints",
+                              "points"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "teamId",
+                        "teamName",
+                        "season",
+                        "week",
+                        "lineupSaved",
+                        "carriedFromWeek",
+                        "slots",
+                        "players"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
       }
     },
     "/api/v1/leagues/{leagueId}/teams/{teamId}/seat-type": {
@@ -11545,7 +12821,9 @@
                   "INVITE_EXPIRED",
                   "INVITE_REVOKED",
                   "INVITE_USED_UP",
-                  "LEAGUE_QUOTA_EXCEEDED"
+                  "LEAGUE_QUOTA_EXCEEDED",
+                  "INVALID_LINEUP",
+                  "PLAYER_LOCKED"
                 ],
                 "description": "Stable machine-readable error code."
               },

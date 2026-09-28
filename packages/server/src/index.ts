@@ -29,3 +29,10 @@ export * from './repos/reference.js';
 export { createInMemoryReferenceStore } from './repos/memory-reference.js';
 export { JOBS, JOB_NAMES, type Job, type JobDeps, type JobResult, type NewsSource } from './jobs/index.js';
 export { newTeam } from './league/seats.js';
+export {
+  advanceLeague,
+  scheduleLockWarnings,
+  startLeagueSeason,
+  type AdvanceOutcome
+} from './season/cycle.js';
+export { recordStandings, updateMatchupScores } from './season/scoring.js';

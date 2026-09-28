@@ -1,0 +1,263 @@
+import {
+  firstKickoff,
+  gameWindows,
+  nextLeagueWeek,
+  playoffMatchups,
+  weekEndsAt,
+  type BracketWeekResults
+} from '@fantasy/core';
+import type { ScheduledGame } from '@fantasy/data';
+import { ApiError, isApiError } from '../errors.js';
+import { STATS_GAME_DURATION_MS } from '../jobs/ingest-stats.js';
+import { firstScoringWeek, nextUnlockedWeek, type NflStateSource } from '../league/calendar.js';
+import { isInSeason, transitionPhase } from '../league/phase.js';
+import { startSeasonSchedule } from '../league/schedule.js';
+import { weekKey } from '../repos/dynamo/query.js';
+import type { ReferenceStore } from '../repos/reference.js';
+import type { League, Lineup, Matchup, Repos } from '../repos/types.js';
+import { resolveWeekLineups, weekGames, type SeasonDeps } from './lineups.js';
+import { recordStandings, scoreLine, updateMatchupScores } from './scoring.js';
+
+/**
+ * The weekly cycle (#54, #56), driven by the clock so the simulator can run it: once a week's last
+ * game is over the week is provisionally final, and the league rolls to the next week (or into the
+ * playoffs, or to `complete`). Lineup-lock warnings are deferred events scheduled at each rollover.
+ * See docs/adr/002-weekly-cycle.md.
+ */
+
+/** How long before a game window's first kickoff agents are told lineups are about to lock. */
+export const LOCK_WARNING_LEAD_MS = 60 * 60 * 1000;
+
+export type AdvanceOutcome =
+  | { leagueId: string; status: 'skipped'; reason: string }
+  | { leagueId: string; status: 'rolled_over'; finalWeek: number; week: number; phase: string }
+  | { leagueId: string; status: 'completed'; finalWeek: number };
+
+/**
+ * Moves one league forward if its current week is over: final scores, a standings snapshot (in
+ * the regular season), `Week Provisionally Final`, then the rollover: lineups carried forward, the
+ * next week's playoff games when there are any, `Week Rolled Over`, and the next week's lock
+ * warnings. Safe to run repeatedly: before the week ends it does nothing, every write is
+ * idempotent, and the version-checked league update is the commit point, so a concurrent run that
+ * loses the race emits nothing.
+ */
+export async function advanceLeague(deps: SeasonDeps, league: League, now: Date): Promise<AdvanceOutcome> {
+  const skip = (reason: string): AdvanceOutcome => ({ leagueId: league.id, status: 'skipped', reason });
+  if (league.week === null || !isInSeason(league)) return skip('not_in_season');
+  const phase = league.phase as 'regular_season' | 'playoffs';
+  const week = league.week;
+  const endsAt = weekEndsAt(await weekGames(deps.reference, league.season, week), STATS_GAME_DURATION_MS);
+  if (endsAt === null) return skip('no_schedule');
+  if (now.getTime() < Date.parse(endsAt)) return skip('week_in_progress');
+
+  const scored = await updateMatchupScores(deps, league, week, 'final');
+  if (phase === 'regular_season') await recordStandings(deps, league, week, now);
+  const final = {
+    leagueId: league.id,
+    season: league.season,
+    week,
+    matchups: scored.matchups.map(scoreLine),
+    finalizedAt: now.toISOString()
+  };
+
+  const step = nextLeagueWeek(league.settings, phase, week);
+  if (step.phase === 'complete') {
+    if ((await commit(deps.repos, transitionPhase(league, 'complete', now))) === null) {
+      return skip('concurrent_update');
+    }
+    await deps.events.publish('Week Provisionally Final', final);
+    return { leagueId: league.id, status: 'completed', finalWeek: week };
+  }
+
+  if (step.phase === 'playoffs') await writePlayoffMatchups(deps, league, step.week);
+  await carryLineupsForward(deps.repos, league, week, step.week, now);
+  const nextGames = await weekGames(deps.reference, league.season, step.week);
+  const moved = step.phase === phase ? league : transitionPhase(league, step.phase, now);
+  const saved = await commit(deps.repos, {
+    ...moved,
+    week: step.week,
+    deadlines: { ...moved.deadlines, nextLineupLockAt: firstKickoff(nextGames) },
+    updatedAt: now.toISOString()
+  });
+  if (saved === null) return skip('concurrent_update');
+
+  await deps.events.publish('Week Provisionally Final', final);
+  await deps.events.publish('Week Rolled Over', {
+    leagueId: league.id,
+    season: league.season,
+    fromWeek: week,
+    week: step.week,
+    phase: step.phase,
+    rolledOverAt: now.toISOString()
+  });
+  await scheduleLockWarnings(deps, saved, nextGames, now);
+  return { leagueId: league.id, status: 'rolled_over', finalWeek: week, week: step.week, phase: step.phase };
+}
+
+/** The version-checked league write; null when another writer got there first. */
+async function commit(repos: Repos, league: League): Promise<League | null> {
+  try {
+    return await repos.leagues.update(league);
+  } catch (error) {
+    if (isApiError(error) && error.code === 'CONFLICT') return null;
+    throw error;
+  }
+}
+
+/** Copies every team's lineup into the new week, unless the team already saved one for it. */
+async function carryLineupsForward(
+  repos: Repos,
+  league: League,
+  fromWeek: number,
+  toWeek: number,
+  now: Date
+): Promise<void> {
+  const teams = (await repos.teams.list(league.id)).filter((t) => t.roster.length > 0);
+  const already = new Set((await repos.lineups.listWeek(league.id, toWeek)).map((l) => l.teamId));
+  const previous = await resolveWeekLineups(repos, teams, fromWeek);
+  const carried: Lineup[] = teams
+    .filter((t) => !already.has(t.id))
+    .map((t) => ({
+      leagueId: league.id,
+      teamId: t.id,
+      week: toWeek,
+      entries: previous.get(t.id)?.entries ?? [],
+      updatedAt: now.toISOString(),
+      updatedBy: 'system'
+    }));
+  await repos.lineups.put(carried);
+}
+
+/**
+ * The championship games of playoff `week`, seeded from the final regular-season standings and
+ * advanced by the playoff weeks already final. Minimal on purpose: the full bracket experience is
+ * #78. Teams without a game that week (byes, eliminated teams) get no matchup.
+ */
+async function writePlayoffMatchups(deps: SeasonDeps, league: League, week: number): Promise<void> {
+  const [standings, matchups] = await Promise.all([
+    deps.repos.schedule.latestStandings(league.id),
+    deps.repos.schedule.listMatchups(league.id)
+  ]);
+  if (standings === null || matchups.some((m) => m.week === week)) return;
+  const played = new Map<number, BracketWeekResults['results'][number][]>();
+  for (const m of matchups) {
+    if (m.kind !== 'playoff' || m.status !== 'final') continue;
+    played.set(m.week, [
+      ...(played.get(m.week) ?? []),
+      {
+        homeTeamId: m.homeTeamId,
+        awayTeamId: m.awayTeamId,
+        homeScore: m.homeScore ?? 0,
+        awayScore: m.awayScore ?? 0
+      }
+    ]);
+  }
+  const paired = playoffMatchups(
+    league.settings,
+    standings.rows,
+    [...played].map(([w, results]) => ({ week: w, results })),
+    week
+  );
+  if (!paired.ok) {
+    deps.log.warn('could not pair playoff games', { leagueId: league.id, week, issues: paired.issues });
+    return;
+  }
+  const games: Matchup[] = paired.value.map((p, i) => ({
+    id: `${weekKey(week)}-P${i + 1}`,
+    leagueId: league.id,
+    week,
+    kind: 'playoff',
+    homeTeamId: p.homeTeamId,
+    awayTeamId: p.awayTeamId,
+    homeScore: null,
+    awayScore: null,
+    status: 'scheduled'
+  }));
+  await deps.repos.schedule.putMatchups(games);
+}
+
+/**
+ * Schedules `Lineup Lock Approaching` (a deferred event through the rsc-core scheduler) before
+ * each game window of the league's week that has not started. Names are stable per league, week,
+ * and window, so scheduling again moves the pending event instead of adding another.
+ */
+export async function scheduleLockWarnings(
+  deps: Pick<SeasonDeps, 'events'>,
+  league: League,
+  games: readonly ScheduledGame[],
+  now: Date
+): Promise<number> {
+  let scheduled = 0;
+  const week = league.week as number;
+  for (const [i, window] of gameWindows(games).entries()) {
+    const lockAt = Date.parse(window.startsAt);
+    if (lockAt <= now.getTime()) continue;
+    await deps.events.scheduleAt({
+      at: new Date(Math.max(now.getTime(), lockAt - LOCK_WARNING_LEAD_MS)),
+      name: `lineup-lock-${league.id}-${weekKey(week)}-${i + 1}`,
+      whenPast: 'send',
+      event: {
+        detailType: 'Lineup Lock Approaching',
+        detail: {
+          leagueId: league.id,
+          season: league.season,
+          week,
+          lockAt: window.startsAt,
+          nflTeams: window.teams
+        }
+      }
+    });
+    scheduled++;
+  }
+  return scheduled;
+}
+
+/** The stored NFL state (written by the syncNflState job) as a calendar source. */
+export function storedNflState(reference: ReferenceStore): NflStateSource {
+  return {
+    async getNflState() {
+      const state = await reference.nflState.get();
+      if (state === null) throw new Error('No NFL state is stored yet.');
+      return state;
+    }
+  };
+}
+
+/**
+ * Starts a drafted league's season (#85). The draft stream calls this when the draft completes:
+ * the league scores from its first unlocked week (`firstScoringWeek`), so a league drafted mid-
+ * season skips weeks that already kicked off. It makes sure the schedule exists, moves a
+ * `drafting` league to `regular_season`, sets the week and the next lineup lock, and schedules
+ * the week's lock warnings. Weeks before the first scoring week keep their `scheduled` matchups
+ * and never count in the standings.
+ */
+export async function startLeagueSeason(
+  deps: SeasonDeps & { nflState?: NflStateSource },
+  league: League,
+  now: Date
+): Promise<League> {
+  const unlocked = await nextUnlockedWeek(deps.nflState ?? storedNflState(deps.reference), now, deps.log);
+  const week = firstScoringWeek(league, unlocked);
+  const lastWeek = league.settings.schedule.regularSeasonEndWeek;
+  if (week > lastWeek) {
+    throw new ApiError(
+      'CONFLICT',
+      `Every regular-season week of the ${league.season} season has kicked off.`,
+      {
+        fix: `This league cannot start scoring this season: its regular season ends in week ${lastWeek}. Create a league for next season instead.`,
+        details: { firstScoringWeek: week, regularSeasonEndWeek: lastWeek }
+      }
+    );
+  }
+  await startSeasonSchedule(deps, league);
+  const games = await weekGames(deps.reference, league.season, week);
+  const moved = league.phase === 'drafting' ? transitionPhase(league, 'regular_season', now) : league;
+  const saved = await deps.repos.leagues.update({
+    ...moved,
+    week,
+    deadlines: { ...moved.deadlines, nextLineupLockAt: firstKickoff(games) },
+    updatedAt: now.toISOString()
+  });
+  await scheduleLockWarnings(deps, saved, games, now);
+  return saved;
+}

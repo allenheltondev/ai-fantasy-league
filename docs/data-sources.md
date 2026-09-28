@@ -20,6 +20,8 @@ Each EventBridge Scheduler schedule invokes it with `{ "job": "<name>" }`. Run o
 | `ingestProjections` | `rate(1 hour)` | Sleeper `/v1/projections/nfl/regular/{season}/{week}` | `PROJ#<season>#W05#<capturedAt>`/`PLAYER#<id>`, then the pointer `PROJ#<season>#W05`/`ASOF#<capturedAt>`; skipped when the content hash is unchanged | none |
 | `ingestTrending` | `rate(1 hour)` | Sleeper `/v1/players/nfl/trending/{add,drop}` for 24h, 72h, and 168h lookbacks (top 50) | `TRENDING#<add\|drop>`/`ASOF#<capturedAt>` (30-day TTL) | none |
 | `ingestNews` | `rate(15 minutes)` | The RSS feeds below | `NEWS#<id>`/`ITEM` (GSI2 `NEWS`/`<publishedAt>#<id>`), copies at `PLAYER#<id>` and `TEAMNEWS#<team>` / `NEWS#<publishedAt>#<id>` (90-day TTL) | `Player News Alert` for each new item tagged to a player |
+| `scoreLiveWeek` | `rate(2 minutes)`, working only inside a game window of an in-season league's week | Stored stats (`STATS#<season>#W05`) and lineups | Matchup scores (`MATCHUP#W05#<id>`, status `in_progress`) | `Scores Updated` with `leagueId` and the week's score lines |
+| `advanceSeason` | `rate(15 minutes)` | Stored schedule, stats, lineups, matchups | Final matchups, `STANDINGS#W05`, carried-forward `LINEUP#W06#<teamId>`, playoff matchups, the league's week and phase | `Week Provisionally Final`, `Week Rolled Over` (with `leagueId`), and `Schedule Event`s for `Lineup Lock Approaching` |
 
 Notes:
 

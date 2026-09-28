@@ -6,6 +6,7 @@ import type { Invite } from '../repos/types.js';
 import {
   estimatedWeekKickoff,
   estimateNextUnlockedWeek,
+  firstScoringWeek,
   laborDay,
   nextUnlockedWeek,
   nflSeasonAt,
@@ -123,6 +124,20 @@ describe('NFL calendar', () => {
     const result = await nextUnlockedWeek(failing, NOW, createLogger({ sink: (l) => lines.push(l) }));
     expect(result).toEqual({ season: 2026, week: 1, source: 'clock' });
     expect(lines.some((l) => l.includes('NFL state unavailable'))).toBe(true);
+  });
+});
+
+describe('firstScoringWeek (#85)', () => {
+  const at = (startWeek: number) => ({ season: 2026, settings: { schedule: { startWeek } } });
+
+  it('starts at the later of the start week and the next unlocked week', () => {
+    expect(firstScoringWeek(at(1), { season: 2026, week: 5 })).toBe(5);
+    expect(firstScoringWeek(at(6), { season: 2026, week: 5 })).toBe(6);
+  });
+
+  it('uses the start week before the season and nothing after it', () => {
+    expect(firstScoringWeek(at(3), { season: 2025, week: 19 })).toBe(3);
+    expect(firstScoringWeek(at(3), { season: 2027, week: 1 })).toBe(19);
   });
 });
 

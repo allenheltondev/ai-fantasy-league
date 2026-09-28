@@ -34,7 +34,7 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 
 | Entity | `sk` | GSI keys | Notes |
 |---|---|---|---|
-| League (settings, phase, week, commissioner, deadlines, schedule seed, version) | `META` | GSI1 `CREATOR#<sub>` / `LEAGUE#<createdAt>#<leagueId>` | `get_league_state` is this GetItem plus the team query. The phase and sub-phase flags drive `allowedActions` (`league/phase.ts`). The creator index counts a user's active leagues for the league quota. |
+| League (settings, phase, week, commissioner, deadlines, schedule seed, version) | `META` | GSI1 `CREATOR#<sub>` / `LEAGUE#<createdAt>#<leagueId>`; while in season, GSI2 `LEAGUES#IN_SEASON` / `<leagueId>` | `get_league_state` is this GetItem plus the team query. The phase and sub-phase flags drive `allowedActions` (`league/phase.ts`). The creator index counts a user's active leagues for the league quota. |
 | Member (a human seat holder) | `MEMBER#<sub>` | GSI1 `USER#<sub>` / `LEAGUE#<leagueId>` | "My leagues" is a GSI1 query. The conditional put (`attribute_not_exists`) enforces one seat per person per league. Authorization reads the owner on the team items. |
 | Invite | `INVITE#<inviteId>` | GSI1 `INVITE#<sha256(token)>` / `INVITE` | Only the SHA-256 of the token is stored; the token is shown once. Accepting a link hashes the token and queries GSI1. Uses are counted with a `version` check. `ttl` is the expiry plus 30 days, so expired invites stay listable for a while. |
 | Team / seat | `TEAM#<teamId>` | none | Name, seat type (`human` or `agent`), owner `sub` (null for open and agent seats), agent config id, draft slot, FAAB left, waiver priority, roster (player ids, empty until the draft), `version`. Items carry `entity = team`, because `TEAM#<teamId>#AGENT` and `TEAM#<teamId>#MEMORY#...` share the prefix: the team list is one `begins_with(TEAM#)` query filtered on `entity`. |
@@ -44,7 +44,7 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 | Draft pick | `DRAFT#PICK#<nnn>` | none | `get_draft_board` is one query on `DRAFT`. `make_draft_pick` writes the pick with `attribute_not_exists` and bumps `DRAFT.version` in one transaction. |
 | Roster | `ROSTER#<teamId>` | none | `get_roster` is a GetItem. All rosters are one `begins_with(ROSTER#)` query (at most 12 items). |
 | Player ownership lock | `OWN#<playerId>` | none | Holds `teamId`. Adds, claims, picks, and trades write it with a condition in the same transaction as the roster change, so a player can never be on two rosters. Free agent check is a GetItem. |
-| Lineup | `LINEUP#W05#<teamId>` | none | `set_lineup` puts one item. A week's lineups are one query. |
+| Lineup | `LINEUP#W05#<teamId>` | none | Every rostered player with his slot, plus who saved it. `set_lineup` puts one item. A week's lineups are one query. A week with no lineup uses the team's latest earlier one (a reverse range query filtered on the team), and the weekly rollover writes the carried-forward copies. |
 | Matchup | `MATCHUP#W05#<matchupId>` | none | `get_matchup` is a query on `MATCHUP#W05#`, then filtered to the team (at most 6 items). Matchup ids are `W05-<n>`. `startSeasonSchedule` writes the regular season with one batch write when the draft starts; scores and `status` are filled in as weeks are played. |
 | Standings snapshot | `STANDINGS#W05` | none | Written when a week goes final. `get_standings` reads the latest with a reverse `begins_with(STANDINGS#)` query, limit 1. |
 | Waiver claim | `WAIVER#W05#<claimId>` | none | `claim_waiver`, `cancel_waiver_claim`, and a team's claims come from one query. The waiver job resolves a week's claims in a single query. |
@@ -139,6 +139,7 @@ has a 90-day `ttl`.
 | Process trade | Transact both rosters, the `OWN#` locks, `TRADE#`, and `TXN#` |
 | Waiver processing job | Query `WAIVER#W05#` in one league |
 | Scoring job | Query `STATS#<season>#W05`, then the week's lineups and matchups |
+| Season jobs (live scoring, weekly cycle) | GSI2 query `LEAGUES#IN_SEASON` (the league items of in-season leagues) |
 | Idempotent replay | GetItem or conditional put on `IDEMP#…` |
 | Audit by league or actor | Query `AUDIT#LEAGUE#id`, or GSI2 `AUDIT#PRINCIPAL#…` |
 

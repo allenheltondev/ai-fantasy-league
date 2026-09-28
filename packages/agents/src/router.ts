@@ -98,7 +98,7 @@ export const TRIGGER_RULES: Readonly<Partial<Record<FantasyEventType, TriggerRul
   }
 };
 
-/** Which league teams roster a player. Rosters land with the lineup stream; until then events may carry `rosteredBy`. */
+/** Which league teams roster a player (`leagueRosterIndex` in production; events may also carry `rosteredBy`). */
 export interface RosterIndex {
   teamsWithPlayer(
     playerId: string,
@@ -115,6 +115,26 @@ export const detailRosterIndex: RosterIndex = {
     return parsed.success ? parsed.data : [];
   }
 };
+
+/**
+ * Rosters from the league tables: every in-season league's teams holding the player (one GSI2
+ * query plus one team query per league). A `rosteredBy` list on the event still wins.
+ */
+export function leagueRosterIndex(services: Services): RosterIndex {
+  return {
+    async teamsWithPlayer(playerId, detail) {
+      const listed = await detailRosterIndex.teamsWithPlayer(playerId, detail);
+      if (listed.length > 0) return listed;
+      const found: { leagueId: string; teamId: string }[] = [];
+      for (const league of await services.repos.leagues.listInSeason()) {
+        for (const team of await services.repos.teams.list(league.id)) {
+          if (team.roster.includes(playerId)) found.push({ leagueId: league.id, teamId: team.id });
+        }
+      }
+      return found;
+    }
+  };
+}
 
 export type RouteDecision =
   | { teamId: string; leagueId: string; decision: 'requested'; taskId: string; kind: string }

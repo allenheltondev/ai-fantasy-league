@@ -60,8 +60,12 @@ export const SLOT_ELIGIBILITY: Readonly<Record<RosterSlot, readonly Position[]>>
   IR: POSITIONS
 };
 
-/** True when a player with any of `positions` may occupy `slot`. */
+/**
+ * True when a player with any of `positions` may occupy `slot`. BN and IR take anyone, even a
+ * player whose positions are unknown.
+ */
 export function isEligibleForSlot(slot: RosterSlot, positions: readonly Position[]): boolean {
+  if (!isStarterSlot(slot)) return true;
   const allowed = SLOT_ELIGIBILITY[slot];
   return positions.some((p) => allowed.includes(p));
 }
