@@ -3,6 +3,8 @@ import { chatMomentTask, chatReplyTask } from './chat.js';
 import { createTaskKindRegistry, type TaskKind } from './kinds.js';
 import { lineupTask } from './lineup.js';
 import { noopTask } from './noop.js';
+import { tradeProposalTask } from './trade-proposal.js';
+import { tradeVoteTask } from './trade-vote.js';
 import { tradeResponseTask } from './trades.js';
 import { waiverTask } from './waivers.js';
 
@@ -17,6 +19,8 @@ export const DEFAULT_TASK_KINDS: readonly TaskKind[] = [
   noopTask,
   waiverTask,
   tradeResponseTask,
+  tradeVoteTask,
+  tradeProposalTask,
   chatReplyTask,
   chatMomentTask
 ];

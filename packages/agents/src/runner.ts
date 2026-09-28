@@ -15,7 +15,9 @@ import {
   leagueBudget,
   type AgentModelUsage,
   type AgentTaskRecord,
+  type AgentTaskSeal,
   type League,
+  type LeagueBudget,
   type Registry,
   type Services
 } from '@fantasy/server';
@@ -23,7 +25,7 @@ import type { AgentActionRequested } from './events.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
 import { MEMORY_BUDGETS, memoryForPrompt, tableMemoryStore, type AgentMemoryStore } from './memory.js';
-import { isModelUnavailable, type ModelClient } from './model.js';
+import { estimateTokens, isModelUnavailable, type ModelClient } from './model.js';
 import { MEMORY_NOTE_MAX, assembleSystemPrompt } from './prompt.js';
 import type {
   BaseDecision,
@@ -42,10 +44,15 @@ import { ToolBox, keyPrefix } from './tools.js';
  * 2. Load the league and seat, resolve the config, and let the task kind prepare.
  * 3. Decide the mode: deterministic fallback if the kill switch is on or the league's weekly budget
  *    is spent; otherwise the model, trying each model in the tier's chain.
- * 4. On a model timeout or failure, fall back to the kind's deterministic behavior.
+ * 4. On a model timeout or failure, fall back to the kind's deterministic behavior. The failed run
+ *    still counts against the budget: its usage is estimated from the prompt and the token limit.
  * 5. Record everything (#45): trigger, tools called, final action, reasoning summary, latency,
  *    tokens and estimated cost per model; add the weekly rollups; update the agent's memory (#44):
- *    its decision, its note, and whatever the kind adds (a chat snapshot).
+ *    its decision, its note, and whatever the kind adds (a chat snapshot). Summaries with sealed
+ *    information carry the kind's `sealed` marker, so the activity log withholds them (#122).
+ *
+ * The first task that finds the league's weekly budget spent announces it in the league chat
+ * (`Agent Budget Exceeded`, once per league and budget week).
  */
 
 export interface RunnerDeps {
@@ -68,6 +75,16 @@ export const TASK_RECORD_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 export const DETERMINISTIC_ACTIONS = 10;
 
 const MAX_TOKENS: Record<ReasoningEffort, number> = { low: 1024, medium: 2048, high: 4096 };
+
+/**
+ * Extended-thinking budget by reasoning effort, for catalog models that take one
+ * (`thinkingBudget`). Low effort does not think; the response limit grows by the budget.
+ */
+export const THINKING_BUDGET: Readonly<Record<ReasoningEffort, number>> = {
+  low: 0,
+  medium: 1024,
+  high: 4096
+};
 
 const FULL_RESEARCH = Object.fromEntries(RESEARCH_KINDS.map((k) => [k, true])) as ResearchAccess;
 
@@ -146,11 +163,12 @@ export async function runAgentAction(
   } catch (error) {
     const reason = error instanceof TaskUnavailableError ? error.message : 'prepare_failed';
     if (!(error instanceof TaskUnavailableError)) log.error('agent task prepare failed', { error });
+    const sealed = error instanceof TaskUnavailableError ? error.sealed : undefined;
     return finish(
       deps,
       { ...base, week },
       started,
-      { ...skipped(reason), toolsCalled: [...system.calls] },
+      { ...skipped(reason), toolsCalled: [...system.calls], ...(sealed === undefined ? {} : { sealed }) },
       true
     );
   }
@@ -164,11 +182,16 @@ export async function runAgentAction(
         type: 'decision',
         kind: kind.kind,
         action: outcome.action,
-        summary: outcome.summary,
+        summary: outcome.memorySummary ?? outcome.summary,
         at: clock.now().toISOString()
       });
     }
-    if (note !== undefined && note.trim().length > 0 && kind.modelRole === 'decision') {
+    if (
+      note !== undefined &&
+      note.trim().length > 0 &&
+      kind.modelRole === 'decision' &&
+      kind.modelNotes !== false
+    ) {
       events.push({ type: 'note', text: note.trim().slice(0, MEMORY_NOTE_MAX) });
     }
     events.push(...(outcome.memory ?? []));
@@ -220,6 +243,7 @@ export async function runAgentAction(
   const chain: ModelKey[] = kind.modelRole === 'chat' ? config.models.chat : config.models.decision;
   const usage: AgentModelUsage[] = [];
   let lastError: unknown = null;
+  const effort = config.levers.reasoningEffort;
   for (const modelKey of chain) {
     const model = getModel(modelKey);
     const controller = new AbortController();
@@ -227,14 +251,18 @@ export async function runAgentAction(
       () => controller.abort(new Error('agent task timed out')),
       deps.modelTimeoutMs ?? 90_000
     );
+    const thinking = model.thinkingBudget === true ? THINKING_BUDGET[effort] : 0;
+    const input = `Trigger: ${request.trigger.detailType}. Do the current task, then give your structured answer.`;
+    const maxTokens = MAX_TOKENS[effort] + thinking;
     try {
       const runRequest = {
         modelId: model.bedrockId,
         systemPrompt,
-        input: `Trigger: ${request.trigger.detailType}. Do the current task, then give your structured answer.`,
+        input,
         tools: modelTools.tools,
         maxIterations: config.levers.maxToolSteps,
-        maxTokens: MAX_TOKENS[config.levers.reasoningEffort],
+        maxTokens,
+        ...(thinking > 0 ? { thinkingBudgetTokens: thinking } : {}),
         temperature: kind.modelRole === 'chat' ? 0.8 : 0.4,
         outputSchema: prepared.decision,
         signal: controller.signal,
@@ -286,7 +314,8 @@ export async function runAgentAction(
           toolsCalled: [...modelTools.calls, ...system.calls],
           finalAction: outcome.action,
           reasoningSummary: outcome.summary,
-          usage
+          usage,
+          ...(outcome.sealed === undefined ? {} : { sealed: outcome.sealed })
         },
         true
       );
@@ -296,6 +325,15 @@ export async function runAgentAction(
       const timedOut = controller.signal.aborted;
       log.warn('agent model run failed', { model: modelKey, timedOut, error });
       if (!timedOut && isModelUnavailable(error) && modelTools.actionsTaken === 0) continue;
+      // The run got far enough to cost something: count an estimate (the prompt, and the whole
+      // response limit) so failures cannot slip past the weekly budget.
+      const estimate = { inputTokens: estimateTokens(systemPrompt + input), outputTokens: maxTokens };
+      usage.push({
+        modelKey,
+        ...estimate,
+        estimatedCostUsd: estimateCostUsd(modelKey, estimate),
+        estimatedTokens: true
+      });
       return runFallback(
         deps,
         { ...base, week },
@@ -331,9 +369,32 @@ async function modeGate(deps: RunnerDeps, league: League): Promise<string | null
       spentUsd: budget.spentUsd,
       ceilingUsd: budget.ceilingUsd
     });
+    await announceBudget(deps, league, budget);
     return 'budget_exceeded';
   }
   return null;
+}
+
+/**
+ * Tells the league, once per budget week, that its agents are on autopilot (#93). The trigger-state
+ * slot marks the week as announced once the event is out; a task racing this one could announce it
+ * twice, which only repeats a chat line.
+ */
+async function announceBudget(deps: RunnerDeps, league: League, budget: LeagueBudget): Promise<void> {
+  const { agents } = deps.services.repos;
+  const slot = `league#budget-notice#week-${budget.week}`;
+  if ((await agents.getTriggerState(league.id, slot)) !== null) return;
+  await deps.services.events.publish('Agent Budget Exceeded', {
+    leagueId: league.id,
+    week: budget.week,
+    spentUsd: budget.spentUsd,
+    ceilingUsd: budget.ceilingUsd
+  });
+  await agents.putTriggerState({
+    leagueId: league.id,
+    agentId: slot,
+    lastTriggeredAt: deps.services.clock.now().toISOString()
+  });
 }
 
 type Base = Omit<
@@ -351,7 +412,7 @@ type Base = Omit<
 type Result = Pick<
   AgentTaskRecord,
   'status' | 'fallbackReason' | 'toolsCalled' | 'finalAction' | 'reasoningSummary' | 'usage'
->;
+> & { sealed?: AgentTaskSeal };
 
 function skipped(reason: string): Result {
   return {
@@ -387,7 +448,8 @@ async function runFallback(
         toolsCalled: calls(),
         finalAction: outcome.action,
         reasoningSummary: outcome.summary,
-        usage
+        usage,
+        ...(outcome.sealed === undefined ? {} : { sealed: outcome.sealed })
       },
       true
     );

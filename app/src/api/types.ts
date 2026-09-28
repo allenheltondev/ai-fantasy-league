@@ -352,6 +352,8 @@ export interface AgentTaskRecord {
   costUsd: number;
   startedAt: string;
   finishedAt: string;
+  /** True while the task holds sealed information (a pending bid, a private offer, an open vote). */
+  redacted?: boolean;
 }
 
 export interface AgentSpend {

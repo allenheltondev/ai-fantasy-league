@@ -10,6 +10,8 @@ import { z } from 'zod';
  * - `decisions`: its own recent decisions (what it did and why).
  * - `chat`: a snapshot of the latest group-chat exchange it took part in (conversation context
  *   across sessions).
+ * - `seen`: ids of the league events already applied, so a redelivered event (EventBridge delivers
+ *   at least once) never bumps a grudge twice.
  *
  * Memory is private to one agent: it is keyed by league and agent id and only that agent's tasks
  * read it. Everything here is pure; the storage lives behind `AgentMemoryStore` in the runtime.
@@ -21,6 +23,10 @@ export const MEMORY_LIMITS = {
   trades: 12,
   decisions: 10,
   chat: 8,
+  /** League event ids remembered for idempotency (a redelivery comes soon after the first). */
+  seen: 64,
+  /** Player names kept per side of a remembered trade. */
+  tradePlayers: 6,
   /** Characters kept from any one text field. */
   text: 280
 } as const;
@@ -52,7 +58,15 @@ export const TradeMemorySchema = z.object({
   tradeId: z.string(),
   outcome: z.enum(TRADE_MEMORY_OUTCOMES),
   summary: Text,
-  at: z.string()
+  at: z.string(),
+  /** Players this agent gave up and got (names). */
+  sent: z.array(Text).max(MEMORY_LIMITS.tradePlayers).optional(),
+  received: z.array(Text).max(MEMORY_LIMITS.tradePlayers).optional(),
+  /**
+   * The trade value for this agent when it agreed to the deal (best-lineup plus player-value change
+   * over the valuation weeks): positive means it won the trade by its own math.
+   */
+  value: z.number().optional()
 });
 export type TradeMemory = z.infer<typeof TradeMemorySchema>;
 
@@ -72,12 +86,13 @@ export const AgentLeagueMemorySchema = z.object({
   rivals: z.array(RivalSchema).default([]),
   trades: z.array(TradeMemorySchema).default([]),
   decisions: z.array(DecisionMemorySchema).default([]),
-  chat: z.array(ChatMemorySchema).default([])
+  chat: z.array(ChatMemorySchema).default([]),
+  seen: z.array(z.string()).default([])
 });
 export type AgentLeagueMemory = z.infer<typeof AgentLeagueMemorySchema>;
 
 export function emptyMemory(): AgentLeagueMemory {
-  return { notes: [], rivals: [], trades: [], decisions: [], chat: [] };
+  return { notes: [], rivals: [], trades: [], decisions: [], chat: [], seen: [] };
 }
 
 export type MemoryEvent =
@@ -90,6 +105,8 @@ export type MemoryEvent =
       pointsFor: number;
       pointsAgainst: number;
       at: string;
+      /** The league event it came from: applied once per id. */
+      eventId?: string;
     }
   | {
       type: 'trade';
@@ -98,6 +115,10 @@ export type MemoryEvent =
       outcome: (typeof TRADE_MEMORY_OUTCOMES)[number];
       summary: string;
       at: string;
+      eventId?: string;
+      sent?: readonly string[];
+      received?: readonly string[];
+      value?: number;
     }
   | { type: 'chat'; messages: readonly ChatMemory[] };
 
@@ -136,8 +157,27 @@ function bumpRival(
     .slice(0, MEMORY_LIMITS.rivals);
 }
 
-/** Applies one event to a memory and returns the new, bounded memory. Never mutates its input. */
+/** Records a league event id as applied (bounded, newest last). */
+function markSeen(memory: AgentLeagueMemory, eventId: string | undefined): AgentLeagueMemory {
+  if (eventId === undefined) return memory;
+  return { ...memory, seen: [...memory.seen, eventId].slice(-MEMORY_LIMITS.seen) };
+}
+
+const players = (names: readonly string[] | undefined) =>
+  names === undefined ? undefined : names.slice(0, MEMORY_LIMITS.tradePlayers).map(clip);
+
+/**
+ * Applies one event to a memory and returns the new, bounded memory. Never mutates its input. An
+ * event carrying an `eventId` already applied is ignored, so redelivered league events are
+ * idempotent.
+ */
 export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): AgentLeagueMemory {
+  if (
+    (event.type === 'matchup' || event.type === 'trade') &&
+    event.eventId !== undefined &&
+    memory.seen.includes(event.eventId)
+  )
+    return memory;
   switch (event.type) {
     case 'note': {
       const text = clip(event.text);
@@ -158,29 +198,43 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
       const reason = `Week ${event.week}: ${result} them ${event.pointsFor}-${event.pointsAgainst}.`;
       // Losing builds a grudge; a blowout loss builds a bigger one. Winning is remembered as bragging rights.
       const points = margin < 0 ? (margin <= -30 ? 3 : 2) : 1;
-      return { ...memory, rivals: bumpRival(memory.rivals, event.opponentTeamId, points, reason, event.at) };
+      return markSeen(
+        { ...memory, rivals: bumpRival(memory.rivals, event.opponentTeamId, points, reason, event.at) },
+        event.eventId
+      );
     }
     case 'trade': {
+      // Later steps of a trade keep what earlier ones knew (the players, the value it agreed to).
+      const previous = memory.trades.find((t) => t.tradeId === event.tradeId);
+      const sent = players(event.sent) ?? previous?.sent;
+      const received = players(event.received) ?? previous?.received;
+      const value = event.value ?? previous?.value;
       const entry: TradeMemory = {
         teamId: event.teamId,
         tradeId: event.tradeId,
         outcome: event.outcome,
         summary: clip(event.summary),
-        at: event.at
+        at: event.at,
+        ...(sent === undefined ? {} : { sent }),
+        ...(received === undefined ? {} : { received }),
+        ...(value === undefined ? {} : { value: Math.round(value * 10) / 10 })
       };
-      return {
-        ...memory,
-        trades: [...memory.trades.filter((t) => t.tradeId !== event.tradeId), entry].slice(
-          -MEMORY_LIMITS.trades
-        ),
-        rivals: bumpRival(
-          memory.rivals,
-          event.teamId,
-          TRADE_GRUDGE[event.outcome],
-          `Trade ${event.outcome}: ${event.summary}`,
-          event.at
-        )
-      };
+      return markSeen(
+        {
+          ...memory,
+          trades: [...memory.trades.filter((t) => t.tradeId !== event.tradeId), entry].slice(
+            -MEMORY_LIMITS.trades
+          ),
+          rivals: bumpRival(
+            memory.rivals,
+            event.teamId,
+            TRADE_GRUDGE[event.outcome],
+            `Trade ${event.outcome}: ${event.summary}`,
+            event.at
+          )
+        },
+        event.eventId
+      );
     }
     case 'chat':
       return {
@@ -190,6 +244,18 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
           .map((m) => ({ author: clip(m.author), text: clip(m.text), at: m.at }))
       };
   }
+}
+
+/** What changed hands and who won it, for a remembered trade. */
+function tradeDetail(t: TradeMemory): string {
+  const parts: string[] = [];
+  if (t.sent !== undefined || t.received !== undefined)
+    parts.push(`you sent ${t.sent?.join(', ') || 'nothing'} for ${t.received?.join(', ') || 'nothing'}`);
+  if (t.value !== undefined)
+    parts.push(
+      `value for you ${t.value > 0 ? '+' : ''}${t.value} (${t.value > 0 ? 'you won it' : t.value < 0 ? 'they won it' : 'even'})`
+    );
+  return parts.length === 0 ? '' : ` [${parts.join('; ')}]`;
 }
 
 /** A rough token estimate (about four characters per token), good enough for prompt budgets. */
@@ -213,7 +279,9 @@ export function summarizeMemory(
   const name = options.teamName ?? ((id: string) => id);
   const groups: string[][] = [
     memory.rivals.map((r) => `Rivalry with ${name(r.teamId)} (grudge ${r.grudge}): ${r.reason}`),
-    [...memory.trades].reverse().map((t) => `Trade with ${name(t.teamId)} (${t.outcome}): ${t.summary}`),
+    [...memory.trades]
+      .reverse()
+      .map((t) => `Trade with ${name(t.teamId)} (${t.outcome}): ${t.summary}${tradeDetail(t)}`),
     [...memory.notes].reverse().map((n) => `Your note: ${n}`),
     [...memory.decisions].reverse().map((d) => `You did ${d.kind} -> ${d.action}: ${d.summary}`),
     memory.chat.length === 0

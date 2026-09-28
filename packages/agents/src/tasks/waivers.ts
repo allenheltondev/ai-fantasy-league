@@ -1,4 +1,4 @@
-import { hashString, suggestFaabBid, waiverMinGain } from '@fantasy/core';
+import { hashString, suggestFaabBid, waiverMinGain, type ResearchAccess } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
@@ -14,7 +14,9 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  *
  * The model reviews the suggestions (and can dig into news, projections, and trending itself) and
  * answers with the claims to make. Only then are they submitted through claim_waiver, the same
- * tool a person's UI uses. With no model decision the fallback makes no claims (docs/ARCHITECTURE.md).
+ * tool a person's UI uses, and never more than the difficulty's `actionsPerTrigger` of them. With
+ * no model decision the fallback makes no claims (docs/ARCHITECTURE.md). The bids are sealed in the
+ * activity log until the claims are processed (issue #122).
  */
 
 /** Trending pickups to look at, and how many of them to preview. */
@@ -62,6 +64,7 @@ const PreviewSchema = z.object({
   issues: z.array(z.object({ code: z.string() })),
   currentRoster: z.array(PlayerRef)
 });
+const ClaimResultSchema = z.object({ claim: z.object({ id: z.string() }).nullable() });
 const ProjectionsSchema = z.object({
   projections: z.array(z.object({ player: z.object({ id: z.string() }), points: z.number() }))
 });
@@ -204,10 +207,22 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
   };
 }
 
-function describeSuggestion(s: WaiverSuggestion): string {
+/**
+ * One suggestion as the model sees it. The scouting behind it used full research (deterministic
+ * code), but the prompt only repeats what the agent's own research access could have found:
+ * projected points need `projections`, trending counts need `trending` (issue #122).
+ */
+function describeSuggestion(s: WaiverSuggestion, research: ResearchAccess): string {
   const how = s.kind === 'add_now' ? 'free agent, add now' : `on waivers, bid $${s.bid}`;
   const drop = s.drop === null ? '' : `, drop ${s.drop.name} (${s.drop.id})`;
-  return `- ${s.player.name} (${s.player.id}, ${s.player.position}): ${s.points} projected pts, +${s.gain} over the drop; ${how}${drop}. Trending adds: ${s.trendingCount}.`;
+  const points = research.projections ? `: ${s.points} projected pts, +${s.gain} over the drop;` : ':';
+  const trend = research.trending ? ` Trending adds: ${s.trendingCount}.` : '';
+  return `- ${s.player.name} (${s.player.id}, ${s.player.position})${points} ${how}${drop}.${trend}`;
+}
+
+/** Claims actually submitted: at most the difficulty's actions per trigger, whatever the model returns. */
+export function claimsToApply<T>(claims: readonly T[], actionsPerTrigger: number): T[] {
+  return claims.slice(0, Math.max(0, actionsPerTrigger));
 }
 
 export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPrep>({
@@ -228,9 +243,11 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
     'list_transactions'
   ],
   prepare: (ctx) => prepare(ctx),
-  instructions(_ctx, payload, prep) {
+  instructions(ctx, payload, prep) {
     if (!prep.open)
       return 'Waivers are closed right now. Make no claims: answer with an empty `claims` list.';
+    const research = ctx.config.levers.research;
+    const most = ctx.config.levers.actionsPerTrigger;
     const closes =
       payload.closesAt === undefined
         ? ''
@@ -239,18 +256,20 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
       `A waiver window is open.${closes} You have $${prep.faabRemaining} FAAB left; the highest bid wins a player on waivers and free agents cost nothing.`,
       prep.suggestions.length === 0
         ? 'No trending pickup looks better than your roster right now.'
-        : `Your scouting suggests:\n${prep.suggestions.map(describeSuggestion).join('\n')}`,
+        : `Your scouting suggests:\n${prep.suggestions.map((s) => describeSuggestion(s, research)).join('\n')}`,
       `Your roster: ${prep.roster.map((p) => `${p.name} (${p.id}, ${p.position})`).join(', ') || 'unknown'}.`,
-      'Check news and projections for anyone you are unsure about, then answer with the `claims` to make (most wanted first), each with a `bid` and a `dropPlayerId` when your roster is full. Keep FAAB for the rest of the season: bid big only on a real starter. An empty list is fine.'
+      `Check anyone you are unsure about with your research tools, then answer with the \`claims\` to make (most wanted first, at most ${most}; any more are ignored), each with a \`bid\` and a \`dropPlayerId\` when your roster is full. Keep FAAB for the rest of the season: bid big only on a real starter. An empty list is fine.`
     ].join('\n');
   },
   async apply(ctx, _payload, prep, decision) {
-    if (!prep.open || decision.claims.length === 0) {
+    const claims = claimsToApply(decision.claims, ctx.config.levers.actionsPerTrigger);
+    if (!prep.open || claims.length === 0) {
       return { action: 'none', summary: decision.summary };
     }
     const made: string[] = [];
     const failed: string[] = [];
-    for (const claim of decision.claims) {
+    const pending: string[] = [];
+    for (const claim of claims) {
       const bid = Math.min(Math.max(0, claim.bid), prep.faabRemaining);
       const result = await ctx.tools.call('claim_waiver', {
         playerId: claim.playerId,
@@ -258,17 +277,33 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
         bid
       });
       if ('error' in result) failed.push(`${claim.playerId} (${result.error.code})`);
-      else made.push(`${claim.playerId} ($${bid})`);
+      else {
+        made.push(`${claim.playerId} ($${bid})`);
+        const id = ClaimResultSchema.safeParse(result.data).data?.claim?.id;
+        if (id !== undefined) pending.push(id);
+      }
     }
+    const skipped = decision.claims.length - claims.length;
     const outcome: TaskOutcome = {
       action: made.length > 0 ? 'claim_waiver' : 'claims_failed',
       summary: [
         decision.summary,
         made.length > 0 ? `Claimed: ${made.join(', ')}.` : '',
-        failed.length > 0 ? `Refused: ${failed.join(', ')}.` : ''
+        failed.length > 0 ? `Refused: ${failed.join(', ')}.` : '',
+        skipped > 0 ? `Ignored ${skipped} more claim(s) over the action limit.` : ''
       ]
         .filter((s) => s.length > 0)
-        .join(' ')
+        .join(' '),
+      // Bids on players still on waivers are secret until the claims are processed.
+      ...(pending.length === 0
+        ? {}
+        : {
+            sealed: {
+              summary: `Made ${made.length} waiver claim(s); players and bids are hidden until waivers are processed.`,
+              trades: [],
+              waiverClaims: pending
+            }
+          })
     };
     return outcome;
   },

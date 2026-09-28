@@ -120,7 +120,8 @@ export interface TradeProjections {
  * Projected points for `playerIds` over the valuation weeks (from the league's current week, or
  * `fromWeek` to value a past trade), scored with league settings. A week
  * without a projection snapshot yet repeats the latest earlier week's numbers, so rest-of-season
- * value is a flat estimate rather than zero.
+ * value is a flat estimate rather than zero. That includes the first week: right after the rollover
+ * the new week's projections are not out yet, and last week's stand in.
  */
 export async function loadProjections(
   reference: ReferenceStore,
@@ -131,18 +132,19 @@ export async function loadProjections(
 ): Promise<TradeProjections> {
   const toWeek = Math.max(fromWeek, Math.min(fromWeek + VALUE_WEEKS - 1, league.settings.playoffs.endWeek));
   const table: Record<string, Record<number, number>> = {};
-  let previous = new Map<string, number>();
-  for (let week = fromWeek; week <= toWeek; week++) {
+  const pointsFor = async (week: number): Promise<Map<string, number> | null> => {
     const snapshot = await reference.projections.latestSnapshot(league.season, week, now);
-    const points =
-      snapshot === null
-        ? previous
-        : new Map(
-            (await reference.projections.getLines(snapshot, playerIds)).map((l) => [
-              l.playerId,
-              scorePlayer(league.settings, l.stats).points
-            ])
-          );
+    if (snapshot === null) return null;
+    const lines = await reference.projections.getLines(snapshot, playerIds);
+    return new Map(lines.map((l) => [l.playerId, scorePlayer(league.settings, l.stats).points]));
+  };
+  let previous: Map<string, number> | null = null;
+  for (let week = fromWeek; week <= toWeek; week++) {
+    const points: Map<string, number> =
+      (await pointsFor(week)) ??
+      previous ??
+      (fromWeek > 1 ? await pointsFor(fromWeek - 1) : null) ??
+      new Map<string, number>();
     for (const [playerId, pts] of points) (table[playerId] ??= {})[week] = pts;
     previous = points;
   }

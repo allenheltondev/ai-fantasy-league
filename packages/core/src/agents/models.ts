@@ -48,6 +48,12 @@ export interface CatalogModel {
   price: ModelPrice;
   /** Whether the price is an estimate. Always true today. */
   priceIsEstimate: true;
+  /**
+   * True when the model takes an extended-thinking budget (Anthropic `thinking.budget_tokens` in
+   * Converse `additionalModelRequestFields`). The runtime maps the difficulty's reasoning effort to
+   * that budget; for other models reasoning effort only sets the response token limit.
+   */
+  thinkingBudget?: true;
 }
 
 export const MODEL_REGION = 'us-east-1';
@@ -102,6 +108,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'claude-haiku-4-5',
+    thinkingBudget: true,
     displayName: 'Claude Haiku 4.5',
     provider: 'anthropic',
     bedrockId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
@@ -110,6 +117,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'claude-sonnet-5',
+    thinkingBudget: true,
     displayName: 'Claude Sonnet 5',
     provider: 'anthropic',
     bedrockId: 'us.anthropic.claude-sonnet-5-v1',
@@ -118,6 +126,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'claude-opus-5',
+    thinkingBudget: true,
     displayName: 'Claude Opus 5',
     provider: 'anthropic',
     bedrockId: 'us.anthropic.claude-opus-5-v1',

@@ -1,5 +1,7 @@
 import { runAgent, tool } from '@readysetcloud/agent';
+import { Agent, BedrockModel } from '@strands-agents/sdk';
 import { MODEL_REGION } from '@fantasy/core';
+import type { z } from 'zod';
 import { estimateTokens, type ModelClient, type ModelRunRequest, type ModelRunResult } from './model.js';
 
 /**
@@ -13,6 +15,13 @@ import { estimateTokens, type ModelClient, type ModelRunRequest, type ModelRunRe
  * `context.agent.metrics.accumulatedUsage` into invocation state. The final model turn after the
  * last tool call is not in that snapshot, so it is estimated from the context size and the final
  * text, and the usage is flagged `estimated` in that case.
+ *
+ * Reasoning effort: for catalog models that take an extended-thinking budget the runner sets
+ * `thinkingBudgetTokens`, and the run goes to Bedrock with Anthropic's `thinking` request field.
+ * `runAgent` cannot pass request fields, so those runs build the same one-shot Strands agent here
+ * (`runThinking`). Strands drops `thinking` by itself on a turn that forces a tool (the structured
+ * answer), which Bedrock does not allow together; temperature is left unset because thinking only
+ * accepts the default.
  */
 
 interface UsageSnapshot {
@@ -61,19 +70,22 @@ export class StrandsModelClient implements ModelClient {
         }
       })
     );
-    const result = await runAgent({
-      input: request.input,
-      systemPrompt: request.systemPrompt,
-      modelId: request.modelId,
-      region: this.region,
-      temperature: request.temperature,
-      maxTokens: request.maxTokens,
-      tools,
-      outputSchema: request.outputSchema,
-      maxIterations: request.maxIterations,
-      invocationState: request.invocationState,
-      cancelSignal: request.signal
-    });
+    const result =
+      request.thinkingBudgetTokens === undefined
+        ? await runAgent({
+            input: request.input,
+            systemPrompt: request.systemPrompt,
+            modelId: request.modelId,
+            region: this.region,
+            temperature: request.temperature,
+            maxTokens: request.maxTokens,
+            tools,
+            outputSchema: request.outputSchema,
+            maxIterations: request.maxIterations,
+            invocationState: request.invocationState,
+            cancelSignal: request.signal
+          })
+        : await runThinking(request, tools, this.region, request.thinkingBudgetTokens);
     const finalOutput = estimateTokens(result.text);
     const seen = last as UsageSnapshot | null;
     const usage =
@@ -90,4 +102,31 @@ export class StrandsModelClient implements ModelClient {
           };
     return { decision: result.output as T, stopReason: result.stopReason, usage };
   }
+}
+
+/** `runAgent` with an extended-thinking budget (see the file comment). */
+async function runThinking<T>(
+  request: ModelRunRequest<T>,
+  tools: ReturnType<typeof tool>[],
+  region: string,
+  budgetTokens: number
+): Promise<{ output: unknown; text: string; stopReason: string }> {
+  const agent = new Agent({
+    model: new BedrockModel({
+      region,
+      modelId: request.modelId,
+      maxTokens: request.maxTokens,
+      additionalRequestFields: { thinking: { type: 'enabled', budget_tokens: budgetTokens } }
+    }),
+    systemPrompt: request.systemPrompt,
+    tools
+  });
+  const result = await agent.invoke(request.input, {
+    structuredOutputSchema: request.outputSchema as z.ZodType,
+    limits: { turns: request.maxIterations },
+    invocationState: request.invocationState,
+    cancelSignal: request.signal
+  });
+  if (result.structuredOutput === undefined) throw new Error('The model returned no structured answer.');
+  return { output: result.structuredOutput, text: result.toString(), stopReason: result.stopReason };
 }

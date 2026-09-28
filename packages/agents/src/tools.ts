@@ -23,7 +23,10 @@ import {
  * - mutations that name a `teamId` must name the agent's own team;
  * - mutations stop after the difficulty's action budget for the trigger;
  * - the idempotency key is derived from the task (trigger event) and the step number, never
- *   chosen by the model, so a redelivered trigger replays instead of acting twice.
+ *   chosen by the model, so a redelivered trigger replays instead of acting twice;
+ * - the free-text note on a trade offer (`message` on trade views) is withheld: it is written by
+ *   another manager, reaches the agent only through tools, and would otherwise be a prompt
+ *   injection path into a task that can accept trades (issue #122).
  */
 
 /** Research tools by name (SPEC §6). Operations can also opt in with a `research:<kind>` tag. */
@@ -136,7 +139,7 @@ export class ToolBox {
       name,
       args: key === undefined ? args : { ...args, idempotencyKey: key }
     });
-    const body = result.body;
+    const body = withholdTradeNotes(result.body);
     this.calls.push({
       name,
       mutation: op.mutation,
@@ -156,6 +159,21 @@ export class ToolBox {
     this.calls.push({ name, mutation, ok: false, errorCode: code });
     return errorEnvelope(new ApiError(code, message, options));
   }
+}
+
+/** Trade views in a tool result (`trade`, `countered`, `trades[]`), with their notes withheld. */
+export function withholdTradeNotes(body: Envelope): Envelope {
+  if ('error' in body || body.data === null || typeof body.data !== 'object') return body;
+  const data = { ...(body.data as Record<string, unknown>) };
+  let changed = false;
+  const strip = (view: unknown): unknown => {
+    if (view === null || typeof view !== 'object' || !('message' in view)) return view;
+    changed = true;
+    return { ...view, message: null };
+  };
+  for (const key of ['trade', 'countered']) if (key in data) data[key] = strip(data[key]);
+  if (Array.isArray(data.trades)) data.trades = data.trades.map(strip);
+  return changed ? { ...body, data } : body;
 }
 
 /** Idempotency-key-safe form of a task id (keys allow A-Z a-z 0-9 _ . : -). */

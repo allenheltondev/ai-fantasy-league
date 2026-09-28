@@ -21,6 +21,7 @@
     "@fantasy/core": "0.0.0",
     "@fantasy/server": "0.0.0",
     "@readysetcloud/agent": "0.2.7",
+    "@strands-agents/sdk": "1.9.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

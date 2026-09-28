@@ -44,6 +44,7 @@ export interface FakeTranscriptEntry {
   /** The reasoning-depth levers the runner passed. */
   maxIterations: number;
   maxTokens: number;
+  thinkingBudgetTokens?: number;
   results: unknown[];
 }
 
@@ -66,6 +67,9 @@ export class ScriptedModelClient implements ModelClient {
       toolNames: request.tools.map((t) => t.name),
       maxIterations: request.maxIterations,
       maxTokens: request.maxTokens,
+      ...(request.thinkingBudgetTokens === undefined
+        ? {}
+        : { thinkingBudgetTokens: request.thinkingBudgetTokens }),
       results: []
     };
     this.transcript.push(entry);

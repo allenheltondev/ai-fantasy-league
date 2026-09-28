@@ -7,6 +7,8 @@ import {
   lineupProjection,
   tradeAcceptEdge,
   tradeAppetite,
+  tradeVetoRatio,
+  tradeVetoVote,
   waiverMinGain
 } from './behavior.js';
 import { DIFFICULTIES, DIFFICULTY_TIERS } from './difficulty.js';
@@ -93,6 +95,36 @@ describe('archetype behavior levers', () => {
             tradeAppetite({ tradeFrequency: lo, levers }).proposalsPerWeek
           );
           expect(t.proposalsPerWeek).toBeLessThanOrEqual(4);
+        }
+      )
+    );
+  });
+
+  it('vetoes lopsided trades always, and near-lopsided ones by archetype', () => {
+    expect(tradeVetoRatio(0)).toBe(0.7);
+    expect(tradeVetoRatio(1)).toBe(1);
+    const cautious = { tradeFrequency: 0.2 };
+    const addict = { tradeFrequency: 0.9 };
+    const near = { lineupGap: 24, valueGap: 5, lopsided: false };
+    expect(tradeVetoVote(near, cautious)).toEqual({ veto: true, ratio: 0.76, severity: 0.8 });
+    expect(tradeVetoVote(near, addict).veto).toBe(false);
+    expect(tradeVetoVote({ lineupGap: 2, valueGap: -3, lopsided: false }, cautious).veto).toBe(false);
+    expect(tradeVetoVote({ lineupGap: 40, valueGap: 0, lopsided: true }, addict).veto).toBe(true);
+  });
+
+  it('never lets a lopsided trade pass, whatever the archetype (property)', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        fc.double({ min: -200, max: 200, noNaN: true }),
+        fc.double({ min: -200, max: 200, noNaN: true }),
+        (tradeFrequency, lineupGap, valueGap) => {
+          const lopsided = Math.abs(lineupGap) >= 30 || Math.abs(valueGap) >= 30;
+          const vote = tradeVetoVote({ lineupGap, valueGap, lopsided }, { tradeFrequency });
+          if (lopsided) expect(vote.veto).toBe(true);
+          // A more trade-happy agent never vetoes something a more cautious one lets pass.
+          const stricter = tradeVetoVote({ lineupGap, valueGap, lopsided }, { tradeFrequency: 0 });
+          if (vote.veto) expect(stricter.veto).toBe(true);
         }
       )
     );

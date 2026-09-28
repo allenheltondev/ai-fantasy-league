@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { routeEvent } from '../src/router.js';
-import { runAgentAction } from '../src/runner.js';
+import { THINKING_BUDGET, runAgentAction } from '../src/runner.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { RESEARCH_TOOLS, agentEligible } from '../src/tools.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup } from './support.js';
@@ -52,7 +52,11 @@ describe('difficulty levers reach the model run', () => {
       const config = resolveAgentConfig(seat(difficulty));
       expect(run?.modelId).toBe(getModel(config.models.decision[0]!).bedrockId);
       expect(run?.maxIterations).toBe(levers.maxToolSteps);
-      expect(run?.maxTokens).toBe(MAX_TOKENS[levers.reasoningEffort]);
+      // Reasoning effort is a real thinking budget on models that take one, on top of the response limit.
+      const thinking = getModel(config.models.decision[0]!).thinkingBudget === true;
+      const budget = thinking ? THINKING_BUDGET[levers.reasoningEffort] : 0;
+      expect(run?.maxTokens).toBe(MAX_TOKENS[levers.reasoningEffort] + budget);
+      expect(run?.thinkingBudgetTokens).toBe(budget > 0 ? budget : undefined);
       // Information access: a research tool is bound exactly when the tier allows it.
       for (const [tool, kind] of Object.entries(RESEARCH_TOOLS)) {
         // get_matchup_outlook is not built yet; its lever is ready for when it is.

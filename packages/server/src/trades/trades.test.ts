@@ -21,6 +21,7 @@ import {
   voidStaleOffers
 } from './lifecycle.js';
 import {
+  loadProjections,
   loadTradeWorld,
   locksReleaseAt,
   nextLockAt,
@@ -393,6 +394,30 @@ describe('timers and lookups', () => {
       name: 'trade-deadline-lg',
       event: { detailType: 'Trade Deadline Passed', detail: { leagueId: 'lg', deadlineWeek: 11 } }
     });
+  });
+
+  it('values with last week’s projections until the new week’s are out, and zero with none at all', async () => {
+    const s = await world();
+    const ids = ['fx-cmc', 'fx-jallen'];
+    // Week 1 (no earlier week) and week 2 without any snapshot: nothing projects.
+    expect((await loadProjections(s.reference, league({ week: 1 }), ids, NOW)).table).toEqual({});
+    expect((await loadProjections(s.reference, s.league, ids, NOW)).table).toEqual({});
+    await s.reference.projections.putSnapshot(
+      { season: 2026, week: 1, capturedAt: '2026-09-05T12:00:00.000Z', hash: 'w1', count: 1 },
+      [{ playerId: 'fx-cmc', season: 2026, week: 1, stats: { rush_yd: 100 } }]
+    );
+    // Just after the rollover to week 2: week 1's numbers stand in for every valuation week.
+    const early = await loadProjections(s.reference, s.league, ids, NOW);
+    expect(early.fromWeek).toBe(2);
+    expect(Object.keys(early.table['fx-cmc'] ?? {}).map(Number)).toEqual(
+      Array.from({ length: early.toWeek - 1 }, (_, i) => i + 2)
+    );
+    expect(early.table['fx-cmc']?.[2]).toBe(10);
+    await s.reference.projections.putSnapshot(
+      { season: 2026, week: 2, capturedAt: '2026-09-09T12:00:00.000Z', hash: 'w2', count: 1 },
+      [{ playerId: 'fx-cmc', season: 2026, week: 2, stats: { rush_yd: 200 } }]
+    );
+    expect((await loadProjections(s.reference, s.league, ids, NOW)).table['fx-cmc']?.[3]).toBe(20);
   });
 
   it('maps rule issues to API errors with every fix', () => {

@@ -29,6 +29,8 @@ import {
 import { computeStandings, playoffBracket, yahooDefaultSettings } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
 import type { BusEvent } from '../../src/events.js';
+import { ScriptedModelClient } from '../../src/fake-model.js';
+import { runAgentAction } from '../../src/runner.js';
 import { leagueRosterIndex, routeEvent, TRIGGER_RULES, type RouteDecision } from '../../src/router.js';
 import { createTaskKindRegistry, type TaskKind } from '../../src/tasks/kinds.js';
 import { noopTask } from '../../src/tasks/noop.js';
@@ -293,9 +295,45 @@ describe('event contract: the weekly cycle', () => {
     const moment = await consume(s.services, delivered(last(s.events.events, 'Chat Moment')));
     expect(moment.event.detail).toMatchObject({ teamId: 'team-2' });
 
-    // The rollover itself has no consumer yet, but it still follows the contract.
-    const rolled = last(s.events.events, 'Week Rolled Over');
-    expect(EVENT_DETAIL_SCHEMAS['Week Rolled Over'].safeParse(rolled.detail).success).toBe(true);
+    // The league's rollover sends every agent shopping for trades (once per league week).
+    const rolled = await consume(s.services, delivered(last(s.events.events, 'Week Rolled Over')));
+    expect(decisions(rolled)).toEqual([
+      ['team-2', 'trade_proposal', 'requested'],
+      ['team-3', 'trade_proposal', 'requested'],
+      ['team-4', 'trade_proposal', 'requested']
+    ]);
+    expect(rolled.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+    expect(rolled.relay.topics).toEqual([]);
+  });
+
+  it('Agent Budget Exceeded (from the task runner) is announced in chat once per week', async () => {
+    const s = await inSeason();
+    await s.repos.agents.addUsage({
+      leagueId: LEAGUE_ID,
+      week: 5,
+      agentId: `${LEAGUE_ID}.team-2`,
+      modelKey: 'nova-micro',
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 5,
+      tasks: 1
+    });
+    await runAgentAction(s.deps(new ScriptedModelClient()), {
+      taskId: 'lineup.budget',
+      leagueId: LEAGUE_ID,
+      teamId: 'team-2',
+      agentId: `${LEAGUE_ID}.team-2`,
+      kind: 'lineup',
+      trigger: { detailType: 'Lineup Lock Approaching', eventId: 'evt-budget', urgent: true },
+      payload: { reason: 'lock', week: 5 },
+      requestedAt: START
+    });
+    const notice = await consume(s.services, delivered(last(s.events.events, 'Agent Budget Exceeded')));
+    expect(posted(notice).text).toBe(
+      'The AI managers have used this week’s model budget ($5 of $0.25). Until next week they play on autopilot: optimizer lineups, autopicks, no waiver claims, and they turn down trade offers.'
+    );
+    expect(notice.routed).toEqual([]);
+    expect(notice.relay.topics).toEqual([]);
   });
 
   it('Model Power Rankings posts the weekly standings by model at the rollover', async () => {
@@ -797,6 +835,11 @@ describe('event contract: trades', () => {
       /accepted a trade with Allen's Team: RB3 for RB4\. It is under review\.$/
     );
     expect(accepted.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    // League-vote review: every agent team outside the trade reviews it.
+    expect(decisions(accepted)).toEqual([
+      ['team-3', 'trade_vote', 'requested'],
+      ['team-4', 'trade_vote', 'requested']
+    ]);
     const review = last(s.events.events, 'Schedule Event').detail.event as {
       detailType: string;
       detail: EventDetail;
@@ -885,6 +928,7 @@ describe('event contract coverage', () => {
       'Member Left',
       'Settings Changed',
       'Agent Seat Changed',
+      'Agent Budget Exceeded',
       'Chat Message Posted',
       'Scores Updated',
       'Week Official Final',

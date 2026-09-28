@@ -198,4 +198,92 @@ describe('agent league memory', () => {
       })
     );
   });
+
+  it('applies a league event once per event id, so a redelivery never bumps a grudge twice', () => {
+    const loss: MemoryEvent = {
+      type: 'matchup',
+      opponentTeamId: 'team-3',
+      week: 1,
+      pointsFor: 80,
+      pointsAgainst: 90,
+      at: AT,
+      eventId: 'evt-1'
+    };
+    const veto: MemoryEvent = {
+      type: 'trade',
+      teamId: 'team-3',
+      tradeId: 't1',
+      outcome: 'vetoed',
+      summary: 'Vetoed.',
+      at: AT,
+      eventId: 'evt-2'
+    };
+    let m = [loss, loss, veto, veto].reduce(rememberEvent, emptyMemory());
+    expect(m.rivals).toEqual([expect.objectContaining({ teamId: 'team-3', grudge: 4 })]);
+    expect(m.seen).toEqual(['evt-1', 'evt-2']);
+    // Events without an id (the agent's own task records) always apply; the seen list stays bounded.
+    for (let i = 0; i < MEMORY_LIMITS.seen + 5; i++) m = rememberEvent(m, { ...loss, eventId: `e${i}` });
+    expect(m.seen).toHaveLength(MEMORY_LIMITS.seen);
+    expect(rememberEvent(m, { ...loss, eventId: undefined }).rivals[0]?.grudge).toBe(
+      (m.rivals[0]?.grudge ?? 0) + 2
+    );
+  });
+
+  it('remembers the players and the value of a trade, and who won it', () => {
+    let m = rememberEvent(emptyMemory(), {
+      type: 'trade',
+      teamId: 'team-4',
+      tradeId: 't1',
+      outcome: 'accepted',
+      summary: 'Accepted their offer.',
+      at: AT,
+      sent: ['Bench Guy'],
+      received: ['Star Back'],
+      value: 12.34
+    });
+    // The processed step (from the league event) keeps what the acceptance knew.
+    m = rememberEvent(m, {
+      type: 'trade',
+      teamId: 'team-4',
+      tradeId: 't1',
+      outcome: 'processed',
+      summary: 'The trade went through.',
+      at: AT,
+      eventId: 'evt-9'
+    });
+    expect(m.trades).toEqual([
+      expect.objectContaining({
+        outcome: 'processed',
+        sent: ['Bench Guy'],
+        received: ['Star Back'],
+        value: 12.3
+      })
+    ]);
+    expect(summarizeMemory(m).find((l) => l.startsWith('Trade with'))).toBe(
+      'Trade with team-4 (processed): The trade went through. [you sent Bench Guy for Star Back; value for you +12.3 (you won it)]'
+    );
+    const lost = rememberEvent(emptyMemory(), {
+      type: 'trade',
+      teamId: 'team-4',
+      tradeId: 't2',
+      outcome: 'processed',
+      summary: 'Done.',
+      at: AT,
+      received: [],
+      value: -4
+    });
+    expect(summarizeMemory(lost)).toContain(
+      'Trade with team-4 (processed): Done. [you sent nothing for nothing; value for you -4 (they won it)]'
+    );
+    const even = rememberEvent(emptyMemory(), {
+      type: 'trade',
+      teamId: 'team-4',
+      tradeId: 't3',
+      outcome: 'accepted',
+      summary: 'Even.',
+      at: AT,
+      value: 0
+    });
+    expect(summarizeMemory(even)).toContain('Trade with team-4 (accepted): Even. [value for you 0 (even)]');
+  });
 });

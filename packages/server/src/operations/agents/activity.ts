@@ -1,8 +1,21 @@
 import { z } from 'zod';
-import { AgentTaskRecordSchema } from '../../repos/agents.js';
+import type { Ctx } from '../../context.js';
+import { AgentTaskRecordSchema, type AgentTaskRecord, type AgentTaskSeal } from '../../repos/agents.js';
 import { defineOperation } from '../../registry/operation.js';
+import { PUBLIC_STATUSES } from '../trades/shared.js';
 import { LeagueBudgetSchema, leagueBudget } from './budget.js';
 import { TeamIdSchema, requireCommissioner } from './shared.js';
+
+/** Trade statuses after which nothing about the trade is secret any more. */
+const FINAL_STATUSES: ReadonlySet<string> = new Set(['processed', 'vetoed']);
+
+const AgentTaskViewSchema = AgentTaskRecordSchema.omit({ sealed: true }).extend({
+  redacted: z
+    .boolean()
+    .describe(
+      'True when the task is withheld because it holds sealed information (a waiver bid still pending, a trade offer only its two teams can see, a vote while the review is open): `reasoningSummary` says what kind of move it was, `finalAction` is `sealed`, and the tools, status, and cost are masked. The real record appears once the claim or trade resolves; the weekly spend totals always include it.'
+    )
+});
 
 export const getAgentActivity = defineOperation({
   name: 'get_agent_activity',
@@ -11,6 +24,7 @@ export const getAgentActivity = defineOperation({
   summary: "Review the league's agents: recent decisions and model spend",
   description: [
     'Commissioner only. Lists recent agent tasks, newest first: what triggered each one, the tools it called, its final action, a short reasoning summary, latency, and tokens and estimated cost per model.',
+    'Summaries that would reveal sealed information (pending waiver bids, private trade offers, veto votes while the review is open) are withheld (`redacted: true`) until it resolves, so a commissioner who also plays learns nothing the other managers cannot see.',
     "Also returns the week's estimated spend against the league's weekly ceiling (per agent, with each agent's allowance from its difficulty) and whether the global kill switch is engaged; when the ceiling is exceeded or the kill switch is on, agents use deterministic fallbacks instead of models.",
     'Filter to one team with `teamId`; pick a past week with `week`. Costs are estimates from the model catalog, not billing data.',
     'Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.'
@@ -25,7 +39,7 @@ export const getAgentActivity = defineOperation({
     limit: z.number().int().min(1).max(100).default(25).describe('Maximum tasks (1-100, default 25).')
   }),
   output: z.object({
-    tasks: z.array(AgentTaskRecordSchema),
+    tasks: z.array(AgentTaskViewSchema),
     budget: LeagueBudgetSchema,
     killSwitch: z
       .object({
@@ -45,6 +59,42 @@ export const getAgentActivity = defineOperation({
       leagueBudget(ctx.repos.agents, league, input.week),
       ctx.agentKillSwitch?.engaged() ?? Promise.resolve(false)
     ]);
-    return { tasks, budget, killSwitch: { configured: ctx.agentKillSwitch !== undefined, engaged } };
+    const views = [];
+    for (const task of tasks) views.push(await taskView(ctx, task));
+    return { tasks: views, budget, killSwitch: { configured: ctx.agentKillSwitch !== undefined, engaged } };
   }
 });
+
+async function taskView(ctx: Ctx, task: AgentTaskRecord): Promise<z.infer<typeof AgentTaskViewSchema>> {
+  const { sealed, ...rest } = task;
+  if (sealed === undefined || !(await stillSealed(ctx, task.leagueId, sealed))) {
+    return { ...rest, redacted: false };
+  }
+  // Everything else that could give the move away is masked too: the action, the tools called,
+  // and whether a model ran (a veto costs a model call; letting a trade pass does not).
+  return {
+    ...rest,
+    status: 'completed',
+    fallbackReason: null,
+    finalAction: 'sealed',
+    toolsCalled: [],
+    usage: [],
+    costUsd: 0,
+    reasoningSummary: sealed.summary,
+    redacted: true
+  };
+}
+
+/** True while any sealed move is unresolved (a missing trade or claim stays sealed). */
+async function stillSealed(ctx: Ctx, leagueId: string, seal: AgentTaskSeal): Promise<boolean> {
+  for (const ref of seal.trades) {
+    const status = (await ctx.repos.trades.get(leagueId, ref.tradeId))?.trade.status;
+    const open = ref.until === 'final' ? FINAL_STATUSES : PUBLIC_STATUSES;
+    if (status === undefined || !open.has(status)) return true;
+  }
+  for (const claimId of seal.waiverClaims) {
+    const claim = await ctx.repos.waivers.getClaim(leagueId, claimId);
+    if (claim === null || claim.status === 'pending') return true;
+  }
+  return false;
+}

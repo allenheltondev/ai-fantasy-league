@@ -86,17 +86,25 @@ const WeekFinalSchema = z.object({
   )
 });
 
+const Names = z
+  .array(z.object({ name: z.string() }))
+  .optional()
+  .transform((refs) => refs?.map((r) => r.name));
 const TradeSchema = z.object({
   leagueId: z.string(),
   tradeId: z.string(),
   fromTeamId: z.string(),
-  toTeamId: z.string()
+  toTeamId: z.string(),
+  fromPlayers: Names,
+  toPlayers: Names
 });
 
 /**
  * Writes memory for the agents a league event involves: matchup results for every agent that
- * played, and trade steps for the agents on either side. Returns how many agents were updated.
- * Only structured fields are stored (ids, scores, outcomes); no free text from the event.
+ * played, and trade steps for the agents on either side (with the players each side sent once the
+ * trade is processed). Returns how many agents were updated. Only structured fields are stored (ids,
+ * scores, outcomes, player names); no free text from the event. Each write carries the event id, so
+ * a redelivered event changes nothing (core `rememberEvent`).
  */
 export async function recordLeagueMemory(
   services: Services,
@@ -129,14 +137,17 @@ export async function recordLeagueMemory(
         }
       ];
       for (const { teamId, ...rest } of sides) {
-        writes.push({ leagueId, teamId, event: { type: 'matchup', week, at, ...rest } });
+        writes.push({ leagueId, teamId, event: { type: 'matchup', week, at, eventId: event.id, ...rest } });
       }
     }
   } else if (detailType in TRADE_OUTCOMES) {
     const parsed = TradeSchema.safeParse(event.detail);
     if (!parsed.success) return 0;
-    const { leagueId, tradeId, fromTeamId, toTeamId } = parsed.data;
+    const { leagueId, tradeId, fromTeamId, toTeamId, fromPlayers, toPlayers } = parsed.data;
     const outcome = TRADE_OUTCOMES[detailType as keyof typeof TRADE_OUTCOMES];
+    // What changed hands is worth remembering once it has (who won the trade).
+    const moved = (sent: string[] | undefined, received: string[] | undefined) =>
+      outcome === 'processed' && sent !== undefined && received !== undefined ? { sent, received } : {};
     writes.push(
       {
         leagueId,
@@ -147,7 +158,9 @@ export async function recordLeagueMemory(
           tradeId,
           outcome,
           summary: `Your offer to ${toTeamId} was ${outcome}.`,
-          at
+          at,
+          eventId: event.id,
+          ...moved(fromPlayers, toPlayers)
         }
       },
       {
@@ -159,7 +172,9 @@ export async function recordLeagueMemory(
           tradeId,
           outcome,
           summary: `An offer from ${fromTeamId} was ${outcome}.`,
-          at
+          at,
+          eventId: event.id,
+          ...moved(toPlayers, fromPlayers)
         }
       }
     );
