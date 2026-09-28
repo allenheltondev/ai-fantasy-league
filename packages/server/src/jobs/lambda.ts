@@ -42,6 +42,7 @@ export function createJobDeps(env: Record<string, string | undefined>, clock: Cl
     events: new EventBridgePublisher({ busName: config.eventBusName }),
     directory: new PlayerDirectory({ repo: repos.players, clock }),
     log,
+    badgeChest: config.badgeChest,
     news: createNewsSource({
       parameterName: config.newsFeedsParameter,
       ssm: new SSMClient({}),

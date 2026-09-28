@@ -7,8 +7,9 @@ import { advanceSeason, scoreLiveWeek } from '../jobs/season.js';
 import { silentLogger } from '../log.js';
 import { createInMemoryRepos } from '../repos/memory.js';
 import { createInMemoryReferenceStore } from '../repos/memory-reference.js';
-import type { League } from '../repos/types.js';
+import type { League, Matchup } from '../repos/types.js';
 import { advanceLeague, scheduleLockWarnings, startLeagueSeason, storedNflState } from './cycle.js';
+import { finalizeOfficialWeek } from './official.js';
 import { listInSeason, resolveLineup } from './lineups.js';
 
 const WEEK_MS = 7 * 24 * 3_600_000;
@@ -73,6 +74,80 @@ describe('advanceLeague', () => {
     expect((await repos.leagues.get(league.id))?.phase).toBe('complete');
     expect(types(events).filter((t) => t === 'Week Provisionally Final')).toHaveLength(3);
     expect(await listInSeason(repos)).toEqual([]);
+  });
+
+  it('stores the bracket, crowns the champion, archives the season, and corrects a playoff result', async () => {
+    const { deps, repos, events } = await setup({ week: 15 });
+    const league = (await repos.leagues.get('lg-cycle')) as League;
+    const earlier = (await repos.schedule.listMatchups(league.id)).filter((m) => m.week < 15);
+    await repos.schedule.putMatchups(
+      earlier.map((m) => ({ ...m, homeScore: 100, awayScore: 90, status: 'final' }))
+    );
+    await advanceLeague(deps, league, afterWeek(15));
+    const seeded = await repos.history.getPlayoffs(league.id);
+    expect(seeded?.bracket.seeds).toHaveLength(4);
+    expect(seeded?.championTeamId).toBeNull();
+
+    // Semifinal scores: the better seeds win both.
+    const semis = await repos.schedule.listMatchups(league.id, 16);
+    await repos.schedule.putMatchups(
+      semis.map((m) => ({ ...m, homeScore: 50, awayScore: 40, status: 'final' }))
+    );
+    await advanceLeague(deps, (await repos.leagues.get(league.id)) as League, afterWeek(16));
+    const [final] = await repos.schedule.listMatchups(league.id, 17);
+    expect(final?.id).toBe('W17-P-championship-r2-g1');
+
+    // A stat correction flips the first semifinal: its winner in the final is replaced.
+    const inFinal = (await repos.leagues.get(league.id)) as League;
+    const semi = semis[0] as (typeof semis)[number];
+    await repos.lineups.put([
+      {
+        leagueId: league.id,
+        teamId: semi.awayTeamId,
+        week: 16,
+        entries: [{ playerId: 'fx-opp', slot: 'RB' }],
+        updatedAt: '2026-12-20T00:00:00.000Z',
+        updatedBy: 'system'
+      }
+    ]);
+    await deps.reference.stats.putLines([
+      {
+        playerId: 'fx-opp',
+        season: SEASON,
+        week: 16,
+        stats: { rush_yd: 2000 },
+        updatedAt: '2026-12-24T00:00:00.000Z'
+      }
+    ]);
+    const corrected = await finalizeOfficialWeek(deps, inFinal, 16, afterWeek(16));
+    expect(corrected).toMatchObject({ status: 'official', flipped: 1 });
+    const [rewritten] = await repos.schedule.listMatchups(league.id, 17);
+    expect([rewritten?.homeTeamId, rewritten?.awayTeamId]).toContain(semi.awayTeamId);
+
+    await repos.schedule.putMatchups([
+      { ...(rewritten as Matchup), homeScore: 80, awayScore: 70, status: 'final' }
+    ]);
+    const done = await advanceLeague(deps, (await repos.leagues.get(league.id)) as League, afterWeek(17));
+    expect(done).toMatchObject({ status: 'completed' });
+    const champion = rewritten?.homeTeamId;
+    expect((await repos.history.getPlayoffs(league.id))?.championTeamId).toBe(champion);
+    const [season] = await repos.history.listSeasons(league.id);
+    expect(season).toMatchObject({
+      season: SEASON,
+      championTeamId: champion,
+      runnerUpTeamId: rewritten?.awayTeamId
+    });
+    expect(season?.records.highestScore).toMatchObject({ points: 200 });
+    expect(events.events.find((e) => e.detailType === 'Season Completed')?.detail).toMatchObject({
+      championTeamId: champion
+    });
+
+    // The final week's official final awards the season achievements.
+    const complete = (await repos.leagues.get(league.id)) as League;
+    await finalizeOfficialWeek(deps, complete, 17, afterWeek(17));
+    const earned = (await repos.history.listAchievements(league.id)).map((a) => [a.achievementId, a.teamId]);
+    expect(earned).toContainEqual(['league-champion', champion]);
+    expect(earned).toContainEqual(['season-high-score', semi.awayTeamId]);
   });
 
   it('writes no playoff games without standings, and logs when the bracket cannot be paired', async () => {

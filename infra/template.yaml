@@ -304,6 +304,10 @@ Resources:
           EVENT_BUS_NAME: default
           SLEEPER_BASE_URL: !Ref SleeperBaseUrl
           NEWS_FEEDS_PARAMETER: !Ref NewsFeedsParameter
+          # League achievements go to the rsc-core badge chest (`Track Activity`)
+          # only when this is `true`; turn it on once rsc-core's catalog has the
+          # fantasy.* badges (packages/server/src/season/achievements.ts).
+          BADGE_CHEST_ENABLED: 'false'
           NODE_OPTIONS: --enable-source-maps
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -418,6 +422,18 @@ Resources:
             Description: Resolve due waiver claims in every in-season league
             ScheduleExpression: cron(0 8 * * ? *)
             Input: '{"job":"processWaivers"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+        # The Thursday official final (#80): after the stat-correction window,
+        # re-pull the finished week (Sleeper reconciled with nflverse), rescore,
+        # and emit Stat Correction Applied / Week Official Final. Friday's run is
+        # a retry; a week already official is skipped.
+        OfficialFinal:
+          Type: ScheduleV2
+          Properties:
+            Description: Apply stat corrections and make last week official
+            ScheduleExpression: cron(0 15 ? * THU,FRI *)
+            Input: '{"job":"officialFinal"}'
             RetryPolicy:
               MaximumRetryAttempts: 2
 
@@ -863,6 +879,8 @@ Resources:
                 - Week Provisionally Final
                 - Week Official Final
                 - Stat Correction Applied
+                - Season Completed
+                - Achievement Earned
                 - Member Joined
                 - Member Left
                 - Settings Changed

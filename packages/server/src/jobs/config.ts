@@ -10,7 +10,9 @@ const JobsEnvSchema = z.object({
   NEWS_FEEDS_PARAMETER: z.string().min(1).optional(),
   /** Inline feed list, used when no parameter is configured (local runs). */
   NEWS_FEEDS: z.string().optional(),
-  LOG_LEVEL: z.string().optional()
+  LOG_LEVEL: z.string().optional(),
+  /** `true` reports league achievements to the rsc-core badge chest (`Track Activity` events). */
+  BADGE_CHEST_ENABLED: z.string().optional()
 });
 
 export interface JobsConfig {
@@ -20,6 +22,7 @@ export interface JobsConfig {
   newsFeedsParameter: string | undefined;
   newsFeeds: string | undefined;
   logLevel: LogLevel;
+  badgeChest: boolean;
 }
 
 export function loadJobsConfig(env: Record<string, string | undefined>): JobsConfig {
@@ -34,6 +37,7 @@ export function loadJobsConfig(env: Record<string, string | undefined>): JobsCon
     sleeperBaseUrl: parsed.data.SLEEPER_BASE_URL,
     newsFeedsParameter: parsed.data.NEWS_FEEDS_PARAMETER,
     newsFeeds: parsed.data.NEWS_FEEDS,
-    logLevel: parseLogLevel(parsed.data.LOG_LEVEL)
+    logLevel: parseLogLevel(parsed.data.LOG_LEVEL),
+    badgeChest: parsed.data.BADGE_CHEST_ENABLED === 'true'
   };
 }
