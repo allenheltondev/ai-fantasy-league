@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderApp, signInAs } from '../../test/render';
+import { describeMove } from './Transactions';
 import { describeError, formatTime, type Claim, type SearchPlayer } from './types';
 
 const ALICE = { sub: 'u1', email: 'alice@example.com', given_name: 'Alice' };
@@ -112,6 +113,36 @@ function fakeApi(
     if (path.startsWith('/leagues/L1/waivers/claims/') && method === 'DELETE') {
       claims = claims.filter((c) => !path.endsWith(c.id));
       return ok({ claim: {} });
+    }
+    if (path === '/leagues/L1/transactions') {
+      const move = (id: string, extra: object) => ({
+        id,
+        at: '2026-09-12T08:00:00.000Z',
+        week: 2,
+        teamId: 'team-1',
+        teamName: 'Alice FC',
+        added: null,
+        dropped: null,
+        cost: null,
+        ...extra
+      });
+      return url.searchParams.get('cursor') === 'older'
+        ? ok({
+            transactions: [move('t3', { type: 'drop', dropped: ref('fx-swift', "D'Andre Swift") })],
+            nextCursor: null
+          })
+        : ok({
+            transactions: [
+              move('t1', {
+                type: 'waiver_claim',
+                added: ref('fx-hall', 'Breece Hall'),
+                dropped: ref('fx-jallen', 'Josh Allen', 'QB'),
+                cost: 7
+              }),
+              move('t2', { type: 'add', teamName: 'Robots', added: ref('fx-bijan', 'Bijan Robinson') })
+            ],
+            nextCursor: 'older'
+          });
     }
     return json({ error: { code: 'ROUTE_NOT_FOUND', message: path, fix: 'x' } }, 404);
   });
@@ -309,6 +340,43 @@ describe('players page', () => {
 });
 
 describe('helpers', () => {
+  it('shows the league transaction log with older pages', async () => {
+    const api = fakeApi();
+    await openPage();
+    const log = within(await screen.findByRole('list', { name: 'League transactions' }));
+    expect(await log.findByText(/claimed Breece Hall for \$7, dropping Josh Allen/)).toBeInTheDocument();
+    expect(log.getByText(/added Bijan Robinson/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Show older moves' }));
+    expect(await log.findByText(/dropped D'Andre Swift/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show older moves' })).not.toBeInTheDocument();
+    const last = api.calls.filter((c) => c.path === '/leagues/L1/transactions').at(-1);
+    expect(last?.query.get('cursor')).toBe('older');
+  });
+
+  it('reports a failed transaction log', async () => {
+    fakeApi({
+      fail: { 'GET /leagues/L1/transactions': { status: 403, code: 'FORBIDDEN', fix: 'Join the league.' } }
+    });
+    await openPage();
+    expect(await screen.findByText('FORBIDDEN happened. Join the league.')).toBeInTheDocument();
+  });
+
+  it('describes every kind of move', () => {
+    const base = {
+      id: 't',
+      at: '2026-09-12T08:00:00.000Z',
+      week: 1,
+      teamId: 'team-1',
+      teamName: 'A',
+      added: null,
+      dropped: null,
+      cost: null
+    };
+    expect(describeMove({ ...base, type: 'waiver_claim' })).toBe('claimed a player for $0');
+    expect(describeMove({ ...base, type: 'add' })).toBe('added a player');
+    expect(describeMove({ ...base, type: 'drop' })).toBe('dropped a player');
+  });
+
   it('formats times and errors', () => {
     expect(formatTime('2026-09-13T08:00:00.000Z')).toBe('2026-09-13 08:00 UTC');
     expect(describeError(new Error('Plain.'))).toBe('Plain.');
