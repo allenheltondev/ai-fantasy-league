@@ -3,9 +3,10 @@ name: Record fixtures
 # Records real Sleeper responses (trimmed to the fixture players) where
 # api.sleeper.app is reachable, and checks which news RSS feeds respond. Dev
 # sandboxes cannot reach either, so this is how fixtures and the feed list get
-# refreshed. Nothing is committed: download the artifact, copy
-# fixtures/sleeper/ into packages/data/fixtures/sleeper/, run
-# `npm test -w @fantasy/data`, and open a PR. No AWS credentials are used.
+# refreshed. The recorded fixtures are uploaded as an artifact and, unless
+# `push_branch` is off, also committed to a `fixtures/run-<run id>` branch so a
+# PR can be opened from it without downloading anything. Nothing is pushed to
+# main. No AWS credentials are used.
 
 on:
   workflow_dispatch:
@@ -25,9 +26,15 @@ on:
         required: false
         type: string
         default: '1,2'
+      push_branch:
+        description: Commit the recorded Sleeper fixtures to a fixtures/run-<run id> branch
+        required: false
+        type: boolean
+        default: true
 
 permissions:
-  contents: read
+  # write only to push the fixtures/run-* branch; main is never pushed.
+  contents: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -72,3 +79,24 @@ jobs:
             recorded/news-feeds-report.json
           if-no-files-found: error
           retention-days: 14
+      - name: Push recorded fixtures to a branch
+        if: ${{ inputs.push_branch }}
+        env:
+          BRANCH: fixtures/run-${{ github.run_id }}
+          SEASON: ${{ inputs.season }}
+          WEEKS: ${{ inputs.weeks }}
+          SCORING_WEEKS: ${{ inputs.scoring_weeks }}
+        run: |
+          rm -rf packages/data/fixtures/sleeper
+          cp -R recorded/fixtures/sleeper packages/data/fixtures/sleeper
+          if git diff --quiet -- packages/data/fixtures/sleeper && [ -z "$(git ls-files --others --exclude-standard packages/data/fixtures/sleeper)" ]; then
+            echo "Recorded fixtures match the committed ones; nothing to push."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git add packages/data/fixtures/sleeper
+          git commit -m "Record Sleeper fixtures (season $SEASON, weeks $WEEKS, scoring weeks $SCORING_WEEKS)"
+          git push origin "$BRANCH"
+          echo "Pushed $BRANCH: open a PR from it into main." >> "$GITHUB_STEP_SUMMARY"
