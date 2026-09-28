@@ -127,7 +127,8 @@ function sidePath(i: number): string {
  * Validates a trade against the current rosters and time.
  *
  * Errors: unknown or identical teams, nothing moving, a player listed twice, a sent or dropped
- * player not on that team, the trade deadline, locked players (game already kicked off), and a
+ * player not on that team, the trade deadline (at proposal and acceptance only: a trade accepted
+ * before the deadline still processes after it), locked players (game already kicked off), and a
  * roster over the active limit after the swap. At `proposal` the responding team's roster overflow is
  * a warning instead, since it chooses its drops when it accepts.
  */
@@ -227,7 +228,8 @@ export function validateTrade(
     }
   });
 
-  if (isTradeDeadlinePassed(settings, ctx.currentWeek, ctx.games, ctx.now)) {
+  // Yahoo: the deadline stops proposals and acceptances; a trade accepted in time still processes.
+  if (phase !== 'processing' && isTradeDeadlinePassed(settings, ctx.currentWeek, ctx.games, ctx.now)) {
     errors.push(
       ruleError(
         'TRADE_DEADLINE_PASSED',
