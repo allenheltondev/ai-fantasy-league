@@ -84,13 +84,15 @@ const BoardSchema = z.object({
       player: PlayerSchema,
       rank: z.number().nullable(),
       bye: ByeSchema,
-      injuryStatus: z.string().nullable().default(null)
+      injuryStatus: z.string().nullable().default(null),
+      lastSeason: z.object({ ppg: z.number(), games: z.number() }).nullable().optional(),
+      projection: z.object({ points: z.number() }).nullable().optional()
     })
   )
 });
 type Board = z.infer<typeof BoardSchema>;
 type Candidate = Pick<Board['bestAvailable'][number], 'player' | 'rank'> &
-  Partial<Pick<Board['bestAvailable'][number], 'bye' | 'injuryStatus'>>;
+  Partial<Pick<Board['bestAvailable'][number], 'bye' | 'injuryStatus' | 'lastSeason' | 'projection'>>;
 type RosterPlayer = Board['picks'][number]['player'] & { bye: number | null };
 
 const DraftPayloadSchema = z.object({
@@ -232,7 +234,10 @@ function byeText(bye: number | null | undefined, window: SeasonWindow): string {
 function describeCandidate(c: Candidate, prep: DraftPrep): string {
   const injury = c.injuryStatus ? `, ${c.injuryStatus}` : '';
   const clash = byeClash(riskOf(c), prep.roster.map(riskOf), prep.window) ? ' (bye clash)' : '';
-  return `${c.player.name} (${c.player.id}, ${c.player.position}, ${c.player.team ?? 'FA'}, rank ${c.rank ?? 'unranked'}${byeText(c.bye, prep.window)}${injury})${clash}`;
+  const last =
+    c.lastSeason == null ? '' : `, ${c.lastSeason.ppg} PPG last season (${c.lastSeason.games} games)`;
+  const proj = c.projection == null ? '' : `, projected ${c.projection.points} pts`;
+  return `${c.player.name} (${c.player.id}, ${c.player.position}, ${c.player.team ?? 'FA'}, rank ${c.rank ?? 'unranked'}${last}${proj}${byeText(c.bye, prep.window)}${injury})${clash}`;
 }
 
 /**

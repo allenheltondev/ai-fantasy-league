@@ -27,6 +27,25 @@ export async function batchPut(
   }
 }
 
+/** Deletes items by key in batches of 25, retrying unprocessed deletes. */
+export async function batchDelete(
+  table: TableContext,
+  keys: readonly Record<string, unknown>[]
+): Promise<void> {
+  for (const batch of chunk(keys, 25)) {
+    let requests = batch.map((Key) => ({ DeleteRequest: { Key } }));
+    for (let attempt = 0; requests.length > 0; attempt++) {
+      if (attempt >= MAX_BATCH_ATTEMPTS) throw new Error('DynamoDB kept throttling a batch delete');
+      const result = await table.doc.send(
+        new BatchWriteCommand({ RequestItems: { [table.tableName]: requests } })
+      );
+      requests = (result.UnprocessedItems?.[table.tableName] ?? []).flatMap((r) =>
+        r.DeleteRequest?.Key === undefined ? [] : [{ DeleteRequest: { Key: r.DeleteRequest.Key } }]
+      );
+    }
+  }
+}
+
 /** Gets items by key in batches of 100, retrying unprocessed keys. Order is not preserved. */
 export async function batchGet(
   table: TableContext,

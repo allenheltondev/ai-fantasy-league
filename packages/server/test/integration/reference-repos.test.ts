@@ -1,4 +1,4 @@
-import type { ProjectionLine } from '@fantasy/data';
+import type { PlayerSeasonLines, ProjectionLine } from '@fantasy/data';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
 import { toProfile } from '../../src/players/profile.js';
@@ -112,6 +112,38 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
       ['y', 2]
     ]);
     expect(await reference.projections.getLines(second, ['y', 'y', 'zz'])).toEqual([line('y', 6)]);
+  });
+
+  it('replaces a season set, removing players who left it, and reads all or some', async () => {
+    const { reference } = make();
+    const season = nextSeason();
+    const player = (playerId: string, rec: number): PlayerSeasonLines => ({
+      playerId,
+      season,
+      weeks: [
+        { week: 1, stats: { gp: 1, rec } },
+        { week: 2, stats: { gp: 0 } }
+      ]
+    });
+    const meta = (hash: string, players: number) => ({
+      kind: 'stats' as const,
+      season,
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      players,
+      weeks: [1, 2],
+      hash
+    });
+    expect(await reference.seasons.getMeta('stats', season)).toBeNull();
+    const many = Array.from({ length: 30 }, (_, i) => player(`s${i}`, i));
+    await reference.seasons.put(meta('a', 30), many);
+    expect(await reference.seasons.get('stats', season)).toHaveLength(30);
+    await reference.seasons.put(meta('b', 2), [{ ...player('s1', 7), team: 'KC' }, player('s2', 2)]);
+    expect(await reference.seasons.getMeta('stats', season)).toEqual(meta('b', 2));
+    expect((await reference.seasons.get('stats', season)).map((l) => l.playerId)).toEqual(['s1', 's2']);
+    expect(await reference.seasons.get('stats', season, ['s1', 's1', 's9'])).toEqual([
+      { ...player('s1', 7), team: 'KC' }
+    ]);
+    expect(await reference.seasons.get('projections', season)).toEqual([]);
   });
 
   it('keeps trending snapshots and serves the latest as of a time', async () => {

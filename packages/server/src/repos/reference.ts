@@ -2,8 +2,10 @@ import type {
   ByeWeeks,
   LiveGame,
   NflState,
+  PlayerSeasonLines,
   ProjectionLine,
   ScheduledGame,
+  SeasonLinesKind,
   Player as SourcePlayer,
   StatLine,
   TrendingEntry,
@@ -120,6 +122,30 @@ export interface ProjectionRepository {
 }
 
 // ---------------------------------------------------------------------------
+// Season research (#136): last season's stats and this season's projections, per player
+// ---------------------------------------------------------------------------
+
+export interface SeasonLinesMeta {
+  kind: SeasonLinesKind;
+  season: number;
+  /** When the set was last replaced. */
+  updatedAt: string;
+  players: number;
+  /** Weeks the source had lines for. */
+  weeks: number[];
+  /** Content hash, so an unchanged daily pull writes nothing. */
+  hash: string;
+}
+
+export interface SeasonLinesRepository {
+  getMeta(kind: SeasonLinesKind, season: number): Promise<SeasonLinesMeta | null>;
+  /** Replaces the season's set (players missing from `lines` are removed), then writes the meta. */
+  put(meta: SeasonLinesMeta, lines: readonly PlayerSeasonLines[]): Promise<void>;
+  /** The season's records: all of them, or only `playerIds`. */
+  get(kind: SeasonLinesKind, season: number, playerIds?: readonly string[]): Promise<PlayerSeasonLines[]>;
+}
+
+// ---------------------------------------------------------------------------
 // Trending
 // ---------------------------------------------------------------------------
 
@@ -194,6 +220,7 @@ export interface ReferenceStore {
   nflGames: NflGamesRepository;
   stats: StatsRepository;
   projections: ProjectionRepository;
+  seasons: SeasonLinesRepository;
   trending: TrendingRepository;
   news: NewsRepository;
   playerSync: PlayerSyncRepository;

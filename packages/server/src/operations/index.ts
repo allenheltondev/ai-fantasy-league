@@ -9,6 +9,7 @@ import { getModelLeaderboard } from './agents/leaderboard.js';
 import { chatOperations } from './chat/index.js';
 import { configureAgentSeat, getAgentSeat, randomizeAgentSeatsOperation } from './agents/seats.js';
 import { getNews } from './research/get-news.js';
+import { getPlayerCard } from './research/get-player-card.js';
 import { getProjections } from './research/get-projections.js';
 import { getTrendingPlayers } from './research/get-trending-players.js';
 import { seasonOperations } from './season/index.js';
@@ -25,6 +26,7 @@ export const operations = [
   getProjections,
   getTrendingPlayers,
   getNews,
+  getPlayerCard,
   // League lifecycle, membership, and settings
   ...leagueOperations,
   // Season loop: rosters and lineups (#52)
