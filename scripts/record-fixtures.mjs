@@ -18,7 +18,9 @@
 //
 // Responses are trimmed to the fixture player set below so the files stay small (< 2 MB total).
 // Synthetic players (ids starting with 900) in the existing players.json are preserved because
-// the crosswalk tests rely on them. After recording, run `npm run test -w packages/data` and
+// the crosswalk tests rely on them. Runs without --scoring rewrite the curated fixtures that unit
+// tests pin (state, stats, projections, trending), so the Record fixtures workflow runs them only
+// when its `curated` input is on. After recording them, run `npm run test -w packages/data` and
 // update any assertion that pinned a hand-authored value.
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -209,9 +211,15 @@ async function recordNflverse() {
   );
 }
 
-/** Stat keys the scoring engine can weight, plus the precomputed totals and games played. */
-const SCORING_KEY =
-  /^(gp|pts_(ppr|half_ppr|std)|pass_|rush_|rec|fum|st_td|fg|xp|sack$|int$|safe$|blk_kick$|def_|pts_allow$|yds_allow$|idp_|kr_yd$|pr_yd$)/;
+/**
+ * Sleeper stat keys no scoring reads (lengths, rates, splits, ranks, snaps, team context). Every
+ * other key is kept: a key that Sleeper's own totals weight must be in the set, or the harness
+ * cannot reproduce them (an allow-list once dropped `ff`, `st_ff`, and `st_fum_rec`).
+ */
+const SCORING_NOISE =
+  /(_lng|_ypa|_ypc|_ypr|_ypt|_rtg|_air_yd|_yar|_yac|_btkl|_drop|_pct|_snp)$|^(tm_|rank|pos_rank|gms_active$|gs$|rec_\d+_\d+$|rec_40p$|rush_40p$|pass_cmp_40p$|def_(kr|pr)(_|$)|def_forced_punts$|def_3_and_out$)|_rz_|_td_lng$|sack_yd$/;
+/** Tiered stats, where 0 scores (a shutout) and must not be dropped with the other zeros. */
+const ZERO_SCORES = new Set(['pts_allow', 'yds_allow']);
 
 /** nflverse columns the harness reads (identity, fumble breakdown, published points, mapped stats). */
 const NFLVERSE_SCORING_COLUMN =
@@ -228,7 +236,9 @@ async function recordScoringSleeper() {
     const kept = {};
     for (const [id, stats] of Object.entries(body)) {
       if (typeof stats?.pts_ppr !== 'number' || !stats.gp) continue;
-      kept[id] = Object.fromEntries(Object.entries(stats).filter(([k, v]) => SCORING_KEY.test(k) && v !== 0));
+      kept[id] = Object.fromEntries(
+        Object.entries(stats).filter(([k, v]) => !SCORING_NOISE.test(k) && (v !== 0 || ZERO_SCORES.has(k)))
+      );
     }
     writeFileSync(join(dir, `stats_regular_${season}_${week}.json`), JSON.stringify(kept) + '\n');
     console.log(`sleeper scoring: week ${week}: ${Object.keys(kept).length} players`);
