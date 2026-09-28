@@ -950,6 +950,8 @@ Resources:
               detail-type:
                 - Draft Pick Made
                 - Draft Completed
+                - Draft Paused
+                - Draft Resumed
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed
@@ -1021,6 +1023,8 @@ Resources:
                 - Draft Turn Started
                 - Draft Pick Made
                 - Draft Completed
+                - Draft Paused
+                - Draft Resumed
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed

@@ -28,7 +28,19 @@ interface Board {
   yourNextPick: { picksAway: number } | null;
   yourNeeds: string[];
   order: { teamId: string }[];
-  picks: { overall: number; teamId: string; player: { id: string }; auto: boolean }[];
+  picks: {
+    overall: number;
+    teamId: string;
+    player: { id: string };
+    auto: boolean;
+    adp: number | null;
+    reason: string | null;
+  }[];
+  recap: {
+    steals: { overall: number }[];
+    reaches: { overall: number }[];
+    agentPicks: { teamId: string; overall: number; teamName: string; player: { id: string } }[];
+  } | null;
   rosters: { teamId: string; players: { id: string }[] }[];
   bestAvailable: { player: { id: string; position: string }; rank: number | null }[];
 }
@@ -140,22 +152,43 @@ describe('draft over HTTP (dynalite)', () => {
   it('takes a pick by name, replays it for the same key, and puts the next team on the clock', async () => {
     const ambiguous = await bob.post(`/leagues/${L}/draft/picks`, { player: 'williams' });
     expect(errorCode(ambiguous)).toBe('AMBIGUOUS_PLAYER');
-    const res = await bob.post(`/leagues/${L}/draft/picks`, { player: 'CMC', pick: 1 }, 'bob-pick-0001');
+    const reason = 'The best back on the board.';
+    const res = await bob.post(
+      `/leagues/${L}/draft/picks`,
+      { player: 'CMC', pick: 1, reason },
+      'bob-pick-0001'
+    );
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(data(res)).toMatchObject({
       pick: { overall: 1, round: 1, pick: 1, teamId: 'team-2', player: { id: 'fx-cmc', position: 'RB' } },
       draftComplete: false,
       onTheClock: { overall: 2, teamId: 'team-1', secondsLeft: 90 }
     });
-    const replay = await bob.post(`/leagues/${L}/draft/picks`, { player: 'CMC', pick: 1 }, 'bob-pick-0001');
+    const replay = await bob.post(
+      `/leagues/${L}/draft/picks`,
+      { player: 'CMC', pick: 1, reason },
+      'bob-pick-0001'
+    );
     expect(replay.body).toEqual(res.body);
-    expect((await h.repos.drafts.get(L))?.state.picks).toHaveLength(1);
+    const stored = (await h.repos.drafts.get(L))?.state.picks;
+    expect(stored).toHaveLength(1);
+    expect(stored?.[0]).toMatchObject({ reason, adp: expect.any(Number) });
     expect((await h.repos.teams.get(L, 'team-2'))?.roster).toEqual(['fx-cmc']);
+    // A human's first-round pick at his ADP is not notable; the reason still goes with it.
     expect(events('Draft Pick Made')).toEqual([
       expect.objectContaining({
-        detail: expect.objectContaining({ playerId: 'fx-cmc', overall: 1, auto: false })
+        detail: expect.objectContaining({
+          playerId: 'fx-cmc',
+          overall: 1,
+          auto: false,
+          notable: null,
+          reason
+        })
       })
     ]);
+    const shown = await board(alice);
+    expect(shown.picks[0]).toMatchObject({ reason, adp: stored?.[0]?.adp });
+    expect(shown.recap).toBeNull();
     expect(events('Draft Turn Started').at(-1)?.detail).toMatchObject({ teamId: 'team-1', pick: 2 });
   });
 
@@ -208,6 +241,10 @@ describe('draft over HTTP (dynalite)', () => {
     const paused = await alice.post(`/leagues/${L}/draft/pause`);
     expect(data(paused)).toEqual({ status: 'paused', deadline: null, secondsLeft: 70 });
     expect(data(await alice.post(`/leagues/${L}/draft/pause`))).toMatchObject({ status: 'paused' });
+    // Boards hear about the pause at once (pausing a paused draft says nothing more).
+    expect(events('Draft Paused').map((e) => e.detail)).toEqual([
+      { leagueId: L, pick: 3, secondsLeft: 70, pausedAt: h.clock.now().toISOString() }
+    ]);
     expect((await agentPick('team-3', { playerId: 'fx-jjefferson' })).body).toMatchObject({
       error: { code: 'DRAFT_PAUSED' }
     });
@@ -215,6 +252,15 @@ describe('draft over HTTP (dynalite)', () => {
     expect(await expire(3)).toEqual({ handled: true, outcome: 'paused' });
     const resumed = await alice.post(`/leagues/${L}/draft/resume`);
     expect(data(resumed)).toMatchObject({ status: 'in_progress', secondsLeft: 70 });
+    expect(events('Draft Resumed').map((e) => e.detail)).toEqual([
+      {
+        leagueId: L,
+        pick: 3,
+        deadline: (data(resumed) as { deadline: string }).deadline,
+        secondsLeft: 70,
+        resumedAt: h.clock.now().toISOString()
+      }
+    ]);
     expect(events('Draft Turn Started').at(-1)?.detail).toMatchObject({ teamId: 'team-3', pick: 3 });
   });
 
@@ -229,7 +275,13 @@ describe('draft over HTTP (dynalite)', () => {
     expect(await expire(3)).toEqual({ handled: true, outcome: 'autopicked' });
     const draft = await h.repos.drafts.get(L);
     expect(draft?.state.picks[2]).toMatchObject({ teamId: 'team-3', auto: true });
-    expect(events('Draft Pick Made').at(-1)?.detail).toMatchObject({ teamId: 'team-3', auto: true });
+    // An agent seat's first-round pick is notable, even when the clock made it.
+    expect(events('Draft Pick Made').at(-1)?.detail).toMatchObject({
+      teamId: 'team-3',
+      auto: true,
+      notable: 'first_round',
+      reason: null
+    });
     const stale = await handleLeagueEvent(h.services, {
       id: 'stale-2',
       source: 'fantasy',
@@ -262,8 +314,27 @@ describe('draft over HTTP (dynalite)', () => {
     expect(events('Draft Completed')).toEqual([
       expect.objectContaining({ detail: expect.objectContaining({ leagueId: L, picks: 128, week: 1 }) })
     ]);
+    const completed = events('Draft Completed')[0]?.detail as {
+      recap: { agentPicks: { teamId: string }[] };
+      recapText: string;
+    };
+    expect(completed.recap.agentPicks.map((e) => e.teamId)).toEqual([
+      'team-3',
+      'team-4',
+      'team-5',
+      'team-6',
+      'team-7',
+      'team-8'
+    ]);
+    expect(completed.recapText).toMatch(/^Draft recap: 128 picks\./);
     const done = await board(alice);
     expect(done).toMatchObject({ status: 'complete', onTheClock: null, yourNextPick: null, yourNeeds: [] });
+    expect(done.recap?.agentPicks[0]).toMatchObject({
+      teamId: 'team-3',
+      overall: 3,
+      player: { id: expect.any(String) }
+    });
+    expect(done.recap?.agentPicks).toHaveLength(6);
     expect(errorCode(await alice.post(`/leagues/${L}/draft/picks`, { playerId: 'fx-def-nyj' }))).toBe(
       'PHASE_NOT_ALLOWED'
     );

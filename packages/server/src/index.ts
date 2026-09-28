@@ -6,6 +6,7 @@ export { createContext, newId } from './context.js';
 export * from './errors.js';
 export * from './events/publisher.js';
 export * from './events/details.js';
+export * from './events/schedule-name.js';
 export { createApp } from './http/app.js';
 export { generateMcpTools, toMcpTool, IDEMPOTENCY_ARGUMENT, type McpTool } from './mcp/tools.js';
 export { generateOpenApi, renderOpenApi } from './openapi/generate.js';

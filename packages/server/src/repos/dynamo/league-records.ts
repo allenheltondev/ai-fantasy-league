@@ -175,7 +175,9 @@ export const DraftRecordSchema = z.object({
         playerId: z.string(),
         positions: z.array(PositionSchema),
         madeAt: iso.nullable(),
-        auto: z.boolean()
+        auto: z.boolean(),
+        adp: z.number().nullable().optional(),
+        reason: z.string().optional()
       })
     )
   }),

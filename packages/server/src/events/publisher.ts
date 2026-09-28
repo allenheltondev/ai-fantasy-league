@@ -5,6 +5,7 @@
  */
 
 import type { EventDetailOf } from './details.js';
+import { isValidScheduleName } from './schedule-name.js';
 
 export const EVENT_SOURCE = 'fantasy';
 export const SCHEDULE_EVENT = 'Schedule Event';
@@ -16,6 +17,10 @@ export type FantasyEventType =
   | 'Draft Turn Started'
   | 'Draft Pick Made'
   | 'Draft Completed'
+  /** The commissioner froze the pick clock (`pause_draft`); relayed so boards stop counting down. */
+  | 'Draft Paused'
+  /** The commissioner restarted the pick clock (`resume_draft`), with the new deadline. */
+  | 'Draft Resumed'
   /** Scheduled at each pick's deadline; the draft clock handler autopicks if the pick is still open. */
   | 'Draft Pick Deadline'
   | 'Week Rolled Over'
@@ -105,13 +110,25 @@ export function scheduleEventDetail(request: ScheduleRequest): ScheduleEventDeta
   return detail;
 }
 
+function assertScheduleName(name: string): void {
+  if (!isValidScheduleName(name)) {
+    throw new Error(
+      `Schedule name "${name}" does not fit EventBridge Scheduler; build it with scheduleName().`
+    );
+  }
+}
+
 export interface RecordedEvent {
   source: string;
   detailType: string;
   detail: EventDetail;
 }
 
-/** Keeps every event in memory. Used by unit tests, local dev, and the simulator. */
+/**
+ * Keeps every event in memory. Used by unit tests, local dev, and the simulator. It refuses a
+ * schedule name EventBridge Scheduler would not take unchanged (build names with `scheduleName`),
+ * so every test, the local loop, and the replay check every name the code produces.
+ */
 export class InMemoryEventPublisher implements EventPublisher {
   readonly events: RecordedEvent[] = [];
 
@@ -120,6 +137,7 @@ export class InMemoryEventPublisher implements EventPublisher {
   }
 
   async scheduleAt(request: ScheduleRequest): Promise<void> {
+    if (request.name !== undefined) assertScheduleName(request.name);
     this.events.push({
       source: EVENT_SOURCE,
       detailType: SCHEDULE_EVENT,
@@ -128,6 +146,7 @@ export class InMemoryEventPublisher implements EventPublisher {
   }
 
   async cancelScheduled(name: string): Promise<void> {
+    assertScheduleName(name);
     this.events.push({ source: EVENT_SOURCE, detailType: CANCEL_SCHEDULED_EVENT, detail: { name } });
   }
 }

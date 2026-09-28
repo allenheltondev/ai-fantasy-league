@@ -16,7 +16,15 @@ import {
 import { ApiError, apiFetch, type ApiFetch } from '../api';
 import type { RealtimeInfo } from '../chat/api';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
-import { formatClock, overallPick, POSITIONS, secondsUntil, type DraftBoard } from './board';
+import {
+  formatClock,
+  overallPick,
+  POSITIONS,
+  secondsUntil,
+  type DraftBoard,
+  type DraftRecap,
+  type DraftRecapEntry
+} from './board';
 import { useDraftQueue } from './queue';
 
 export interface DraftPageProps {
@@ -39,7 +47,14 @@ function toApiError(error: unknown): ApiError {
 }
 
 /** The events that change the board. */
-export const DRAFT_EVENTS = ['Draft Pick Made', 'Draft Turn Started', 'Draft Completed'] as const;
+export const DRAFT_EVENTS = [
+  'Draft Pick Made',
+  'Draft Turn Started',
+  'Draft Completed',
+  // The commissioner froze or restarted the clock: reload so the countdown stops or restarts now.
+  'Draft Paused',
+  'Draft Resumed'
+] as const;
 
 const STATUS = {
   in_progress: { tone: 'success', label: 'Live' },
@@ -164,6 +179,10 @@ export function DraftPage({
         {board.status === 'complete' && (
           <Alert variant="success">The draft is complete. Good luck this season!</Alert>
         )}
+        {board.status === 'paused' && (
+          <Alert variant="info">The commissioner paused the draft. The clock is frozen.</Alert>
+        )}
+        {board.recap != null && <DraftRecapCard recap={board.recap} />}
         {pickError !== null && (
           <Alert variant="error" role="alert">
             {pickError.message} {pickError.fix}
@@ -203,6 +222,7 @@ export function DraftPage({
                           key={team.teamId}
                           data-testid={`cell-${overall}`}
                           className={onClock ? 'bg-primary-100' : ''}
+                          title={pick?.reason ?? undefined}
                         >
                           {pick === undefined
                             ? onClock
@@ -349,5 +369,43 @@ export function DraftPage({
       <h2 className="text-xl font-semibold">Draft</h2>
       {content}
     </div>
+  );
+}
+
+function recapPick(e: DraftRecapEntry): string {
+  const adp = e.adp === null ? '' : ` (ADP ${e.adp})`;
+  return `${e.teamName}: ${e.player.name} at pick ${e.overall}${adp}`;
+}
+
+/** The short recap shown once the draft is complete: steals, reaches, and each agent's first pick. */
+function DraftRecapCard({ recap }: { recap: DraftRecap }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Draft recap</CardTitle>
+      </CardHeader>
+      <CardBody className="space-y-3 text-sm" data-testid="draft-recap">
+        {recap.steals.length > 0 && (
+          <p>
+            <strong>Steals:</strong> {recap.steals.map(recapPick).join('; ')}
+          </p>
+        )}
+        {recap.reaches.length > 0 && (
+          <p>
+            <strong>Reaches:</strong> {recap.reaches.map(recapPick).join('; ')}
+          </p>
+        )}
+        {recap.agentPicks.length > 0 && (
+          <ul aria-label="AI first picks" className="space-y-1">
+            {recap.agentPicks.map((e) => (
+              <li key={e.teamId}>
+                <strong>{e.teamName}</strong> took {e.player.name} at pick {e.overall}
+                {e.reason !== null && <span className="text-muted-foreground">: “{e.reason}”</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardBody>
+    </Card>
   );
 }

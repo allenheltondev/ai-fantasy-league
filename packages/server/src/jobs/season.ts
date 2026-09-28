@@ -1,7 +1,7 @@
 import { weekEndsAt, type Clock } from '@fantasy/core';
 import { IdCrosswalk, isInGameWindow, type ScheduledGame } from '@fantasy/data';
 import type { StoredStatLine } from '../repos/reference.js';
-import type { League } from '../repos/types.js';
+import type { League, Matchup } from '../repos/types.js';
 import { advanceLeague } from '../season/cycle.js';
 import { finalizeOfficialWeek } from '../season/official.js';
 import { listInSeason, weekGames } from '../season/lineups.js';
@@ -125,8 +125,10 @@ async function refreshOfficialStats(deps: OfficialJobDeps, season: number, week:
 
 /**
  * The Thursday official final (#80; Thursday and Friday, the second run a cheap retry). For every
- * league whose last finished week is past the stat-correction window and not yet official, it
- * re-pulls the week's stats once (`refreshOfficialStats`) and finalizes each league's week
+ * in-season league (and every league completed in the last `COMPLETE_LOOKBACK_MS`), each played
+ * week that is past the stat-correction window and not yet official is due: the last finished
+ * week, and any earlier one that a failed or missed run left behind (#123). It re-pulls each due
+ * week's stats once (`refreshOfficialStats`) and finalizes each league's weeks oldest first
  * (`finalizeOfficialWeek`): corrected scores, `Stat Correction Applied`, standings and bracket
  * updates, `Week Official Final`, and the week's achievements. Idempotent per league and week.
  */
@@ -136,19 +138,26 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
     listInSeason(deps.repos),
     deps.repos.leagues.listByPhase('complete')
   ]);
-  const targets: { league: League; week: number }[] = [
-    ...inSeason.flatMap((league) =>
-      league.week !== null && league.week - 1 >= league.settings.schedule.startWeek
-        ? [{ league, week: league.week - 1 }]
-        : []
-    ),
+  const leagues = [
+    // An in-season league's current week is still being played.
+    ...inSeason.flatMap((league) => (league.week === null ? [] : [{ league, lastWeek: league.week - 1 }])),
     ...complete.flatMap((league) =>
       league.week !== null && now.getTime() - Date.parse(league.updatedAt) <= COMPLETE_LOOKBACK_MS
-        ? [{ league, week: league.week }]
+        ? [{ league, lastWeek: league.week }]
         : []
     )
-  ];
-  if (targets.length === 0) return skipped('no_weeks_to_finalize');
+  ].filter(({ league, lastWeek }) => lastWeek >= league.settings.schedule.startWeek);
+  const targets: { league: League; week: number }[] = [];
+  let failed = 0;
+  for (const { league, lastWeek } of leagues) {
+    try {
+      targets.push(...(await playedWeeks(deps, league, lastWeek)).map((week) => ({ league, week })));
+    } catch (error) {
+      failed++;
+      deps.log.error('could not list the weeks to make official', { leagueId: league.id, error });
+    }
+  }
+  if (targets.length === 0) return skipped('no_weeks_to_finalize', failed > 0 ? { failed } : {});
   const games = gamesCache(deps);
   const due: typeof targets = [];
   for (const target of targets) {
@@ -157,7 +166,7 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
     const official = await deps.repos.history.getOfficialWeek(target.league.id, target.week);
     if (official?.status !== 'complete') due.push(target);
   }
-  if (due.length === 0) return skipped('nothing_due', { leagues: targets.length });
+  if (due.length === 0) return skipped('nothing_due', { leagues: leagues.length, weeks: targets.length });
 
   let statsChanged = 0;
   for (const key of new Set(due.map((t) => `${t.league.season}:${t.week}`))) {
@@ -166,7 +175,6 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
   }
   const outcomes: Record<string, number> = {};
   let corrections = 0;
-  let failed = 0;
   for (const { league, week } of due) {
     try {
       const outcome = await finalizeOfficialWeek(deps, league, week, now);
@@ -177,5 +185,29 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
       deps.log.error('could not make the week official', { leagueId: league.id, week, error });
     }
   }
-  return { status: 'ok', leagues: due.length, statsChanged, corrections, ...outcomes, failed };
+  const leagueCount = new Set(due.map((t) => t.league.id)).size;
+  return {
+    status: 'ok',
+    leagues: leagueCount,
+    weeks: due.length,
+    statsChanged,
+    corrections,
+    ...outcomes,
+    failed
+  };
+}
+
+/**
+ * The weeks up to `lastWeek` whose matchups are all final, oldest first. A void week (before a
+ * mid-season draft's first week) keeps its matchups `scheduled`, so it is never due.
+ */
+async function playedWeeks(deps: SeasonJobDeps, league: League, lastWeek: number): Promise<number[]> {
+  const byWeek = new Map<number, Matchup[]>();
+  for (const m of await deps.repos.schedule.listMatchups(league.id)) {
+    if (m.week <= lastWeek) byWeek.set(m.week, [...(byWeek.get(m.week) ?? []), m]);
+  }
+  return [...byWeek]
+    .filter(([, matchups]) => matchups.every((m) => m.status === 'final'))
+    .map(([week]) => week)
+    .sort((a, b) => a - b);
 }
