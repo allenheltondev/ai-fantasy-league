@@ -1,14 +1,8 @@
 import { expect, test } from '@playwright/test';
-
-// The runtime config a deployed bucket serves (written by `make
-// deploy-frontend`). Rendering the sign-in form makes no Cognito call, so a
-// placeholder client id is enough here.
-const AUTH_CONFIG = { region: 'us-east-1', userPoolId: 'us-east-1_e2e', clientId: 'e2e-client' };
+import { serveAuthConfig } from './support';
 
 test.beforeEach(async ({ page }) => {
-  await page.route('**/auth-config.json', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(AUTH_CONFIG) })
-  );
+  await serveAuthConfig(page);
 });
 
 test('a signed-out visitor to a deep link lands on the sign-in page', async ({ page }) => {

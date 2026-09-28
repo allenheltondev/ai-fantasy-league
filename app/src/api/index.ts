@@ -1,5 +1,6 @@
 import { getFreshIdToken, signOut } from '@readysetcloud/ui/auth';
 import { createApiClient } from './client';
+import { createLeagueApi } from './league';
 
 export * from './client';
 
@@ -14,3 +15,6 @@ export const apiFetch = createApiClient({
     void signOut();
   }
 });
+
+/** The typed league calls over `apiFetch`; pages read it through `LeagueApiContext`. */
+export const leagueApi = createLeagueApi(apiFetch);

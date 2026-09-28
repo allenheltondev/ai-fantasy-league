@@ -1,0 +1,243 @@
+import { vi } from 'vitest';
+import type { LeagueApi } from '../api/league';
+import type {
+  AgentCatalog,
+  AgentSeatConfig,
+  DefaultSettings,
+  LeagueDetail,
+  LeagueSettings,
+  LeagueState,
+  TeamDetail
+} from '../api/types';
+
+export const DIFFICULTIES = ['rookie', 'amateur', 'pro', 'all_pro', 'hall_of_famer'] as const;
+
+export function seatConfigs(count: number, offset = 0): AgentSeatConfig[] {
+  return Array.from({ length: count }, (_, i) => ({
+    personalityId: `p${i + offset}`,
+    difficulty: DIFFICULTIES[(i + offset) % DIFFICULTIES.length] as string,
+    archetype: i % 2 === 0 ? 'balanced' : 'zero_rb'
+  }));
+}
+
+export function catalog(suggest: number | null = 7): AgentCatalog {
+  return {
+    personalities: Array.from({ length: 12 }, (_, i) => ({
+      id: `p${i}`,
+      displayName: `Persona ${i}`,
+      teamNameSuggestion: `Team P${i}`,
+      bio: `Bio of persona ${i}.`,
+      avatarSeed: `seed-${i}`
+    })),
+    difficulties: DIFFICULTIES.map((id, i) => ({
+      id,
+      displayName: ['Rookie', 'Amateur', 'Pro', 'All-Pro', 'Hall of Famer'][i] as string,
+      description: `${id} description`,
+      decisionModelTier: ['micro', 'lite', 'standard', 'advanced', 'frontier'][i] as string
+    })),
+    archetypes: [
+      { id: 'balanced', displayName: 'Balanced', description: 'Best player available.' },
+      { id: 'zero_rb', displayName: 'Zero RB', description: 'Receivers early.' }
+    ],
+    modelTiers: ['micro', 'lite', 'standard', 'advanced', 'frontier'],
+    models: [
+      { key: 'nova-micro', displayName: 'Amazon Nova Micro', tier: 'micro' },
+      { key: 'claude-opus-5', displayName: 'Claude Opus 5', tier: 'frontier' }
+    ],
+    suggestion: suggest === null ? null : { seed: 's', seats: seatConfigs(suggest) }
+  };
+}
+
+export function settings(overrides: Partial<LeagueSettings> = {}): LeagueSettings {
+  return {
+    teamCount: 4,
+    schedule: { startWeek: 1, regularSeasonEndWeek: 15 },
+    roster: { slots: { QB: 1, WR: 3, RB: 2, BN: 6 }, irEligibleStatuses: ['ir', 'out'] },
+    scoring: { perStat: { pass_td: 4, rec: 0.5 }, tiers: [] },
+    waivers: {
+      type: 'faab',
+      faabBudget: 100,
+      allowZeroBids: true,
+      waiverPeriodDays: 2,
+      faabTiebreak: 'waiver_priority',
+      priorityOrder: 'reverse_draft_continual',
+      postDraftPlayers: 'waivers',
+      maxAcquisitionsPerWeek: null
+    },
+    trades: {
+      review: 'league_vote',
+      reviewPeriodDays: 2,
+      vetoVotes: null,
+      deadlineWeek: 11,
+      offerExpiryHours: 48,
+      expireAtNextLineupLock: true
+    },
+    playoffs: { teams: 4, byes: 0, startWeek: 16, endWeek: 17, tiebreaker: 'points_for' },
+    ...overrides
+  };
+}
+
+export function defaults(): DefaultSettings {
+  return {
+    settings: settings(),
+    editability: {
+      teamCount: 'pre_draft',
+      schedule: 'pre_draft',
+      'roster.slots': 'pre_draft',
+      'roster.irEligibleStatuses': 'any_time',
+      scoring: 'pre_draft',
+      waivers: 'pre_draft',
+      'waivers.waiverPeriodDays': 'any_time',
+      trades: 'any_time',
+      playoffs: 'pre_draft'
+    },
+    statLabels: { pass_td: 'Passing touchdowns', rec: 'Receptions', rec_yd: 'Receiving yards' },
+    rosterSlots: ['QB', 'WR', 'RB', 'TE', 'BN'],
+    playerStatuses: ['ir', 'out', 'pup']
+  };
+}
+
+export function team(slot: number, overrides: Partial<TeamDetail> = {}): TeamDetail {
+  return {
+    id: `team-${slot}`,
+    name: `Team ${slot}`,
+    seatType: 'agent',
+    open: true,
+    ownerName: null,
+    ownerUserId: null,
+    draftSlot: slot,
+    ...overrides
+  };
+}
+
+/** A 4-team league in setup: Alice (commissioner) on team-1, Bob on team-2, team-3 open human, team-4 AI. */
+export function league(overrides: Partial<LeagueDetail> = {}): LeagueDetail {
+  return {
+    id: 'L1',
+    name: 'Sunday Funday',
+    season: 2026,
+    phase: 'setup',
+    week: null,
+    version: 3,
+    commissioner: { userId: 'alice', name: 'Alice' },
+    settings: settings(),
+    teams: [
+      team(1, {
+        name: "Alice's Team",
+        seatType: 'human',
+        open: false,
+        ownerName: 'Alice',
+        ownerUserId: 'alice'
+      }),
+      team(2, { name: "Bob's Team", seatType: 'human', open: false, ownerName: 'Bob', ownerUserId: 'bob' }),
+      team(3, { seatType: 'human' }),
+      team(4)
+    ],
+    ...overrides
+  };
+}
+
+export const COMMISSIONER_ACTIONS = [
+  'update_league_settings',
+  'create_invite',
+  'revoke_invite',
+  'remove_member',
+  'set_seat_type',
+  'transfer_commissioner',
+  'configure_agent_seat',
+  'randomize_agent_seats',
+  'rename_team'
+];
+
+export function state(overrides: Partial<LeagueState> = {}): LeagueState {
+  const detail = league();
+  return {
+    leagueId: 'L1',
+    name: detail.name,
+    phase: 'setup',
+    week: null,
+    youAreCommissioner: true,
+    yourTeam: detail.teams[0] as TeamDetail,
+    allowedActions: COMMISSIONER_ACTIONS,
+    ...overrides
+  };
+}
+
+/** A fake league API: every call resolves with a sensible default unless overridden. */
+export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
+  const api: LeagueApi = {
+    listMyLeagues: vi.fn(async () => []),
+    createLeague: vi.fn(async () => league()),
+    getLeague: vi.fn(async () => league()),
+    getLeagueState: vi.fn(async () => state()),
+    updateSettings: vi.fn(async () => ({ version: 4, changedPaths: [] })),
+    getDefaultSettings: vi.fn(async () => defaults()),
+    createInvite: vi.fn(async () => ({
+      invite: {
+        id: 'i-new',
+        status: 'active' as const,
+        email: null,
+        maxUses: 1,
+        uses: 0,
+        expiresAt: '2026-10-01'
+      },
+      token: 'tok',
+      joinPath: '/join/tok'
+    })),
+    listInvites: vi.fn(async () => []),
+    revokeInvite: vi.fn(async () => ({
+      invite: {
+        id: 'i1',
+        status: 'revoked' as const,
+        email: null,
+        maxUses: 1,
+        uses: 0,
+        expiresAt: '2026-10-01'
+      }
+    })),
+    getInvite: vi.fn(async () => ({
+      leagueName: 'Sunday Funday',
+      season: 2026,
+      commissionerName: 'Alice',
+      phase: 'setup' as const,
+      teamCount: 4,
+      openSeats: 2,
+      status: 'active' as const,
+      joinable: true
+    })),
+    joinLeague: vi.fn(async () => ({
+      league: {
+        id: 'L1',
+        name: 'Sunday Funday',
+        season: 2026,
+        phase: 'setup' as const,
+        week: null,
+        teamCount: 4,
+        startWeek: 1,
+        commissionerName: 'Alice',
+        youAreCommissioner: false,
+        yourTeamId: 'team-3',
+        record: null
+      },
+      team: team(3)
+    })),
+    setSeatType: vi.fn(async () => ({ team: team(3) })),
+    renameTeam: vi.fn(async () => ({ team: team(1) })),
+    removeMember: vi.fn(async () => ({})),
+    transferCommissioner: vi.fn(async () => ({})),
+    getAgentCatalog: vi.fn(async (query: { suggest?: number } = {}) => catalog(query.suggest ?? null)),
+    getAgentSeat: vi.fn(async (_id: string, teamId: string) => ({
+      seat: {
+        teamId,
+        personality: catalog().personalities[4]!,
+        difficulty: { id: 'pro', displayName: 'Pro' }
+      },
+      commissioner: {
+        current: { version: 1, config: { personalityId: 'p4', difficulty: 'pro', archetype: 'balanced' } }
+      }
+    })),
+    configureAgentSeat: vi.fn(async () => ({})),
+    randomizeAgentSeats: vi.fn(async () => ({ seats: [] }))
+  };
+  return { ...api, ...overrides };
+}
