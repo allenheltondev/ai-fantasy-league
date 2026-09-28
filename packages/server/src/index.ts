@@ -41,6 +41,9 @@ export { fixtureDraftPool, fixturePlayers } from './players/fixtures.js';
 export { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/handlers.js';
 export { handleDraftDeadline, type DeadlineOutcome } from './league/draft.js';
 export * from './chat/model.js';
+export type { TradeRecord, TradeRepository } from './repos/trades.js';
+export { tradeEventDetail, type TradeEventDetail } from './trades/lifecycle.js';
+export { handleTradeTimer, TRADE_TIMER_EVENTS } from './trades/handlers.js';
 export {
   postSystemMessage,
   SYSTEM_MESSAGE_EVENTS,

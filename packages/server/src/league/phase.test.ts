@@ -195,6 +195,7 @@ describe('action rules', () => {
       'reorder_waiver_claims',
       'respond_to_trade',
       'set_lineup',
+      'vote_trade',
       'withdraw_trade'
     ]);
     const lateSeason = league({ phase: 'regular_season', week: 12 });
@@ -222,7 +223,7 @@ describe('action rules', () => {
       fix: expect.stringContaining('Wait until')
     });
     expect(actionError('propose_trade', season, MEMBER, NOW)).toMatchObject({
-      code: 'PHASE_NOT_ALLOWED',
+      code: 'TRADE_DEADLINE_PASSED',
       message: 'The trade deadline has passed.',
       details: { flag: 'tradeDeadlinePassed' }
     });

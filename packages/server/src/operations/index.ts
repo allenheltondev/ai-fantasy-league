@@ -11,6 +11,7 @@ import { getNews } from './research/get-news.js';
 import { getProjections } from './research/get-projections.js';
 import { getTrendingPlayers } from './research/get-trending-players.js';
 import { seasonOperations } from './season/index.js';
+import { tradeOperations } from './trades/index.js';
 import { waiverOperations } from './waivers/index.js';
 
 /** Every operation the API serves. Add new operations here. */
@@ -38,7 +39,9 @@ export const operations = [
   // Waivers and free agency (#55)
   ...waiverOperations,
   // Group chat and realtime (#68, #69)
-  ...chatOperations
+  ...chatOperations,
+  // Trades (#63, #64, #65, #79)
+  ...tradeOperations
 ];
 
 export const registry: Registry = createRegistry(operations);

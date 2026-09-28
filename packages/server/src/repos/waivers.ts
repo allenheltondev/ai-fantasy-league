@@ -50,7 +50,7 @@ export interface WaiverWireEntry {
   clearsAt: string;
 }
 
-export const TRANSACTION_TYPES = ['add', 'drop', 'waiver_claim'] as const;
+export const TRANSACTION_TYPES = ['add', 'drop', 'waiver_claim', 'trade'] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
 
 export interface TransactionRecord {
@@ -58,7 +58,10 @@ export interface TransactionRecord {
   leagueId: string;
   at: string;
   week: number;
-  /** `add`: a free-agent pickup; `drop`: a release; `waiver_claim`: a claim awarded by a waiver run. */
+  /**
+   * `add`: a free-agent pickup; `drop`: a release; `waiver_claim`: a claim awarded by a waiver run;
+   * `trade`: a player received in a processed trade (`addPlayerId`, with `tradeId`).
+   */
   type: TransactionType;
   teamId: string;
   addPlayerId: string | null;
@@ -66,6 +69,8 @@ export interface TransactionRecord {
   /** FAAB paid (waiver claims only). */
   cost: number | null;
   claimId: string | null;
+  /** The processed trade (trade transactions and the drops they required). */
+  tradeId?: string | null;
 }
 
 export interface WaiverRunRecord {

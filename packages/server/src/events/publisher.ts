@@ -27,6 +27,12 @@ export type FantasyEventType =
   | 'Trade Expired'
   | 'Trade Processed'
   | 'Trade Vetoed'
+  /** Scheduled at an offer's `expiresAt`; the API function expires it if it is still open. */
+  | 'Trade Offer Deadline'
+  /** Scheduled at the end of an accepted trade's review period; the API function processes it. */
+  | 'Trade Review Ended'
+  /** Scheduled at the trade deadline (kickoff of `trades.deadlineWeek`); open offers expire. */
+  | 'Trade Deadline Passed'
   | 'Player News Alert'
   | 'Player Status Changed'
   | 'Chat Mention'

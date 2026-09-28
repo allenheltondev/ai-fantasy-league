@@ -1,6 +1,7 @@
 import { InMemoryAgentRepository } from './memory-agents.js';
 import { InMemoryWaiverRepository } from './memory-waivers.js';
 import { InMemoryChatRepository } from './memory-chat.js';
+import { InMemoryTradeRepository } from './memory-trades.js';
 import { createInMemoryLeagueRepos } from './memory-league.js';
 import type { Player, Position } from '../players/model.js';
 import type {
@@ -131,6 +132,7 @@ export function createInMemoryRepos(options: { players?: readonly Player[] } = {
     ...createInMemoryLeagueRepos(),
     agents: new InMemoryAgentRepository(),
     waivers: new InMemoryWaiverRepository(),
-    chat: new InMemoryChatRepository()
+    chat: new InMemoryChatRepository(),
+    trades: new InMemoryTradeRepository()
   };
 }

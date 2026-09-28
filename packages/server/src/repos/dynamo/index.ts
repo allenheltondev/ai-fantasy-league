@@ -12,6 +12,7 @@ import { DynamoPlayerRepository } from './players.js';
 import { DynamoScheduleRepository } from './schedule.js';
 import type { TableContext } from './table.js';
 import { DynamoTeamRepository } from './teams.js';
+import { DynamoTradeRepository } from './trades.js';
 import { DynamoWaiverRepository } from './waivers.js';
 
 export function createDynamoRepos(table: TableContext): Repos {
@@ -28,7 +29,8 @@ export function createDynamoRepos(table: TableContext): Repos {
     drafts: new DynamoDraftRepository(table),
     agents: new DynamoAgentRepository(table),
     waivers: new DynamoWaiverRepository(table),
-    chat: new DynamoChatRepository(table)
+    chat: new DynamoChatRepository(table),
+    trades: new DynamoTradeRepository(table)
   };
 }
 
@@ -45,5 +47,6 @@ export {
   DynamoPlayerRepository,
   DynamoScheduleRepository,
   DynamoTeamRepository,
+  DynamoTradeRepository,
   DynamoWaiverRepository
 };
