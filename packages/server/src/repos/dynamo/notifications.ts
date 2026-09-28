@@ -1,10 +1,10 @@
-import { NOTIFICATION_KINDS, NOTIFICATION_SECTIONS } from '@fantasy/core';
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
   isRead,
   notificationLocalKeyOf,
   NOTIFICATION_TTL_MS,
   NOTIFICATION_UNREAD_CAP,
+  NotificationSchema,
   type NotificationPage,
   type NotificationRepository,
   type StoredNotification
@@ -26,25 +26,11 @@ type Item = Record<string, unknown>;
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
+const StoredSchema = NotificationSchema.omit({ read: true });
+
+/** An item as stored: `readAt` and `deliveredAt` are absent until set. */
 function stored(item: Item): StoredNotification {
-  const target = (item.target ?? {}) as Item;
-  const event = (item.event ?? {}) as Item;
-  return {
-    id: String(item.id),
-    leagueId: String(item.leagueId),
-    teamId: String(item.teamId),
-    kind: NOTIFICATION_KINDS.find((k) => k === item.kind) ?? 'trade_offer',
-    title: String(item.title),
-    body: String(item.body),
-    target: {
-      section: NOTIFICATION_SECTIONS.find((s) => s === target.section) ?? 'trades',
-      tradeId: str(target.tradeId)
-    },
-    event: { detailType: String(event.detailType), eventId: String(event.eventId) },
-    createdAt: String(item.createdAt),
-    readAt: str(item.readAt),
-    deliveredAt: str(item.deliveredAt)
-  };
+  return StoredSchema.parse({ ...item, readAt: str(item.readAt), deliveredAt: str(item.deliveredAt) });
 }
 
 export class DynamoNotificationRepository implements NotificationRepository {
@@ -113,7 +99,7 @@ export class DynamoNotificationRepository implements NotificationRepository {
     const page = items.slice(0, query.limit);
     return {
       notifications: page.map((n) => ({ ...n, read: isRead(n, lastReadAt) })),
-      nextCursor: items.length > query.limit ? (page.at(-1)?.id ?? null) : null
+      nextCursor: items.length > query.limit ? (page[page.length - 1] as StoredNotification).id : null
     };
   }
 
@@ -140,7 +126,7 @@ export class DynamoNotificationRepository implements NotificationRepository {
           ExclusiveStartKey: cursor
         })
       );
-      count += result.Count ?? 0;
+      count += Number(result.Count);
       cursor = result.LastEvaluatedKey;
     } while (cursor !== undefined && count < NOTIFICATION_UNREAD_CAP);
     return Math.min(count, NOTIFICATION_UNREAD_CAP);

@@ -133,6 +133,24 @@ describe('createLeagueApi', () => {
     ]);
   });
 
+  it('maps the notification inbox calls (#165)', async () => {
+    const { fetch, api } = setup();
+    await api.getNotificationSummary();
+    await api.listNotifications('L1');
+    await api.listNotifications('L1', { limit: 5, after: 'c' });
+    await api.markNotificationsRead('L1', { notificationIds: ['n1'] });
+    await api.markNotificationsRead('L1', { all: true });
+    await api.markNotificationsDelivered('L1', ['n1']);
+    expect(fetch.mock.calls).toEqual([
+      ['/notifications', undefined],
+      ['/leagues/L1/notifications', { query: {} }],
+      ['/leagues/L1/notifications', { query: { limit: 5, after: 'c' } }],
+      ['/notifications/read', { method: 'POST', body: { leagueId: 'L1', notificationIds: ['n1'] } }],
+      ['/notifications/read', { method: 'POST', body: { leagueId: 'L1', all: true } }],
+      ['/notifications/delivered', { method: 'POST', body: { leagueId: 'L1', notificationIds: ['n1'] } }]
+    ]);
+  });
+
   it('useLeagueApi needs a provider', () => {
     expect(() => renderHook(() => useLeagueApi())).toThrow(/LeagueApiContext/);
   });

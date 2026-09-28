@@ -188,6 +188,50 @@ describe('the notification bell', () => {
   });
 });
 
+describe('the notification panel, one league', () => {
+  const ONE: NotificationSummary = {
+    unreadCount: 1,
+    leagues: [
+      { leagueId: 'L1', name: 'Sunday Funday', teamId: 'team-1', unreadCount: 1, tradeOffersWaiting: 2 }
+    ]
+  };
+
+  it('leaves league names off, opens a read item without marking it again, and badges plural offers', async () => {
+    const user = userEvent.setup();
+    signInAs(ALICE);
+    const fake = api(ONE);
+    renderApp('/leagues/L1/matchup', undefined, fake);
+    expect(await screen.findByTestId('trades-badge')).toHaveAccessibleName('2 offers waiting');
+    await waitFor(() => expect(bell()).toHaveAccessibleName('Notifications, 1 unread'));
+    await user.click(bell());
+    const panel = await screen.findByRole('dialog', { name: 'Notifications' });
+    const read = await within(panel).findByRole('link', { name: 'Waiver claim won' });
+    expect(within(panel).queryByText(/Sunday Funday/)).not.toBeInTheDocument();
+    await user.click(read);
+    expect(fake.markNotificationsRead).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Notifications' })).not.toBeInTheDocument()
+    );
+  });
+
+  it('shows why "Mark all read" failed and keeps the items unread', async () => {
+    const user = userEvent.setup();
+    signInAs(ALICE);
+    const fake = api(ONE);
+    fake.markNotificationsRead = vi.fn(async () => {
+      throw new Error('Try again later.');
+    });
+    renderApp('/', undefined, fake);
+    await waitFor(() => expect(bell()).toHaveAccessibleName('Notifications, 1 unread'));
+    await user.click(bell());
+    const panel = await screen.findByRole('dialog', { name: 'Notifications' });
+    await within(panel).findByRole('list', { name: 'Notifications' });
+    await user.click(within(panel).getByRole('button', { name: 'Mark all read' }));
+    expect(await within(panel).findByText('Try again later.')).toBeInTheDocument();
+    expect(within(panel).getByText('1 unread')).toBeInTheDocument();
+  });
+});
+
 describe('helpers', () => {
   it('say when, link where, and cap counts', () => {
     expect(timeAgo('2026-10-04T14:59:30Z', NOW)).toBe('just now');

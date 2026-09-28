@@ -29,9 +29,9 @@ export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void
   const { summary, refresh } = useNotifications();
   const [items, setItems] = useState<AppNotification[] | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const leagues = summary?.leagues ?? null;
-  const names = new Map((leagues ?? []).map((l) => [l.leagueId, l.name]));
-  const leagueKey = (leagues ?? []).map((l) => l.leagueId).join(',');
+  const leagues = summary === null ? null : summary.leagues;
+  const names = new Map(summary?.leagues.map((l) => [l.leagueId, l.name]));
+  const leagueKey = [...names.keys()].join(',');
 
   useEffect(() => {
     if (leagues === null) return undefined;
@@ -53,7 +53,8 @@ export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void
 
   const unread = (items ?? []).filter((n) => !n.read);
   const markRead = (ids: Set<string>) =>
-    setItems((list) => list?.map((n) => (ids.has(n.id) ? { ...n, read: true } : n)) ?? list);
+    // Only called once the items are on screen.
+    setItems((list) => (list as AppNotification[]).map((n) => (ids.has(n.id) ? { ...n, read: true } : n)));
 
   const open = (n: AppNotification) => {
     if (!n.read) {
@@ -86,9 +87,8 @@ export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void
       titleAs="h2"
       aria-label="Notifications"
       bodyClassName="p-0"
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
+      // The panel is open while it is mounted: any change is a close.
+      onOpenChange={() => onClose()}
     >
       <div className="flex min-h-11 items-center justify-between gap-2 border-b border-border px-4 py-2">
         <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -134,7 +134,7 @@ export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void
                   <span className="block break-words text-sm">{n.body}</span>
                   <span className="block text-xs text-muted-foreground">
                     {timeAgo(n.createdAt, now())}
-                    {names.size > 1 ? ` · ${names.get(n.leagueId) ?? ''}` : ''}
+                    {names.size > 1 ? ` · ${names.get(n.leagueId) as string}` : ''}
                   </span>
                 </span>
               </Link>

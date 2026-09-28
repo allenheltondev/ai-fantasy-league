@@ -230,4 +230,29 @@ describe('notification inbox', () => {
     expect((await carol.get(`${L}/notifications`)).status).toBe(403);
     expect((await carol.post('/notifications/read', { leagueId: 'lg-n', all: true })).status).toBe(403);
   });
+
+  it('gives a commissioner without a seat an empty inbox, and skips a seat someone else now holds', async () => {
+    const nobody = as(h, { sub: 'nobody', name: 'Nobody', email: 'nobody@example.com' });
+    await seedSeasonLeague(h.repos, { id: 'lg-n2', owners: [null, CAROL], rosters: {} });
+    expect(data(await nobody.get('/leagues/lg-n2/notifications'))).toEqual({
+      teamId: null,
+      unreadCount: 0,
+      notifications: [],
+      nextCursor: null
+    });
+    expect(data(await nobody.post('/notifications/read', { leagueId: 'lg-n2', all: true }))).toEqual({
+      leagueId: 'lg-n2',
+      unreadCount: 0
+    });
+    const delivered = await nobody.post('/notifications/delivered', {
+      leagueId: 'lg-n2',
+      notificationIds: [itemId]
+    });
+    expect(data(delivered)).toEqual({ leagueId: 'lg-n2' });
+
+    // Carol's membership still points at team-2, but the seat has changed hands.
+    const team = await h.repos.teams.get('lg-n2', 'team-2');
+    await h.repos.teams.update({ ...(team as NonNullable<typeof team>), ownerUserId: 'dave' });
+    expect(data(await carol.get('/notifications'))).toEqual({ unreadCount: 0, leagues: [] });
+  });
 });

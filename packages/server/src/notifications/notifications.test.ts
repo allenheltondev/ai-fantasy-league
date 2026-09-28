@@ -148,3 +148,36 @@ describe('notification ids', () => {
     expect(isRead({ ...n, readAt: START }, null)).toBe(true);
   });
 });
+
+describe('in-memory notifications', () => {
+  it('drops only the deleted league’s inboxes', async () => {
+    const { repos } = await setup();
+    const item = (leagueId: string) => ({
+      id: notificationId(`${START}#evt-${leagueId}`),
+      leagueId,
+      teamId: 'team-1',
+      kind: 'trade_offer' as const,
+      title: 't',
+      body: 'b',
+      target: { section: 'trades' as const, tradeId: null },
+      event: { detailType: 'Trade Proposed', eventId: `evt-${leagueId}` },
+      createdAt: START,
+      readAt: null,
+      deliveredAt: null
+    });
+    await repos.notifications.put(item('lg'));
+    await repos.notifications.put(item('other'));
+    await repos.notifications.markAllRead('lg', 'team-1', START);
+    await repos.notifications.markAllRead('other', 'team-1', START);
+    await repos.leagues.delete('lg');
+    expect(await repos.notifications.list('lg', 'team-1', { limit: 5, visibleFrom: START })).toEqual({
+      notifications: [],
+      nextCursor: null
+    });
+    expect(await repos.notifications.list('other', 'team-1', { limit: 5, visibleFrom: START })).toMatchObject(
+      {
+        notifications: [{ leagueId: 'other', read: true }]
+      }
+    );
+  });
+});

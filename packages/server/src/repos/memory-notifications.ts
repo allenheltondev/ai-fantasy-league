@@ -58,7 +58,8 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     const lastReadAt = this.#marks.get(`${leagueId}#${teamId}`) ?? null;
     return {
       notifications: page.map(([, n]) => ({ ...structuredClone(n), read: isRead(n, lastReadAt) })),
-      nextCursor: items.length > query.limit ? (page.at(-1)?.[1].id ?? null) : null
+      nextCursor:
+        items.length > query.limit ? (page[page.length - 1] as [string, StoredNotification])[1].id : null
     };
   }
 

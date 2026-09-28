@@ -107,6 +107,30 @@ for (const [name, make] of backends) {
       expect(page.notifications).toHaveLength(4);
     });
 
+    it('keeps a stored read or delivered stamp, refuses a malformed id, and ignores bad ids and cursors', async () => {
+      const repos = make();
+      const lg = unique();
+      await repos.notifications.put(item(lg, 1, { readAt: at(5), deliveredAt: at(4) }));
+      await repos.notifications.put(item(lg, 2));
+      await expect(repos.notifications.put(item(lg, 3, { id: 'not an id' }))).rejects.toThrow(
+        /not a notification id/
+      );
+      await repos.notifications.markRead(lg, 'team-1', ['x!'], at(9));
+      await repos.notifications.markDelivered(lg, 'team-1', ['x!'], at(9));
+      const page = await repos.notifications.list(lg, 'team-1', {
+        limit: 10,
+        visibleFrom: at(0),
+        cursor: 'x!'
+      });
+      expect(page.notifications.map((n) => [n.title, n.read, n.readAt, n.deliveredAt])).toEqual([
+        ['Offer 2', false, null, null],
+        ['Offer 1', true, at(5), at(4)]
+      ]);
+      // The seat's start, later than the "mark all" marker, bounds the unread count.
+      await repos.notifications.markAllRead(lg, 'team-1', at(0));
+      expect(await repos.notifications.unreadCount(lg, 'team-1', at(2))).toBe(1);
+    });
+
     it('stops counting unread items at the cap', async () => {
       const repos = make();
       const lg = unique();
