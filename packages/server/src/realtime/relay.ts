@@ -8,6 +8,10 @@ import { GLOBAL_TOPIC, leagueTopic, type Realtime, type RealtimeMessage } from '
  * browsers update without polling. The event detail passes through untouched, so the streams that
  * emit these events own their shape. Events about a league go to that league's topic; events with
  * no league (the live-stats job's `Scores Updated`) go to the global topic.
+ *
+ * Only trade events the whole league may see are relayed: an accepted trade (which the league then
+ * reviews), and its processing or veto. Offers, counters, rejections, and expiries stay between the
+ * two teams (Yahoo shows pending offers only to them), and the league topic reaches every member.
  */
 export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Chat Message Posted',
@@ -16,11 +20,7 @@ export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Draft Pick Made',
   'Draft Completed',
   'Waivers Processed',
-  'Trade Proposed',
-  'Trade Countered',
   'Trade Accepted',
-  'Trade Rejected',
-  'Trade Expired',
   'Trade Processed',
   'Trade Vetoed',
   'Week Provisionally Final',

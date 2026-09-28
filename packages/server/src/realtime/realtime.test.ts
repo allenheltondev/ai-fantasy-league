@@ -429,6 +429,18 @@ describe('relayEvent', () => {
     expect(RELAYED_EVENTS).toContain('Chat Message Posted');
   });
 
+  it('keeps pending trade offers off the league topic', async () => {
+    const realtime = new InMemoryRealtime();
+    for (const detailType of ['Trade Proposed', 'Trade Countered', 'Trade Rejected', 'Trade Expired']) {
+      const detail = { leagueId: 'lg-1', tradeId: 't1', fromTeamId: 'team-1', toTeamId: 'team-2' };
+      expect(await relayEvent(realtime, silentLogger, event(detailType, detail))).toEqual({ topics: [] });
+    }
+    expect(realtime.published).toEqual([]);
+    expect(await relayEvent(realtime, silentLogger, event('Trade Accepted', { leagueId: 'lg-1' }))).toEqual({
+      topics: ['fantasy.league.lg-1']
+    });
+  });
+
   it('runs as a Lambda handler with realtime off when nothing is configured', async () => {
     const deps = createRelayDeps({ LOG_LEVEL: 'error' });
     expect(deps.realtime).toBeInstanceOf(InMemoryRealtime);
