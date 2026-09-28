@@ -4,7 +4,7 @@ import type { RealtimeInfo } from '../chat/api';
 /**
  * Live league events over Momento Topics, for pages that refresh when something happens (the draft
  * board on a pick, the matchup on new scores). The realtime publisher relays each league event to
- * `fantasy.league.<id>` and league-less ones (the live-stats job's `Scores Updated`) to the global
+ * `fantasy.league.<id>`, results for one team to `fantasy.team.<id>.<teamId>`, and league-less ones (the live-stats job's `Scores Updated`) to the global
  * topic, as `{ type: 'event', detailType, leagueId, ... }` (packages/server/src/realtime/relay.ts).
  *
  * Events only say *that* something changed: pages re-read through the API, which stays the source of
@@ -34,7 +34,13 @@ export type LiveStatus = 'loading' | 'live' | 'polling';
 /** The subscription target when realtime is on and the token is complete, else null. */
 export function eventTarget(info: RealtimeInfo, global: boolean): EventTarget | null {
   if (!info.enabled || info.token === null || info.cacheName === null || info.topics === null) return null;
-  const topics = global ? [info.topics.league, info.topics.global] : [info.topics.league];
+  // The caller's own team topic (their waiver awards and trade offers) rides along when they have one.
+  const team = info.topics.team ?? null;
+  const topics = [
+    info.topics.league,
+    ...(team === null ? [] : [team]),
+    ...(global ? [info.topics.global] : [])
+  ];
   return { token: info.token, cacheName: info.cacheName, topics };
 }
 

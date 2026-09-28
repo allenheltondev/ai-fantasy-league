@@ -11,7 +11,7 @@
  * - `player`: a player ref (`{ name }`) or a name
  * - `players`: a list of player refs or names
  * - `list`: a list of strings
- * - `claims`: waiver awards, `[{ teamId, player, bid? }]`
+ * - `claims`: waiver awards, `[{ teamId, player, cost?, bid? }]` (the FAAB paid, else the bid)
  * - `points`: a number with at most two decimals
  */
 
@@ -28,26 +28,20 @@ export interface SystemTemplate {
   subjectTeam?: string;
 }
 
-const noAwards = (d: Record<string, unknown>) => !Array.isArray(d.awarded) || d.awarded.length === 0;
-
 export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> = {
   'Draft Pick Made': {
     text: [
       '{team:teamId} drafted {player:player} (round {round}, pick {pick}).',
-      '{team:teamId} drafted {player:player}.',
-      '{team:teamId} drafted {player:playerName}.'
+      '{team:teamId} drafted {player:player}.'
     ]
   },
   'Draft Completed': {
     text: ['The draft is complete. Good luck this season!'],
     moment: true
   },
+  // A run with no awards says nothing (and is no moment): waivers run every day.
   'Waivers Processed': {
-    text: [
-      'Waivers processed for week {week}: {claims:awarded}.',
-      'Waivers processed: {claims:awarded}.',
-      { text: 'Waivers processed for week {week}. No claims were awarded.', when: noAwards }
-    ],
+    text: ['Waivers processed for week {week}: {claims:awarded}.', 'Waivers processed: {claims:awarded}.'],
     moment: true
   },
   'Trade Accepted': {
@@ -74,6 +68,7 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   },
   'Week Provisionally Final': {
     text: [
+      'Week {week} is in the books (provisional). Top score: {team:topTeamId} with {points:topScore}. Biggest blowout: {team:blowout.winnerTeamId} beat {team:blowout.loserTeamId} by {points:blowout.margin}.',
       'Week {week} is in the books (provisional). Top score: {team:topTeamId} with {points:topScore}.',
       'Week {week} is in the books (provisional).'
     ],
@@ -87,7 +82,7 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
     text: [
       {
         text: 'Stat correction flips week {week}: {team:winnerTeamId} now beats {team:loserTeamId}, {points:winnerScore} to {points:loserScore}.',
-        when: (d) => d.resultFlipped === true
+        when: (d) => d.resultFlipped === true && d.winnerScore !== d.loserScore
       },
       'Stat correction for {player:player} in week {week}: {team:teamId} goes from {points:oldScore} to {points:newScore}.',
       'Stat correction in week {week}: {team:teamId} goes from {points:oldScore} to {points:newScore}.',
@@ -125,10 +120,20 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   }
 };
 
+/** A player an announcement is about, as the chat shows it on a card. */
+export interface SystemPlayerRef {
+  id: string;
+  name: string;
+  team: string | null;
+  position: string;
+}
+
 export interface RenderedSystemMessage {
   text: string;
   moment: boolean;
   subjectTeamId: string | null;
+  /** The players the event names (`{ id, name, team, position }` refs anywhere in its detail). */
+  players: SystemPlayerRef[];
 }
 
 export interface RenderOptions {
@@ -195,7 +200,8 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
         const team = format('team', c.teamId, options);
         const player = playerName(c.player);
         if (team === null || player === null) return null;
-        return typeof c.bid === 'number' ? `${team} added ${player} ($${c.bid})` : `${team} added ${player}`;
+        const paid = typeof c.cost === 'number' ? c.cost : c.bid;
+        return typeof paid === 'number' ? `${team} added ${player} ($${paid})` : `${team} added ${player}`;
       });
     default:
       return null;
@@ -232,8 +238,41 @@ export function renderSystemMessage(
     );
     if (filled !== null) {
       const subject = template.subjectTeam === undefined ? null : text(at(detail, template.subjectTeam));
-      return { text: filled, moment: template.moment === true, subjectTeamId: subject };
+      return {
+        text: filled,
+        moment: template.moment === true,
+        subjectTeamId: subject,
+        players: eventPlayers(detail)
+      };
     }
   }
   return null;
+}
+
+const MAX_CARD_PLAYERS = 12;
+
+function asPlayerRef(v: unknown): SystemPlayerRef | null {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+  const p = v as Detail;
+  if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.position !== 'string') return null;
+  return { id: p.id, name: p.name, team: typeof p.team === 'string' ? p.team : null, position: p.position };
+}
+
+/**
+ * Every player ref in an event detail (searched two levels deep, so `player`, `awarded[].player`,
+ * and `fromPlayers[]` are found), deduplicated by id, in detail order, at most 12.
+ */
+export function eventPlayers(detail: Detail): SystemPlayerRef[] {
+  const found = new Map<string, SystemPlayerRef>();
+  const visit = (value: unknown, depth: number): void => {
+    const ref = asPlayerRef(value);
+    if (ref !== null) {
+      if (!found.has(ref.id)) found.set(ref.id, ref);
+      return;
+    }
+    if (depth === 0 || value === null || typeof value !== 'object') return;
+    for (const child of Array.isArray(value) ? value : Object.values(value)) visit(child, depth - 1);
+  };
+  for (const value of Object.values(detail)) visit(value, 2);
+  return [...found.values()].slice(0, MAX_CARD_PLAYERS);
 }

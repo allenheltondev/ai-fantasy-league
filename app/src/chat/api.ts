@@ -2,6 +2,14 @@ import type { ApiFetch } from '../api/client';
 
 /** Shapes from the chat operations (get_chat, post_message, get_realtime_token) in openapi.json. */
 
+/** A player an announcement names (system messages). */
+export interface ChatPlayer {
+  id: string;
+  name: string;
+  team: string | null;
+  position: string;
+}
+
 export interface ChatMessage {
   id: string;
   leagueId: string;
@@ -10,6 +18,8 @@ export interface ChatMessage {
   text: string;
   mentionedTeamIds: string[];
   event: { detailType: string; eventId: string } | null;
+  /** System messages: the players the event names, shown as cards. */
+  players?: ChatPlayer[];
   createdAt: string;
 }
 
@@ -23,7 +33,8 @@ export interface RealtimeInfo {
   token: string | null;
   endpoint: string | null;
   cacheName: string | null;
-  topics: { league: string; global: string } | null;
+  /** `team` is the caller's own private topic (null without a seat). */
+  topics: { league: string; global: string; team?: string | null } | null;
   expiresAt: string | null;
   pollIntervalSeconds: number;
 }

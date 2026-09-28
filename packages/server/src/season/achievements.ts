@@ -11,8 +11,9 @@ import type { SeasonDeps } from './lineups.js';
  * rsc-core rules engine matches on that detail type and keys badges on `action`
  * (functions/badges/AGENTS.md in rsc-core). The `id` makes each activity count exactly once.
  *
- * The badge chest is off unless `BADGE_CHEST_ENABLED=true` on the data jobs function, so local dev,
- * tests, and CI emit nothing for it; its catalog entries live in rsc-core.
+ * The badge chest is off unless `BADGE_CHEST_ENABLED=true` on the data jobs function (the deployed
+ * template sets it), so local dev, tests, and CI emit nothing for it; the catalog entries live in
+ * rsc-core's functions/badges/catalog.json.
  */
 
 export const BADGE_SERVICE = 'fantasy';

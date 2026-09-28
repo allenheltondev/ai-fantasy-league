@@ -5,6 +5,7 @@ export type { Ctx, DataServices, Services } from './context.js';
 export { createContext } from './context.js';
 export * from './errors.js';
 export * from './events/publisher.js';
+export * from './events/details.js';
 export { createApp } from './http/app.js';
 export { generateMcpTools, toMcpTool, IDEMPOTENCY_ARGUMENT, type McpTool } from './mcp/tools.js';
 export { generateOpenApi, renderOpenApi } from './openapi/generate.js';
@@ -47,5 +48,7 @@ export {
   type SystemMessageOutcome
 } from './chat/system-messages.js';
 export * from './realtime/realtime.js';
-export { relayEvent, RELAYED_EVENTS } from './realtime/relay.js';
+export { relayEvent, RELAYED_EVENTS, TEAM_ONLY_EVENTS } from './realtime/relay.js';
 export type { BusEvent } from './events/bus.js';
+export { newsAlertDetail } from './jobs/ingest-news.js';
+export { statusChangedDetail } from './jobs/sync-players.js';

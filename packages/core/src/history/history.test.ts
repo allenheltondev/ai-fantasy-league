@@ -93,6 +93,19 @@ describe('achievements', () => {
     );
   });
 
+  it('reports only actions the rsc-core badge catalog counts', () => {
+    // The fantasy metrics in rsc-core's functions/badges/catalog.json (readysetcloud/rsc-core#244),
+    // all count badges scoped to service "fantasy". Change both together.
+    const CATALOG_METRICS = [
+      'fantasy.championship.won',
+      'fantasy.consolation.won',
+      'fantasy.week.high_score',
+      'fantasy.blowout.won',
+      'fantasy.season.high_score'
+    ];
+    for (const id of ACHIEVEMENT_IDS) expect(CATALOG_METRICS, id).toContain(ACHIEVEMENTS[id].badgeAction);
+  });
+
   it('defines every achievement with a stable badge action', () => {
     for (const id of ACHIEVEMENT_IDS) {
       expect(ACHIEVEMENTS[id].id).toBe(id);

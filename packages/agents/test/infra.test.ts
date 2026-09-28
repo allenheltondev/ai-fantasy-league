@@ -37,6 +37,9 @@ describe('agent infrastructure', () => {
   it('routes every trigger event to the router and requested tasks to the task handler', () => {
     const router = section('  AgentRouterFunction:', '  AgentTaskFunction:');
     expect(router).toContain('Handler: agent-router.handler');
+    // Least privilege: Get, Put, and Query only (no DynamoDBCrudPolicy).
+    expect(router).not.toContain('DynamoDBCrudPolicy');
+    expect([...router.matchAll(/dynamodb:(\w+)/g)].map((m) => m[1])).toEqual(['GetItem', 'PutItem', 'Query']);
     for (const detailType of Object.keys(TRIGGER_RULES)) expect(router).toContain(`- ${detailType}\n`);
     const task = section('  AgentTaskFunction:', 'End of agent platform section');
     expect(task).toContain('Handler: agent-task.handler');

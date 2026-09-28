@@ -112,6 +112,28 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Updates every 0.05s')).toBeInTheDocument();
   });
 
+  it('shows league announcements as cards with the players they name', async () => {
+    const { api } = fakeApi({
+      messages: [
+        msg({
+          kind: 'system',
+          author: { teamId: null, teamName: null, name: 'League' },
+          text: 'Waivers processed for week 5: Allen FC added Puka Nacua ($31).',
+          event: { detailType: 'Waivers Processed', eventId: 'e1' },
+          players: [
+            { id: 'p1', name: 'Puka Nacua', team: 'LAR', position: 'WR' },
+            { id: 'p2', name: 'Free Agent', team: null, position: 'TE' }
+          ]
+        })
+      ]
+    });
+    renderChat(api);
+    const card = await screen.findByRole('article', { name: 'League announcement: Waivers Processed' });
+    expect(within(card).getByText(/Allen FC added Puka Nacua/)).toBeInTheDocument();
+    const players = within(card).getAllByTestId('player-card');
+    expect(players.map((p) => p.textContent)).toEqual(['Puka NacuaWR · LAR', 'Free AgentTE']);
+  });
+
   it('polls for new messages when realtime is off', async () => {
     const { api, store } = fakeApi();
     renderChat(api);

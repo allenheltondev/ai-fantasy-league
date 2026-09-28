@@ -4,7 +4,8 @@ import {
   kickoffTimes,
   nextLeagueWeek,
   reverseStandingsOrder,
-  weekEndsAt
+  weekEndsAt,
+  weekHighlights
 } from '@fantasy/core';
 import type { ScheduledGame } from '@fantasy/data';
 import { ApiError, isApiError } from '../errors.js';
@@ -54,11 +55,14 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
 
   const scored = await updateMatchupScores(deps, league, week, 'final', now);
   if (phase === 'regular_season') await recordStandings(deps, league, week, now);
+  const matchups = scored.matchups.map(scoreLine);
+  // The recap: the week's top score and its biggest blowout, for the chat announcement.
   const final = {
     leagueId: league.id,
     season: league.season,
     week,
-    matchups: scored.matchups.map(scoreLine),
+    matchups,
+    ...weekHighlights(matchups),
     finalizedAt: now.toISOString()
   };
 
