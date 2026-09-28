@@ -3,11 +3,9 @@ import {
   gameWindows,
   kickoffTimes,
   nextLeagueWeek,
-  playoffMatchups,
   reverseStandingsOrder,
   weekEndsAt,
-  weekHighlights,
-  type BracketWeekResults
+  weekHighlights
 } from '@fantasy/core';
 import type { ScheduledGame } from '@fantasy/data';
 import { ApiError, isApiError } from '../errors.js';
@@ -17,9 +15,10 @@ import { isInSeason, transitionPhase } from '../league/phase.js';
 import { startSeasonSchedule } from '../league/schedule.js';
 import { weekKey } from '../repos/dynamo/query.js';
 import type { ReferenceStore } from '../repos/reference.js';
-import type { League, Lineup, Matchup, Repos } from '../repos/types.js';
+import type { League, Lineup, Repos } from '../repos/types.js';
 import { applyPriorities } from '../waivers/process.js';
 import { resolveWeekLineups, weekGames, type SeasonDeps } from './lineups.js';
+import { rebuildPlayoffs, recordSeasonHistory, writePlayoffGames } from './playoffs.js';
 import { recordStandings, scoreLine, updateMatchupScores } from './scoring.js';
 
 /**
@@ -68,15 +67,25 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
   };
 
   const step = nextLeagueWeek(league.settings, phase, week);
+  // The bracket advances with this week's results (or is seeded as the playoffs start).
+  const playoffs = step.phase === 'regular_season' ? null : await rebuildPlayoffs(deps, league, now);
   if (step.phase === 'complete') {
-    if ((await commit(deps.repos, transitionPhase(league, 'complete', now))) === null) {
-      return skip('concurrent_update');
-    }
+    const completed = await commit(deps.repos, transitionPhase(league, 'complete', now));
+    if (completed === null) return skip('concurrent_update');
+    const history = await recordSeasonHistory(deps, completed, playoffs, now);
     await deps.events.publish('Week Provisionally Final', final);
+    await deps.events.publish('Season Completed', {
+      leagueId: league.id,
+      season: league.season,
+      championTeamId: history.championTeamId,
+      runnerUpTeamId: history.runnerUpTeamId,
+      consolationChampionTeamId: history.consolationChampionTeamId,
+      completedAt: now.toISOString()
+    });
     return { leagueId: league.id, status: 'completed', finalWeek: week };
   }
 
-  if (step.phase === 'playoffs') await writePlayoffMatchups(deps, league, step.week);
+  if (playoffs !== null) await writePlayoffGames(deps, league, playoffs.bracket, step.week);
   await carryLineupsForward(deps.repos, league, week, step.week, now);
   const nextGames = await weekGames(deps.reference, league.season, step.week);
   const moved = step.phase === phase ? league : transitionPhase(league, step.phase, now);
@@ -162,54 +171,6 @@ async function carryLineupsForward(
       updatedBy: 'system'
     }));
   await repos.lineups.put(carried);
-}
-
-/**
- * The championship games of playoff `week`, seeded from the final regular-season standings and
- * advanced by the playoff weeks already final. Minimal on purpose: the full bracket experience is
- * #78. Teams without a game that week (byes, eliminated teams) get no matchup.
- */
-async function writePlayoffMatchups(deps: SeasonDeps, league: League, week: number): Promise<void> {
-  const [standings, matchups] = await Promise.all([
-    deps.repos.schedule.latestStandings(league.id),
-    deps.repos.schedule.listMatchups(league.id)
-  ]);
-  if (standings === null || matchups.some((m) => m.week === week)) return;
-  const played = new Map<number, BracketWeekResults['results'][number][]>();
-  for (const m of matchups) {
-    if (m.kind !== 'playoff' || m.status !== 'final') continue;
-    played.set(m.week, [
-      ...(played.get(m.week) ?? []),
-      {
-        homeTeamId: m.homeTeamId,
-        awayTeamId: m.awayTeamId,
-        homeScore: m.homeScore ?? 0,
-        awayScore: m.awayScore ?? 0
-      }
-    ]);
-  }
-  const paired = playoffMatchups(
-    league.settings,
-    standings.rows,
-    [...played].map(([w, results]) => ({ week: w, results })),
-    week
-  );
-  if (!paired.ok) {
-    deps.log.warn('could not pair playoff games', { leagueId: league.id, week, issues: paired.issues });
-    return;
-  }
-  const games: Matchup[] = paired.value.map((p, i) => ({
-    id: `${weekKey(week)}-P${i + 1}`,
-    leagueId: league.id,
-    week,
-    kind: 'playoff',
-    homeTeamId: p.homeTeamId,
-    awayTeamId: p.awayTeamId,
-    homeScore: null,
-    awayScore: null,
-    status: 'scheduled'
-  }));
-  await deps.repos.schedule.putMatchups(games);
 }
 
 /**

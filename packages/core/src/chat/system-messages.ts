@@ -81,10 +81,25 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   },
   'Stat Correction Applied': {
     text: [
+      {
+        text: 'Stat correction flips week {week}: {team:winnerTeamId} now beats {team:loserTeamId}, {points:winnerScore} to {points:loserScore}.',
+        when: (d) => d.resultFlipped === true && d.winnerScore !== d.loserScore
+      },
       'Stat correction for {player:player} in week {week}: {team:teamId} goes from {points:oldScore} to {points:newScore}.',
       'Stat correction in week {week}: {team:teamId} goes from {points:oldScore} to {points:newScore}.',
       'A stat correction changed week {week} scores.'
     ]
+  },
+  'Season Completed': {
+    text: [
+      '{team:championTeamId} won the {season} championship, beating {team:runnerUpTeamId} in the final!',
+      '{team:championTeamId} won the {season} championship!'
+    ],
+    moment: true,
+    subjectTeam: 'championTeamId'
+  },
+  'Achievement Earned': {
+    text: ['{team:teamId} earned {name}: {reason}.', '{team:teamId} earned {name}.']
   },
   'Member Joined': {
     text: ['{name} joined the league and took over {team:teamId}.', '{team:teamId} has a new manager.']

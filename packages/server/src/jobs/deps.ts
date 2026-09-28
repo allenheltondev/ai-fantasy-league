@@ -26,6 +26,8 @@ export interface JobDeps {
   directory: PlayerDirectory;
   log: Logger;
   news: NewsSource;
+  /** Report achievements to the rsc-core badge chest (`BADGE_CHEST_ENABLED`); off by default. */
+  badgeChest?: boolean;
 }
 
 export interface JobResult {

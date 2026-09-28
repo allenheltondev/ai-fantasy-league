@@ -24,13 +24,14 @@ import {
   type Services,
   type SystemMessageOutcome
 } from '@fantasy/server';
+import { computeStandings, playoffBracket, yahooDefaultSettings } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
 import type { BusEvent } from '../../src/events.js';
 import { leagueRosterIndex, routeEvent, TRIGGER_RULES, type RouteDecision } from '../../src/router.js';
 import { createTaskKindRegistry, type TaskKind } from '../../src/tasks/kinds.js';
 import { noopTask } from '../../src/tasks/noop.js';
 import { draftSetup } from '../draft-support.js';
-import { LEAGUE_ID, SF_KICKOFF, setup, type Setup } from '../support.js';
+import { LEAGUE_ID, SF_KICKOFF, START, setup, type Setup } from '../support.js';
 
 /**
  * The cross-stream event contract (issue #112). Each event is produced by its real emitter (an
@@ -314,6 +315,168 @@ describe('event contract: the weekly cycle', () => {
   });
 });
 
+describe('event contract: the official final and the season finale', () => {
+  /** officialFinal dependencies: a provider serving the corrected week, and the badge chest on. */
+  type Line = { playerId: string; season: number; week: number; stats: Record<string, number> };
+  function officialDeps(s: Setup, lines: readonly Line[]): JobDeps {
+    const provider = { getWeekStats: async () => structuredClone(lines) } as unknown as JobDeps['provider'];
+    return {
+      ...(jobDeps(s) as object),
+      provider,
+      directory: { all: async () => [] },
+      badgeChest: true
+    } as unknown as JobDeps;
+  }
+
+  it('a correction that flips a result: Stat Correction Applied, Week Official Final, Achievement Earned', async () => {
+    const s = await inSeason();
+    await s.repos.schedule.putMatchups([
+      {
+        id: 'W05-M1',
+        leagueId: LEAGUE_ID,
+        week: 5,
+        kind: 'regular',
+        homeTeamId: 'team-1',
+        awayTeamId: 'team-2',
+        homeScore: null,
+        awayScore: null,
+        status: 'scheduled'
+      }
+    ]);
+    // Allen's team-1 starts qb1 (no stats yet); team-2 starts qb2.
+    await s.repos.lineups.put([
+      {
+        leagueId: LEAGUE_ID,
+        teamId: 'team-1',
+        week: 5,
+        entries: [{ playerId: 'qb1', slot: 'QB' }],
+        updatedAt: START,
+        updatedBy: 'user#user-123'
+      }
+    ]);
+    const qb2 = { playerId: 'qb2', season: 2026, week: 5, stats: { pass_yd: 300, pass_td: 3 } };
+    await s.services.data.reference.stats.putLines([{ ...qb2, updatedAt: SF_KICKOFF }]);
+    s.clock.set('2026-10-06T12:00:00.000Z');
+    await JOBS.advanceSeason(jobDeps(s), s.clock);
+
+    // Thursday: a stat correction credits qb1 with a big game, and team-1 now wins.
+    const qb1 = { playerId: 'qb1', season: 2026, week: 5, stats: { pass_yd: 500, pass_td: 3 } };
+    s.clock.set('2026-10-08T15:00:00.000Z');
+    expect(await JOBS.officialFinal(officialDeps(s, [qb2, qb1]), s.clock)).toMatchObject({
+      status: 'ok',
+      corrections: 1
+    });
+
+    const correction = await consume(s.services, delivered(last(s.events.events, 'Stat Correction Applied')));
+    expect(correction.event.detail).toMatchObject({
+      week: 5,
+      teamId: 'team-1',
+      oldScore: 0,
+      resultFlipped: true,
+      winnerTeamId: 'team-1',
+      loserTeamId: 'team-2'
+    });
+    const { winnerScore, loserScore } = correction.event.detail as {
+      winnerScore: number;
+      loserScore: number;
+    };
+    expect(posted(correction).text).toBe(
+      `Stat correction flips week 5: Allen's Team now beats Team 2, ${winnerScore} to ${loserScore}.`
+    );
+    expect(correction.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(correction.routed).toEqual([]);
+
+    const official = await consume(s.services, delivered(last(s.events.events, 'Week Official Final')));
+    expect(posted(official).text).toBe(
+      'Week 5 is official. Recap: Stat corrections changed 1 matchup(s), and 1 result(s) flipped.'
+    );
+    expect(official.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(official.routed).toEqual([]);
+
+    const earned = await consume(s.services, delivered(last(s.events.events, 'Achievement Earned')));
+    expect(earned.event.detail).toMatchObject({ teamId: 'team-1', achievementId: 'weekly-high-score' });
+    expect(posted(earned).text).toBe(
+      `Allen's Team earned Top Score of the Week: ${winnerScore} points, the most in week 5.`
+    );
+    expect(earned.relay.topics).toEqual([]);
+    expect(earned.routed).toEqual([]);
+
+    // Allen is a person, so the badge chest hears about it (rsc-core matches on the detail type).
+    const activity = last(s.events.events, 'Track Activity');
+    expect(EVENT_DETAIL_SCHEMAS['Track Activity'].parse(activity.detail)).toMatchObject({
+      userId: 'user-123',
+      action: 'fantasy.week.high_score',
+      service: 'fantasy'
+    });
+  });
+
+  it('the last playoff week completes the league: Season Completed crowns the champion', async () => {
+    const s = await setup({ league: { phase: 'playoffs', week: 17 } });
+    for (const teamId of ['team-2', 'team-3', 'team-4']) await s.seat(teamId, ROOKIE);
+    const settings = yahooDefaultSettings(4);
+    const teamIds = ['team-1', 'team-2', 'team-3', 'team-4'];
+    const rows = computeStandings(settings, [], { teamIds, seed: 'seed-1' });
+    await s.repos.schedule.putStandings({ leagueId: LEAGUE_ID, week: 15, rows, computedAt: START });
+    const seeded = playoffBracket(settings, rows, []);
+    if (!seeded.ok) throw new Error('bracket');
+    const semis = seeded.value.games.filter((g) => g.week === 16);
+    const results = semis.map((g) => ({
+      homeTeamId: g.home.teamId as string,
+      awayTeamId: g.away.teamId as string,
+      homeScore: 100,
+      awayScore: 90
+    }));
+    const advanced = playoffBracket(settings, rows, [{ week: 16, results }]);
+    if (!advanced.ok) throw new Error('bracket');
+    const final = advanced.value.games.find((g) => g.week === 17)!;
+    await s.repos.schedule.putMatchups([
+      ...semis.map((g, i) => ({
+        id: `W16-P-${g.id}`,
+        leagueId: LEAGUE_ID,
+        week: 16,
+        kind: 'playoff' as const,
+        ...(results[i] as (typeof results)[number]),
+        status: 'final' as const
+      })),
+      {
+        id: `W17-P-${final.id}`,
+        leagueId: LEAGUE_ID,
+        week: 17,
+        kind: 'playoff',
+        homeTeamId: final.home.teamId as string,
+        awayTeamId: final.away.teamId as string,
+        homeScore: null,
+        awayScore: null,
+        status: 'scheduled'
+      }
+    ]);
+    const reference = s.services.data.reference;
+    const week5 = await reference.schedule.getWeek(2026, 5);
+    const game = week5[0] as (typeof week5)[number];
+    await reference.schedule.putSeason(
+      2026,
+      [...week5, { ...game, gameId: '2026_17_LAR_SF', week: 17, kickoff: '2026-12-27T21:25:00.000Z' }],
+      {},
+      new Date(START)
+    );
+    s.clock.set('2026-12-29T12:00:00.000Z');
+    expect(await JOBS.advanceSeason(jobDeps(s), s.clock)).toMatchObject({ completed: 1 });
+
+    const done = await consume(s.services, delivered(last(s.events.events, 'Season Completed')));
+    // Nobody scored in the final: the tie goes to the better seed, who is home.
+    const champion = final.home.teamId as string;
+    const runnerUp = final.away.teamId as string;
+    const name = (teamId: string) => (teamId === 'team-1' ? "Allen's Team" : `Team ${teamId.slice(5)}`);
+    expect(done.event.detail).toMatchObject({ championTeamId: champion, runnerUpTeamId: runnerUp });
+    expect(posted(done).text).toBe(
+      `${name(champion)} won the 2026 championship, beating ${name(runnerUp)} in the final!`
+    );
+    expect(done.chat).toMatchObject({ moment: true });
+    expect(done.relay.topics).toEqual([]);
+    expect(done.routed).toEqual([]);
+  });
+});
+
 describe('event contract: player news', () => {
   it('Player News Alert reaches the agents rostering any tagged player', async () => {
     const s = await inSeason();
@@ -476,7 +639,11 @@ describe('event contract coverage', () => {
       'Settings Changed',
       'Agent Seat Changed',
       'Chat Message Posted',
-      'Scores Updated'
+      'Scores Updated',
+      'Week Official Final',
+      'Stat Correction Applied',
+      'Season Completed',
+      'Achievement Earned'
     ]);
     for (const type of consumed) expect(eventDetailSchema(type), type).toBeDefined();
     expect(eventDetailSchema('Trade Proposed')).toBeUndefined();

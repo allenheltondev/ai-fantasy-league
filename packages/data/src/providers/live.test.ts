@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureRoute, mockFetch, text, wallClock, type Route } from '../../test/helpers.js';
 import { NflverseClient } from '../nflverse/client.js';
-import type { CrosswalkReport } from '../nflverse/crosswalk.js';
+import { IdCrosswalk, type CrosswalkReport } from '../nflverse/crosswalk.js';
 import { SleeperClient } from '../sleeper/client.js';
 import { LiveDataProvider } from './live.js';
 
@@ -52,6 +52,20 @@ describe('LiveDataProvider (mocked Sleeper + nflverse)', () => {
       playerId: '6794',
       count: 18502
     });
+  });
+
+  it('reconciles the Sleeper week with nflverse for the official final', async () => {
+    const { provider } = live();
+    const sleeper = await provider.getWeekStats(2025, 1, asOf);
+    // Without a crosswalk nflverse lines keep GSIS ids and correct nothing.
+    expect(await provider.getOfficialWeekStats(2025, 1, asOf)).toEqual(sleeper);
+    const crosswalk = new IdCrosswalk([{ sleeperId: '4046', gsisId: '00-0033873', method: 'idmap' }]);
+    const official = await provider.getOfficialWeekStats(2025, 1, asOf, crosswalk);
+    const before = sleeper.find((l) => l.playerId === '4046');
+    const after = official.find((l) => l.playerId === '4046');
+    expect(after?.stats.pass_yd).toBeGreaterThan(0);
+    expect(after?.stats.gp).toBe(before?.stats.gp);
+    expect(official).toHaveLength(sleeper.length);
   });
 
   it('caches the schedule per season and retries after a failure', async () => {

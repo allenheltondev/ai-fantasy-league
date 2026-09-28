@@ -221,6 +221,16 @@ function validatePlayoffs(s: LeagueSettings): RuleIssue[] {
       )
     );
   }
+  if (p.consolation && s.teamCount - p.teams < 2) {
+    issues.push(
+      ruleError(
+        'CONSOLATION_TOO_FEW_TEAMS',
+        'playoffs.consolation',
+        `A consolation bracket needs at least 2 teams that miss the playoffs; this league has ${Math.max(0, s.teamCount - p.teams)}.`,
+        `Set playoffs.consolation to false, or playoffs.teams to ${s.teamCount - 2} or fewer.`
+      )
+    );
+  }
   return issues;
 }
 

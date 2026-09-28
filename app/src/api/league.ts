@@ -11,6 +11,7 @@ import type {
   Invite,
   InvitePreview,
   LeagueDetail,
+  LeagueHistoryData,
   LeagueSettings,
   LeagueState,
   LineupMove,
@@ -18,6 +19,7 @@ import type {
   MatchupOutlook,
   ModelLeaderboard,
   MyLeague,
+  PlayoffBracketData,
   Roster,
   ScoringPreset,
   SeatType,
@@ -97,7 +99,10 @@ export function createLeagueApi(api: ApiFetch) {
     getAgentActivity: (id: string, query: { teamId?: string; limit?: number } = {}) =>
       call<AgentActivity>(`${league(id)}/agent-activity`, { query }),
     /** get_realtime_token: a subscribe-only token for live league events, or `enabled: false`. */
-    getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`)
+    getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`),
+    // Playoffs and history (#78, #81)
+    getPlayoffBracket: (id: string) => call<PlayoffBracketData>(`${league(id)}/playoffs`),
+    getLeagueHistory: (id: string) => call<LeagueHistoryData>(`${league(id)}/history`)
   };
 }
 
