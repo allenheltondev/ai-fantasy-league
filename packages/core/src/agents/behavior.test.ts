@@ -3,13 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { PLAYER_STATUSES } from '../rules/positions.js';
 import { ARCHETYPES, STRATEGY_ARCHETYPES } from './archetypes.js';
 import {
+  EARLY_TRADE_MIN_FREQUENCY,
   agentBehavior,
   lineupProjection,
   tradeAcceptEdge,
   tradeAppetite,
   tradeVetoRatio,
   tradeVetoVote,
-  waiverMinGain
+  waiverMinGain,
+  wantsEarlyTradeLook
 } from './behavior.js';
 import { DIFFICULTIES, DIFFICULTY_TIERS } from './difficulty.js';
 import { resolveAgentConfig } from './seat-config.js';
@@ -128,5 +130,14 @@ describe('archetype behavior levers', () => {
         }
       )
     );
+  });
+});
+
+describe('wantsEarlyTradeLook', () => {
+  it('sends only the high-appetite archetypes shopping right after the draft', () => {
+    const early = ARCHETYPES.filter((id) => wantsEarlyTradeLook(STRATEGY_ARCHETYPES[id]));
+    expect([...early].sort()).toEqual(['trade_happy', 'win_now']);
+    expect(wantsEarlyTradeLook({ tradeFrequency: EARLY_TRADE_MIN_FREQUENCY })).toBe(true);
+    expect(wantsEarlyTradeLook({ tradeFrequency: Number.NaN })).toBe(false);
   });
 });

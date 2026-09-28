@@ -134,3 +134,39 @@ export function formatDraftRecap(recap: DraftRecap, names: RecapNames): string {
   }
   return parts.join(' ');
 }
+
+export const DRAFT_GRADES = ['A', 'B', 'C', 'D', 'F'] as const;
+export type DraftGrade = (typeof DRAFT_GRADES)[number];
+
+export interface GradedPick {
+  overall: number;
+  adp: number | null;
+  position: Position;
+}
+
+/** The average value (in steal margins) a grade needs, best first; anything lower is an F. */
+export const DRAFT_GRADE_BARS: Readonly<Record<Exclude<DraftGrade, 'F'>, number>> = {
+  A: 0.35,
+  B: 0.1,
+  C: -0.1,
+  D: -0.35
+};
+
+/**
+ * A team's draft grade by value (#175): each ranked pick's picks-after-ADP in units of its steal
+ * margin (`valueMargin`, so a steal is 1 and a reach -1), capped at ±2 so one late flier cannot
+ * swing the grade, and averaged. Kickers, defenses, and unranked players are left out, as in
+ * `notablePick`. Null when no pick can be rated.
+ */
+export function draftGrade(picks: readonly GradedPick[], teamCount: number): DraftGrade | null {
+  const scores: number[] = [];
+  for (const p of picks) {
+    const value = pickValue(p.overall, p.adp);
+    if (value === null || NO_VALUE_POSITIONS.includes(p.position)) continue;
+    scores.push(Math.max(-2, Math.min(2, value / valueMargin(p.overall, teamCount))));
+  }
+  if (scores.length === 0) return null;
+  const average = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+  for (const grade of ['A', 'B', 'C', 'D'] as const) if (average >= DRAFT_GRADE_BARS[grade]) return grade;
+  return 'F';
+}

@@ -97,7 +97,7 @@ Principles:
 ## 8. Agents
 
 ### Event-gated cadence
-Agents act only on triggers: draft turn, waiver window open, trade offer received, injury/news alert on a rostered player, pre-lock lineup check, weekly recap/chat moments.
+Agents act only on triggers: draft turn, draft completed (a post-draft kickoff: first lineup, one draft reaction in chat, roster-hole waiver claims, and an early trade look for trade-happy archetypes), waiver window open, trade offer received, injury/news alert on a rostered player, pre-lock lineup check, weekly recap/chat moments.
 
 ### Customization & difficulty
 - **Strategy archetypes (proposed):** zero-RB, contrarian, win-now, analytics-only, gut-feel homer, trade-happy, waiver hawk.

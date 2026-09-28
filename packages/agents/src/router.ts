@@ -1,4 +1,4 @@
-import { canonicalEvent } from '@fantasy/server';
+import { canonicalEvent, scheduleName } from '@fantasy/server';
 import { banterVerdict, hashString, isDmRoomId, resolveAgentConfig } from '@fantasy/core';
 import {
   AGENT_CHAT_BUDGETS,
@@ -30,6 +30,15 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    |
  * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     |
+ * | Draft Completed (once per draft)             | post_draft     | every agent team, staggered             | yes    |
+ *
+ * The post-draft kickoff (#175) is one task per agent: it sets the lineup, posts one draft reaction
+ * in the league chat, and scans for roster holes; a high-appetite archetype then takes one early
+ * trade look (a follow-up task, see tasks/post-draft.ts). Its rule has a `delay`: each agent's task
+ * is scheduled (`scheduleAt`) rather than published, spaced out (`POST_DRAFT_KICKOFF`), so the
+ * agents do not all fire at once, nor on top of the draft's last pick. A replayed or recovered
+ * `Draft Completed` (the stalled-draft watchdog finishing a draft) is a `repeat`: the once-per key
+ * is the draft's completion time.
  *
  * Chat tasks carry the `roomId` of the mention or moment and answer there. A matchup-room moment
  * (`detail.teamIds`) goes to the agents playing in that game when there are any.
@@ -76,6 +85,11 @@ export interface TriggerRule<T extends FantasyEventType = FantasyEventType> {
    * key are skipped (`repeat`). Undefined means no such limit.
    */
   oncePer?(detail: RuleDetail<T>): string | undefined;
+  /**
+   * Milliseconds to wait before the `index`-th affected team's task runs. When set, the task is
+   * scheduled with `scheduleAt` instead of published, so a rule can stagger its teams.
+   */
+  delay?(index: number): number;
   /** Player events: the players whose rostering teams are affected (found through the roster index). */
   players?(detail: RuleDetail<T>): string[];
   /** Which of the league's agent teams this event affects (rules without `players`). */
@@ -124,6 +138,13 @@ export const CHAT_COOLDOWNS = {
   /** Retorts to other agents: a slot of their own, so they never hold up an answer to a person. */
   banter: { scope: 'banter', agentMinutes: 30 }
 } as const satisfies Record<string, ChatCooldown>;
+
+/**
+ * Pacing of the post-draft kickoff (#175): the first agent goes a minute after the draft ends
+ * (clear of the last pick and the recap), the rest follow at this spacing. The early trade look
+ * follows its own agent's kickoff by `tradeLookMs`.
+ */
+export const POST_DRAFT_KICKOFF = { firstMs: 60_000, spacingMs: 45_000, tradeLookMs: 120_000 } as const;
 
 /** A mention an agent wrote. */
 function agentMention(d: RuleDetail<'Chat Mention'>): boolean {
@@ -259,6 +280,16 @@ export const TRIGGER_RULES: RuleMap = {
         .slice(0, CHAT_MOMENT_AGENTS);
     },
     payload: (d) => ({ moment: d.moment, subjectTeamId: d.teamId, messageId: d.messageId, roomId: d.roomId })
+  },
+  // The post-draft kickoff: once per draft, every agent team, one after another. Urgent: a
+  // cooldown left by a lineup or chat task during the draft must not skip it.
+  'Draft Completed': {
+    kind: 'post_draft',
+    urgent: true,
+    oncePer: (d) => (typeof d.completedAt === 'string' ? `draft-${d.completedAt}` : undefined),
+    teams: (_d, agents) => [...agents],
+    delay: (index) => POST_DRAFT_KICKOFF.firstMs + index * POST_DRAFT_KICKOFF.spacingMs,
+    payload: (d) => ({ week: d.week, completedAt: d.completedAt })
   }
 };
 
@@ -370,7 +401,7 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
           : (await leagueCooldown(deps, rule, target.leagueId, now))
             ? 'cooldown'
             : null;
-    for (const teamId of teams) {
+    for (const [index, teamId] of teams.entries()) {
       if (gate !== null) {
         decisions.push({ teamId, leagueId: target.leagueId, decision: gate, kind: rule.kind });
         continue;
@@ -399,7 +430,7 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
         payload: Object.fromEntries(Object.entries(rule.payload(detail)).filter(([, v]) => v !== undefined)),
         requestedAt: now.toISOString()
       };
-      await services.events.publish('Agent Action Requested', request);
+      await requestTask(services, request, rule.delay?.(index));
       decisions.push({
         teamId,
         leagueId: target.leagueId,
@@ -413,6 +444,27 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
   if (decisions.length === 0)
     log.info('agent trigger decision', { decision: 'no_agent_teams', kind: rule.kind });
   return decisions;
+}
+
+/**
+ * Sends a task to the runner: right away, or after `delayMs` through the deferred-event scheduler
+ * (named by the task id, so a redelivered trigger moves the schedule instead of doubling it).
+ */
+export async function requestTask(
+  services: Services,
+  request: AgentActionRequested,
+  delayMs?: number
+): Promise<void> {
+  if (delayMs === undefined) {
+    await services.events.publish('Agent Action Requested', request);
+    return;
+  }
+  await services.events.scheduleAt({
+    at: new Date(services.clock.now().getTime() + delayMs),
+    name: scheduleName('agent-task', request.taskId),
+    whenPast: 'send',
+    event: { detailType: 'Agent Action Requested', detail: request }
+  });
 }
 
 /**
