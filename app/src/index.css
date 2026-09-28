@@ -1,3 +1,209 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Motion (#133). Small, one-shot animations; colors come only from the design-system tokens so
+ * they hold contrast in light and dark. Nothing here loops except the explicit live dot, and the
+ * reduced-motion block at the end turns all of it off (the design system's base.css also clamps
+ * every animation and transition under reduced motion).
+ */
+@layer components {
+  /* Press and hover micro-interactions. */
+  .btn {
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      transform 0.1s ease;
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .motion-row {
+    transition: background-color 0.15s ease;
+  }
+  .motion-row:hover {
+    background-color: rgb(var(--muted) / 0.6);
+  }
+  .motion-lift {
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .motion-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-medium);
+  }
+
+  /* A score changed: a brief green or red wash behind the number. */
+  .motion-flash-up {
+    animation: motion-flash-up 0.9s ease-out;
+  }
+  .motion-flash-down {
+    animation: motion-flash-down 0.9s ease-out;
+  }
+
+  /* "+6.0" drifting up off a player's points. */
+  .motion-floater {
+    animation: motion-float 1.3s ease-out forwards;
+  }
+
+  /* The side that leads the matchup. */
+  .motion-side {
+    transition:
+      border-color 0.4s ease,
+      box-shadow 0.4s ease;
+  }
+  .motion-leader {
+    border-color: rgb(var(--primary-500));
+    box-shadow: 0 0 0 1px rgb(var(--primary-500) / 0.35);
+  }
+
+  /* A draft pick lands on the board. */
+  .motion-flip-in {
+    display: inline-block;
+    animation: motion-flip-in 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+    transform-origin: 50% 0;
+  }
+
+  /* It's your turn: a few pulses of the ring, then still. */
+  .motion-attention {
+    border-radius: var(--radius);
+    animation: motion-attention 1.2s ease-out 3;
+  }
+
+  /* Live indicators are the one thing allowed to loop. */
+  .motion-live-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: rgb(var(--success-500));
+    animation: motion-live 1.6s ease-in-out infinite;
+  }
+
+  /* Entrances: the first rows of a list, a page, a celebration, a trophy. */
+  .motion-stagger {
+    animation: motion-rise 0.3s ease-out both;
+    animation-delay: calc(var(--motion-i, 0) * 30ms);
+  }
+  .motion-page {
+    animation: motion-rise 0.18s ease-out;
+  }
+  .motion-pop {
+    animation: motion-pop 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.3);
+  }
+  .motion-trophy {
+    display: inline-block;
+    animation: motion-trophy 0.7s cubic-bezier(0.2, 0.8, 0.3, 1.4) both;
+    animation-delay: calc(var(--motion-i, 0) * 80ms);
+  }
+
+  /* Toasts slide in with a little spring. */
+  .toast {
+    animation: motion-toast-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+  }
+}
+
+@keyframes motion-flash-up {
+  0%,
+  30% {
+    background-color: rgb(var(--success-500) / 0.25);
+    color: rgb(var(--success-700));
+  }
+}
+@keyframes motion-flash-down {
+  0%,
+  30% {
+    background-color: rgb(var(--error-500) / 0.2);
+    color: rgb(var(--error-700));
+  }
+}
+@keyframes motion-float {
+  0% {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-1.25rem);
+  }
+}
+@keyframes motion-flip-in {
+  from {
+    opacity: 0;
+    transform: perspective(400px) rotateX(-90deg);
+  }
+}
+@keyframes motion-attention {
+  0% {
+    box-shadow: 0 0 0 0 rgb(var(--primary-500) / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgb(var(--primary-500) / 0);
+  }
+}
+@keyframes motion-live {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes motion-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes motion-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+@keyframes motion-trophy {
+  from {
+    opacity: 0;
+    transform: scale(0.3) rotate(-25deg);
+  }
+}
+@keyframes motion-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.96);
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.18s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-flash-up,
+  .motion-flash-down,
+  .motion-floater,
+  .motion-flip-in,
+  .motion-attention,
+  .motion-live-dot,
+  .motion-stagger,
+  .motion-page,
+  .motion-pop,
+  .motion-trophy,
+  .toast,
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+  .btn:active:not(:disabled),
+  .motion-lift:hover {
+    transform: none;
+  }
+  .motion-side,
+  .motion-row {
+    transition: none;
+  }
+}

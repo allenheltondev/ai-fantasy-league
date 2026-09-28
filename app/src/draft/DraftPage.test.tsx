@@ -447,3 +447,70 @@ describe('DraftPage', () => {
     expect(screen.getByText('Loading the draft board…')).toBeInTheDocument();
   });
 });
+
+describe('draft room motion', () => {
+  const yourTurn = () =>
+    board({
+      onTheClock: {
+        overall: 3,
+        round: 2,
+        pick: 1,
+        teamId: 'team-1',
+        teamName: "Allen's Team",
+        deadline: '2026-09-30T12:00:30.000Z',
+        secondsLeft: 30
+      }
+    });
+
+  it('pulses and badges the tab on your turn, and celebrates your pick', async () => {
+    const user = userEvent.setup();
+    document.title = 'Fantasy';
+    let picked = false;
+    const { api } = fakeApi((path) => {
+      if (path.endsWith('/picks')) {
+        picked = true;
+        return {};
+      }
+      return picked ? board({ onTheClock: null, status: 'complete', yourNextPick: null }) : yourTurn();
+    });
+    renderDraft(api);
+    const alert = await screen.findByText(/You are on the clock!/);
+    expect(alert.closest('.motion-attention')).not.toBeNull();
+    expect(document.title).toBe('Your pick! · Fantasy');
+
+    await user.click(screen.getByRole('button', { name: "Draft Ja'Marr Chase" }));
+    expect(await screen.findByText("You drafted Ja'Marr Chase!")).toBeInTheDocument();
+    expect(screen.getByTestId('confetti')).toBeInTheDocument();
+    expect(await screen.findByText(/The draft is complete/)).toBeInTheDocument();
+    expect(document.title).toBe('Fantasy');
+  });
+
+  it('flips new picks onto the board, but not the ones already made', async () => {
+    let onEvent: (event: LeagueEvent) => void = () => undefined;
+    const connect: EventConnect = async (_target, handlers) => {
+      onEvent = handlers.onEvent;
+      return () => undefined;
+    };
+    let picks = board().picks;
+    const { api } = fakeApi((path) => (path.endsWith('/realtime') ? LIVE_INFO : board({ picks })));
+    renderDraft(api, 3000, connect);
+    expect(await screen.findByText('Updating live')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-1').querySelector('.motion-flip-in')).toBeNull();
+    picks = [
+      ...picks,
+      {
+        overall: 2,
+        round: 1,
+        pick: 2,
+        teamId: 'team-2',
+        player: ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN'),
+        auto: false,
+        madeAt: null
+      }
+    ];
+    act(() => onEvent({ detailType: 'Draft Pick Made', leagueId: 'L1' }));
+    expect(await screen.findByTestId('cell-2')).toHaveTextContent("Ja'Marr Chase (WR)");
+    expect(screen.getByTestId('cell-2').querySelector('.motion-flip-in')).not.toBeNull();
+    expect(screen.getByTestId('cell-1').querySelector('.motion-flip-in')).toBeNull();
+  });
+});

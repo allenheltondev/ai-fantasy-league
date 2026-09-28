@@ -10,7 +10,7 @@ import { seedContractWaivers, WAIVER_CASES } from '../support/contract-waivers.j
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 import { seedLeague } from '../support/leagues.js';
 import { RESEARCH_LEAGUE_ID, seedReferenceData } from '../support/reference-seed.js';
-import { seedNflSchedule, seedSeasonLeague } from '../support/season.js';
+import { liveGame, redZoneGame, seedNflSchedule, seedSeasonLeague } from '../support/season.js';
 import { signIdToken } from '../support/tokens.js';
 
 const OTHER_USER = signIdToken({ sub: 'someone-else' });
@@ -134,6 +134,12 @@ const CASES: Record<string, Case[]> = {
       init: { token: OTHER_USER },
       status: 403
     }
+  ],
+  get_nfl_games: [
+    { label: 'live read, red zone', path: '/api/v1/leagues/lg-cs/nfl-games', status: 200 },
+    { label: 'schedule only', path: '/api/v1/leagues/lg-cs/nfl-games?week=2', status: 200 },
+    { label: 'outsider', path: '/api/v1/leagues/lg-cs/nfl-games', init: { token: OTHER_USER }, status: 403 },
+    { label: 'week not played', path: '/api/v1/leagues/lg-cs/nfl-games?week=18', status: 400 }
   ],
   set_lineup: [
     {
@@ -296,6 +302,12 @@ beforeAll(async () => {
     { repos: h.repos, reference: h.services.data.reference },
     { id: 'lg-cs', owners: [{ sub: 'user-123', name: 'Allen' }] }
   );
+  await h.services.data.reference.nflGames.put({
+    season: 2026,
+    week: 1,
+    games: [redZoneGame('2026_01_DAL_PHI'), liveGame('2026_01_LAR_SF', { gameKey: null })],
+    updatedAt: h.clock.now().toISOString()
+  });
   await seedDraftContractLeague(h.repos);
   await seedContractWaivers(h.repos);
   await seedContractTrades(h.repos);

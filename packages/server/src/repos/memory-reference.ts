@@ -20,8 +20,10 @@ import {
   type ReferenceStore,
   type SeasonLinesMeta,
   type SeasonLinesRepository,
+  type NflGamesRepository,
   type NflScheduleRepository,
   type StatsRepository,
+  type StoredNflWeek,
   type StoredNflState,
   type StoredSeasonSchedule,
   type StoredStatLine,
@@ -78,6 +80,19 @@ export class InMemoryNflScheduleRepository implements NflScheduleRepository {
   async getSeason(season: number): Promise<StoredSeasonSchedule | null> {
     const stored = this.#seasons.get(season);
     return stored === undefined ? null : clone(stored);
+  }
+}
+
+export class InMemoryNflGamesRepository implements NflGamesRepository {
+  readonly #weeks = new Map<string, StoredNflWeek>();
+
+  async get(season: number, week: number): Promise<StoredNflWeek | null> {
+    const stored = this.#weeks.get(`${season}:${week}`);
+    return stored === undefined ? null : clone(stored);
+  }
+
+  async put(week: StoredNflWeek): Promise<void> {
+    this.#weeks.set(`${week.season}:${week.week}`, clone(week));
   }
 }
 
@@ -230,6 +245,7 @@ export function createInMemoryReferenceStore(players: PlayerRepository): Referen
   return {
     nflState: new InMemoryNflStateRepository(),
     schedule: new InMemoryNflScheduleRepository(),
+    nflGames: new InMemoryNflGamesRepository(),
     stats: new InMemoryStatsRepository(),
     projections: new InMemoryProjectionRepository(),
     seasons: new InMemorySeasonLinesRepository(),

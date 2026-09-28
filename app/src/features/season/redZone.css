@@ -1,0 +1,36 @@
+/*
+ * Red-zone highlights (#132): a started player whose NFL team has the ball inside the opponent's
+ * 20, and a game card in the red zone. The tint and the left bar are static; only the bar pulses,
+ * and never under prefers-reduced-motion (the components also drop the pulse class then). App-wide
+ * motion lives elsewhere (#133); this keyframe is local to these components.
+ */
+.red-zone-row > td {
+  background-color: rgb(var(--error-500) / 0.08);
+}
+
+.red-zone-row > td:first-child,
+.red-zone-card {
+  box-shadow: inset 3px 0 0 rgb(var(--error-500));
+}
+
+.red-zone-card {
+  background-color: rgb(var(--error-500) / 0.08);
+  border-color: rgb(var(--error-500) / 0.6);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .red-zone-pulse > td:first-child,
+  .red-zone-card.red-zone-pulse {
+    animation: red-zone-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes red-zone-pulse {
+  0%,
+  100% {
+    box-shadow: inset 3px 0 0 rgb(var(--error-500));
+  }
+  50% {
+    box-shadow: inset 6px 0 0 rgb(var(--error-500) / 0.45);
+  }
+}

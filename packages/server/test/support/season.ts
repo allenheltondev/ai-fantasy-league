@@ -1,3 +1,4 @@
+import type { LiveGame } from '@fantasy/data';
 import { startSeasonSchedule } from '../../src/league/schedule.js';
 import { TEAM1_LINEUP, TEAM1_ROSTER, TEAM2_ROSTER } from '../../src/dev/season-demo.js';
 import type { ReferenceStore } from '../../src/repos/reference.js';
@@ -63,4 +64,46 @@ export async function seedSeasonLeague(
     ]);
   }
   return { league: (await deps.repos.leagues.get(options.id)) as League, teams };
+}
+
+/**
+ * One game as ESPN's scoreboard reads it (`LiveGame`), for the NFL games tests. `gameId` is a
+ * seeded schedule id (`2026_01_DAL_PHI`); by default the game is in progress with no possession.
+ */
+export function liveGame(gameId: string, overrides: Partial<LiveGame> = {}): LiveGame {
+  const [, , awayTeam = null, homeTeam = null] = gameId.split('_');
+  return {
+    gameKey: gameId,
+    espnId: `espn-${gameId}`,
+    homeTeam,
+    awayTeam,
+    homeScore: 7,
+    awayScore: 3,
+    kickoff: null,
+    state: 'in',
+    status: '8:32 - 2nd',
+    period: 2,
+    clock: '8:32',
+    possessionTeam: null,
+    isRedZone: false,
+    downDistance: null,
+    fieldPosition: null,
+    yardsToGoal: null,
+    updatedAt: '2026-09-13T18:00:00.000Z',
+    ...overrides
+  };
+}
+
+/** `liveGame` with the home team driving inside the opponent's 20. */
+export function redZoneGame(gameId: string, overrides: Partial<LiveGame> = {}): LiveGame {
+  const game = liveGame(gameId, overrides);
+  return {
+    ...game,
+    possessionTeam: game.homeTeam,
+    isRedZone: true,
+    downDistance: `2nd & 4 at ${game.awayTeam} 7`,
+    fieldPosition: `${game.awayTeam} 7`,
+    yardsToGoal: 7,
+    ...overrides
+  };
 }
