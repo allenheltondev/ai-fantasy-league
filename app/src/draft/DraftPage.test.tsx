@@ -203,6 +203,46 @@ function renderDraft(
 
 const tab = (name: string) => screen.getByRole('tab', { name });
 
+/** A finished report card (get_draft_report_card). */
+const REPORT = {
+  status: 'ready',
+  source: 'model',
+  summary: 'A two-horse race.',
+  generatedAt: '2026-09-30T13:00:00.000Z',
+  teams: [
+    {
+      teamId: 'team-2',
+      teamName: 'The Spreadsheet',
+      yours: false,
+      grade: 'A-',
+      headline: 'Receivers for days.',
+      strengths: ['Chase'],
+      weaknesses: ['Tight end'],
+      analysis: 'Strong.',
+      projectedWins: 9,
+      projectedLosses: 5,
+      projectedRank: 1,
+      projectedPoints: 1700,
+      expectedWins: 8.7
+    },
+    {
+      teamId: 'team-1',
+      teamName: "Allen's Team",
+      yours: true,
+      grade: 'C+',
+      headline: 'Solid, not spectacular.',
+      strengths: ['Balance'],
+      weaknesses: ['No star'],
+      analysis: 'Fine.',
+      projectedWins: 5,
+      projectedLosses: 9,
+      projectedRank: 2,
+      projectedPoints: 1500,
+      expectedWins: 5.3
+    }
+  ]
+};
+
 // The desktop room unless a test narrows the window.
 let width: ReturnType<typeof mockWidth>;
 beforeEach(() => {
@@ -690,8 +730,10 @@ describe('DraftPage', () => {
       "The Spreadsheet took Ja'Marr Chase at pick 2: “Best receiver on the board.”"
     );
     expect(firsts[1]).toHaveTextContent(/^Robo took Ja'Marr Chase at pick 2$/);
-    // The board is the view once the draft is over.
-    expect(tab('Board')).toHaveAttribute('aria-selected', 'true');
+    // The results (the report card) are the view once the draft is over; the board is a tab away.
+    expect(tab('Results')).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByTestId('draft-results-grading')).toBeInTheDocument();
+    await userEvent.setup().click(tab('Board'));
     expect(screen.getByTestId('cell-1')).toHaveAttribute('title', 'Workhorse back.');
     expect(screen.getByTestId('ticker-1')).toHaveAttribute('title', 'Workhorse back.');
   });
@@ -913,12 +955,22 @@ describe('draft room on a phone', () => {
     }
   });
 
-  it('opens on the board once the draft is complete', async () => {
+  it('opens on the results once the draft is complete, with the board a tab away', async () => {
     width.set(false);
-    const { api } = fakeApi(() => board({ status: 'complete', onTheClock: null, yourNextPick: null }));
+    const user = userEvent.setup();
+    const { api } = fakeApi((path) =>
+      path.endsWith('/draft/report-card')
+        ? REPORT
+        : board({ status: 'complete', onTheClock: null, yourNextPick: null })
+    );
     renderDraft(api);
-    expect(await screen.findByRole('table', { name: 'Draft board' })).toBeInTheDocument();
+    expect(await screen.findByTestId('draft-results')).toBeInTheDocument();
     expect(screen.queryByTestId('ticker-clock')).toBeNull();
+    const tabs = within(screen.getByRole('tablist', { name: 'Draft room' }));
+    // Results takes the Players tab's place.
+    expect(tabs.queryByRole('tab', { name: 'Players' })).toBeNull();
+    await user.click(tabs.getByRole('tab', { name: 'Board' }));
+    expect(await screen.findByRole('table', { name: 'Draft board' })).toBeInTheDocument();
   });
 
   it('is the desktop room where the browser cannot tell the width', async () => {

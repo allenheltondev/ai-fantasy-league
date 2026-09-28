@@ -1,12 +1,14 @@
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { draftExists, staleDraft } from '../errors.js';
-import type { DraftQueueRecord, DraftRecord, DraftRepository } from '../types.js';
+import type { DraftQueueRecord, DraftRecord, DraftReportCard, DraftRepository } from '../types.js';
 import {
   draftLobbyKey,
   DraftQueueRecordSchema,
   draftQueueKey,
   DraftRecordSchema,
+  DraftReportCardSchema,
   draftKey,
+  draftReportKey,
   ENTITY,
   leaguePk
 } from './league-records.js';
@@ -107,5 +109,39 @@ export class DynamoDraftRepository implements DraftRepository {
       ExpressionAttributeValues: { ':pk': leaguePk(leagueId), ':prefix': 'DRAFTLOBBY#' }
     });
     return Object.fromEntries(items.map((item) => [String(item.memberKey), String(item.at)]));
+  }
+
+  async getReport(leagueId: string): Promise<DraftReportCard | null> {
+    const result = await this.table.doc.send(
+      new GetCommand({ TableName: this.table.tableName, Key: draftReportKey(leagueId), ConsistentRead: true })
+    );
+    return result.Item === undefined ? null : DraftReportCardSchema.parse(result.Item);
+  }
+
+  async claimReport(report: DraftReportCard, now: string): Promise<boolean> {
+    try {
+      await this.table.doc.send(
+        new PutCommand({
+          TableName: this.table.tableName,
+          Item: { ...draftReportKey(report.leagueId), entity: ENTITY.draftReport, ...report },
+          ConditionExpression: 'attribute_not_exists(pk) OR (#status = :grading AND claimedUntil < :now)',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: { ':grading': 'grading', ':now': now }
+        })
+      );
+      return true;
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) return false;
+      throw error;
+    }
+  }
+
+  async putReport(report: DraftReportCard): Promise<void> {
+    await this.table.doc.send(
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: { ...draftReportKey(report.leagueId), entity: ENTITY.draftReport, ...report }
+      })
+    );
   }
 }

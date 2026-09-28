@@ -12789,6 +12789,312 @@
         }
       }
     },
+    "/api/v1/leagues/{leagueId}/draft/report-card": {
+      "get": {
+        "operationId": "get_draft_report_card",
+        "summary": "Draft grades and projected standings for every team",
+        "description": "The post-draft report card: an AI-judged letter grade (A+ through F-) for every team, with what went well, what did not, and a short analysis, plus a projected regular-season record and final standing. Projections come from each roster’s best weekly lineup under league scoring against the real schedule, so the projected records add up: every matchup is one win and one loss. Returns status `draft_in_progress` before the last pick and `grading` while the report card is being written. Before the draft starts this returns DRAFT_NOT_STARTED. Any member of the league can read it.",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "draft_in_progress",
+                            "grading",
+                            "ready"
+                          ],
+                          "description": "`draft_in_progress` until the last pick; `grading` while the report card is written (usually under a minute); then `ready`."
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "model",
+                                "computed"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "`model` when an AI graded the draft; `computed` when grades came from projections alone."
+                        },
+                        "summary": {
+                          "description": "The league-wide take.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "generatedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "teams": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "yours": {
+                                "type": "boolean",
+                                "description": "True for your own team."
+                              },
+                              "grade": {
+                                "type": "string",
+                                "enum": [
+                                  "A+",
+                                  "A",
+                                  "A-",
+                                  "B+",
+                                  "B",
+                                  "B-",
+                                  "C+",
+                                  "C",
+                                  "C-",
+                                  "D+",
+                                  "D",
+                                  "D-",
+                                  "F+",
+                                  "F",
+                                  "F-"
+                                ],
+                                "description": "Draft grade, A+ (best) through F- (worst)."
+                              },
+                              "headline": {
+                                "type": "string"
+                              },
+                              "strengths": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "What went well."
+                              },
+                              "weaknesses": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "What didn't."
+                              },
+                              "analysis": {
+                                "type": "string",
+                                "description": "A paragraph on the draft and the season ahead."
+                              },
+                              "projectedWins": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "projectedLosses": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "projectedRank": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Projected final regular-season standing, 1 = first."
+                              },
+                              "projectedPoints": {
+                                "type": "number",
+                                "description": "Projected regular-season points from the roster's best lineup each week."
+                              },
+                              "expectedWins": {
+                                "type": "number",
+                                "description": "Schedule-based expected wins behind the projection."
+                              }
+                            },
+                            "required": [
+                              "teamId",
+                              "teamName",
+                              "yours",
+                              "grade",
+                              "headline",
+                              "strengths",
+                              "weaknesses",
+                              "analysis",
+                              "projectedWins",
+                              "projectedLosses",
+                              "projectedRank",
+                              "projectedPoints",
+                              "expectedWins"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Every team, in projected standings order. Records add up across the league: total wins equal total losses, and each record fits the schedule."
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "source",
+                        "summary",
+                        "generatedAt",
+                        "teams"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/draft/resume": {
       "post": {
         "operationId": "resume_draft",

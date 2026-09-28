@@ -1,4 +1,4 @@
-import type { DraftState, LeagueSettings, LineupEntry, StandingsRow } from '@fantasy/core';
+import type { DraftGrade, DraftState, LeagueSettings, LineupEntry, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
 import type { ChatRepository } from '../chat/model.js';
 import type { AgentRepository } from './agents.js';
@@ -355,6 +355,48 @@ export interface DraftQueueRecord {
   updatedBy: string;
 }
 
+/**
+ * The post-draft report card (`DRAFTREPORT`): a letter grade and write-up per team, and projected
+ * standings that add up across the league (core `projectRecords`). Written once per draft by the
+ * grader (`@fantasy/agents` `gradeDraft`), which first claims it as `grading` so concurrent or
+ * redelivered `Draft Completed` events grade it only once.
+ */
+export interface DraftReportCard {
+  leagueId: string;
+  status: 'grading' | 'ready';
+  /** While grading: when a crashed grader's claim lapses and another may take over. */
+  claimedUntil: string | null;
+  /** Who graded it: the model, or the computed fallback. Null while grading. */
+  source: 'model' | 'computed' | null;
+  /** Why computed grades stand in for the model's (`kill_switch`, `budget_exceeded`, …). */
+  fallbackReason: string | null;
+  /** The catalog model that graded it, when the model did. */
+  modelKey: string | null;
+  /** The league-wide take. */
+  summary: string;
+  teams: DraftReportTeam[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DraftReportTeam {
+  teamId: string;
+  grade: DraftGrade;
+  /** One line. */
+  headline: string;
+  strengths: string[];
+  weaknesses: string[];
+  analysis: string;
+  projectedWins: number;
+  projectedLosses: number;
+  /** 1..teamCount, no ties. */
+  projectedRank: number;
+  /** The drafted roster's projected regular-season points from its best weekly lineups. */
+  projectedPoints: number;
+  /** The schedule-based expected wins behind the projection, to one decimal. */
+  expectedWins: number;
+}
+
 export interface DraftRepository {
   get(leagueId: string): Promise<DraftRecord | null>;
   /** Fails with CONFLICT when the league already has a draft. */
@@ -369,6 +411,14 @@ export interface DraftRepository {
   checkIn(leagueId: string, memberKey: string, at: string): Promise<void>;
   /** When each member last checked in to the draft lobby. */
   lobby(leagueId: string): Promise<Record<string, string>>;
+  getReport(leagueId: string): Promise<DraftReportCard | null>;
+  /**
+   * Stores `report` (status `grading`) if the league has no report card, or only a grading claim
+   * that lapsed before `now`. True when this caller now holds the claim.
+   */
+  claimReport(report: DraftReportCard, now: string): Promise<boolean>;
+  /** Replaces the league's report card. */
+  putReport(report: DraftReportCard): Promise<void>;
 }
 
 export interface Repos {

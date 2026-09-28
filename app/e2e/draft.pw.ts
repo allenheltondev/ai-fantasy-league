@@ -227,7 +227,7 @@ test.beforeEach(async ({ page }) => {
   }, ID_TOKEN);
 });
 
-test('a finished draft shows the recap with the AI teams reasoning', async ({ page }) => {
+test('a finished draft opens on the report card, with the recap and the board', async ({ page }) => {
   draftApi(page);
   const reason = 'Best back on the board, and I will not miss.';
   const recapEntry = {
@@ -305,6 +305,36 @@ test('a finished draft shows the recap with the AI teams reasoning', async ({ pa
       }
     })
   );
+  const graded = (teamId: string, teamName: string, grade: string, wins: number, rank: number) => ({
+    teamId,
+    teamName,
+    yours: teamId === 'team-1',
+    grade,
+    headline: `${teamName} headline.`,
+    strengths: ['A strength.'],
+    weaknesses: ['A weakness.'],
+    analysis: 'An analysis.',
+    projectedWins: wins,
+    projectedLosses: 1 - wins,
+    projectedRank: rank,
+    projectedPoints: 100,
+    expectedWins: wins
+  });
+  await page.route('**/api/v1/leagues/L1/draft/report-card', (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          status: 'ready',
+          source: 'model',
+          summary: 'The Spreadsheet ran away with it.',
+          generatedAt: new Date().toISOString(),
+          teams: [graded('team-2', 'The Spreadsheet', 'A', 1, 1), graded('team-1', "Allen's Team", 'C', 0, 2)]
+        },
+        league: { id: 'L1', phase: 'regular_season', week: 1, allowedActions: [] },
+        warnings: []
+      }
+    })
+  );
   await page.goto('/leagues/L1/draft');
   await expect(page.getByText('The draft is complete. Good luck this season!')).toBeVisible();
   const recap = page.getByTestId('draft-recap');
@@ -312,6 +342,12 @@ test('a finished draft shows the recap with the AI teams reasoning', async ({ pa
   await expect(page.getByRole('list', { name: 'AI first picks' })).toContainText(
     `The Spreadsheet took Christian McCaffrey at pick 1: “${reason}”`
   );
+  // The results open first: the AI report card and projected standings.
+  const results = page.getByTestId('draft-results');
+  await expect(results).toContainText('The Spreadsheet ran away with it.');
+  await expect(page.getByTestId('report-team-1')).toContainText('Projected 0-1, 2nd place');
+  await expect(page.getByRole('table', { name: 'Projected standings' })).toContainText('The Spreadsheet1-0A');
+  await page.getByRole('tab', { name: 'Board' }).click();
   await expect(page.getByTestId('cell-1')).toHaveAttribute('title', reason);
 });
 

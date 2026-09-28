@@ -167,7 +167,7 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `League Created` | A league is created |
 | `Draft Turn Started` | A team is on the clock |
 | `Draft Pick Made` | A pick is made (`adp`, the pick's `reason`, and `notable`: a steal or reach by ADP, or an agent's first-round pick, which the chat calls out; core `notablePick`) |
-| `Draft Completed` | The draft ends (`recap`: steals, reaches, and each agent's first pick with its reasoning, and `recapText` for the chat; core `draftRecap`) |
+| `Draft Completed` | The draft ends (`recap`: steals, reaches, and each agent's first pick with its reasoning, and `recapText` for the chat; core `draftRecap`). The agent task Lambda also grades the draft on it: one model call writes the report card (`get_draft_report_card`), and core `projectRecords` makes its projected records add up on the schedule |
 | `Draft Paused` / `Draft Resumed` | The commissioner freezes or restarts the pick clock; relayed so open boards stop or restart their countdown |
 | `Draft Pick Deadline` | A pick's clock runs out (scheduled with `scheduleAt`; the API function autopicks if the pick is still open) |
 | `Draft Start Scheduled` | The league's `draft.scheduledAt` arrives (scheduled with `scheduleAt`; the API function starts the draft if the time still holds) |

@@ -83,8 +83,9 @@ describe('replayLeague: the real league on the simulated clock', () => {
     expect(Object.keys(report.agents.byModel).length).toBeGreaterThan(0);
     expect(report.decisions).toHaveLength(report.agents.totals.tasks);
     // Tasks with nothing to decide (no trade worth offering, a vote to let a trade pass) skip the model.
+    // The draft report card grader makes one more run when the draft completes.
     expect(model.transcript.length).toBe(
-      report.agents.totals.tasks - (report.agents.totals.byStatus.skipped ?? 0)
+      report.agents.totals.tasks - (report.agents.totals.byStatus.skipped ?? 0) + 1
     );
 
     // The jobs ran on their cadences, and deferred events (pick deadlines, lock warnings) fired.

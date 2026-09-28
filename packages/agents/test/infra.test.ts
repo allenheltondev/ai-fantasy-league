@@ -47,6 +47,8 @@ describe('agent infrastructure', () => {
     const task = section('  AgentTaskFunction:', 'End of agent platform section');
     expect(task).toContain('Handler: agent-task.handler');
     expect(task).toContain('- Agent Action Requested');
+    // The draft report card grader runs in the same function, for its model access.
+    expect(task).toContain('- Draft Completed');
     expect(task).toContain(policy);
     expect(template).not.toContain('AWS::IAM::ManagedPolicy');
     expect(task).toContain('AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter');

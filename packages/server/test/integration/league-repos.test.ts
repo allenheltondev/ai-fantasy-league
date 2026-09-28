@@ -7,7 +7,7 @@ import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { TABLE_KEYS } from '../../src/repos/dynamo/table.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
 import { listInSeason } from '../../src/season/lineups.js';
-import type { Invite, Matchup, Repos, StandingsSnapshot } from '../../src/repos/types.js';
+import type { DraftReportCard, Invite, Matchup, Repos, StandingsSnapshot } from '../../src/repos/types.js';
 import { league, START } from '../support/harness.js';
 
 let table: LocalTable;
@@ -365,5 +365,66 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
       })
     );
     expect((await repos.teams.list(leagueId)).map((t) => t.id)).toEqual(['team-1']);
+  });
+});
+
+describe.each(backends)('%s draft report card', (_name, make) => {
+  it('claims a draft report card once, lets a lapsed claim be retaken, and stores the result', async () => {
+    const { drafts } = make();
+    const leagueId = unique('lg');
+    const grading = (claimedUntil: string): DraftReportCard => ({
+      leagueId,
+      status: 'grading',
+      claimedUntil,
+      source: null,
+      fallbackReason: null,
+      modelKey: null,
+      summary: '',
+      teams: [],
+      createdAt: START,
+      updatedAt: START
+    });
+    expect(await drafts.getReport(leagueId)).toBeNull();
+    expect(await drafts.claimReport(grading('2026-09-10T12:02:00.000Z'), '2026-09-10T12:00:00.000Z')).toBe(
+      true
+    );
+    // A live claim holds.
+    expect(await drafts.claimReport(grading('2026-09-10T12:03:00.000Z'), '2026-09-10T12:01:00.000Z')).toBe(
+      false
+    );
+    // A lapsed one can be retaken.
+    expect(await drafts.claimReport(grading('2026-09-10T12:05:00.000Z'), '2026-09-10T12:03:00.000Z')).toBe(
+      true
+    );
+    expect(await drafts.getReport(leagueId)).toMatchObject({ claimedUntil: '2026-09-10T12:05:00.000Z' });
+    const ready: DraftReportCard = {
+      ...grading('2026-09-10T12:05:00.000Z'),
+      status: 'ready',
+      claimedUntil: null,
+      source: 'model',
+      modelKey: 'claude-sonnet-5',
+      summary: 'Team 1 won the draft.',
+      teams: [
+        {
+          teamId: 'team-1',
+          grade: 'A-',
+          headline: 'Loaded at receiver.',
+          strengths: ['Receivers'],
+          weaknesses: ['Tight end'],
+          analysis: 'A strong start.',
+          projectedWins: 9,
+          projectedLosses: 5,
+          projectedRank: 1,
+          projectedPoints: 1712.4,
+          expectedWins: 8.6
+        }
+      ]
+    };
+    await drafts.putReport(ready);
+    expect(await drafts.getReport(leagueId)).toEqual(ready);
+    // A finished report card is never claimed again, even long after.
+    expect(await drafts.claimReport(grading('2027-01-01T00:00:00.000Z'), '2026-12-31T00:00:00.000Z')).toBe(
+      false
+    );
   });
 });

@@ -42,7 +42,9 @@ describe('agents in the event loop', () => {
     expect(loop.stats.failures).toEqual([]);
     expect((await s.repos.drafts.get(s.leagueId))?.status).toBe('complete');
     expect(loop.stats.delivered['Agent Action Requested']).toBe(3 * 16);
-    expect(model.transcript.length).toBe(3 * 16);
+    // One model run per agent pick, plus the draft report card grader on Draft Completed.
+    expect(model.transcript.length).toBe(3 * 16 + 1);
+    expect(await s.repos.drafts.getReport(s.leagueId)).toMatchObject({ status: 'ready', source: 'model' });
   });
 
   it('dev server runs the loop with agents on the fake model', async () => {

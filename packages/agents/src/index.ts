@@ -1,4 +1,5 @@
 // Public surface of @fantasy/agents: the agent runtime.
+export * from './draft-report.js';
 export * from './events.js';
 export * from './fake-model.js';
 export * from './kill-switch.js';
