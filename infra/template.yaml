@@ -467,6 +467,15 @@ Resources:
             Input: '{"job":"ingestProjections"}'
             RetryPolicy:
               MaximumRetryAttempts: 1
+        # Last season's stats once per season, this season's projections daily before it starts.
+        SyncSeasonResearch:
+          Type: ScheduleV2
+          Properties:
+            Description: Draft research, last season stats and season projections
+            ScheduleExpression: cron(37 11 * * ? *)
+            Input: '{"job":"syncSeasonResearch"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 1
         IngestTrending:
           Type: ScheduleV2
           Properties:
@@ -907,16 +916,16 @@ Resources:
                 - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-2-lite-v1:0
                 - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-pro-v1:0
                 - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0
-                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-v1
-                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-opus-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-opus-5
                 - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-micro-v1:0
                 - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-lite-v1:0
                 - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0
                 - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-pro-v1:0
                 - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/moonshot.kimi-k2-thinking
                 - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
-                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-5-v1
-                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-opus-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-5
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-opus-5
             # End of agent Bedrock access
         - Version: '2012-10-17'
           Statement:

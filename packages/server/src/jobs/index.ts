@@ -8,6 +8,7 @@ import { processWaivers } from './process-waivers.js';
 import { syncNflState } from './sync-nfl-state.js';
 import { syncPlayers } from './sync-players.js';
 import { syncSchedule } from './sync-schedule.js';
+import { syncSeasonResearch } from './sync-season-research.js';
 
 /**
  * Every scheduled job, by the name the EventBridge schedules send as `{ "job": "<name>" }`.
@@ -24,7 +25,8 @@ export const JOBS = {
   scoreLiveWeek,
   advanceSeason,
   officialFinal,
-  processWaivers
+  processWaivers,
+  syncSeasonResearch
 } as const satisfies Record<string, Job>;
 
 export type JobName = keyof typeof JOBS;
@@ -46,5 +48,6 @@ export {
   processWaivers,
   syncNflState,
   syncPlayers,
-  syncSchedule
+  syncSchedule,
+  syncSeasonResearch
 };
