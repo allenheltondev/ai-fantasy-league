@@ -32,11 +32,11 @@ import {
 } from './index.js';
 
 describe('model catalog', () => {
-  it('has unique keys and Bedrock ids, all unverified with estimated prices', () => {
+  it('has unique keys and Bedrock ids, all verified against Bedrock with estimated prices', () => {
     expect(new Set(MODEL_KEYS).size).toBe(MODEL_CATALOG.length);
     expect(new Set(catalogBedrockIds()).size).toBe(MODEL_CATALOG.length);
     for (const m of MODEL_CATALOG) {
-      expect(m.verified).toBe(false);
+      expect(m.verified).toBe(true);
       expect(m.priceIsEstimate).toBe(true);
       expect(m.price.inputPerMTok).toBeGreaterThan(0);
       expect(m.price.outputPerMTok).toBeGreaterThanOrEqual(m.price.inputPerMTok);

@@ -6591,7 +6591,7 @@
       "get": {
         "operationId": "get_draft_board",
         "summary": "See the draft: order, picks, who is on the clock, rosters, and the best available players",
-        "description": "Read this before every pick. `onTheClock` is the team picking now and its deadline (autopick picks when it passes); `yourNextPick.picksAway` is 0 when it is your turn. `yourNeeds` lists your empty starting slots: your remaining picks must fill them, so a pick that makes that impossible is refused. `bestAvailable` lists undrafted players by consensus rank (lower is better); filter it with `position` or a name in `q`, and pass `detail: true` or `limit` for more. Before the draft starts this returns DRAFT_NOT_STARTED. Any member of the league can read it.",
+        "description": "Read this before every pick. `onTheClock` is the team picking now and its deadline (autopick picks when it passes); `yourNextPick.picksAway` is 0 when it is your turn. `yourNeeds` lists your empty starting slots: your remaining picks must fill them, so a pick that makes that impossible is refused. `bestAvailable` lists undrafted players by consensus rank (lower is better), with each player’s `bye` week and `injuryStatus`; filter it with `position` or a name in `q`, and pass `detail: true` or `limit` for more. Before the draft starts this returns DRAFT_NOT_STARTED. Any member of the league can read it.",
         "tags": [
           "draft"
         ],
@@ -6936,6 +6936,19 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               }
                             },
                             "required": [
@@ -6947,7 +6960,8 @@
                               "auto",
                               "madeAt",
                               "adp",
-                              "reason"
+                              "reason",
+                              "bye"
                             ],
                             "additionalProperties": false
                           }
@@ -7380,11 +7394,33 @@
                                   }
                                 ],
                                 "description": "Consensus overall rank (ADP stand-in); lower is better."
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
+                              },
+                              "injuryStatus": {
+                                "description": "Injury designation such as \"Questionable\", \"Out\", or \"IR\"; null when healthy.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
                               "player",
-                              "rank"
+                              "rank",
+                              "bye",
+                              "injuryStatus"
                             ],
                             "additionalProperties": false
                           },
@@ -9190,6 +9226,19 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               }
                             },
                             "required": [
@@ -9201,7 +9250,8 @@
                               "auto",
                               "madeAt",
                               "adp",
-                              "reason"
+                              "reason",
+                              "bye"
                             ],
                             "additionalProperties": false
                           }
@@ -9634,11 +9684,33 @@
                                   }
                                 ],
                                 "description": "Consensus overall rank (ADP stand-in); lower is better."
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
+                              },
+                              "injuryStatus": {
+                                "description": "Injury designation such as \"Questionable\", \"Out\", or \"IR\"; null when healthy.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
                               "player",
-                              "rank"
+                              "rank",
+                              "bye",
+                              "injuryStatus"
                             ],
                             "additionalProperties": false
                           },

@@ -3,6 +3,7 @@
  * shell only fixes the URLs so links and deep links are stable from day one.
  */
 
+import { useEffect, useRef } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
@@ -46,19 +47,31 @@ export function LeagueLayout() {
   // The name only; each section loads (and reports errors for) its own data.
   const state = useLoad(() => api.getLeagueState(leagueId), leagueId);
   const yourTeamId = state.data?.yourTeam?.id ?? null;
+  // Keep the current section in view when the row scrolls (a deep link to Settings on a phone).
+  const nav = useRef<HTMLElement>(null);
+  useEffect(() => {
+    nav.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [pathname]);
   return (
     <section aria-labelledby="league-title" className="space-y-4">
       <h1 id="league-title" className="text-2xl font-semibold">
         {state.data?.name ?? 'League'}
       </h1>
-      <nav aria-label="League sections" className="flex flex-wrap gap-2 border-b border-border pb-2">
+      {/* On a phone the sections scroll sideways in one row, fading at the edges; wider, they wrap. */}
+      <nav
+        ref={nav}
+        aria-label="League sections"
+        className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 pb-2 [mask-image:linear-gradient(to_right,transparent,#000_1rem,#000_calc(100%-1rem),transparent)] [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-0 sm:[mask-image:none]"
+      >
         {LEAGUE_SECTIONS.map((section) => (
           <NavLink
             key={section.path}
             to={section.path}
             onClick={transitionClick(() => navigate(section.path))}
             className={({ isActive }) =>
-              `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              `inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                 isActive ? 'bg-primary-100 text-primary-800' : 'text-muted-foreground hover:text-foreground'
               }`
             }

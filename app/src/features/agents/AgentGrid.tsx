@@ -32,7 +32,7 @@ export function AgentGrid({ seats, catalog, busy = false, editor }: AgentGridPro
           <Button variant="secondary" loading={busy} onClick={editor.onRandomizeAll}>
             Randomize all
           </Button>
-          <div className="min-w-48">
+          <div className="w-full sm:w-auto sm:min-w-48">
             <Select
               label="Difficulty for all"
               value=""
@@ -51,7 +51,7 @@ export function AgentGrid({ seats, catalog, busy = false, editor }: AgentGridPro
           </div>
         </div>
       )}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {seats.map((seat, index) => (
           <AgentCard
             key={seat.key}

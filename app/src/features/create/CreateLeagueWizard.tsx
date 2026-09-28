@@ -123,7 +123,7 @@ function Wizard({ catalog }: { catalog: AgentCatalog }) {
       </h1>
       <ProgressIndicator steps={STEPS.map((label, i) => ({ id: label, label, status: status(i) }))} />
       <ApiErrorAlert error={error} />
-      <Card>
+      <Card className="min-w-0">
         <CardBody className="space-y-4">
           <h2 className="text-xl font-semibold">{STEPS[step]}</h2>
           {step === 0 && (
@@ -153,6 +153,7 @@ function Wizard({ catalog }: { catalog: AgentCatalog }) {
               <div className="space-y-1">
                 <p className="text-sm font-medium">Scoring</p>
                 <SegmentedControl
+                  className="flex-wrap"
                   aria-label="Scoring"
                   options={PRESETS}
                   value={preset}
@@ -207,7 +208,10 @@ function Wizard({ catalog }: { catalog: AgentCatalog }) {
               />
             ))}
           {step === 3 && (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2" data-testid="review">
+            <dl
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 break-words"
+              data-testid="review"
+            >
               <dt className="text-muted-foreground">Name</dt>
               <dd>{name.trim()}</dd>
               <dt className="text-muted-foreground">Teams</dt>
@@ -232,7 +236,11 @@ function Wizard({ catalog }: { catalog: AgentCatalog }) {
               </dd>
             </dl>
           )}
-          <div className="flex justify-between gap-2 pt-2">
+          {/* On a phone the step can run long (a card per AI seat): Back and Next stay pinned. */}
+          <div
+            data-testid="wizard-actions"
+            className="sticky bottom-0 z-10 -mx-[1.125rem] -mb-[1.125rem] flex justify-between gap-2 rounded-b-lg border-t border-border bg-surface px-[1.125rem] pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:static sm:m-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:pt-2"
+          >
             <Button variant="ghost" disabled={step === 0 || busy} onClick={() => setStep((s) => s - 1)}>
               Back
             </Button>
