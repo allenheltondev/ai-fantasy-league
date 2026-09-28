@@ -7,6 +7,7 @@ import { InMemoryEventPublisher } from '../../src/events/publisher.js';
 import { createApp } from '../../src/http/app.js';
 import { silentLogger } from '../../src/log.js';
 import { fixturePlayers } from '../../src/players/fixtures.js';
+import type { Player } from '../../src/players/model.js';
 import type { Registry } from '../../src/registry/registry.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { createDynamoReferenceStore } from '../../src/repos/dynamo/reference.js';
@@ -60,16 +61,16 @@ export function league(overrides: Partial<League> = {}): League {
 
 /** The real REST app with a real Cognito verifier (local JWKS) and either repo backend. */
 export async function createHarness(
-  options: { backend?: 'memory' | 'dynamo'; registry?: Registry } = {}
+  options: { backend?: 'memory' | 'dynamo'; registry?: Registry; players?: readonly Player[] } = {}
 ): Promise<Harness> {
   let table: LocalTable | null = null;
   let repos: Repos;
   if (options.backend === 'dynamo') {
     table = await startLocalTable();
     repos = createDynamoRepos(table);
-    await repos.players.putMany(fixturePlayers);
+    await repos.players.putMany(options.players ?? fixturePlayers);
   } else {
-    repos = createInMemoryRepos({ players: fixturePlayers });
+    repos = createInMemoryRepos({ players: options.players ?? fixturePlayers });
   }
   const clock = new FixedClock(START);
   const events = new InMemoryEventPublisher();

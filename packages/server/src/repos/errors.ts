@@ -29,3 +29,19 @@ export function staleInvite(inviteId: string): ApiError {
     fix: 'Retry the request.'
   });
 }
+
+export function draftExists(leagueId: string): ApiError {
+  return new ApiError('CONFLICT', `League ${leagueId} has already started its draft.`, {
+    fix: 'Read the draft with get_draft_board instead of starting it again.'
+  });
+}
+
+export function staleDraft(leagueId: string): ApiError {
+  return new ApiError(
+    'CONFLICT',
+    `The draft in league ${leagueId} moved on while this request was running.`,
+    {
+      fix: 'Another pick landed first. Call get_draft_board to see who is on the clock now, then retry if it is still your turn.'
+    }
+  );
+}
