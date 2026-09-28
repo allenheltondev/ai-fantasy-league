@@ -33,6 +33,14 @@ export interface Player {
   updatedAt: string;
 }
 
+/**
+ * A player's roster status for drafting and lineups. Sleeper leaves a team defense's status empty,
+ * which older syncs stored as inactive; a defense on an NFL team is always active.
+ */
+export function rosterStatus(player: Pick<Player, 'position' | 'team' | 'status'>): PlayerStatus {
+  return player.position === 'DEF' && player.team !== null ? 'active' : player.status;
+}
+
 /** How every player appears in every response. */
 export const PlayerRefSchema = z
   .object({
@@ -66,7 +74,7 @@ export function toPlayerDetail(player: Player, detail: boolean): PlayerDetail {
   if (!detail) return toPlayerRef(player);
   return {
     ...toPlayerRef(player),
-    status: player.status,
+    status: rosterStatus(player),
     injuryStatus: player.injuryStatus,
     aliases: player.aliases,
     rank: player.rank
