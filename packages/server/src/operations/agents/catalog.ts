@@ -6,10 +6,14 @@ import {
   DIFFICULTY_TIERS,
   MAX_RANDOM_SEATS,
   getModel,
+  MANAGER_FIRST_NAMES,
+  MANAGER_LAST_NAMES,
+  MANAGER_NAME_MAX,
   MODEL_TIER_MODELS,
   MODEL_TIERS,
   PERSONALITIES,
   PERSONALITY_IDS,
+  PERSONALITY_NICKNAMES,
   randomizeAgentSeats,
   STRATEGY_ARCHETYPES,
   type ModelTier
@@ -34,8 +38,9 @@ export const getAgentCatalog = defineOperation({
   path: '/agents/catalog',
   summary: 'The agent presets: personalities, difficulties, strategies, and models',
   description: [
-    'Lists every choice configure_agent_seat accepts: the personality presets (with a bio and avatar seed), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name.',
-    `Pass \`suggest\` (1-${MAX_RANDOM_SEATS}) to also get that many varied seat configs (no repeated personality, difficulties and strategies spread evenly), the same mix randomize_agent_seats would write; the same \`seed\` gives the same mix. Reading the catalog changes nothing.`
+    'Lists every choice configure_agent_seat accepts: the personality presets (with a bio, avatar seed, and nicknames), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name.',
+    `\`managerNames\` is the pool AI manager names are drawn from ("First Last", sometimes \`First "Nickname" Last\` with a personality nickname, at most ${MANAGER_NAME_MAX} characters); any name that fits the limit is accepted.`,
+    `Pass \`suggest\` (1-${MAX_RANDOM_SEATS}) to also get that many varied seat configs (no repeated personality or manager name, difficulties and strategies spread evenly, a fresh avatar each), the same mix randomize_agent_seats would write; the same \`seed\` gives the same mix. Reading the catalog changes nothing.`
   ].join(' '),
   tags: ['agents'],
   mutation: false,
@@ -57,9 +62,13 @@ export const getAgentCatalog = defineOperation({
         displayName: z.string(),
         teamNameSuggestion: z.string(),
         bio: z.string(),
-        avatarSeed: z.string()
+        avatarSeed: z.string(),
+        nicknames: z.array(z.string()).describe('Nicknames a manager with this personality may carry.')
       })
     ),
+    managerNames: z
+      .object({ first: z.array(z.string()), last: z.array(z.string()) })
+      .describe('The first and last names AI manager names are drawn from.'),
     difficulties: z.array(
       z.object({
         id: z.enum(DIFFICULTIES),
@@ -99,8 +108,10 @@ export const getAgentCatalog = defineOperation({
         displayName,
         teamNameSuggestion,
         bio,
-        avatarSeed
+        avatarSeed,
+        nicknames: [...PERSONALITY_NICKNAMES[id]]
       })),
+      managerNames: { first: [...MANAGER_FIRST_NAMES], last: [...MANAGER_LAST_NAMES] },
       difficulties: DIFFICULTIES.map((id) => {
         const tier = DIFFICULTY_TIERS[id];
         return {

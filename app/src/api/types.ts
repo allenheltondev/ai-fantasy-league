@@ -21,6 +21,14 @@ export interface MyLeague {
   record: string | null;
 }
 
+/** The AI manager playing an agent team (#159): absent on older responses, null for people. */
+export interface Manager {
+  name: string;
+  avatarSeed: string;
+  /** The personality it plays, e.g. "The Spreadsheet"; null until the seat is configured. */
+  personality: string | null;
+}
+
 export interface TeamDetail {
   id: string;
   name: string;
@@ -29,6 +37,7 @@ export interface TeamDetail {
   ownerName: string | null;
   ownerUserId: string | null;
   draftSlot: number;
+  manager?: Manager | null;
 }
 
 /** A scoring bucket: `min` to `max` inclusive (`max` null means no upper bound) scores `points`. */
@@ -132,6 +141,9 @@ export interface AgentSeatConfig {
   personalityId: string;
   difficulty: string;
   archetype: string;
+  /** The manager's name (#159); a default is shown when absent. */
+  name?: string;
+  avatarSeed?: string;
   advanced?: { modelOverride?: string; levers?: AgentLevers; customFlavor?: string };
 }
 
@@ -141,6 +153,8 @@ export interface Personality {
   teamNameSuggestion: string;
   bio: string;
   avatarSeed: string;
+  /** Nicknames a manager with this personality may carry. */
+  nicknames?: string[];
 }
 
 export interface AgentCatalog {
@@ -150,11 +164,14 @@ export interface AgentCatalog {
   modelTiers: string[];
   models: { key: string; displayName: string; tier: string }[];
   suggestion: { seed: string; seats: AgentSeatConfig[] } | null;
+  /** The pool manager names are drawn from. */
+  managerNames?: { first: string[]; last: string[] };
 }
 
 export interface AgentSeatView {
   seat: {
     teamId: string;
+    manager?: { name: string; avatarSeed: string };
     personality: Personality;
     difficulty: { id: string; displayName: string };
   };
@@ -235,6 +252,7 @@ export interface MatchupSide {
   teamId: string;
   teamName: string;
   score: number | null;
+  manager?: Manager | null;
 }
 
 export interface MatchupLineup {
@@ -322,6 +340,7 @@ export interface StandingsRow {
   rank: number;
   teamId: string;
   teamName: string;
+  manager?: Manager | null;
   record: string;
   pointsFor: number;
   pointsAgainst: number;

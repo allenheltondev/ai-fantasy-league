@@ -77,7 +77,11 @@ export const ChatMessageSchema = z.object({
   author: z.object({
     teamId: z.string().nullable().describe('The author team; null for system messages.'),
     teamName: z.string().nullable(),
-    name: z.string().describe('Display name: the person, the agent team, or "League".')
+    name: z.string().describe('Display name: the person, the AI manager (e.g. "Marcus Hale"), or "League".'),
+    avatarSeed: z
+      .string()
+      .optional()
+      .describe("AI managers: the seed of the manager's avatar picture. Absent for people and the league.")
   }),
   text: z.string(),
   mentionedTeamIds: z.array(z.string()).describe('Teams @mentioned in the text.'),

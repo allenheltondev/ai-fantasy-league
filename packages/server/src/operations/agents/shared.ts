@@ -10,6 +10,7 @@ import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import type { AgentSeatRecord } from '../../repos/agents.js';
+import { managerOf } from '../../league/managers.js';
 import {
   requireCommissioner as requireLeagueCommissioner,
   requireMember,
@@ -50,9 +51,17 @@ export function requireAgentSeat(access: LeagueAccess, teamId: string): Team {
   return team;
 }
 
+const SeatManagerSchema = z
+  .object({
+    name: z.string().describe("The AI manager's name (a generated default until one is set)."),
+    avatarSeed: z.string().describe('Seed the app hashes into the avatar picture.')
+  })
+  .describe("The AI manager's name and avatar: the stored ones, or stable defaults for this seat.");
+
 export const PublicSeatSchema = z
   .object({
     teamId: z.string(),
+    manager: SeatManagerSchema,
     personality: z.object({
       id: z.enum(PERSONALITY_IDS),
       displayName: z.string(),
@@ -62,7 +71,7 @@ export const PublicSeatSchema = z
     }),
     difficulty: z.object({ id: z.enum(DIFFICULTIES), displayName: z.string() })
   })
-  .describe('What everyone in the league can see about an agent seat: its persona and difficulty.');
+  .describe('What everyone in the league can see about an agent seat: its manager, persona, and difficulty.');
 export type PublicSeat = z.infer<typeof PublicSeatSchema>;
 
 export const SeatRevisionSchema = z.object({
@@ -80,6 +89,7 @@ export const CommissionerSeatSchema = z
     updatedAt: z.string(),
     updatedBy: z.string(),
     config: AgentSeatConfigSchema,
+    manager: SeatManagerSchema,
     effective: z.object({
       decisionModels: z.array(z.string()).describe('Catalog model keys, primary first then fallbacks.'),
       chatModels: z.array(z.string()),
@@ -101,8 +111,10 @@ export type CommissionerSeat = z.infer<typeof CommissionerSeatSchema>;
 export function publicSeat(record: AgentSeatRecord): PublicSeat {
   const p = getPersonality(record.config.personalityId);
   const d = getDifficulty(record.config.difficulty);
+  const { name, avatarSeed } = managerOf(record.leagueId, record.teamId, record.config);
   return {
     teamId: record.teamId,
+    manager: { name, avatarSeed },
     personality: {
       id: record.config.personalityId,
       displayName: p.displayName,
@@ -115,7 +127,7 @@ export function publicSeat(record: AgentSeatRecord): PublicSeat {
 }
 
 export function commissionerSeat(record: AgentSeatRecord): CommissionerSeat {
-  const resolved = resolveAgentConfig(record.config);
+  const resolved = resolveAgentConfig(record.config, { managerKey: record.agentId });
   return {
     teamId: record.teamId,
     agentId: record.agentId,
@@ -123,6 +135,7 @@ export function commissionerSeat(record: AgentSeatRecord): CommissionerSeat {
     updatedAt: record.updatedAt,
     updatedBy: record.updatedBy,
     config: record.config,
+    manager: { name: resolved.name, avatarSeed: resolved.avatarSeed },
     effective: {
       decisionModels: resolved.models.decision,
       chatModels: resolved.models.chat,

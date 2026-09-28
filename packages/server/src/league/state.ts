@@ -7,6 +7,7 @@ import {
   type ActionOperation
 } from './phase.js';
 import type { LeagueAccess } from './access.js';
+import type { ManagerLookup } from './managers.js';
 import { LeagueSettingsSchema } from '@fantasy/core';
 import {
   FlagsSchema,
@@ -61,7 +62,8 @@ export function leagueState(
   access: LeagueAccess,
   operations: readonly ActionOperation[],
   now: Date,
-  detail = false
+  detail = false,
+  managers?: ManagerLookup
 ): z.infer<typeof LeagueStateSchema> {
   const { league, teams, actor } = access;
   const yourTeam = actorTeam(actor);
@@ -89,12 +91,12 @@ export function leagueState(
     teams: teams.map((team) =>
       detail
         ? {
-            ...teamSummary(team),
+            ...teamSummary(team, managers),
             faabRemaining: team.faabRemaining,
             waiverPriority: team.waiverPriority,
             rosterSize: team.roster.length
           }
-        : teamSummary(team)
+        : teamSummary(team, managers)
     ),
     ...(detail ? { settings: league.settings } : {})
   };

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, CardBody, CardHeader, CardTitle, Input, StatusBadge } from '@readysetcloud/ui';
 import { ApiError, type ApiFetch } from '../api';
+import type { Manager } from '../api/types';
+import { ManagerTag } from '../components/AgentAvatar';
 import type { PlayerRef } from './board';
 import type { DraftQueue } from './queue';
 
@@ -9,6 +11,8 @@ export interface LobbyTeam {
   teamId: string;
   teamName: string;
   seatType: 'human' | 'agent';
+  /** The AI manager playing an agent seat (#159); null for people. */
+  manager?: Manager | null;
   here: boolean;
   lastSeenAt: string | null;
 }
@@ -194,7 +198,9 @@ export function DraftLobby({
             ) : (
               <ol aria-label="Draft order" className="list-decimal pl-5">
                 {lobby.order.map((t) => (
-                  <li key={t.teamId}>{t.teamName}</li>
+                  <li key={t.teamId}>
+                    {t.teamName} <ManagerTag manager={t.manager} size={16} />
+                  </li>
                 ))}
               </ol>
             )}
@@ -210,7 +216,10 @@ export function DraftLobby({
             <ul aria-label="Who's here" className="space-y-1">
               {lobby.teams.map((t) => (
                 <li key={t.teamId} className="flex items-center justify-between gap-2">
-                  <span>{t.teamName}</span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="break-words">{t.teamName}</span>
+                    <ManagerTag manager={t.manager} size={16} />
+                  </span>
                   <StatusBadge tone={t.here ? 'success' : 'neutral'}>
                     {t.seatType === 'agent' ? 'AI · here' : t.here ? 'Here' : 'Away'}
                   </StatusBadge>

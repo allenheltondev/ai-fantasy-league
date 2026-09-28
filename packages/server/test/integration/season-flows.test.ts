@@ -454,11 +454,15 @@ describe('live scoring and the weekly cycle', () => {
       true
     );
 
-    const standings = data<{ throughWeek: number; standings: { teamId: string; wins: number }[] }>(
-      await alice.get(`${L}/standings`)
-    );
+    const standings = data<{
+      throughWeek: number;
+      standings: { teamId: string; wins: number; manager: { name: string; avatarSeed: string } | null }[];
+    }>(await alice.get(`${L}/standings`));
     expect(standings.throughWeek).toBe(1);
     expect(standings.standings).toHaveLength(4);
+    // Each row names who manages the team: an AI manager for agent teams, null for people (#159).
+    expect(standings.standings.find((r) => r.teamId === 'team-1')?.manager).toBeNull();
+    expect(standings.standings.some((r) => r.manager !== null)).toBe(true);
 
     const week2 = data<{ lineupSaved: boolean; players: RosterRow[] }>(
       await alice.get(`${L}/teams/team-1/roster`)

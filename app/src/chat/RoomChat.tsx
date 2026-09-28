@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Button } from '@readysetcloud/ui';
 import { ApiError } from '../api';
+import { AgentAvatar } from '../components/AgentAvatar';
 import type { ChatApi, ChatMessage, ChatRoom, ChatTeam } from './api';
 import type { Connect } from './realtime';
 import { useLeagueChat } from './useLeagueChat';
@@ -118,11 +119,20 @@ export function highlightMentions(text: string, teams: readonly ChatTeam[]): Rea
   );
 }
 
+/** An AI manager's avatar: the one on the message, else its team's current one (older messages). */
+function AuthorAvatar({ message, teams }: { message: ChatMessage; teams: readonly ChatTeam[] }) {
+  const seed =
+    message.author.avatarSeed ?? teams.find((t) => t.id === message.author.teamId)?.avatarSeed ?? null;
+  if (seed === null) return null;
+  return <AgentAvatar seed={seed} label={`${message.author.name} avatar`} size={20} />;
+}
+
 function MessageItem({ message, teams }: { message: ChatMessage; teams: readonly ChatTeam[] }) {
   if (message.kind === 'system') return <SystemCard message={message} />;
   return (
     <li data-kind={message.kind} className="flex flex-col">
       <div className="flex items-baseline gap-2 text-sm">
+        {message.kind === 'agent' ? <AuthorAvatar message={message} teams={teams} /> : null}
         <span className="font-semibold">{message.author.name}</span>
         {message.author.teamName !== null && message.author.teamName !== message.author.name ? (
           <span className="text-muted-foreground">{message.author.teamName}</span>

@@ -1,3 +1,4 @@
+import { effectiveManager } from '@fantasy/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { agentPrincipal } from '../../src/auth/principal.js';
 import type { ChatMessage } from '../../src/chat/model.js';
@@ -69,6 +70,32 @@ for (const backend of ['memory', 'dynamo'] as const) {
       });
       await as(h, BOB).post(`${L}/chat/messages`, { text: 'no mentions here, alice@example.com' });
       expect(h.events.events.filter((e) => e.detailType === 'Chat Mention')).toHaveLength(1);
+    });
+
+    it('names AI managers as authors and lets people @mention them by name (#159)', async () => {
+      await as(h, ALICE).put(`${L}/agents/team-4`, {
+        personalityId: 'stats-nerd',
+        difficulty: 'pro',
+        archetype: 'balanced',
+        name: 'Priya Okafor',
+        avatarSeed: 'priya-1'
+      });
+      const res = await as(h, BOB).post(`${L}/chat/messages`, { text: '@Priya Okafor bring it.' });
+      expect(data<{ message: ChatMessage }>(res).message.mentionedTeamIds).toEqual(['team-4']);
+      const agent = agentPrincipal({ agentId: 'lg-chat.team-4', teamId: 'team-4', leagueId: 'lg-chat' });
+      const reply = await invokeTool({
+        registry,
+        services: h.services,
+        principal: agent,
+        name: 'post_message',
+        args: { leagueId: 'lg-chat', text: 'Brought. - Priya', idempotencyKey: 'agent-chat-0101' }
+      });
+      expect((reply.body as { data: { message: ChatMessage } }).data.message.author).toEqual({
+        teamId: 'team-4',
+        teamName: 'Team 4',
+        name: 'Priya Okafor',
+        avatarSeed: 'priya-1'
+      });
     });
 
     it('filters by since and mentions of me, and returns compact messages on request', async () => {
@@ -257,9 +284,11 @@ for (const backend of ['memory', 'dynamo'] as const) {
       });
       expect(result.status).toBe(200);
       const message = (result.body as { data: { message: ChatMessage } }).data.message;
+      // An unconfigured seat speaks as its default manager (#159).
+      const manager = effectiveManager(null, 'lg-chat.team-3');
       expect(message).toMatchObject({
         kind: 'agent',
-        author: { teamId: 'team-3', teamName: 'Team 3', name: 'Team 3' },
+        author: { teamId: 'team-3', teamName: 'Team 3', name: manager.name, avatarSeed: manager.avatarSeed },
         mentionedTeamIds: ['team-2']
       });
       expect(h.events.events.find((e) => e.detailType === 'Chat Mention')?.detail).toMatchObject({

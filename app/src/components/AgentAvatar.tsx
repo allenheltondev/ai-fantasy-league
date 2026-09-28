@@ -53,3 +53,29 @@ export function AgentAvatar({ seed, label, size = 48 }: { seed: string; label: s
     </svg>
   );
 }
+
+/**
+ * Who manages a team, for lists (standings, matchups, the draft): an AI manager's avatar and name
+ * (#159), with its personality as a tooltip. Renders nothing for people, or when the API sent none.
+ */
+export function ManagerTag({
+  manager,
+  size = 20,
+  className = ''
+}: {
+  manager: { name: string; avatarSeed: string; personality?: string | null } | null | undefined;
+  size?: number;
+  className?: string;
+}) {
+  if (manager === null || manager === undefined) return null;
+  return (
+    <span
+      data-testid="manager-tag"
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 text-xs font-normal text-muted-foreground ${className}`}
+      title={manager.personality ?? undefined}
+    >
+      <AgentAvatar seed={manager.avatarSeed} label={`${manager.name} avatar`} size={size} />
+      <span className="truncate">{manager.name}</span>
+    </span>
+  );
+}

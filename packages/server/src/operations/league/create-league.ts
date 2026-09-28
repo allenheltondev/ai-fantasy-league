@@ -14,6 +14,7 @@ import { newTeam } from '../../league/seats.js';
 import { syncDraftSchedule, utcDraftTime } from '../../league/draft-schedule.js';
 import { buildLeagueSettings, settingsError, SettingsPatchSchema } from '../../league/settings.js';
 import { leagueDetail, LeagueDetailSchema, TeamNameSchema } from '../../league/views.js';
+import { leagueManagers } from '../../league/managers.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
 import type { League, Team } from '../../repos/types.js';
 
@@ -139,7 +140,7 @@ export const createLeague = defineOperation({
       midSeasonStart: settings.schedule.startWeek > 1
     });
     if (settings.draft.scheduledAt !== null) await syncDraftSchedule(ctx, league);
-    return withWarnings(leagueDetail(league, teams), warnings);
+    return withWarnings(leagueDetail(league, teams, await leagueManagers(ctx, leagueId, teams)), warnings);
   }
 });
 

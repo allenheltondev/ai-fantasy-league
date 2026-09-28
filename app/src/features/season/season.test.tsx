@@ -212,7 +212,12 @@ function matchupData(status: 'scheduled' | 'in_progress' | 'final', homeScore: n
       id: 'W01-1',
       status,
       home: { teamId: 'team-1', teamName: "Alice's Team", score: homeScore },
-      away: { teamId: 'team-2', teamName: 'Robots', score: 12.5 }
+      away: {
+        teamId: 'team-2',
+        teamName: 'Robots',
+        score: 12.5,
+        manager: { name: 'Mei Park', avatarSeed: 'mei', personality: 'The Oracle' }
+      }
     },
     lineups: {
       home: {
@@ -365,6 +370,7 @@ describe('StandingsPage', () => {
         rank: 2,
         teamId: 'team-2',
         teamName: 'Robots',
+        manager: { name: 'Mei Park', avatarSeed: 'mei', personality: 'The Oracle' },
         record: '0-2',
         pointsFor: 200,
         pointsAgainst: 250.5,
@@ -386,6 +392,15 @@ describe('StandingsPage', () => {
         .map((cell) => cell.dataset.label ?? null)
     ).toEqual([null, null, null, 'PF', 'PA', 'Streak']);
     expect(table.querySelector('thead')).toHaveClass('max-sm:sr-only');
+  });
+
+  it("shows an AI team's manager name and avatar (#159)", async () => {
+    open('/leagues/L1/standings', { getStandings: vi.fn(async () => standings) });
+    const table = await screen.findByRole('table', { name: 'Standings' });
+    const robots = within(table).getAllByRole('row')[2]!;
+    expect(within(robots).getByTestId('manager-tag')).toHaveTextContent('Mei Park');
+    expect(within(robots).getByRole('img', { name: 'Mei Park avatar' })).toBeInTheDocument();
+    expect(within(within(table).getAllByRole('row')[1]!).queryByTestId('manager-tag')).toBeNull();
   });
 
   it('says when no week is final yet', async () => {

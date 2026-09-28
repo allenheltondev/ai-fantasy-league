@@ -12,7 +12,14 @@ const lamb = { id: 'fx-lamb', name: 'CeeDee Lamb', team: null, position: 'WR' };
 const TEAMS: DraftLobbyView['teams'] = [
   { teamId: 'team-1', teamName: "Allen's Team", seatType: 'human', here: true, lastSeenAt: null },
   { teamId: 'team-2', teamName: "Bob's Team", seatType: 'human', here: false, lastSeenAt: null },
-  { teamId: 'team-3', teamName: 'The Spreadsheet', seatType: 'agent', here: true, lastSeenAt: null }
+  {
+    teamId: 'team-3',
+    teamName: 'The Spreadsheet',
+    seatType: 'agent',
+    manager: { name: 'Priya Okafor', avatarSeed: 'p1', personality: 'The Spreadsheet' },
+    here: true,
+    lastSeenAt: null
+  }
 ];
 
 function lobby(overrides: Partial<DraftLobbyView> = {}): DraftLobbyView {
@@ -91,8 +98,11 @@ describe('DraftLobby', () => {
     );
     const here = within(screen.getByRole('list', { name: "Who's here" }));
     expect(screen.getByText("Who's here (2 of 3)")).toBeInTheDocument();
-    expect(here.getByText("Bob's Team").parentElement).toHaveTextContent('Away');
-    expect(here.getByText('The Spreadsheet').parentElement).toHaveTextContent('AI · here');
+    expect(here.getByText("Bob's Team").closest('li')).toHaveTextContent('Away');
+    expect(here.getByText('The Spreadsheet').closest('li')).toHaveTextContent('AI · here');
+    // The AI manager's name and avatar (#159).
+    expect(here.getByText('The Spreadsheet').closest('li')).toHaveTextContent('Priya Okafor');
+    expect(here.getByRole('img', { name: 'Priya Okafor avatar' })).toBeInTheDocument();
     expect(calls[0]).toEqual({ path: '/leagues/L1/draft/lobby', request: { method: 'POST' } });
     expect(screen.queryByRole('button', { name: 'Start now' })).not.toBeInTheDocument();
   });

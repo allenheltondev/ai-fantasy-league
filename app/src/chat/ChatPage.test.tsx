@@ -9,7 +9,7 @@ import type { Connect } from './realtime';
 
 const TEAMS: ChatTeam[] = [
   { id: 'team-1', name: 'Allen FC', ownerName: 'Allen' },
-  { id: 'team-2', name: 'Robo Ballers', ownerName: null },
+  { id: 'team-2', name: 'Robo Ballers', ownerName: null, avatarSeed: 'mei' },
   { id: 'team-3', name: 'Rocket Men', ownerName: 'Rae' }
 ];
 
@@ -112,6 +112,43 @@ describe('ChatPage', () => {
       expect(within(items[1] as HTMLElement).getByText('@robo ballers').tagName).toBe('STRONG')
     );
     expect(await screen.findByText('Updates every 0.05s')).toBeInTheDocument();
+  });
+
+  it("shows an AI manager's name and avatar, falling back to its team's for older messages (#159)", async () => {
+    const { api } = fakeApi({
+      messages: [
+        msg({
+          kind: 'agent',
+          author: { teamId: 'team-2', teamName: 'Robo Ballers', name: 'Robo Ballers' },
+          text: 'old'
+        }),
+        msg({
+          kind: 'agent',
+          author: { teamId: 'team-2', teamName: 'Robo Ballers', name: 'Mei Park', avatarSeed: 'new-seed' },
+          text: 'new - Mei'
+        })
+      ]
+    });
+    renderChat(api);
+    expect(await within(list()).findByText('new - Mei')).toBeInTheDocument();
+    const items = within(list()).getAllByRole('listitem');
+    expect(
+      within(items[0] as HTMLElement).getByRole('img', { name: 'Robo Ballers avatar' })
+    ).toBeInTheDocument();
+    expect(within(items[1] as HTMLElement).getByText('Mei Park')).toBeInTheDocument();
+    expect(within(items[1] as HTMLElement).getByText('Robo Ballers')).toBeInTheDocument();
+    expect(within(items[1] as HTMLElement).getByRole('img', { name: 'Mei Park avatar' })).toBeInTheDocument();
+  });
+
+  it('shows no avatar for an AI message whose team is gone', async () => {
+    const { api } = fakeApi({
+      messages: [
+        msg({ kind: 'agent', author: { teamId: 'team-9', teamName: 'Gone', name: 'Gone' }, text: 'bye' })
+      ]
+    });
+    renderChat(api);
+    expect(await within(list()).findByText('bye')).toBeInTheDocument();
+    expect(within(list()).queryByRole('img')).not.toBeInTheDocument();
   });
 
   it('shows league announcements as cards with the players they name', async () => {

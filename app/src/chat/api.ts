@@ -1,4 +1,5 @@
 import type { ApiFetch } from '../api/client';
+import type { TeamDetail } from '../api/types';
 
 /**
  * Shapes from the chat operations (get_chat, post_message, list_chat_rooms, mark_room_read,
@@ -48,7 +49,8 @@ export interface ChatMessage {
   /** The room (#144); absent only on messages from before rooms. */
   roomId?: string;
   kind: 'user' | 'agent' | 'system';
-  author: { teamId: string | null; teamName: string | null; name: string };
+  /** `avatarSeed`: AI managers only (#159); older agent messages carry the team name as `name`. */
+  author: { teamId: string | null; teamName: string | null; name: string; avatarSeed?: string };
   text: string;
   mentionedTeamIds: string[];
   event: { detailType: string; eventId: string } | null;
@@ -76,7 +78,10 @@ export interface RealtimeInfo {
 export interface ChatTeam {
   id: string;
   name: string;
+  /** The person, or the AI manager (#159), who manages the team. */
   ownerName: string | null;
+  /** An AI manager's avatar seed; absent for people. */
+  avatarSeed?: string;
 }
 
 export interface ChatApi {
@@ -121,8 +126,13 @@ export function createChatApi(apiFetch: ApiFetch): ChatApi {
       return (await apiFetch<RealtimeInfo>(`${league(leagueId)}/realtime`)).data;
     },
     async teams(leagueId) {
-      const res = await apiFetch<{ teams: ChatTeam[] }>(league(leagueId));
-      return res.data.teams.map((t) => ({ id: t.id, name: t.name, ownerName: t.ownerName }));
+      const res = await apiFetch<{ teams: TeamDetail[] }>(league(leagueId));
+      return res.data.teams.map((t) => ({
+        id: t.id,
+        name: t.name,
+        ownerName: t.ownerName ?? t.manager?.name ?? null,
+        ...(t.manager ? { avatarSeed: t.manager.avatarSeed } : {})
+      }));
     }
   };
 }
