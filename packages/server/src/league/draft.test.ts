@@ -190,6 +190,26 @@ describe('handleDraftDeadline', () => {
     expect((await t.repos.teams.get(L, 'team-3'))?.roster).toEqual([fixtureDraftPool[2]!.id]);
     expect(t.events.events.filter((e) => e.detailType === 'Draft Completed')).toHaveLength(1);
     expect(await handleDraftDeadline(t.services, { leagueId: L, pick: 4 })).toBe('ignored');
+    // Alice's team starts with a default lineup (#176); agent seats set their own.
+    expect((await t.repos.lineups.get(L, 'team-1', 1))?.entries).toEqual([
+      { playerId: fixtureDraftPool[0]!.id, slot: expect.not.stringMatching(/^(BN|IR)$/) }
+    ]);
+    expect(await t.repos.lineups.get(L, 'team-2', 1)).toBeNull();
+  });
+
+  it('completes the draft even when the default lineups fail, and logs it', async () => {
+    const t = await setup();
+    const warn = vi.spyOn(t.services.log, 'warn');
+    vi.spyOn(t.repos.lineups, 'latest').mockRejectedValue(new Error('table down'));
+    await t.repos.drafts.create(
+      record(draftWith(fixtureDraftPool.slice(0, 4), { rounds: 1 }), {
+        status: 'complete',
+        deadline: null,
+        completedAt: START
+      })
+    );
+    expect(await handleDraftDeadline(t.services, { leagueId: L, pick: 4 })).toBe('completed');
+    expect(warn).toHaveBeenCalledWith('default lineups failed', expect.objectContaining({ leagueId: L }));
   });
 
   it('sets waiver priority to the reverse draft order, holds undrafted players on waivers, and retries a season-start conflict', async () => {
