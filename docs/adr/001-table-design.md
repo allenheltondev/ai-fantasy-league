@@ -64,8 +64,8 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 
 | Entity | `sk` | GSI keys | Notes |
 |---|---|---|---|
-| Player profile | `PROFILE` | GSI1 `PLAYERIDX#<position>` / `<normalized name>#<playerId>` | `get_player` by id is a GetItem. The player sync job writes profiles in batches of 25. |
-| News item | `NEWS#<ts>#<newsId>` | GSI2 `NEWS` / `<ts>#<playerId>` | A player's news is a query in his own partition. The league-wide feed (`get_news`) is a reverse GSI2 query. |
+| Player profile | `PROFILE` | GSI1 `PLAYERIDX#<position>` / `<normalized name>#<playerId>` | `get_player` by id is a GetItem. The player sync job writes profiles in batches of 25, each with a `source` attribute (the normalized Sleeper record) that the next sync diffs against. |
+| News item (player copy) | `NEWS#<ts>#<newsId>` | none | A player's news is a query in his own partition. |
 
 #### Player name search
 
@@ -78,6 +78,18 @@ Players are resolved by name everywhere (`search_players`, `get_player`, and eve
 
 Because `GSI1SK` starts with the normalized name, a later last-name prefix query (`begins_with`) is possible without a schema change if the universe ever outgrows the in-memory approach.
 
+### News: `pk = NEWS#<newsId>` and `pk = TEAMNEWS#<team>`
+
+`newsId` is a hash of the normalized article URL (docs/data-sources.md).
+
+| Entity | `pk` | `sk` | GSI keys | Notes |
+|---|---|---|---|---|
+| News item (canonical) | `NEWS#<newsId>` | `ITEM` | GSI2 `NEWS` / `<publishedAt>#<newsId>` | Written with `attribute_not_exists(pk)`: the dedupe gate. The league-wide feed (`get_news` with no filter) is a reverse GSI2 query bounded by the time window. |
+| News item (team copy) | `TEAMNEWS#<team>` | `NEWS#<publishedAt>#<newsId>` | none | `get_news` by team is one query. |
+
+Copies (player and team) are written only after the canonical put succeeds, and every news item
+has a 90-day `ttl`.
+
 ### Stats and projections
 
 | Entity | `pk` | `sk` | GSI keys | Notes |
@@ -85,9 +97,10 @@ Because `GSI1SK` starts with the normalized name, a later last-name prefix query
 | Stat line | `STATS#<season>#W05` | `PLAYER#<playerId>` | GSI2 `PLAYERSTATS#<playerId>` / `<season>#W05` | Scoring a week reads one partition (all players). A player's game log is a GSI2 query. Corrections overwrite the item and keep `correctedAt`. |
 | Projection snapshot pointer | `PROJ#<season>#W05` | `ASOF#<ts>` | none | One item per ingest. "The latest projections as of t" is a reverse query with `sk <= ASOF#t`, limit 1. The simulator relies on this for its `asOf` reads. |
 | Projection | `PROJ#<season>#W05#<ts>` | `PLAYER#<playerId>` | none | Snapshots are immutable, so a replay sees exactly what an agent would have seen at the time. |
-| Trending snapshot | `TRENDING#<add\|drop>` | `ASOF#<ts>` | none | `get_trending_players` reads the latest snapshot, or the one as of a given time. |
-| NFL state | `NFLSTATE` | `CURRENT` | none | Season and week. Drives week rollover. |
-| NFL schedule | `NFLSCHED#<season>#W05` | `GAME#<kickoff>#<gameId>` | none | Per-player lineup locks at kickoff, and the game windows for live scoring. |
+| Trending snapshot | `TRENDING#<add\|drop>` | `ASOF#<ts>` | none | `get_trending_players` reads the latest snapshot, or the one as of a given time. One item holds every cached lookback window (24h, 72h, 168h). 30-day `ttl`. |
+| NFL state | `NFLSTATE` | `CURRENT` | none | Season and week. Drives week rollover. Written conditionally on its `revision` (`<season>:<seasonType>:<week>`), so a rollover is announced once. |
+| NFL schedule | `NFLSCHED#<season>#W05` | `GAME#<kickoff>#<gameId>` | none | Per-player lineup locks at kickoff, and the game windows for live scoring. A flexed game leaves a stale copy under its old kickoff; reads keep the most recently synced copy of each game id. |
+| Season schedule | `NFLSCHED#<season>` | `SEASON` | none | Bye weeks, game count, and when the schedule was synced. |
 
 ### Operational records
 
@@ -110,7 +123,9 @@ Because `GSI1SK` starts with the normalized name, a later last-name prefix query
 | `get_player` (by id) | GetItem `PLAYER#id` / `PROFILE` |
 | `get_projections` | Latest `PROJ#…` pointer as of now, then the snapshot partition (or GetItem for one player) |
 | `get_trending_players` | Query `TRENDING#add`, reverse, limit 1 |
-| `get_news` | Per player: query `PLAYER#id`, `begins_with(NEWS#)`. League-wide: GSI2 `NEWS` |
+| `get_news` | Per player: query `PLAYER#id`, `sk BETWEEN NEWS#<since> AND NEWS#<until>`. Per team: the same on `TEAMNEWS#<team>`. League-wide: GSI2 `NEWS` |
+| Live scoring gate (`ingestStats`) | GetItem `NFLSTATE`, then query `NFLSCHED#<season>#W05` |
+| Player sync diff | The six GSI1 `PLAYERIDX#` shards (the `source` attribute) |
 | `get_transactions` | Query `TXN#`, reverse, paginated |
 | `get_chat`, `post_message` | Query or put in `CHAT#<leagueId>` |
 | `get_draft_board`, `make_draft_pick` | Query `DRAFT`; transact the pick, `OWN#`, `ROSTER#`, and `DRAFT` |

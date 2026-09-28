@@ -12,7 +12,7 @@
   },
   "scripts": {
     "dev": "npm run build -w @fantasy/core && FANTASY_LOCAL_AUTH=1 tsx src/local.ts",
-    "openapi": "tsx --tsconfig tsconfig.json scripts/generate-openapi.ts",
+    "openapi": "tsx --conditions=types --tsconfig tsconfig.json scripts/generate-openapi.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -24,10 +24,12 @@
     "tsx": "^4.23.15"
   },
   "dependencies": {
-    "@fantasy/core": "0.0.0",
     "@aws-sdk/client-dynamodb": "^3.1141.0",
     "@aws-sdk/client-eventbridge": "^3.1141.0",
+    "@aws-sdk/client-ssm": "^3.1141.0",
     "@aws-sdk/lib-dynamodb": "^3.1141.0",
+    "@fantasy/core": "0.0.0",
+    "@fantasy/data": "0.0.0",
     "aws-jwt-verify": "^5.2.1",
     "hono": "^4.13.9",
     "zod": "^4.6.5"

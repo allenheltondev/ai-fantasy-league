@@ -71,6 +71,12 @@ describe('normalizePlayers (fixtures)', () => {
 });
 
 describe('normalizePlayer edge cases', () => {
+  it('keeps a real search_rank and drops the unranked sentinel', () => {
+    expect(normalizePlayer({ player_id: '1', search_rank: 12 }).searchRank).toBe(12);
+    expect(normalizePlayer({ player_id: '2', search_rank: 9_999_999 }).searchRank).toBeUndefined();
+    expect(normalizePlayer({ player_id: '3', search_rank: null }).searchRank).toBeUndefined();
+  });
+
   it('falls back sensibly when Sleeper leaves fields null', () => {
     const p = normalizePlayer({ player_id: '123', number: '12', fantasy_positions: null, position: 'TE' });
     expect(p).toMatchObject({

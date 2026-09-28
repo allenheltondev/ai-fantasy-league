@@ -36,6 +36,18 @@ Parameters:
     Description: Memory (MB) for the API Lambda. Lambda scales CPU with memory, so this is also a cold-start knob.
 
   # --------------------------------------------------------------------------
+  # Data jobs (packages/server/src/jobs, the same artifact as the API)
+  # --------------------------------------------------------------------------
+  SleeperBaseUrl:
+    Type: String
+    Default: https://api.sleeper.app
+    AllowedPattern: ^https://[^\s/]+(/.*)?$
+    Description: >
+      Base URL of the Sleeper API the data jobs read players, NFL state,
+      stats, projections, and trending from. Override it only to point at a
+      proxy or a recorded-fixture server.
+
+  # --------------------------------------------------------------------------
   # Shared Ready, Set, Cloud configuration (readysetcloud/rsc-core SSM)
   # --------------------------------------------------------------------------
   AuthUserPoolId:
@@ -228,6 +240,134 @@ Resources:
       FunctionUrlConfig:
         AuthType: NONE
         InvokeMode: BUFFERED
+
+  # ---------------------------------------------------------------------------
+  # Data jobs: one Lambda (same zip as the API, handler jobs.handler) that
+  # EventBridge Scheduler invokes with {"job": "<name>"} on each cadence. Jobs
+  # read Sleeper/nflverse/RSS and write the PLAYER#, STATS#, PROJ#, TRENDING#,
+  # NEWS#, NFLSTATE and NFLSCHED# items (docs/adr/001-table-design.md).
+  # SAM gives each ScheduleV2 its own role that may invoke only this function.
+  # ---------------------------------------------------------------------------
+  DataJobsFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      SkipBuild: true
+    Properties:
+      Description: Scheduled data jobs (player sync, NFL state, schedule, stats, projections, trending, news)
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: jobs.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      # The player sync parses Sleeper's ~5 MB universe plus the nflverse
+      # schedule and ID map in memory.
+      MemorySize: 1024
+      Timeout: 300
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FantasyTable
+          EVENT_BUS_NAME: default
+          SLEEPER_BASE_URL: !Ref SleeperBaseUrl
+          NEWS_FEEDS_PARAMETER: !Ref NewsFeedsParameter
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            # Reads and writes only; the jobs never delete, scan, or change the table.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+              Resource:
+                - !GetAtt FantasyTable.Arn
+                - !Sub ${FantasyTable.Arn}/index/*
+            # Player Status Changed, Week Rolled Over, Scores Updated, Player News Alert.
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${NewsFeedsParameter}
+      Events:
+        # 1-2x a day: the Sleeper universe is a large payload.
+        SyncPlayers:
+          Type: ScheduleV2
+          Properties:
+            Description: Sync the Sleeper player universe
+            ScheduleExpression: cron(17 9,21 * * ? *)
+            Input: '{"job":"syncPlayers"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+        SyncNflState:
+          Type: ScheduleV2
+          Properties:
+            Description: Store the NFL season and week; announce week rollovers
+            ScheduleExpression: rate(15 minutes)
+            Input: '{"job":"syncNflState"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 1
+        SyncSchedule:
+          Type: ScheduleV2
+          Properties:
+            Description: Store the season schedule and bye weeks
+            ScheduleExpression: cron(7 10 * * ? *)
+            Input: '{"job":"syncSchedule"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+        # Every 2 minutes, but the job returns after two reads outside game windows.
+        IngestStats:
+          Type: ScheduleV2
+          Properties:
+            Description: Live stats during game windows
+            ScheduleExpression: rate(2 minutes)
+            Input: '{"job":"ingestStats"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+        IngestProjections:
+          Type: ScheduleV2
+          Properties:
+            Description: Snapshot weekly projections
+            ScheduleExpression: rate(1 hour)
+            Input: '{"job":"ingestProjections"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 1
+        IngestTrending:
+          Type: ScheduleV2
+          Properties:
+            Description: Cache trending adds and drops
+            ScheduleExpression: rate(1 hour)
+            Input: '{"job":"ingestTrending"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 1
+        IngestNews:
+          Type: ScheduleV2
+          Properties:
+            Description: Ingest free NFL news RSS feeds
+            ScheduleExpression: rate(15 minutes)
+            Input: '{"job":"ingestNews"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+
+  # The news feed list the ingestNews job reads on every run, so feeds can be
+  # added or removed without a deploy (aws ssm put-parameter --overwrite).
+  # `defaults` means the built-in list in packages/server/src/jobs/news/
+  # default-feeds.json; otherwise a JSON array of {url, source, team?} or one
+  # URL per line. See docs/data-sources.md.
+  NewsFeedsParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AWS::StackName}/news-feeds
+      Type: String
+      Value: defaults
+      Description: News RSS feeds for the ingestNews job (defaults, JSON, or one URL per line)
 
   # This stack's app client on the shared pool (rsc-core ui/AGENTS.md: one
   # pool, one client per app). The SPA calls cognito-idp directly with
@@ -451,6 +591,15 @@ Outputs:
       The API Lambda's Function URL, for curl-level debugging. The supported
       front door is AppUrl, where the API is at /api/v1.
     Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  DataJobsFunctionName:
+    Condition: DeployServer
+    Description: >
+      The scheduled data jobs Lambda. Run a job by hand with
+      aws lambda invoke --function-name <name> --payload '{"job":"syncPlayers"}' out.json
+    Value: !Ref DataJobsFunction
+  NewsFeedsParameterName:
+    Description: SSM parameter holding the news feed list (edit it to change feeds without a deploy)
+    Value: !Ref NewsFeedsParameter
   UserPoolId:
     Condition: DeployServer
     Description: The shared Ready, Set, Cloud user pool the API verifies ID tokens against
