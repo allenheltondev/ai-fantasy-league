@@ -17,7 +17,7 @@ import type { FeedConfig } from '../../src/jobs/news/feeds.js';
 import { silentLogger } from '../../src/log.js';
 import { PlayerDirectory } from '../../src/players/directory.js';
 import { createInMemoryReferenceStore } from '../../src/repos/memory-reference.js';
-import { InMemoryPlayerRepository } from '../../src/repos/memory.js';
+import { createInMemoryRepos, InMemoryPlayerRepository } from '../../src/repos/memory.js';
 
 /**
  * A DataProvider whose answers tests set directly. Every call is recorded; an unset answer
@@ -114,6 +114,7 @@ export function createTestJobDeps(
   return {
     provider: options.provider ?? new StubProvider(),
     reference: createInMemoryReferenceStore(playerRepo),
+    repos: createInMemoryRepos(),
     events: new InMemoryEventPublisher(),
     directory: new PlayerDirectory({ repo: playerRepo, clock }),
     log: silentLogger,

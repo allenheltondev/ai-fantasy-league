@@ -271,7 +271,7 @@ Resources:
     Metadata:
       SkipBuild: true
     Properties:
-      Description: Scheduled data jobs (player sync, NFL state, schedule, stats, projections, trending, news)
+      Description: Scheduled jobs (player sync, NFL state, schedule, stats, projections, trending, news, waivers)
       CodeUri:
         Bucket: !Ref ArtifactBucket
         Key: !Ref ServerArtifactKey
@@ -306,7 +306,8 @@ Resources:
               Resource:
                 - !GetAtt FantasyTable.Arn
                 - !Sub ${FantasyTable.Arn}/index/*
-            # Player Status Changed, Week Rolled Over, Scores Updated, Player News Alert.
+            # Player Status Changed, Week Rolled Over, Scores Updated, Player News Alert,
+            # Waivers Processed, Waiver Window Opened.
             - Effect: Allow
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
@@ -372,6 +373,16 @@ Resources:
             Input: '{"job":"ingestNews"}'
             RetryPolicy:
               MaximumRetryAttempts: 0
+        # Daily at WAIVER_RUN_HOUR_UTC (packages/core/src/waivers/schedule.ts): 3 AM US Central
+        # in daylight time. Idempotent per day, so a retry never processes a window twice.
+        ProcessWaivers:
+          Type: ScheduleV2
+          Properties:
+            Description: Resolve due waiver claims in every in-season league
+            ScheduleExpression: cron(0 8 * * ? *)
+            Input: '{"job":"processWaivers"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 2
 
   # The news feed list the ingestNews job reads on every run, so feeds can be
   # added or removed without a deploy (aws ssm put-parameter --overwrite).

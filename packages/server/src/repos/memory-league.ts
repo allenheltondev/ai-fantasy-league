@@ -98,6 +98,13 @@ export class InMemoryLeagueRepository implements LeagueRepository {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   }
 
+  async listByPhase(phase: League['phase']): Promise<League[]> {
+    return this.store
+      .partitions()
+      .flatMap((p) => (p.league !== null && p.league.phase === phase ? [clone(p.league)] : []))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+
   async delete(leagueId: string): Promise<void> {
     this.store.drop(leagueId);
   }

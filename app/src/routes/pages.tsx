@@ -7,6 +7,7 @@ import { Link, NavLink, Outlet, useParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
 import { CreateLeagueWizard } from '../features/create/CreateLeagueWizard';
 import { MyLeaguesPage } from '../features/leagues/MyLeaguesPage';
+import { PlayersPage } from '../features/players/PlayersPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 
 export const LEAGUE_SECTIONS = [
@@ -57,6 +58,7 @@ export function LeagueLayout() {
 
 export function LeagueSectionPage({ section }: { section: LeagueSectionPath }) {
   if (section === 'settings') return <SettingsPage />;
+  if (section === 'players') return <PlayersPage />;
   const label = LEAGUE_SECTIONS.find((s) => s.path === section)?.label ?? section;
   return (
     <div data-testid={`league-section-${section}`}>

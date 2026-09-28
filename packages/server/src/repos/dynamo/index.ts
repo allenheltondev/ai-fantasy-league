@@ -10,6 +10,7 @@ import { DynamoPlayerRepository } from './players.js';
 import { DynamoScheduleRepository } from './schedule.js';
 import type { TableContext } from './table.js';
 import { DynamoTeamRepository } from './teams.js';
+import { DynamoWaiverRepository } from './waivers.js';
 
 export function createDynamoRepos(table: TableContext): Repos {
   return {
@@ -22,7 +23,8 @@ export function createDynamoRepos(table: TableContext): Repos {
     invites: new DynamoInviteRepository(table),
     schedule: new DynamoScheduleRepository(table),
     drafts: new DynamoDraftRepository(table),
-    agents: new DynamoAgentRepository(table)
+    agents: new DynamoAgentRepository(table),
+    waivers: new DynamoWaiverRepository(table)
   };
 }
 
@@ -36,5 +38,6 @@ export {
   DynamoMemberRepository,
   DynamoPlayerRepository,
   DynamoScheduleRepository,
-  DynamoTeamRepository
+  DynamoTeamRepository,
+  DynamoWaiverRepository
 };

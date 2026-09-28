@@ -34,7 +34,7 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 
 | Entity | `sk` | GSI keys | Notes |
 |---|---|---|---|
-| League (settings, phase, week, commissioner, deadlines, schedule seed, version) | `META` | GSI1 `CREATOR#<sub>` / `LEAGUE#<createdAt>#<leagueId>` | `get_league_state` is this GetItem plus the team query. The phase and sub-phase flags drive `allowedActions` (`league/phase.ts`). The creator index counts a user's active leagues for the league quota. |
+| League (settings, phase, week, commissioner, deadlines, schedule seed, version) | `META` | GSI1 `CREATOR#<sub>` / `LEAGUE#<createdAt>#<leagueId>`; GSI2 `LEAGUEPHASE#<phase>` / `<createdAt>#<leagueId>` | `get_league_state` is this GetItem plus the team query. The phase and sub-phase flags drive `allowedActions` (`league/phase.ts`). The creator index counts a user's active leagues for the league quota. The phase index lets scheduled jobs (waiver processing) find the in-season leagues without a scan. |
 | Member (a human seat holder) | `MEMBER#<sub>` | GSI1 `USER#<sub>` / `LEAGUE#<leagueId>` | "My leagues" is a GSI1 query. The conditional put (`attribute_not_exists`) enforces one seat per person per league. Authorization reads the owner on the team items. |
 | Invite | `INVITE#<inviteId>` | GSI1 `INVITE#<sha256(token)>` / `INVITE` | Only the SHA-256 of the token is stored; the token is shown once. Accepting a link hashes the token and queries GSI1. Uses are counted with a `version` check. `ttl` is the expiry plus 30 days, so expired invites stay listable for a while. |
 | Team / seat | `TEAM#<teamId>` | none | Name, seat type (`human` or `agent`), owner `sub` (null for open and agent seats), agent config id, draft slot, FAAB left, waiver priority, roster (player ids, empty until the draft), `version`. Items carry `entity = team`, because `TEAM#<teamId>#AGENT` and `TEAM#<teamId>#MEMORY#...` share the prefix: the team list is one `begins_with(TEAM#)` query filtered on `entity`. |
@@ -42,11 +42,13 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 | Agent memory | `TEAM#<teamId>#MEMORY#<ts>` | none | Per-agent league memory injected into prompts (SPEC §10). |
 | Draft | `DRAFT` | none | The order, rounds, clock, every pick, the current deadline, status (`in_progress`, `paused`, `complete`), and `version`. `get_draft_board` is one GetItem. `make_draft_pick` rewrites the item with a `version` condition, so two racing picks cannot both land (a 16-round, 12-team draft is well under 100 KB). Team rosters are then set to the team's picks. |
 | Roster | `ROSTER#<teamId>` | none | `get_roster` is a GetItem. All rosters are one `begins_with(ROSTER#)` query (at most 12 items). |
-| Player ownership lock | `OWN#<playerId>` | none | Holds `teamId`. Adds, claims, picks, and trades write it with a condition in the same transaction as the roster change, so a player can never be on two rosters. Free agent check is a GetItem. |
+| Player ownership lock | `OWN#<playerId>` | none | Holds `teamId` (null once released; locks are never deleted). A roster add first takes the lock with a condition (free, already this team's, or held by a team whose roster no longer has the player), then writes the team with its `version`, and a drop frees it, so two adds of one player never both land. |
 | Lineup | `LINEUP#W05#<teamId>` | none | `set_lineup` puts one item. A week's lineups are one query. |
 | Matchup | `MATCHUP#W05#<matchupId>` | none | `get_matchup` is a query on `MATCHUP#W05#`, then filtered to the team (at most 6 items). Matchup ids are `W05-<n>`. `startSeasonSchedule` writes the regular season with one batch write when the draft starts; scores and `status` are filled in as weeks are played. |
 | Standings snapshot | `STANDINGS#W05` | none | Written when a week goes final. `get_standings` reads the latest with a reverse `begins_with(STANDINGS#)` query, limit 1. |
-| Waiver claim | `WAIVER#W05#<claimId>` | none | `claim_waiver`, `cancel_waiver_claim`, and a team's claims come from one query. The waiver job resolves a week's claims in a single query. |
+| Waiver claim | `WAIVER#<claimId>` | none | `claim_waiver`, `cancel_waiver_claim`, and the claim list come from one `begins_with(WAIVER#)` query (a season has at most a few hundred). The claim carries its status, bid, own priority, and `processesAt`; updates are version-checked. |
+| Waiver wire entry | `WAIVERWIRE#<playerId>` | none | Written when a player is dropped: who dropped him and `clearsAt`. A player is on waivers while `clearsAt` is in the future. |
+| Waiver run | `WAIVERRUN#<YYYY-MM-DD>` | none | One per league per processing window, created conditionally, so the daily job is idempotent; a run left `running` for 15 minutes can be taken over. |
 | Trade | `TRADE#<tradeId>` | none | The state machine lives on the item (`status`, `version`, `expiresAt`). Offers per team come from `begins_with(TRADE#)` filtered by team; a season has a few dozen. Expiry uses the rsc-core scheduler, not a scan. |
 | Trade vote | `TRADE#<tradeId>#VOTE#<teamId>` | none | One vote per team, enforced by `attribute_not_exists`. |
 | Transaction | `TXN#<ts>#<txnId>` | none | `get_transactions` is a reverse query with a limit and a cursor. |
@@ -132,11 +134,11 @@ has a 90-day `ttl`.
 | `get_chat`, `post_message` | Query or put in `CHAT#<leagueId>` |
 | `get_draft_board`, `make_draft_pick` | GetItem `DRAFT`; a version-checked put of `DRAFT`, then the team's roster |
 | `set_lineup` | Put `LINEUP#W05#<teamId>` |
-| `drop_player`, `claim_waiver`, `cancel_waiver_claim` | Transact `ROSTER#`, `OWN#`, and `WAIVER#`/`TXN#` |
+| `drop_player`, `claim_waiver`, `cancel_waiver_claim` | Conditional `OWN#` put, version-checked `TEAM#` write, then `WAIVERWIRE#`/`WAIVER#`/`TXN#` puts (ordered writes, no transactions) |
 | `preview_waiver_claim`, `preview_trade` | Reads only (roster, lineup, projections) |
 | `propose_trade`, `counter_trade`, `respond_to_trade`, `withdraw_trade` | Conditional update on `TRADE#<id>` (`version`) |
 | Process trade | Transact both rosters, the `OWN#` locks, `TRADE#`, and `TXN#` |
-| Waiver processing job | Query `WAIVER#W05#` in one league |
+| Waiver processing job | GSI2 `LEAGUEPHASE#regular_season` and `#playoffs`, then per league: put `WAIVERRUN#<day>`, query `WAIVER#` and `WAIVERWIRE#`, write teams, claims, and `TXN#` |
 | Scoring job | Query `STATS#<season>#W05`, then the week's lineups and matchups |
 | Idempotent replay | GetItem or conditional put on `IDEMP#…` |
 | Audit by league or actor | Query `AUDIT#LEAGUE#id`, or GSI2 `AUDIT#PRINCIPAL#…` |
