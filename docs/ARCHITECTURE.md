@@ -114,7 +114,7 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 ## Data
 
 - **One table, `FantasyTable`.** The key design is in `docs/adr/001-table-design.md`, which is owned by issue #20. Repositories are interfaces in `packages/server/src/repos/` with two implementations each: DynamoDB and in-memory (for unit tests).
-- **Player universe and stats** are stored in the same table under `PLAYER#` and `STATS#` partitions, and are refreshed by scheduled jobs.
+- **Player universe and stats** are stored in the same table under `PLAYER#` and `STATS#` partitions, and are refreshed by scheduled jobs. One data jobs Lambda (`packages/server/src/jobs/`, the same zip as the API) runs the player sync, NFL state, schedule, live stats, projections, trending, and news jobs on EventBridge Scheduler cadences; `docs/data-sources.md` lists them with their keys, events, and the news feeds. Handlers read only stored data (`ctx.data.reference`).
 - **Sleeper:** `api.sleeper.app` is reachable from CI and AWS, but not from every dev sandbox. Tests use the recorded fixtures in `packages/data/fixtures/sleeper/`, and `scripts/record-fixtures.mjs` refreshes them.
 
 ## Testing layers (all required)
@@ -135,7 +135,11 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 
 ## Models
 
-`packages/core/src/agents/models.ts` is the model catalog. It holds each difficulty tier's model IDs (Bedrock inference profile IDs). CI runs `scripts/verify-models.mjs`, which calls `bedrock list-inference-profiles` with deploy credentials and fails if a catalog ID isn't available in us-east-1.
+`packages/core/src/agents/models.ts` is the model catalog. It holds each model's Bedrock ID (a cross-region inference profile ID where one exists) and an estimated price, and maps five model tiers (`micro` → `frontier`) to catalog models, best first. Difficulty tiers pick a decision tier and a cheaper chat tier.
+
+- **Verification:** every catalog entry starts `verified: false`. Both deploy workflows run `scripts/verify-models.mjs` after assuming the deploy role. It calls `bedrock list-inference-profiles` and `list-foundation-models` and fails the deploy, listing every catalog ID that isn't available in us-east-1.
+- **Fallbacks:** if a tier's primary model is unavailable, the runtime uses the next model listed for that tier. If every model in the tier fails, the agent falls back to deterministic behavior (autopick, the lineup optimizer, no waiver claims, rejecting trades).
+- **Prices** are estimates for budgets and dashboards, not billing data.
 
 ## Events (source `fantasy`)
 

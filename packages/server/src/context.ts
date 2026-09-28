@@ -5,14 +5,17 @@ import type { NflStateSource } from './league/calendar.js';
 import type { Logger } from './log.js';
 import type { PlayerDirectory } from './players/directory.js';
 import type { Registry } from './registry/registry.js';
+import type { ReferenceStore } from './repos/reference.js';
 import type { Repos } from './repos/types.js';
 
 /**
- * Reference data services. The player directory (search + name resolution) lives
- * here now; the `@fantasy/data` DataProvider joins it when that package lands.
+ * Reference data services: the player directory (search + name resolution) and the
+ * reference store the scheduled jobs fill (NFL state, schedule, stats, projections,
+ * trending, news). Handlers read stored data only; jobs talk to `@fantasy/data`.
  */
 export interface DataServices {
   players: PlayerDirectory;
+  reference: ReferenceStore;
   /** The current NFL season and week. Optional: league creation estimates from the clock without it. */
   nflState?: NflStateSource;
 }

@@ -20,6 +20,7 @@ import { registry } from './operations/index.js';
 import { fixturePlayers } from './players/fixtures.js';
 import { createDynamoRepos } from './repos/dynamo/index.js';
 import { limitsFromEnv } from './context.js';
+import { createDynamoReferenceStore } from './repos/dynamo/reference.js';
 import { createServices } from './services.js';
 
 export interface LocalServerOptions {
@@ -57,7 +58,8 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
     repos,
     events,
     log,
-    limits: limitsFromEnv(env)
+    limits: limitsFromEnv(env),
+    reference: createDynamoReferenceStore(table)
   });
   const app = createApp({ registry, services, verifier: localVerifier(env) });
 

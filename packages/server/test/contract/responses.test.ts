@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
+import { RESEARCH_LEAGUE_ID, seedReferenceData } from '../support/reference-seed.js';
 
 /**
  * Contract tests: every operation's real responses (success and error) validate
@@ -50,6 +51,39 @@ const CASES: Record<string, Case[]> = {
     { label: 'not found', path: '/api/v1/players/lookup?playerId=nope', status: 404 },
     { label: 'no selector', path: '/api/v1/players/lookup', status: 400 }
   ],
+  get_projections: [
+    { label: 'one player', path: '/api/v1/projections?player=cmc', status: 200 },
+    { label: 'position, detail', path: '/api/v1/projections?position=WR&detail=true', status: 200 },
+    {
+      label: 'several ids, league scoring',
+      path: `/api/v1/projections?playerIds=fx-chase&playerIds=fx-bijan&leagueId=${RESEARCH_LEAGUE_ID}`,
+      status: 200
+    },
+    { label: 'no projections yet', path: '/api/v1/projections?season=2026&week=9', status: 200 },
+    { label: 'unknown league', path: '/api/v1/projections?leagueId=nope', status: 404 },
+    { label: 'invalid week', path: '/api/v1/projections?week=30', status: 400 }
+  ],
+  get_trending_players: [
+    { label: 'adds', path: '/api/v1/players/trending', status: 200 },
+    {
+      label: 'week lookback by position',
+      path: '/api/v1/players/trending?lookbackHours=100&position=RB',
+      status: 200
+    },
+    { label: 'no drops yet', path: '/api/v1/players/trending?type=drop', status: 200 },
+    { label: 'invalid limit', path: '/api/v1/players/trending?limit=500', status: 400 }
+  ],
+  get_news: [
+    { label: 'league-wide', path: '/api/v1/news', status: 200 },
+    { label: 'player, detail', path: '/api/v1/news?player=mccaffrey&detail=true', status: 200 },
+    { label: 'team', path: '/api/v1/news?team=BUF', status: 200 },
+    {
+      label: 'since after until',
+      path: '/api/v1/news?since=2026-09-10T00:00:00Z&until=2026-09-09T00:00:00Z',
+      status: 400
+    },
+    { label: 'unknown player', path: '/api/v1/news?playerId=nope', status: 404 }
+  ],
   ...LEAGUE_CASES
 };
 
@@ -91,6 +125,7 @@ function responseSchema(responses: Record<string, Json>, status: number): unknow
 let h: Harness;
 beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
+  await seedReferenceData(h.services, h.repos);
   await seedContractLeagues(h.repos);
 });
 afterAll(() => h.close());

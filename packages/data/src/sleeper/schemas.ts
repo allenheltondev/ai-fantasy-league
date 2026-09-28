@@ -25,6 +25,8 @@ export const sleeperPlayerSchema = z.object({
   gsis_id: nullableString,
   age: nullableNumber,
   years_exp: nullableNumber,
+  /** Sleeper's consensus rank; 9999999 means unranked. */
+  search_rank: nullableNumber,
   // Sleeper sends jersey numbers as numbers, but has sent strings before.
   number: z.union([z.number(), z.string()]).nullable().optional()
 });

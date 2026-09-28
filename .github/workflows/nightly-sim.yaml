@@ -1,0 +1,70 @@
+name: Nightly season replay
+
+# Builds the 2025 season archive from nflverse release files and replays the
+# full season (regular season and playoffs) with scripted bots on the
+# in-memory core engine, checking the simulator's invariants every week.
+# PR checks only replay the small committed fixture; this is the long run.
+# It needs no AWS credentials: everything runs inside the job.
+
+on:
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+    inputs:
+      season:
+        description: Season to replay
+        required: false
+        type: string
+        default: '2025'
+
+concurrency:
+  group: nightly-sim
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SEASON: ${{ inputs.season || '2025' }}
+
+jobs:
+  replay:
+    name: Replay the season with scripted bots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Build the season archive
+        run: npm run sim:archive -w @fantasy/sim -- --season "${SEASON}"
+
+      # `shell: bash` runs with pipefail, so a failed replay fails the step even through `tee`.
+      - name: Replay the full season
+        shell: bash
+        run: |
+          npm run --silent sim:run -w @fantasy/sim -- --archive "${SEASON}" --seed "nightly-${SEASON}" \
+            --report "${RUNNER_TEMP}/season-report.json" | tee "${RUNNER_TEMP}/season-summary.txt"
+
+      - name: Replay a mid-season start (week 5)
+        shell: bash
+        run: |
+          npm run --silent sim:run -w @fantasy/sim -- --archive "${SEASON}" --seed "nightly-${SEASON}-mid" \
+            --start-week 5 --report "${RUNNER_TEMP}/midseason-report.json"
+
+      - name: Write the summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## ${SEASON} season replay"
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/season-summary.txt" 2>/dev/null || echo "No summary: the replay did not finish."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

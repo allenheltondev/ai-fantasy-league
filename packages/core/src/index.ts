@@ -22,3 +22,4 @@ export * from './trades/machine.js';
 export * from './valuation/value.js';
 export * from './valuation/optimizer.js';
 export * from './valuation/trade-value.js';
+export * from './agents/index.js';

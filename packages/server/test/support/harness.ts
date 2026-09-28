@@ -9,6 +9,7 @@ import { silentLogger } from '../../src/log.js';
 import { fixturePlayers } from '../../src/players/fixtures.js';
 import type { Registry } from '../../src/registry/registry.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
+import { createDynamoReferenceStore } from '../../src/repos/dynamo/reference.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
 import type { League, Repos } from '../../src/repos/types.js';
 import { createServices } from '../../src/services.js';
@@ -72,7 +73,13 @@ export async function createHarness(
   }
   const clock = new FixedClock(START);
   const events = new InMemoryEventPublisher();
-  const services = createServices({ clock, repos, events, log: silentLogger });
+  const services = createServices({
+    clock,
+    repos,
+    events,
+    log: silentLogger,
+    ...(table === null ? {} : { reference: createDynamoReferenceStore(table) })
+  });
   const registry = options.registry ?? testRegistry;
   const verifier = createCognitoVerifier({ userPoolId: USER_POOL_ID, clientId: CLIENT_ID, jwks });
   const app = createApp({ registry, services, verifier });
