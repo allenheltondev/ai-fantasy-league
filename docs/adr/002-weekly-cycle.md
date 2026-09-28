@@ -28,7 +28,7 @@ The cycle is **clock-driven, idempotent jobs** plus **deferred events**, with no
 
 In-season leagues are found through the leagues-by-phase index (GSI2 `LEAGUEPHASE#<phase>` on `META`, shared with waiver processing): one query for `regular_season` and one for `playoffs` (`listInSeason` in `packages/server/src/season/lineups.ts`).
 
-**Everything reads `ctx.clock`** (or the job's clock). The simulator runs the cycle by calling `advanceLeague` / the jobs with its simulated clock; nothing waits on wall-clock time.
+**Everything reads `ctx.clock`** (or the job's clock). The simulator runs the cycle through the jobs themselves: `replayLeague` (`packages/sim/src/replay/`) runs `advanceSeason`, `scoreLiveWeek`, and `processWaivers` (and the data jobs) on their production cadences under its simulated clock, with an in-process `EventLoop` (`packages/server/src/events/loop.ts`) that releases the deferred `Lineup Lock Approaching` events when the clock reaches them. Nothing waits on wall-clock time.
 
 **Idempotency:** before the week is over `advanceLeague` does nothing. Every write it makes is a full put (matchups, standings, lineups, playoff games). The version-checked league update is the commit point: a concurrent run that loses the race emits nothing. Events are published after the commit, so a crash between the commit and the publish loses the events rather than duplicating them.
 

@@ -1,20 +1,24 @@
 # Season replay simulator (`@fantasy/sim`)
 
-The simulator replays a finished NFL season (2025) week by week, so league logic and agents can be tested in minutes instead of waiting for real Sundays (SPEC §9). It has four parts:
+The simulator replays a finished NFL season (2025) week by week, so league logic and agents can be tested in minutes instead of waiting for real Sundays (SPEC §9). It has five parts:
 
 1. **Archive builder:** turns free nflverse files into a compact season archive.
 2. **Simulated clock:** `SimClock` implements core's `Clock` and steps through a timeline of league events.
 3. **As-of guard:** wraps the data provider so nothing can read past the simulated "now".
 4. **Engine port and headless runner:** `LeagueEngine`, the in-memory `CoreOnlyEngine`, scripted bots, and `runSeason`, which produces a `SeasonReport` with invariants checked every week.
+5. **League replay:** `replayLeague` runs the real league (server operations, jobs, and event handlers, and the agents) on the simulated clock with an in-process event loop, a scripted human, and seven agents.
 
 ```sh
 npm run sim:archive -w @fantasy/sim -- --season 2025             # → packages/sim/archives/2025/ (gitignored)
 npm run sim:run -w @fantasy/sim -- --archive fixtures --weeks 4  # the committed 4-week fixture
 npm run sim:run -w @fantasy/sim -- --archive 2025                # the full season, playoffs included
 npm run sim:run -w @fantasy/sim -- --archive 2025 --start-week 5 # a mid-season start
+npm run sim:replay -w @fantasy/sim -- --archive fixtures --weeks 3                 # the real league, 3 weeks
+npm run sim:replay -w @fantasy/sim -- --archive 2025 --markdown season.md           # the full season
+npm run sim:replay -w @fantasy/sim -- --archive 2025 --start-week 4                 # a week-4 start
 ```
 
-`sim:run` also takes `--teams N`, `--seed S`, `--anonymize`, and `--report file.json`. It exits 1 when any invariant fails. The nightly workflow (`.github/workflows/nightly-sim.yaml`) builds the 2025 archive and runs the full season and a mid-season start. PR checks run only the committed fixture.
+`sim:run` also takes `--teams N`, `--seed S`, `--anonymize`, and `--report file.json`. It exits 1 when any invariant fails. `sim:replay` takes `--weeks`, `--start-week`, `--teams`, `--seed`, `--anonymize`, `--report file.json`, `--markdown file.md`, and `--stats-every M` (minutes between live-stats and live-scoring runs, 2 by default as in production), and exits 1 when an invariant fails or a handler throws. The nightly workflow (`.github/workflows/nightly-sim.yaml`) builds the 2025 archive and runs both: the full season and a mid-season start with scripted bots, then the full season and a week-4 start through the real league. PR checks run only the committed fixture (a 3-week league replay and a week-2 start are in the normal test run).
 
 ## Archive
 
@@ -194,4 +198,23 @@ The data guard can stop *code* from reading the future. It can't stop a *model* 
 - **Trades:** there are none yet. The core trade machine exists; wiring it into the engine and the policies is follow-up work (#62).
 - **IR:** bots don't use IR slots.
 - **Stat corrections:** nflverse publishes one final version per week, so the official scores equal the provisional ones. The correction step is still exercised.
-- **Server engine and real agents:** they will plug in behind `LeagueEngine` and `TeamPolicy` (#60, #62).
+- **Server engine and real agents:** rather than a server-backed `LeagueEngine`, the real league runs whole in `replayLeague` (below), driven by its own events and jobs.
+
+## League replay through the real server (`replayLeague`)
+
+`replayLeague({ archive, seed, teamCount?, startWeek?, weeks?, model?, jobCadences? })` (`src/replay/`) replays a season through the same code a live league runs, with nothing re-implemented:
+
+- **Clock.** One `SimClock`, moved only forward. The league's services (`createServices`) use it, so every operation, job, and handler reads simulated time.
+- **Data.** The server's data jobs (`syncNflState`, `syncSchedule`, `syncPlayers`, `ingestStats`, `ingestProjections`, `ingestTrending`) read the archive through the as-of guard (`HistoricalDataProvider` inside `AsOfGuardedProvider`) and fill the league's in-memory reference store, as they fill it from Sleeper and nflverse in production. Handlers and agents read only that store. The archive's player snapshots carry a `searchRank` (players ranked by mean projected half-PPR points through that week), a stand-in for Sleeper's `search_rank`, which the draft pool and autopick sort by and which has no history.
+- **Events.** `EventLoop` (`packages/server/src/events/loop.ts`) reads what handlers publish to the `InMemoryEventPublisher`:
+  - published events are delivered at once, in order, to the same functions the Lambdas run: the draft pick clock (`handleLeagueEvent`), system chat messages (`postSystemMessage`), the agent trigger router (`routeEvent`), and the agent task runner (`runAgentAction`);
+  - deferred `Schedule Event`s (pick deadlines, lineup-lock warnings) are released when the clock reaches them;
+  - the jobs run on their production cadences (`JOB_SCHEDULE_EXPRESSIONS`, which a test keeps equal to `infra/template.yaml`): live scoring every 2 minutes, `advanceSeason` every 15 minutes, waivers daily at 08:00 UTC. `runUntil(t)` steps through deferred events and job runs in time order.
+- **People.** A scripted human stand-in (`HumanStandIn`) holds seat 1 and plays through the operations a browser calls: it creates the league, starts the draft at the draft moment, drafts the best available player (or the best for an empty starting slot when told `ROSTER_WOULD_BE_INVALID`), and starts the lineup optimizer's picks before each lock. It makes no waiver claims. Seats 2-8 are agents on the scripted fake model (no Bedrock calls) unless `model` is given.
+- **Determinism.** The same seed and archive give the same report (apart from wall-clock timings): the league's ids come from a seeded id source (`Services.ids`), the draft order from the seed, and every delivered event gets an id from its position in the event log.
+- **Invariants,** checked when each week goes provisionally final: `rosters_valid`, `no_shared_players`, `faab_conserved` (awarded waiver bids against what each team has left), `week_scored_once` (one `Week Provisionally Final` per week, every matchup final and scored), `standings_match` (the stored standings against the final matchups), and `no_future_data` (the guard's read audit, plus every stored stat line written after its game ended). A handler that throws is a failure too.
+- **Report** (`LeagueReplayReport`, `renderLeagueReport` for markdown): standings, the champion (the stored playoff games replayed through core `advanceBracket`), each week's matchups and invariants, transactions, agent task counts by kind and status, estimated cost and tokens by team and model, every agent decision (trigger, action, summary), the human's actions, chat counts, events delivered and job runs, archive reads, and wall time per week.
+
+The full 2025 season replays in about 70 seconds with 8 teams (about 2,000 agent tasks on the fake model).
+
+**Not covered yet:** trades (no trade task kind or operations exist yet; the replay should cover them once they merge), the full playoff bracket experience (#78; the season cycle's minimal pairing is used), and news (`ingestNews`; the archive has none). The local dev server uses the same loop: `npm run dev` starts `packages/agents/src/dev.ts`.

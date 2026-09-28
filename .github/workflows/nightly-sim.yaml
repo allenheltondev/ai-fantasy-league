@@ -2,7 +2,9 @@ name: Nightly season replay
 
 # Builds the 2025 season archive from nflverse release files and replays the
 # full season (regular season and playoffs) with scripted bots on the
-# in-memory core engine, checking the simulator's invariants every week.
+# in-memory core engine, then through the real league (server operations,
+# jobs, and event handlers, and seven agents on the fake model), checking the
+# simulator's invariants every week.
 # PR checks only replay the small committed fixture; this is the long run.
 # It needs no AWS credentials: everything runs inside the job.
 
@@ -30,9 +32,9 @@ env:
 
 jobs:
   replay:
-    name: Replay the season with scripted bots
+    name: Replay the season (scripted bots, then the real league)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -57,6 +59,26 @@ jobs:
           npm run --silent sim:run -w @fantasy/sim -- --archive "${SEASON}" --seed "nightly-${SEASON}-mid" \
             --start-week 5 --report "${RUNNER_TEMP}/midseason-report.json"
 
+      - name: Replay the full season through the real league
+        shell: bash
+        run: |
+          npm run --silent sim:replay -w @fantasy/sim -- --archive "${SEASON}" --seed "nightly-${SEASON}" \
+            --report "${RUNNER_TEMP}/league-report.json" --markdown "${RUNNER_TEMP}/league-report.md" > /dev/null
+
+      - name: Replay a week-4 start through the real league
+        shell: bash
+        run: |
+          npm run --silent sim:replay -w @fantasy/sim -- --archive "${SEASON}" --seed "nightly-${SEASON}-week4" \
+            --start-week 4 --markdown "${RUNNER_TEMP}/league-week4-report.md" > /dev/null
+
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: season-replay-reports
+          path: ${{ runner.temp }}/*-report.*
+          if-no-files-found: ignore
+
       - name: Write the summary
         if: always()
         shell: bash
@@ -67,4 +89,8 @@ jobs:
             echo '```'
             cat "${RUNNER_TEMP}/season-summary.txt" 2>/dev/null || echo "No summary: the replay did not finish."
             echo '```'
+            echo
+            cat "${RUNNER_TEMP}/league-report.md" 2>/dev/null || echo "No league replay report."
+            echo
+            cat "${RUNNER_TEMP}/league-week4-report.md" 2>/dev/null || echo "No week-4 league replay report."
           } >> "$GITHUB_STEP_SUMMARY"

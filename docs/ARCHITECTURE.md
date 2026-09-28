@@ -59,6 +59,7 @@ docs/       SPEC, ARCHITECTURE, BOARD, ADRs (docs/adr/NNN-*.md).
 Dependency direction:
 - `core` depends on nothing internal.
 - `data`, `server`, `agents`, and `sim` depend on `core`.
+- `sim` also depends on `server` and `agents`: its league replay runs the real operations, jobs, and agents in process.
 - `agents` depends on `server`'s registry types only.
 - `app` depends on generated API types only.
 
@@ -137,11 +138,11 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | Contract | vitest | Every operation's responses validate against its generated OpenAPI schema, and the committed `openapi.json` matches what the code generates | CI |
 | Agent | vitest with a fake scripted model | `agents`: prompts, tool binding, trigger gating, fallbacks | CI |
 | E2E | Playwright | `app/e2e`: SPA + local API server (dynalite, fake model, fixture data) | CI |
-| Simulation | vitest | `sim`: replay N weeks of 2025 with scripted agents; asserts invariants (valid rosters, conservation of FAAB, and so on) | CI (short); full season nightly |
+| Simulation | vitest | `sim`: replay N weeks of 2025 with scripted bots, and a league replay through the real server jobs, handlers, and agents on the fake model; asserts invariants (valid rosters, conservation of FAAB, and so on) | CI (short); full season and a week-4 start nightly |
 | Deploy smoke | node script | `scripts/deploy-smoke.mjs` against the deployed URL, with no AWS credentials | After deploys |
 | Template | `sam validate --lint` | `infra/` | CI |
 
-**Local dev** is `npm run dev`: a local API server (the Hono node adapter, dynalite, `FANTASY_FAKE_MODEL=1`, fixture data) plus Vite with the `/api` proxy.
+**Local dev** is `npm run dev`: a local API server (the Hono node adapter, dynalite, `FANTASY_FAKE_MODEL=1`, fixture data) plus Vite with the `/api` proxy. The API half starts from `packages/agents/src/dev.ts`, which runs the in-process `EventLoop` (`packages/server/src/events/loop.ts`): agents pick on their draft turn and act on their other triggers with the fake model, the pick clock autopicks, system chat messages post, and the season jobs run on their cadences. E2E starts the plain server (`packages/server/src/local.ts`), where events are only recorded.
 
 ## Models
 
