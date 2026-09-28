@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import type { RealtimeInfo } from '../chat/api';
 import type { ApiFetch, ApiRequest } from './client';
 import type {
   AgentCatalog,
@@ -88,6 +89,8 @@ export function createLeagueApi(api: ApiFetch) {
     },
     getMatchup: (id: string) => call<MatchupData>(`${league(id)}/matchup`),
     getStandings: (id: string) => call<StandingsData>(`${league(id)}/standings`),
+    /** get_realtime_token: a subscribe-only token for live league events, or `enabled: false`. */
+    getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`),
     // Playoffs and history (#78, #81)
     getPlayoffBracket: (id: string) => call<PlayoffBracketData>(`${league(id)}/playoffs`),
     getLeagueHistory: (id: string) => call<LeagueHistoryData>(`${league(id)}/history`)

@@ -4,17 +4,20 @@ import { ToastProvider } from '@readysetcloud/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import { LeagueApiContext, type LeagueApi } from '../../api/league';
-import type { LeagueDetail } from '../../api/types';
+import type { DefaultSettings, LeagueDetail, TierRule } from '../../api/types';
 import { defaults, fakeApi, league, settings } from '../../test/fakeApi';
 import { RulesEditor } from './RulesEditor';
 import {
+  addTierBand,
+  describeTiers,
   fieldValue,
   getPath,
   inferPreset,
   isEditableInPhase,
   ruleSections,
   setPath,
-  settingsPatch
+  settingsPatch,
+  tierStatLabel
 } from './rules';
 
 describe('rule helpers', () => {
@@ -49,7 +52,7 @@ describe('rule helpers', () => {
       'Schedule'
     ]);
     const scoring = sections[1]!.fields.map((f) => f.label);
-    expect(scoring).toEqual(['Passing touchdowns', 'Receptions', 'bonus_x']);
+    expect(scoring).toEqual(['Passing touchdowns', 'Receptions', 'bonus_x', 'Tiered scoring']);
     const fields = sections.flatMap((s) => s.fields);
     const te = fields.find((f) => f.path === 'roster.slots.TE')!;
     expect(fieldValue(custom, te)).toBe(0);
@@ -63,6 +66,32 @@ describe('rule helpers', () => {
     });
   });
 
+  it('describes, labels, and extends tier bands', () => {
+    const rule: TierRule = {
+      stat: 'pts_allow',
+      bands: [
+        { min: 0, max: 0, points: 10 },
+        { min: 1, max: 6, points: 7 },
+        { min: 35, max: null, points: -4 }
+      ]
+    };
+    expect(describeTiers([])).toBe('None');
+    expect(describeTiers([rule])).toBe('0: 10 · 1–6: 7 · 35+: -4');
+    expect(tierStatLabel('pts_allow', {})).toBe('Points allowed');
+    expect(tierStatLabel('pts_allow', { pts_allow: 'Points allowed (DEF)' })).toBe('Points allowed (DEF)');
+    expect(tierStatLabel('yds_allow', {})).toBe('yds_allow');
+    expect(addTierBand(rule).bands.slice(-2)).toEqual([
+      { min: 35, max: 35, points: -4 },
+      { min: 36, max: null, points: 0 }
+    ]);
+    expect(addTierBand({ stat: 'x', bands: [{ min: 0, max: 5, points: 1 }] }).bands[1]).toEqual({
+      min: 6,
+      max: null,
+      points: 0
+    });
+    expect(addTierBand({ stat: 'x', bands: [] }).bands).toEqual([{ min: 0, max: null, points: 0 }]);
+  });
+
   it('infers the scoring preset from reception points', () => {
     expect(inferPreset(settings())).toBe('yahoo_standard');
     expect(inferPreset(settings({ scoring: { perStat: { rec: 1 }, tiers: [] } }))).toBe('full_ppr');
@@ -70,12 +99,17 @@ describe('rule helpers', () => {
   });
 });
 
-function renderEditor(detail: LeagueDetail, canEdit: boolean, api: LeagueApi = fakeApi()) {
+function renderEditor(
+  detail: LeagueDetail,
+  canEdit: boolean,
+  api: LeagueApi = fakeApi(),
+  ruleDefaults: DefaultSettings = defaults()
+) {
   const onSaved = vi.fn();
   render(
     <ToastProvider>
       <LeagueApiContext.Provider value={api}>
-        <RulesEditor league={detail} defaults={defaults()} canEdit={canEdit} onSaved={onSaved} />
+        <RulesEditor league={detail} defaults={ruleDefaults} canEdit={canEdit} onSaved={onSaved} />
       </LeagueApiContext.Provider>
     </ToastProvider>
   );
@@ -185,6 +219,85 @@ describe('RulesEditor', () => {
     await user.type(screen.getByLabelText('Veto votes needed'), '3');
     await user.click(screen.getByRole('button', { name: 'Save rules' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('offline');
+  });
+
+  it('edits the points-allowed tier bands and shows their fixes', async () => {
+    const user = userEvent.setup();
+    const yahoo: TierRule = {
+      stat: 'pts_allow',
+      bands: [
+        { min: 0, max: 0, points: 10 },
+        { min: 1, max: 6, points: 7 },
+        { min: 7, max: null, points: 4 }
+      ]
+    };
+    const withTiers = settings({ scoring: { perStat: { pass_td: 4, rec: 0.5 }, tiers: [yahoo] } });
+    const api = fakeApi({
+      updateSettings: vi.fn(async () => {
+        throw new ApiError(400, {
+          code: 'INVALID_SETTINGS',
+          message: 'The league settings are not valid (1 problem(s)).',
+          fix: 'Fix the bands.',
+          details: {
+            issues: [
+              {
+                code: 'TIER_BANDS_OVERLAP',
+                path: 'scoring.tiers.0.bands.3',
+                message: 'Overlap.',
+                fix: 'List bands in ascending order.'
+              }
+            ]
+          }
+        });
+      })
+    });
+    renderEditor(league({ settings: withTiers }), true, api, { ...defaults(), settings: withTiers });
+    const tiers = screen.getByTestId('rule-scoring.tiers');
+    expect(tiers).not.toHaveAttribute('data-changed');
+    await user.clear(screen.getByLabelText('Points allowed band 1 points'));
+    await user.type(screen.getByLabelText('Points allowed band 1 points'), '12');
+    expect(tiers).toHaveAttribute('data-changed', 'true');
+    expect(tiers).toHaveTextContent('Yahoo default: 0: 10 · 1–6: 7 · 7+: 4');
+    await user.clear(screen.getByLabelText('Points allowed band 2 to'));
+    await user.type(screen.getByLabelText('Points allowed band 2 to'), '5');
+    await user.clear(screen.getByLabelText('Points allowed band 3 from'));
+    await user.type(screen.getByLabelText('Points allowed band 3 from'), '6');
+    await user.click(screen.getByRole('button', { name: 'Add Points allowed band' }));
+    await user.clear(screen.getByLabelText('Points allowed band 4 from'));
+    await user.click(screen.getByRole('button', { name: 'Remove Points allowed band 2' }));
+    await user.clear(screen.getByLabelText('Points allowed band 3 to'));
+    await user.click(screen.getByRole('button', { name: 'Save rules' }));
+    expect(api.updateSettings).toHaveBeenCalledWith(
+      'L1',
+      {
+        scoring: {
+          tiers: [
+            {
+              stat: 'pts_allow',
+              bands: [
+                { min: 0, max: 0, points: 12 },
+                { min: 6, max: 6, points: 4 },
+                { min: '', max: null, points: 0 }
+              ]
+            }
+          ]
+        }
+      },
+      3
+    );
+    expect(await within(tiers).findByText('List bands in ascending order.')).toBeInTheDocument();
+    expect(within(tiers).getAllByRole('button', { name: /Remove/ })[0]).toBeEnabled();
+  });
+
+  it('shows a league without tiered stats, and a single band cannot be removed', () => {
+    const one = settings({
+      scoring: { perStat: {}, tiers: [{ stat: 'pts_allow', bands: [{ min: 0, max: null, points: 1 }] }] }
+    });
+    renderEditor(league({ settings: one }), true);
+    expect(screen.getByRole('button', { name: 'Remove Points allowed band 1' })).toBeDisabled();
+    expect(screen.getByTestId('rule-scoring.tiers')).toHaveTextContent('Yahoo default: None');
+    renderEditor(league(), true);
+    expect(screen.getByText('No tiered stats.')).toBeInTheDocument();
   });
 
   it('locks pre-draft rules once the draft starts', () => {

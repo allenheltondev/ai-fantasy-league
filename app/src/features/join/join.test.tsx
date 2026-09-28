@@ -1,10 +1,11 @@
-import { screen } from '@testing-library/react';
+import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import type { InvitePreview } from '../../api/types';
 import { fakeApi } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
+import { RETURN_KEY } from '../../auth/AuthScreens';
 import { notJoinableReason } from './JoinPage';
 
 const PREVIEW: InvitePreview = {
@@ -26,6 +27,20 @@ describe('join page', () => {
     expect(screen.getByText(/2 open seat/)).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Sign in to join' }));
     expect(await screen.findByRole('button', { name: /sign in/i })).toBeInTheDocument();
+  });
+
+  it('brings a new account back to the invite after sign-up, even if the router state is lost', async () => {
+    const user = userEvent.setup();
+    renderApp('/join/tok');
+    await user.click(await screen.findByRole('link', { name: 'Create an account' }));
+    expect(await screen.findByRole('link', { name: 'Sign in' })).toBeInTheDocument();
+    expect(sessionStorage.getItem(RETURN_KEY)).toBe('/join/tok');
+    // Confirmation signs the new account in; a fresh /signup render has no router state.
+    cleanup();
+    signInAs({ sub: 'carol', given_name: 'Carol' });
+    renderApp('/signup');
+    expect(await screen.findByRole('button', { name: 'Join league' })).toBeInTheDocument();
+    expect(sessionStorage.getItem(RETURN_KEY)).toBeNull();
   });
 
   it('joins with an optional team name and opens the league', async () => {

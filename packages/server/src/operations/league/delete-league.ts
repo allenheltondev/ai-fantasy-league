@@ -10,7 +10,7 @@ export const deleteLeague = defineOperation({
   path: '/leagues/{leagueId}',
   summary: 'Delete a league that has not drafted yet (commissioner only)',
   description: [
-    'Permanently deletes the league with its teams, memberships, and invites. Every member loses access, and invite links stop working. It frees a slot in your league quota.',
+    'Permanently deletes the league with its teams, memberships, invites, and group chat. Every member loses access, and invite links stop working. It frees a slot in your league quota.',
     'Only the commissioner can delete, and only while the league is in setup; once the draft starts the league plays out its season. This cannot be undone.'
   ].join(' '),
   tags: ['leagues'],
@@ -21,6 +21,9 @@ export const deleteLeague = defineOperation({
   handler: async (ctx, input) => {
     const access = await requireCommissioner(ctx, input.leagueId);
     assertAction('delete_league', access.league, access.actor, ctx.clock.now());
+    // Chat has its own partition; the league partition (teams, members, invites, lineups, the
+    // draft, waivers, transactions) goes last, so an interrupted delete can be retried.
+    await ctx.repos.chat.deleteLeague(access.league.id);
     await ctx.repos.leagues.delete(access.league.id);
     return { leagueId: access.league.id, deleted: true as const };
   }

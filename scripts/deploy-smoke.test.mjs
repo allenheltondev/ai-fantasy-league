@@ -27,9 +27,9 @@ async function listen(server) {
   return `http://127.0.0.1:${port}`;
 }
 
-async function smoke(url) {
+async function smoke(url, functionUrl) {
   const lines = [];
-  const code = await runSmoke({ url, attempts: 2, retrySeconds: 0, log: (l) => lines.push(l) });
+  const code = await runSmoke({ url, functionUrl, attempts: 2, retrySeconds: 0, log: (l) => lines.push(l) });
   return { code, output: lines.join('\n') };
 }
 
@@ -45,7 +45,25 @@ describe('deploy-smoke', () => {
   it('passes against a healthy deployment', async () => {
     const { code, output } = await smoke(`${await start()}/`);
     assert.equal(code, 0, output);
-    assert.match(output, /5 passed, 0 failed/);
+    assert.match(output, /5 passed, 0 failed \(1 skipped\)/);
+    assert.match(output, /SKIP {2}Direct Function URL call is refused/);
+  });
+
+  it('passes when a direct Function URL call is refused', async () => {
+    const functionUrl = await start({
+      '/api/v1/health': [403, 'application/json', '{"error":{"code":"FORBIDDEN"}}']
+    });
+    const { code, output } = await smoke(await start(), `${functionUrl}/`);
+    assert.equal(code, 0, output);
+    assert.match(output, /6 passed, 0 failed$/m);
+  });
+
+  it('fails when the Function URL answers around CloudFront', async () => {
+    const functionUrl = await start();
+    const { code, output } = await smoke(await start(), functionUrl);
+    assert.equal(code, 1);
+    assert.match(output, /FAIL {2}Direct Function URL call is refused/);
+    assert.match(output, /expected 403 for a call around CloudFront, got 200/);
   });
 
   it('fails when the API health is not the envelope', async () => {

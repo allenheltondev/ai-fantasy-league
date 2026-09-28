@@ -2325,7 +2325,7 @@
       "delete": {
         "operationId": "delete_league",
         "summary": "Delete a league that has not drafted yet (commissioner only)",
-        "description": "Permanently deletes the league with its teams, memberships, and invites. Every member loses access, and invite links stop working. It frees a slot in your league quota. Only the commissioner can delete, and only while the league is in setup; once the draft starts the league plays out its season. This cannot be undone.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Permanently deletes the league with its teams, memberships, invites, and group chat. Every member loses access, and invite links stop working. It frees a slot in your league quota. Only the commissioner can delete, and only while the league is in setup; once the draft starts the league plays out its season. This cannot be undone.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues"
         ],

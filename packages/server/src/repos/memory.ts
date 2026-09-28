@@ -125,14 +125,24 @@ export class InMemoryPlayerRepository implements PlayerRepository {
 }
 
 export function createInMemoryRepos(options: { players?: readonly Player[] } = {}): Repos {
+  const waivers = new InMemoryWaiverRepository();
+  const history = new InMemoryHistoryRepository();
+  // Waiver claims, the wire, transactions, and league history share the league partition in
+  // DynamoDB, so deleting a league deletes them too.
+  const leagueRepos = createInMemoryLeagueRepos({
+    onDelete: (leagueId) => {
+      waivers.dropLeague(leagueId);
+      history.dropLeague(leagueId);
+    }
+  });
   return {
     idempotency: new InMemoryIdempotencyRepository(),
     audit: new InMemoryAuditRepository(),
     players: new InMemoryPlayerRepository(options.players ?? []),
-    ...createInMemoryLeagueRepos(),
+    ...leagueRepos,
     agents: new InMemoryAgentRepository(),
-    waivers: new InMemoryWaiverRepository(),
+    waivers,
     chat: new InMemoryChatRepository(),
-    history: new InMemoryHistoryRepository()
+    history
   };
 }

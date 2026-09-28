@@ -260,6 +260,15 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     }),
     getMatchup: vi.fn(async () => ({ week: 1, teamId: 'team-1', matchup: null, lineups: null })),
     getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] })),
+    getRealtime: vi.fn(async () => ({
+      enabled: false,
+      token: null,
+      endpoint: null,
+      cacheName: null,
+      topics: null,
+      expiresAt: null,
+      pollIntervalSeconds: 5
+    })),
     getPlayoffBracket: vi.fn(async () => ({
       status: 'not_started' as const,
       teams: 4,

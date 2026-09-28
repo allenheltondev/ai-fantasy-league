@@ -36,4 +36,8 @@ export class InMemoryChatRepository implements ChatRepository {
       nextCursor: keys.length > query.limit && last !== undefined ? encodeCursor(last) : null
     };
   }
+
+  async deleteLeague(leagueId: string): Promise<void> {
+    this.#byLeague.delete(leagueId);
+  }
 }

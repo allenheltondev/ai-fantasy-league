@@ -72,6 +72,14 @@ export class InMemoryHistoryRepository implements HistoryRepository {
     return added;
   }
 
+  /** Forgets a deleted league (the DynamoDB delete removes the whole partition). */
+  dropLeague(leagueId: string): void {
+    this.#playoffs.delete(leagueId);
+    for (const map of [this.#official, this.#seasons, this.#achievements] as Map<string, unknown>[]) {
+      for (const key of map.keys()) if (key.startsWith(`${leagueId}#`)) map.delete(key);
+    }
+  }
+
   async listAchievements(leagueId: string): Promise<AchievementRecord[]> {
     return [...this.#achievements.values()]
       .filter((a) => a.leagueId === leagueId)

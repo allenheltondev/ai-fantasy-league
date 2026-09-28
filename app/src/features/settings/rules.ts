@@ -1,4 +1,4 @@
-import type { DefaultSettings, LeagueSettings, Phase, ScoringPreset } from '../../api/types';
+import type { DefaultSettings, LeagueSettings, Phase, ScoringPreset, TierRule } from '../../api/types';
 
 /** One editable rule, addressed by its dotted settings path. */
 export type RuleField = { path: string; label: string } & (
@@ -8,6 +8,7 @@ export type RuleField = { path: string; label: string } & (
   | { kind: 'bool' }
   | { kind: 'nullableInt'; min: number; max: number; nullLabel: string }
   | { kind: 'statuses' }
+  | { kind: 'tiers' }
 );
 
 export interface RuleSection {
@@ -43,12 +44,17 @@ export function ruleSections(settings: LeagueSettings, defaults: DefaultSettings
     {
       id: 'scoring',
       title: 'Scoring',
-      fields: [...statKeys, ...customKeys].map((key): RuleField => ({
-        path: `scoring.perStat.${key}`,
-        label: defaults.statLabels[key] ?? key,
-        kind: 'decimal',
-        fallback: 0
-      }))
+      fields: [
+        ...[...statKeys, ...customKeys].map((key): RuleField => ({
+          path: `scoring.perStat.${key}`,
+          label: defaults.statLabels[key] ?? key,
+          kind: 'decimal',
+          fallback: 0
+        })),
+        // Bucketed stats (Yahoo's points-allowed bands for team defense). The whole list is one
+        // setting: the server replaces arrays rather than merging them.
+        { path: 'scoring.tiers', label: 'Tiered scoring', kind: 'tiers' }
+      ]
     },
     {
       id: 'waivers',
@@ -243,4 +249,35 @@ export function inferPreset(settings: LeagueSettings): ScoringPreset {
   if (rec === 1) return 'full_ppr';
   if (rec === undefined || rec === 0) return 'standard';
   return 'yahoo_standard';
+}
+
+const TIER_STAT_LABELS: Readonly<Record<string, string>> = { pts_allow: 'Points allowed' };
+
+/** A tier rule's stat, readably: the known label, else the Sleeper key. */
+export function tierStatLabel(stat: string, statLabels: Readonly<Record<string, string>>): string {
+  return statLabels[stat] ?? TIER_STAT_LABELS[stat] ?? stat;
+}
+
+/** `0: 10 · 1–6: 7 · 35+: -4`. */
+export function describeTiers(rules: readonly TierRule[]): string {
+  if (rules.length === 0) return 'None';
+  return rules
+    .map((rule) =>
+      rule.bands
+        .map((b) => {
+          const range = b.max === null ? `${b.min}+` : b.max === b.min ? `${b.min}` : `${b.min}–${b.max}`;
+          return `${range}: ${b.points}`;
+        })
+        .join(' · ')
+    )
+    .join('; ');
+}
+
+/** Adds a band after the last one, closing the last band's open upper bound first. */
+export function addTierBand(rule: TierRule): TierRule {
+  const bands = rule.bands.map((b) => ({ ...b }));
+  const last = bands.at(-1);
+  if (last === undefined) return { ...rule, bands: [{ min: 0, max: null, points: 0 }] };
+  if (last.max === null) last.max = last.min;
+  return { ...rule, bands: [...bands, { min: last.max + 1, max: null, points: 0 }] };
 }

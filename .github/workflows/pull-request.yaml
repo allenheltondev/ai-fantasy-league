@@ -231,6 +231,8 @@ jobs:
     outputs:
       # Published so the smoke job downstream can reach what was just deployed.
       app_url: ${{ steps.deploy.outputs.app_url }}
+      # The smoke job checks that a direct call to it is refused (#104).
+      function_url: ${{ steps.deploy.outputs.function_url }}
     environment:
       name: Staging
       # Surfaces on the PR / deployment as the link reviewers click through to.
@@ -285,6 +287,7 @@ jobs:
           set -euo pipefail
           make deploy-frontend STACK_NAME=ai-fantasy-league DEPLOY_REGION=us-east-1 | tee deploy.log
           echo "app_url=$(awk '/^Deployed: /{print $2}' deploy.log | tail -1)" >> "$GITHUB_OUTPUT"
+          echo "function_url=$(awk '/^Function URL: /{print $3}' deploy.log | tail -1)" >> "$GITHUB_OUTPUT"
 
       - name: Write deployment summary
         if: steps.stack.outputs.ready == 'true'
@@ -314,4 +317,7 @@ jobs:
           node-version: '22'
       # No dependencies, so there is nothing to install before it runs.
       - name: Smoke the deployed app
-        run: node scripts/deploy-smoke.mjs --url "${{ needs.deploy-frontend.outputs.app_url }}"
+        env:
+          APP_URL: ${{ needs.deploy-frontend.outputs.app_url }}
+          FUNCTION_URL: ${{ needs.deploy-frontend.outputs.function_url }}
+        run: node scripts/deploy-smoke.mjs --url "${APP_URL}" --function-url "${FUNCTION_URL}"

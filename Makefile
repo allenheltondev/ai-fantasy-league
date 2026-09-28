@@ -1,5 +1,6 @@
 .PHONY: dev dev-server dev-app dev-auth-config install lint typecheck test test-coverage \
-	validate-template e2e smoke package-server deploy-backend deploy-frontend deploy destroy
+	validate-template e2e smoke package-server deploy-backend deploy-frontend deploy destroy \
+	rotate-origin-secret
 
 # CloudFormation stack the infra/ SAM template deploys into. It MUST reach
 # `sam deploy` itself (samconfig.toml carries its own stack_name and would
@@ -28,6 +29,30 @@ define resolve_output_fn
 		aws cloudformation describe-stacks --stack-name $(STACK_NAME) $(REGION_ARG) \
 			--query "Stacks[0].Outputs[?OutputKey=='$$1'].OutputValue" \
 			--output text 2>/dev/null || true; \
+	}
+endef
+
+# The CloudFront origin-verify secret (#104): two SSM String parameters under
+# /<stack>/origin-verify/. The template resolves them on every deploy, so the
+# value is stable until rotated. `ensure_origin_secret` creates them (a fresh
+# `openssl rand -hex 32`, previous = current) the first time a stack deploys.
+ORIGIN_SECRET_PREFIX = /$(STACK_NAME)/origin-verify
+ORIGIN_SECRET_OVERRIDES = "OriginVerifySecret=$(ORIGIN_SECRET_PREFIX)/current" \
+	"OriginVerifySecretPrevious=$(ORIGIN_SECRET_PREFIX)/previous"
+define ensure_origin_secret_fn
+	ensure_origin_secret() { \
+		if ! aws ssm get-parameter --name "$(ORIGIN_SECRET_PREFIX)/current" $(REGION_ARG) >/dev/null 2>&1; then \
+			echo "deploy-backend: creating the origin-verify secret $(ORIGIN_SECRET_PREFIX)/current"; \
+			secret=$$(openssl rand -hex 32); \
+			aws ssm put-parameter --name "$(ORIGIN_SECRET_PREFIX)/current" --type String \
+				--value "$$secret" $(REGION_ARG) >/dev/null; \
+		fi; \
+		if ! aws ssm get-parameter --name "$(ORIGIN_SECRET_PREFIX)/previous" $(REGION_ARG) >/dev/null 2>&1; then \
+			current=$$(aws ssm get-parameter --name "$(ORIGIN_SECRET_PREFIX)/current" $(REGION_ARG) \
+				--query Parameter.Value --output text); \
+			aws ssm put-parameter --name "$(ORIGIN_SECRET_PREFIX)/previous" --type String \
+				--value "$$current" $(REGION_ARG) >/dev/null; \
+		fi; \
 	}
 endef
 
@@ -151,6 +176,8 @@ domain_override = $(if $(filter undefined,$(origin $(2))),,$(if $($(2)),"$(1)=$(
 deploy-backend:
 	@set -e; \
 	$(resolve_output_fn); \
+	$(ensure_origin_secret_fn); \
+	ensure_origin_secret; \
 	STATUS=$$(aws cloudformation describe-stacks --stack-name $(STACK_NAME) $(REGION_ARG) \
 		--query 'Stacks[0].StackStatus' --output text 2>/dev/null || true); \
 	if [ "$$STATUS" = "ROLLBACK_COMPLETE" ]; then \
@@ -163,7 +190,7 @@ deploy-backend:
 	BUCKET=$$(resolve_output ArtifactBucket); \
 	if [ -z "$$BUCKET" ] || [ "$$BUCKET" = "None" ]; then \
 		echo "deploy-backend: stack '$(STACK_NAME)' has no artifact bucket yet -- bootstrapping"; \
-		( cd infra && sam build && sam deploy $(SAM_DEPLOY_ARGS) ); \
+		( cd infra && sam build && sam deploy $(SAM_DEPLOY_ARGS) --parameter-overrides $(ORIGIN_SECRET_OVERRIDES) ); \
 		BUCKET=$$(resolve_output ArtifactBucket); \
 	fi; \
 	if [ -z "$$BUCKET" ] || [ "$$BUCKET" = "None" ]; then \
@@ -174,6 +201,7 @@ deploy-backend:
 	aws s3 cp "$$SERVER_ZIP" "s3://$$BUCKET/$$SERVER_KEY" $(REGION_ARG); \
 	( cd infra && sam build && sam deploy $(SAM_DEPLOY_ARGS) --parameter-overrides \
 		"ServerArtifactKey=$$SERVER_KEY" \
+		$(ORIGIN_SECRET_OVERRIDES) \
 		$${SERVER_MEMORY:+"ServerMemorySize=$$SERVER_MEMORY"} \
 		$(call domain_override,AppDomainName,APP_DOMAIN_NAME) \
 		$(call domain_override,AppHostedZoneId,APP_HOSTED_ZONE_ID) ); \
@@ -211,7 +239,22 @@ deploy-frontend:
 	echo "deploy-frontend: invalidating $$DIST_ID"; \
 	aws cloudfront create-invalidation --distribution-id "$$DIST_ID" --paths '/*' >/dev/null; \
 	echo; \
-	echo "Deployed: $$APP_URL"
+	echo "Deployed: $$APP_URL"; \
+	echo "Function URL: $$(resolve_output ApiFunctionUrl)"
+
+# Rotate the CloudFront origin-verify secret with no downtime: the current
+# value becomes the previous one (still accepted by the API), a new current is
+# generated, and the next `make deploy-backend` rolls both out -- the Lambda
+# first, then the distribution. Rotate again only after that deploy finishes.
+rotate-origin-secret:
+	@set -e; \
+	current=$$(aws ssm get-parameter --name "$(ORIGIN_SECRET_PREFIX)/current" $(REGION_ARG) \
+		--query Parameter.Value --output text); \
+	aws ssm put-parameter --name "$(ORIGIN_SECRET_PREFIX)/previous" --type String --overwrite \
+		--value "$$current" $(REGION_ARG) >/dev/null; \
+	aws ssm put-parameter --name "$(ORIGIN_SECRET_PREFIX)/current" --type String --overwrite \
+		--value "$$(openssl rand -hex 32)" $(REGION_ARG) >/dev/null; \
+	echo "rotate-origin-secret: rotated $(ORIGIN_SECRET_PREFIX); run make deploy-backend to roll it out"
 
 deploy: deploy-backend deploy-frontend
 

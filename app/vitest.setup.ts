@@ -5,6 +5,7 @@ import { afterEach } from 'vitest';
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 // jsdom has no <dialog> modality. The design system's Modal (the AppNav

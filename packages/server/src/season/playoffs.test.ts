@@ -73,6 +73,24 @@ describe('playoffs', () => {
     // A second write keeps the original completion time.
     const later = await recordSeasonHistory(deps, league, decided, new Date('2027-01-05T00:00:00.000Z'));
     expect(later.completedAt).toBe(NOW.toISOString());
+
+    // Deleting the league deletes its history too (one partition in DynamoDB).
+    await deps.repos.history.addAchievements([
+      {
+        id: 'a',
+        leagueId: league.id,
+        season: 2026,
+        achievementId: 'blowout-win',
+        teamId: 'team-1',
+        week: 3,
+        reason: 'r',
+        awardedAt: NOW.toISOString()
+      }
+    ]);
+    await deps.repos.leagues.delete(league.id);
+    expect(await deps.repos.history.getPlayoffs(league.id)).toBeNull();
+    expect(await deps.repos.history.listSeasons(league.id)).toEqual([]);
+    expect(await deps.repos.history.listAchievements(league.id)).toEqual([]);
   });
 
   it('announces each achievement once and skips empty award lists', async () => {
