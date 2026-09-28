@@ -18,6 +18,7 @@ import {
   type DifficultyLevers,
   type DifficultyTier
 } from './difficulty.js';
+import { tradeAppetite, waiverMinGain } from './behavior.js';
 import { MODEL_KEYS, getModel, modelChain, type ModelKey } from './models.js';
 import {
   PERSONALITIES,
@@ -110,6 +111,21 @@ function personaPrompt(p: PersonalityPreset): string {
   ].join('\n');
 }
 
+function strategyPrompt(archetype: StrategyArchetype, levers: DifficultyLevers): string {
+  const trade = tradeAppetite({ tradeFrequency: archetype.tradeFrequency, levers });
+  const risk = archetype.valuation.riskTolerance;
+  const lineup =
+    risk >= 0.7
+      ? 'You will start a questionable player with upside.'
+      : risk <= 0.35
+        ? 'You bench questionable players for a safe floor.'
+        : 'You weigh injury designations sensibly.';
+  return [
+    `Strategy: ${archetype.displayName}. ${archetype.promptGuidance}`,
+    `Appetite: propose up to ${trade.proposalsPerWeek} trade(s) a week; claim waiver upgrades worth at least ${waiverMinGain(archetype.waiverAggressiveness)} projected points a week. ${lineup}`
+  ].join('\n');
+}
+
 function difficultyPrompt(tier: DifficultyTier, levers: DifficultyLevers): string {
   const research = (Object.entries(levers.research) as [string, boolean][])
     .filter(([, on]) => on)
@@ -152,7 +168,7 @@ export function resolveAgentConfig(input: AgentSeatConfig): ResolvedAgentConfig 
     tradeFrequency: archetype.tradeFrequency,
     prompt: {
       persona: personaPrompt(personality),
-      strategy: `Strategy: ${archetype.displayName}. ${archetype.promptGuidance}`,
+      strategy: strategyPrompt(archetype, levers),
       difficulty: difficultyPrompt(difficulty, levers),
       customFlavor: config.advanced?.customFlavor ?? null
     }

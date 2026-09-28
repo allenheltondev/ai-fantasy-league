@@ -1,4 +1,4 @@
-import { hashString } from '@fantasy/core';
+import { hashString, tradeAcceptEdge, tradeAppetite } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
@@ -82,7 +82,7 @@ function parse<T>(envelope: Envelope, schema: z.ZodType<T>): T | null {
 
 /** The bar an offer's score must clear: 5 points for a cautious agent, down to -4 for a trade-happy one. */
 export function acceptBar(tradeFrequency: number): number {
-  return Math.round((0.5 - tradeFrequency) * 20) / 2;
+  return tradeAcceptEdge(tradeFrequency);
 }
 
 /** Counters this agent already made in the negotiation: every other offer back down the chain. */
@@ -109,8 +109,10 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
     Math.round(
       (me.lineupDelta + me.valueDelta * (1 - (ctx.config.valuation.recencyBias ?? 0))) * noise * 10
     ) / 10;
-  const bar = acceptBar(ctx.config.tradeFrequency);
-  const roundsLeft = Math.max(0, ctx.config.levers.negotiationRounds - countersUsed(trade.round));
+  // The archetype's trade appetite (core behavior.ts) sets the bar and the counter budget.
+  const appetite = tradeAppetite(ctx.config);
+  const bar = appetite.acceptEdge;
+  const roundsLeft = Math.max(0, appetite.maxCounters - countersUsed(trade.round));
   const drops = me.dropCandidates.slice(0, me.dropsNeeded).map((p) => p.id);
   const suggestion: TradeSuggestion = { action: 'reject', score, bar, drops, counter: null };
   if (preview.valid && score >= bar)

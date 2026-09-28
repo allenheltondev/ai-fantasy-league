@@ -48,6 +48,8 @@ export type FantasyEventType =
   | 'Member Joined'
   | 'Member Left'
   | 'Settings Changed'
+  /** The commissioner changed an agent seat after the draft (announced in chat). */
+  | 'Agent Seat Changed'
   /** The last playoff week is over and the league is complete (champion and runner-up). */
   | 'Season Completed'
   /** A team earned a league achievement (history/achievements in core). */

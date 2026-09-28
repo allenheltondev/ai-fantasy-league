@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { useParams } from 'react-router';
-import { Card, CardBody, LoadingPage, StatusBadge, useToast } from '@readysetcloud/ui';
+import { Card, CardBody, LoadingPage, SegmentedControl, StatusBadge, useToast } from '@readysetcloud/ui';
 import { useLeagueApi, type LeagueApi } from '../../api/league';
 import type { LeagueDetail } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { PHASE_LABELS } from '../leagues/MyLeaguesPage';
 import { AgentManagers } from './AgentManagers';
+import { AiActivityPanel } from './AiActivityPanel';
 import { InvitesPanel } from './InvitesPanel';
 import { RulesEditor } from './RulesEditor';
 import { inferPreset } from './rules';
@@ -48,6 +49,7 @@ export function SettingsPage() {
   const loaded = useLoad(() => loadSettings(api, leagueId), leagueId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [tab, setTab] = useState<'league' | 'ai'>('league');
 
   if (loaded.data === null) {
     return loaded.error ? <ApiErrorAlert error={loaded.error} /> : <LoadingPage text="Loading settings…" />;
@@ -81,42 +83,61 @@ export function SettingsPage() {
           <span className="text-sm text-muted-foreground">You are the commissioner</span>
         )}
       </div>
-      <ApiErrorAlert error={error} />
-      <Section id="seats" title="Seats">
-        <Card>
-          <CardBody>
-            <SeatManager league={league} state={state} can={can} act={act} busy={busy} />
-          </CardBody>
-        </Card>
-      </Section>
-      {agents.length > 0 && (
-        <Section id="agents" title="AI managers">
-          <AgentManagers leagueId={league.id} teams={agents} canConfigure={can('configure_agent_seat')} />
-        </Section>
-      )}
-      {state.youAreCommissioner && league.phase === 'setup' && (
-        <Section id="invites" title="Invites">
-          <Card>
-            <CardBody>
-              <InvitesPanel
-                leagueId={league.id}
-                openHumanSeats={league.teams.filter((t) => t.open && t.seatType === 'human').length}
-                canCreate={can('create_invite')}
-                canRevoke={can('revoke_invite')}
-              />
-            </CardBody>
-          </Card>
-        </Section>
-      )}
-      <Section id="rules" title="Rules">
-        <RulesEditor
-          key={league.version}
-          league={league}
-          defaults={defaults}
-          canEdit={can('update_league_settings')}
-          onSaved={loaded.reload}
+      {state.youAreCommissioner && (
+        <SegmentedControl
+          aria-label="Settings view"
+          options={[
+            { value: 'league', label: 'League settings' },
+            { value: 'ai', label: 'AI activity' }
+          ]}
+          value={tab}
+          onChange={setTab}
         />
-      </Section>
+      )}
+      {state.youAreCommissioner && tab === 'ai' ? (
+        <Section id="ai-activity" title="AI activity">
+          <AiActivityPanel leagueId={league.id} teams={league.teams} />
+        </Section>
+      ) : (
+        <>
+          <ApiErrorAlert error={error} />
+          <Section id="seats" title="Seats">
+            <Card>
+              <CardBody>
+                <SeatManager league={league} state={state} can={can} act={act} busy={busy} />
+              </CardBody>
+            </Card>
+          </Section>
+          {agents.length > 0 && (
+            <Section id="agents" title="AI managers">
+              <AgentManagers leagueId={league.id} teams={agents} canConfigure={can('configure_agent_seat')} />
+            </Section>
+          )}
+          {state.youAreCommissioner && league.phase === 'setup' && (
+            <Section id="invites" title="Invites">
+              <Card>
+                <CardBody>
+                  <InvitesPanel
+                    leagueId={league.id}
+                    openHumanSeats={league.teams.filter((t) => t.open && t.seatType === 'human').length}
+                    canCreate={can('create_invite')}
+                    canRevoke={can('revoke_invite')}
+                  />
+                </CardBody>
+              </Card>
+            </Section>
+          )}
+          <Section id="rules" title="Rules">
+            <RulesEditor
+              key={league.version}
+              league={league}
+              defaults={defaults}
+              canEdit={can('update_league_settings')}
+              onSaved={loaded.reload}
+            />
+          </Section>
+        </>
+      )}
     </div>
   );
 }

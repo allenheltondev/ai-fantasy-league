@@ -3,6 +3,7 @@ export * from './events.js';
 export * from './fake-model.js';
 export * from './kill-switch.js';
 export * from './loop.js';
+export * from './memory.js';
 export * from './model.js';
 export * from './prompt.js';
 export * from './router.js';

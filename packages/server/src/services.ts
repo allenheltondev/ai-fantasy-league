@@ -1,4 +1,5 @@
 import type { Clock } from '@fantasy/core';
+import type { KillSwitch } from './agents/kill-switch.js';
 import { DEFAULT_LIMITS, type IdSource, type Limits, type Services } from './context.js';
 import type { EventPublisher } from './events/publisher.js';
 import type { NflStateSource } from './league/calendar.js';
@@ -24,6 +25,8 @@ export function createServices(options: {
   realtime?: Realtime;
   /** New record ids. Defaults to random UUIDs. */
   ids?: IdSource;
+  /** The global agent kill switch, shown to commissioners. Leave out when the deployment has none. */
+  agentKillSwitch?: KillSwitch;
 }): Services {
   const players = new PlayerDirectory({
     repo: options.repos.players,
@@ -42,6 +45,7 @@ export function createServices(options: {
     },
     limits: options.limits ?? DEFAULT_LIMITS,
     realtime: options.realtime ?? new InMemoryRealtime(),
-    ...(options.ids === undefined ? {} : { ids: options.ids })
+    ...(options.ids === undefined ? {} : { ids: options.ids }),
+    ...(options.agentKillSwitch === undefined ? {} : { agentKillSwitch: options.agentKillSwitch })
   };
 }

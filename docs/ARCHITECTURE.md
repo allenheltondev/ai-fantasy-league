@@ -22,6 +22,9 @@ This is the contract every work stream builds against. The product is described 
   - **Runs:** autonomous turns use `runAgent` in-Lambda: structured output, bounded tool loops, and trusted `invocationState`.
   - **Idempotency:** each task is idempotent through a claim on its task id in the league table.
   - **Task kinds:** each feature (draft, lineups, waivers, trades, chat) adds a task kind (`packages/agents/src/tasks/kinds.ts`) with a deterministic fallback.
+  - **Customization:** a seat's personality, difficulty, and archetype are data in `packages/core/src/agents/`. Archetypes shape deterministic behavior (`behavior.ts`: draft position weights, the waiver minimum gain and FAAB aggressiveness, lineup risk, and the trade appetite the trade kinds read); difficulty levers set the model, the research tools bound, tool-loop steps, token budget, actions per trigger, cooldowns, and negotiation rounds. The commissioner can change a seat until the season is complete; it applies on the next trigger.
+  - **Memory:** each agent has a private league memory in the table (`AGENTMEM#<agentId>`): notes, rivalries, trades, its own decisions, and a snapshot of its last chat. The router function writes results and trade steps; the runner writes decisions. It is summarized into the prompt within a token budget. The chat snapshot reaches chat tasks only, and chat decisions carry no notes, so chat text never becomes trusted context for tool-using tasks. Storage sits behind `AgentMemoryStore` (AgentCore Memory is a possible later backend; see `docs/adr/003-agent-realtime-runtime.md` for why agents run as event-triggered tasks rather than live sessions).
+  - **Spend guard:** `LEAGUE_QUOTA` per creator, a weekly per-league ceiling from the difficulty mix, and the kill switch (SSM). The API reads the kill switch only to show it to commissioners (`get_agent_activity`); `get_model_leaderboard` ranks models by standings and cost.
   - **Tests and local dev:** `FANTASY_FAKE_MODEL=1` swaps in a scripted model that makes no Bedrock calls.
 
 ## Repository layout
@@ -185,6 +188,7 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Member Joined` | A person takes a seat with an invite (`name`) |
 | `Member Left` | A person leaves or is removed before the draft (`reason`: `left` or `removed`) |
 | `Settings Changed` | The commissioner changes league settings (`changedPaths`). The chat system message for it is queued by the chat stream. |
+| `Agent Seat Changed` | The commissioner changes an agent seat after the draft (`teamId`, `changedBy`, `changes: [{ field, from, to }]` by display name). The chat posts it, so a playing commissioner can't quietly weaken the AI teams they face. |
 
 ## Work-stream and PR rules
 

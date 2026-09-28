@@ -1,4 +1,4 @@
-import { hashString, suggestFaabBid } from '@fantasy/core';
+import { hashString, suggestFaabBid, waiverMinGain } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
@@ -7,7 +7,8 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  * Waiver task (#57): when a waiver window opens, the agent looks at trending pickups, checks each
  * one with preview_waiver_claim (is he available, does the roster need a drop), projects him against
  * the weakest player on the roster, and proposes FAAB bids with `suggestFaabBid`. The bid grows
- * with the archetype's `waiverAggressiveness` (a waiver hawk bids big) and is blurred by the
+ * with the archetype's `waiverAggressiveness` (a waiver hawk bids big and claims smaller upgrades,
+ * `waiverMinGain`) and is blurred by the
  * difficulty's `valuationNoise`; the number of claims is capped by the difficulty's action budget.
  * The persona shapes the model's judgment and summary through the system prompt.
  *
@@ -19,8 +20,6 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
 /** Trending pickups to look at, and how many of them to preview. */
 export const TRENDING_LOOKBACK_HOURS = 72;
 export const MAX_CANDIDATES = 8;
-/** Projected weekly points a pickup must add to be worth suggesting. */
-export const MIN_GAIN = 0.5;
 
 const WaiverPayloadSchema = z.object({
   week: z.number().int().min(1).max(18).optional(),
@@ -147,6 +146,8 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
   const points = new Map((projections?.projections ?? []).map((p) => [p.player.id, p.points]));
   const pts = (id: string) => points.get(id) ?? 0;
 
+  // Projected weekly points a pickup must add to be worth suggesting, by the archetype.
+  const minGain = waiverMinGain(ctx.config.waiverAggressiveness);
   const usedDrops = new Set<string>();
   const suggestions: WaiverSuggestion[] = [];
   for (const c of candidates.sort((a, b) => pts(b.player.id) - pts(a.player.id))) {
@@ -159,7 +160,7 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
         [...(samePosition.length > 0 ? samePosition : pool)].sort((a, b) => pts(a.id) - pts(b.id))[0] ?? null;
     }
     const gain = pts(c.player.id) - (drop === null ? 0 : pts(drop.id));
-    if (gain < MIN_GAIN || (c.needsDrop && drop === null)) continue;
+    if (gain < minGain || (c.needsDrop && drop === null)) continue;
     let kind: 'add_now' | 'claim_pending' = c.kind === 'add_now' ? 'add_now' : 'claim_pending';
     if (drop !== null) {
       // With the drop named, the preview says whether he is a free agent or on waivers. Anything

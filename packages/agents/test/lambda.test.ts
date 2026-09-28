@@ -69,4 +69,32 @@ describe('agent Lambda handlers', () => {
     expect(record).toMatchObject({ status: 'completed', finalAction: 'set_lineup', teamId: AGENT_TEAM });
     expect(await s.savedLineups()).toHaveLength(1);
   });
+
+  it('writes agent memory for league events before routing, and survives a memory failure', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'balanced' });
+    vi.stubEnv('TABLE_NAME', 'unused');
+    vi.resetModules();
+    vi.doMock('../src/lambda/env.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/lambda/env.js')>()),
+      createAgentServices: () => s.services
+    }));
+    const router = await import('../src/lambda/router.js');
+    const final = {
+      id: 'evt-final',
+      'detail-type': 'Week Provisionally Final',
+      source: 'fantasy',
+      detail: {
+        leagueId: LEAGUE_ID,
+        week: 4,
+        matchups: [{ homeTeamId: 'team-1', awayTeamId: AGENT_TEAM, homeScore: 100, awayScore: 99 }]
+      }
+    };
+    expect(await router.handler(final)).toEqual({ decisions: [], remembered: 1 });
+    s.repos.agents.listSeats = async () => {
+      throw new Error('table down');
+    };
+    expect(await router.handler({ ...final, id: 'evt-final-2' })).toEqual({ decisions: [], remembered: 0 });
+    expect(s.logs.some((l) => l.includes('agent memory update failed'))).toBe(true);
+  });
 });

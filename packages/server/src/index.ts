@@ -58,5 +58,6 @@ export * from './events/loop.js';
 export { serverSubscribers } from './events/subscribers.js';
 export { JOB_SCHEDULE_EXPRESSIONS, nextRunFn, recurringJobs, seasonJobs } from './jobs/schedules.js';
 export type { JobName } from './jobs/index.js';
+export * from './agents/kill-switch.js';
 export { newsAlertDetail } from './jobs/ingest-news.js';
 export { statusChangedDetail } from './jobs/sync-players.js';

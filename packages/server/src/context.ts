@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Clock } from '@fantasy/core';
+import type { KillSwitch } from './agents/kill-switch.js';
 import type { Principal } from './auth/principal.js';
 import type { EventPublisher } from './events/publisher.js';
 import type { NflStateSource } from './league/calendar.js';
@@ -65,6 +66,8 @@ export interface Ctx {
   realtime: Realtime;
   /** New record ids (random UUIDs when not set; see `newId`). */
   ids?: IdSource;
+  /** The global agent kill switch (SSM), when this deployment has one; read-only here. */
+  agentKillSwitch?: KillSwitch;
   /** The registry running this operation (set by `executeOperation`), for allowed-action lists. */
   registry?: Registry;
 }
@@ -79,6 +82,7 @@ export interface Services {
   limits: Limits;
   realtime: Realtime;
   ids?: IdSource;
+  agentKillSwitch?: KillSwitch;
 }
 
 export function createContext(services: Services, principal: Principal, log: Logger = services.log): Ctx {
@@ -91,7 +95,8 @@ export function createContext(services: Services, principal: Principal, log: Log
     log,
     limits: services.limits,
     realtime: services.realtime,
-    ...(services.ids === undefined ? {} : { ids: services.ids })
+    ...(services.ids === undefined ? {} : { ids: services.ids }),
+    ...(services.agentKillSwitch === undefined ? {} : { agentKillSwitch: services.agentKillSwitch })
   };
 }
 
