@@ -422,6 +422,8 @@ export async function publishModelPowerRankings(
       costUsd: m.costUsd
     }));
     await deps.events.publish('Model Power Rankings', {
+      eventKey: `rankings:${league.season}:${week}:${now.toISOString()}`,
+      occurredAt: now.toISOString(),
       leagueId: league.id,
       season: league.season,
       week,

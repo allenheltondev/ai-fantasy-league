@@ -1,3 +1,5 @@
+import { ApiError } from '../errors.js';
+import type { Team } from './types.js';
 import {
   claimExists,
   staleClaim,
@@ -10,8 +12,6 @@ import {
   type WaiverWireEntry
 } from './waivers.js';
 
-import type { Team } from './types.js';
-import { ApiError } from '../errors.js';
 const clone = <T>(value: T): T => structuredClone(value);
 const txnSort = (t: TransactionRecord) => `TXN#${t.at}#${t.id}`;
 

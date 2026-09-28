@@ -139,7 +139,8 @@ const MAX_WRITE_ATTEMPTS = 4;
 
 /**
  * Applies a roster change with atomic ownership updates in the team repository. Retries metadata
- * conflicts only; a changed roster must go back through the caller's capacity and rule validation. Throws PLAYER_NOT_AVAILABLE when another team holds the added player, and
+ * conflicts only; a changed roster must go back through the caller's capacity and rule validation.
+ * Throws PLAYER_NOT_AVAILABLE when another team holds the added player, and
  * PLAYER_NOT_ON_ROSTER when the dropped player left the roster in the meantime.
  */
 export async function changeRoster(

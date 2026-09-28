@@ -1,3 +1,4 @@
+import { recordLeagueMemory } from '../../src/memory.js';
 import {
   EVENT_DETAIL_SCHEMAS,
   InMemoryRealtime,
@@ -1153,5 +1154,53 @@ describe('event contract coverage', () => {
     ])
       expect(eventDetailSchema(`Trade ${type}`), type).toBeDefined();
     expect(eventDetailSchema('Agent Action Requested')).toBeUndefined();
+  });
+});
+
+describe('recovery event identities', () => {
+  it('uses one task identity for republished draft turns, and keeps distinct turns distinct', async () => {
+    const s = await inSeason();
+    const e = {
+      detailType: 'Draft Turn Started',
+      detail: {
+        leagueId: LEAGUE_ID,
+        teamId: 'team-2',
+        pick: 1,
+        round: 1,
+        pickInRound: 1,
+        deadline: '2026-10-04T15:01:00Z',
+        pickSeconds: 60,
+        eventKey: 'draft:1',
+        occurredAt: START
+      }
+    };
+    const first = await consume(s.services, delivered(e, START));
+    const next = await consume(s.services, delivered(e, '2026-10-04T15:00:30Z'));
+    const tasks = (c: Consumed) => c.routed.filter((d) => d.decision === 'requested').map((d) => d.taskId);
+    expect(tasks(first)).toEqual([expect.any(String)]);
+    expect(tasks(next)).toEqual(tasks(first));
+    const distinct = await consume(
+      s.services,
+      delivered({ ...e, detail: { ...e.detail, eventKey: 'draft:2', pick: 2 } })
+    );
+    expect(tasks(distinct)).not.toEqual(tasks(first));
+  });
+
+  it('does not add the same recovered result to agent memory twice', async () => {
+    const s = await inSeason();
+    const e = {
+      detailType: 'Week Provisionally Final',
+      detail: {
+        leagueId: LEAGUE_ID,
+        week: 4,
+        matchups: [{ homeTeamId: 'team-2', awayTeamId: 'team-3', homeScore: 100, awayScore: 80 }],
+        eventKey: 'rollover:4',
+        occurredAt: START
+      }
+    };
+    await recordLeagueMemory(s.services, delivered(e, START));
+    const before = await s.repos.agents.getMemory(LEAGUE_ID, `${LEAGUE_ID}.team-2`);
+    await recordLeagueMemory(s.services, delivered(e, '2026-10-04T16:00:00Z'));
+    expect(await s.repos.agents.getMemory(LEAGUE_ID, `${LEAGUE_ID}.team-2`)).toEqual(before);
   });
 });

@@ -1,3 +1,4 @@
+import { canonicalEvent } from '@fantasy/server';
 import { banterVerdict, hashString, isDmRoomId, resolveAgentConfig } from '@fantasy/core';
 import {
   AGENT_CHAT_BUDGETS,
@@ -320,6 +321,7 @@ export function taskIdFor(eventId: string, teamId: string, kind: string): string
 }
 
 export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<RouteDecision[]> {
+  event = canonicalEvent(event);
   const { services } = deps;
   const detailType = event['detail-type'];
   const log = services.log.child({ eventId: event.id, detailType });

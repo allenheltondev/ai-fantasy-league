@@ -18,6 +18,7 @@ npm run dev --workspace=app
 
 The workspace dev commands also work in PowerShell. `npm run dev` uses Make and a POSIX shell.
 Tests and local servers create isolated tables in DynamoDB Local, including real transaction support.
+Docker is optional if DynamoDB Local is already running, for example from its Java distribution.
 Set `FANTASY_DYNAMODB_ENDPOINT` to use another local endpoint (default `http://127.0.0.1:8000`).
 
 ```sh

@@ -125,7 +125,9 @@ export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<
   const leagues = [
     ...active,
     ...complete.filter((l) => l.pendingRollover),
-    ...drafting.filter((l) => l.draftStartup)
+    ...drafting.filter(
+      (l) => l.draftStartup && !(Date.parse(l.draftStartup.leaseUntil ?? '') > now.getTime())
+    )
   ];
   if (leagues.length === 0) return skipped('no_leagues_in_season');
   const outcomes: Record<string, number> = {};

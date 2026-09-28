@@ -1,3 +1,6 @@
+import { ApiError } from '../../src/errors.js';
+import { resumeDraftStartup } from '../../src/operations/draft/start-draft.js';
+import { postSystemMessage } from '../../src/chat/system-messages.js';
 import { FixedClock } from '@fantasy/core';
 import { advanceSeason } from '../../src/jobs/season.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -19,6 +22,145 @@ function deferred<T>() {
 }
 
 describe('audit regression reproductions', () => {
+  it.each(['memory', 'dynamo'] as const)(
+    'preserves a later waiver reorder and deduplicates republished recaps (%s)',
+    async (backend) => {
+      const h = await createHarness({ backend, registry });
+      try {
+        const deps = {
+          repos: h.repos,
+          reference: h.services.data.reference,
+          events: h.events,
+          log: h.services.log
+        };
+        await seedNflSchedule(deps.reference);
+        const seeded = await seedSeasonLeague(deps, { id: 'priority-retry', owners: [ALICE] });
+        const league = await h.repos.leagues.update({
+          ...seeded.league,
+          settings: {
+            ...seeded.league.settings,
+            waivers: { ...seeded.league.settings.waivers, priorityOrder: 'reverse_standings_weekly' }
+          }
+        });
+        const now = new Date(Date.parse(MONDAY_KICKOFF) + 5 * 3_600_000);
+        const updateTeam = h.repos.teams.update.bind(h.repos.teams);
+        let priorityRaced = false;
+        vi.spyOn(h.repos.teams, 'update').mockImplementation(async (team) => {
+          if (team.waiverPriorityResetKey && !priorityRaced) {
+            priorityRaced = true;
+            throw new ApiError('CONFLICT', 'Concurrent team edit', { fix: 'Retry.' });
+          }
+          return updateTeam(team);
+        });
+        vi.spyOn(h.events, 'scheduleAt').mockRejectedValueOnce(new Error('timer unavailable'));
+        await expect(advanceLeague(deps, league, now)).rejects.toThrow('timer unavailable');
+        const first = h.events.events.find((e) => e.detailType === 'Week Provisionally Final')!;
+        const delivered = (id: string, time: string) => ({
+          ...first,
+          id,
+          'detail-type': first.detailType,
+          time
+        });
+        expect(await postSystemMessage(h.services, delivered('delivery-1', now.toISOString()))).toMatchObject(
+          { status: 'posted' }
+        );
+        const teams = await h.repos.teams.list(league.id);
+        for (const team of teams)
+          await h.repos.teams.update({ ...team, waiverPriority: 5 - team.waiverPriority });
+        const before = (await h.repos.teams.list(league.id)).map((t) => t.waiverPriority);
+        const update = h.repos.leagues.update.bind(h.repos.leagues);
+        let raced = false;
+        vi.spyOn(h.repos.leagues, 'update').mockImplementation(async (next) => {
+          if (!raced && next.pendingRollover === null) {
+            raced = true;
+            await update({ ...(await h.repos.leagues.get(league.id))!, name: 'Changed during recovery' });
+          }
+          return update(next);
+        });
+        await advanceLeague(deps, (await h.repos.leagues.get(league.id))!, now);
+        expect((await h.repos.teams.list(league.id)).map((t) => t.waiverPriority)).toEqual(before);
+        expect(await h.repos.leagues.get(league.id)).toMatchObject({
+          pendingRollover: null,
+          name: 'Changed during recovery'
+        });
+        const replay = h.events.events.filter((e) => e.detailType === 'Week Provisionally Final').at(-1)!;
+        expect(replay.detail.eventKey).toBe(first.detail.eventKey);
+        expect(
+          await postSystemMessage(h.services, {
+            ...delivered('delivery-2', new Date(now.getTime() + 1000).toISOString()),
+            detail: replay.detail
+          })
+        ).toMatchObject({ status: 'duplicate' });
+        expect(h.events.events.filter((e) => e.detailType === 'Week Provisionally Final')).toHaveLength(2);
+      } finally {
+        await h.close();
+      }
+    }
+  );
+
+  it('keeps the season job and another request out of a running draft startup', async () => {
+    const h = await createHarness({ registry });
+    const reached = deferred<void>();
+    const resume = deferred<void>();
+    try {
+      await seedLeague(h.repos, { id: 'start-race', owners: [ALICE], teamCount: 4 });
+      const publish = h.events.publish.bind(h.events);
+      vi.spyOn(h.events, 'publish').mockImplementation(async (type, detail) => {
+        if (type === 'Draft Turn Started') {
+          reached.resolve();
+          await resume.promise;
+        }
+        return publish(type, detail);
+      });
+      const first = as(h, ALICE).post('/leagues/start-race/draft/start', {});
+      await reached.promise;
+      const deps = {
+        repos: h.repos,
+        reference: h.services.data.reference,
+        events: h.events,
+        log: h.services.log
+      };
+      expect(await advanceSeason(deps, h.clock)).toMatchObject({ status: 'skipped' });
+      expect((await as(h, ALICE).post('/leagues/start-race/draft/start', {})).status).toBe(409);
+      const update = h.repos.leagues.update.bind(h.repos.leagues);
+      let raced = false;
+      vi.spyOn(h.repos.leagues, 'update').mockImplementation(async (next) => {
+        if (!raced && next.draftStartup === null) {
+          raced = true;
+          await update({ ...(await h.repos.leagues.get(next.id))!, name: 'Renamed' });
+        }
+        return update(next);
+      });
+      resume.resolve();
+      expect((await first).status).toBe(200);
+      await resumeDraftStartup(h.services, (await h.repos.leagues.get('start-race'))!);
+      expect(h.events.events.filter((e) => e.detailType === 'Draft Turn Started')).toHaveLength(1);
+      expect(await h.repos.leagues.get('start-race')).toMatchObject({ name: 'Renamed', draftStartup: null });
+    } finally {
+      resume.resolve();
+      await h.close();
+    }
+  });
+
+  it('explains how to repair a missing draft record', async () => {
+    const h = await createHarness({ registry });
+    try {
+      await seedLeague(h.repos, {
+        id: 'missing-draft',
+        owners: [ALICE],
+        teamCount: 4,
+        overrides: { phase: 'drafting', draftStartup: { by: 'system' } }
+      });
+      const result = await as(h, ALICE).post('/leagues/missing-draft/draft/start', {});
+      expect(result.status).toBe(409);
+      expect(result.body).toMatchObject({
+        error: { fix: expect.stringContaining('restore the draft record') }
+      });
+    } finally {
+      await h.close();
+    }
+  });
+
   it('does not steal an in-flight ownership lock from another team', async () => {
     const h = await createHarness({ backend: 'dynamo', registry });
     try {
@@ -116,6 +258,18 @@ describe('audit regression reproductions', () => {
         events: h.events,
         log: h.services.log
       };
+      const pending = (await h.repos.leagues.get('recover-draft'))!;
+      // Simulate a worker that crashed while holding its lease.
+      await h.repos.leagues.update({
+        ...pending,
+        draftStartup: {
+          ...pending.draftStartup!,
+          owner: 'crashed',
+          leaseUntil: new Date(h.clock.now().getTime() + 120_000).toISOString()
+        }
+      });
+      expect(await advanceSeason(deps, h.clock)).toMatchObject({ status: 'skipped' });
+      h.clock.advance(120_001);
       expect(await advanceSeason(deps, h.clock)).toMatchObject({ draft_recovered: 1 });
       expect((await h.repos.leagues.get('recover-draft'))?.draftStartup).toBeNull();
       expect(

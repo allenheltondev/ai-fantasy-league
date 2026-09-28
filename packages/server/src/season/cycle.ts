@@ -19,7 +19,7 @@ import { scheduleTradeDeadline } from '../trades/lifecycle.js';
 import { tradeDeadlineAt } from '../trades/world.js';
 import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Lineup, Repos } from '../repos/types.js';
-import { applyPriorities } from '../waivers/process.js';
+import { updateRecovery } from '../league/recovery.js';
 import { resolveWeekLineups, weekGames, type SeasonDeps } from './lineups.js';
 import { publishModelPowerRankings } from './model-stats.js';
 import { rebuildPlayoffs, recordSeasonHistory, writePlayoffGames } from './playoffs.js';
@@ -99,7 +99,9 @@ async function finishRollover(deps: SeasonDeps, league: League, now: Date): Prom
   const at = new Date(pending.at);
   const week = pending.fromWeek;
   const matchups = (await deps.repos.schedule.listMatchups(league.id, week)).map(scoreLine);
+  const identity = { eventKey: `rollover:${league.season}:${week}:${pending.at}`, occurredAt: pending.at };
   const final = {
+    ...identity,
     leagueId: league.id,
     season: league.season,
     week,
@@ -112,6 +114,7 @@ async function finishRollover(deps: SeasonDeps, league: League, now: Date): Prom
     const history = await recordSeasonHistory(deps, league, playoffs, at);
     await deps.events.publish('Week Provisionally Final', final);
     await deps.events.publish('Season Completed', {
+      ...identity,
       leagueId: league.id,
       season: league.season,
       championTeamId: history.championTeamId,
@@ -120,10 +123,14 @@ async function finishRollover(deps: SeasonDeps, league: League, now: Date): Prom
       completedAt: pending.at
     });
   } else {
-    if (league.settings.waivers.priorityOrder === 'reverse_standings_weekly')
-      await resetPriorityToStandings(deps.repos, league.id, at);
+    if (
+      league.settings.waivers.priorityOrder === 'reverse_standings_weekly' ||
+      pending.priorityOrder !== undefined
+    )
+      await resetPriorityToStandings(deps.repos, league, at);
     await deps.events.publish('Week Provisionally Final', final);
     await deps.events.publish('Week Rolled Over', {
+      ...identity,
       leagueId: league.id,
       season: league.season,
       fromWeek: week,
@@ -139,10 +146,11 @@ async function finishRollover(deps: SeasonDeps, league: League, now: Date): Prom
       now
     );
   }
-  const latest = await deps.repos.leagues.get(league.id);
-  if (latest?.pendingRollover?.at === pending.at && latest.pendingRollover.fromWeek === week) {
-    await deps.repos.leagues.update({ ...latest, pendingRollover: null });
-  }
+  await updateRecovery(deps.repos, league.id, (latest) =>
+    latest.pendingRollover?.at === pending.at && latest.pendingRollover.fromWeek === week
+      ? { ...latest, pendingRollover: null }
+      : null
+  );
   return league.phase === 'complete'
     ? { leagueId: league.id, status: 'completed', finalWeek: week }
     : {
@@ -170,14 +178,43 @@ function weekDeadlines(league: League, games: readonly ScheduledGame[]): League[
  * `priorityOrder: reverse_standings_weekly`: at every rollover the waiver priority list resets to
  * the latest standings, worst record first (core `reverseStandingsOrder`).
  */
-async function resetPriorityToStandings(repos: Repos, leagueId: string, now: Date): Promise<void> {
+async function resetPriorityToStandings(repos: Repos, league: League, now: Date): Promise<void> {
+  const pending = league.pendingRollover!;
+  const key = `${league.season}:${pending.fromWeek}:${pending.at}`;
+  // Persist the plan before touching teams: a retry must not re-order tied teams using a later priority list.
   const [standings, teams] = await Promise.all([
-    repos.schedule.latestStandings(leagueId),
-    repos.teams.list(leagueId)
+    repos.schedule.latestStandings(league.id),
+    repos.teams.list(league.id)
   ]);
-  if (standings === null) return;
   const current = [...teams].sort((a, b) => a.waiverPriority - b.waiverPriority).map((t) => t.id);
-  await applyPriorities(repos, leagueId, reverseStandingsOrder(standings.rows, current), now);
+  const order = reverseStandingsOrder(standings?.rows ?? [], current);
+  const saved = await updateRecovery(repos, league.id, (latest) =>
+    latest.pendingRollover?.at === pending.at &&
+    latest.pendingRollover.fromWeek === pending.fromWeek &&
+    latest.pendingRollover.priorityOrder === undefined
+      ? { ...latest, pendingRollover: { ...latest.pendingRollover, priorityOrder: order } }
+      : null
+  );
+  if (saved?.pendingRollover?.at !== pending.at || saved.pendingRollover.fromWeek !== pending.fromWeek)
+    return;
+  for (const [index, teamId] of (saved.pendingRollover.priorityOrder ?? []).entries()) {
+    for (let attempt = 0; ; attempt++) {
+      const team = await repos.teams.get(league.id, teamId);
+      if (team === null || team.waiverPriorityResetKey === key) break;
+      try {
+        // The priority and its checkpoint are one team write. Later waiver changes retain the key.
+        await repos.teams.update({
+          ...team,
+          waiverPriority: index + 1,
+          waiverPriorityResetKey: key,
+          updatedAt: now.toISOString()
+        });
+        break;
+      } catch (error) {
+        if (!isApiError(error) || error.code !== 'CONFLICT' || attempt === 3) throw error;
+      }
+    }
+  }
 }
 
 /** The version-checked league write; null when another writer got there first. */

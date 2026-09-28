@@ -141,8 +141,8 @@ export interface League {
   scheduleSeed: string;
   deadlines: LeagueDeadlines;
   /** Durable work remaining after a phase/week commit; absent on older records. */
-  draftStartup?: { by: string } | null;
-  pendingRollover?: { fromWeek: number; at: string } | null;
+  draftStartup?: { by: string; at?: string; leaseUntil?: string; owner?: string } | null;
+  pendingRollover?: { fromWeek: number; at: string; priorityOrder?: string[] } | null;
   createdAt: string;
   updatedAt: string;
   /** Optimistic concurrency counter; incremented on every update. */
@@ -187,6 +187,8 @@ export interface Team {
   faabRemaining: number;
   /** 1 is first in line for waivers. */
   waiverPriority: number;
+  /** The rollover whose priority reset was committed with this team. */
+  waiverPriorityResetKey?: string;
   /** Player ids. Empty until the draft. */
   roster: string[];
   /**

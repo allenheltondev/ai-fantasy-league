@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { updateRecovery } from '../../league/recovery.js';
 import {
   createDraft,
   deadlineFor,
@@ -167,7 +169,7 @@ export async function startLeagueDraft(
   const updated = await ctx.repos.leagues.update({
     ...transitionPhase(league, 'drafting', now),
     settings,
-    draftStartup: { by: input.by },
+    draftStartup: { by: input.by, at },
     deadlines: { ...league.deadlines, draftStartsAt: record.startedAt }
   });
   const resumed = await resumeDraftStartup(ctx, updated);
@@ -177,7 +179,53 @@ export async function startLeagueDraft(
 /** Re-enterable after every write, event publication, or scheduler failure. */
 export async function resumeDraftStartup(ctx: StartDraftDeps, league: League): Promise<StartedDraft> {
   const record = await ctx.repos.drafts.get(league.id);
-  if (record === null) throw new Error(`Draft startup record missing for ${league.id}`);
+  if (record === null)
+    throw new ApiError('CONFLICT', 'Draft startup is pending, but its draft record is missing.', {
+      fix: 'Ask the commissioner or administrator to restore the draft record before retrying start_draft. Repeated retries cannot repair missing draft data.'
+    });
+  const owner = randomUUID();
+  const claimed = await updateRecovery(ctx.repos, league.id, (latest) => {
+    if (!latest.draftStartup) return null;
+    if (Date.parse(latest.draftStartup.leaseUntil ?? '') > ctx.clock.now().getTime()) {
+      throw new ApiError('CONFLICT', 'Draft startup is already running.', {
+        fix: 'Refresh the draft board shortly. If startup was interrupted, retry after two minutes; the season job also recovers it.'
+      });
+    }
+    return {
+      ...latest,
+      draftStartup: {
+        ...latest.draftStartup,
+        owner,
+        leaseUntil: new Date(ctx.clock.now().getTime() + 120_000).toISOString()
+      }
+    };
+  });
+  if (!claimed?.draftStartup) return { record, settings: league.settings, warnings: [] };
+  try {
+    const result = await finishDraftStartup(ctx, claimed, record);
+    await updateRecovery(ctx.repos, league.id, (latest) =>
+      latest.draftStartup?.owner === owner ? { ...latest, draftStartup: null } : null
+    );
+    return result;
+  } catch (error) {
+    try {
+      await updateRecovery(ctx.repos, league.id, (latest) => {
+        if (latest.draftStartup?.owner !== owner) return null;
+        const { owner: _owner, leaseUntil: _leaseUntil, ...pending } = latest.draftStartup;
+        return { ...latest, draftStartup: pending };
+      });
+    } catch (releaseError) {
+      ctx.log.warn('draft recovery lease release failed', { leagueId: league.id, error: releaseError });
+    }
+    throw error;
+  }
+}
+
+async function finishDraftStartup(
+  ctx: StartDraftDeps,
+  league: League,
+  record: DraftRecord
+): Promise<StartedDraft> {
   const warnings: Warning[] = [];
   const teams = await ctx.repos.teams.list(league.id);
   await startSeasonSchedule(ctx, league);
@@ -194,8 +242,6 @@ export async function resumeDraftStartup(ctx: StartDraftDeps, league: League): P
   // Reload the latest known turn without resetting its clock when startup is retried.
   const current = (await ctx.repos.drafts.get(league.id)) ?? record;
   if (current.status === 'in_progress') await announceTurn(ctx, current);
-  const latest = await ctx.repos.leagues.get(league.id);
-  if (latest?.draftStartup) await ctx.repos.leagues.update({ ...latest, draftStartup: null });
   return { record: current, settings: league.settings, warnings };
 }
 
