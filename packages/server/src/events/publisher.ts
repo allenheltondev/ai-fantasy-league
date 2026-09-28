@@ -47,7 +47,13 @@ export type FantasyEventType =
   | 'Agent Action Requested'
   | 'Member Joined'
   | 'Member Left'
-  | 'Settings Changed';
+  | 'Settings Changed'
+  /** The last playoff week is over and the league is complete (champion and runner-up). */
+  | 'Season Completed'
+  /** A team earned a league achievement (history/achievements in core). */
+  | 'Achievement Earned'
+  /** rsc-core badge chest activity (its engine matches on this detail type; see season/achievements.ts). */
+  | 'Track Activity';
 
 export type EventDetail = Record<string, unknown>;
 

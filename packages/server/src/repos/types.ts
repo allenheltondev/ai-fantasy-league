@@ -2,6 +2,7 @@ import type { DraftState, LeagueSettings, LineupEntry, StandingsRow } from '@fan
 import type { Player, Position } from '../players/model.js';
 import type { ChatRepository } from '../chat/model.js';
 import type { AgentRepository } from './agents.js';
+import type { HistoryRepository } from './history.js';
 import type { TradeRepository } from './trades.js';
 import type { WaiverRepository } from './waivers.js';
 
@@ -349,6 +350,8 @@ export interface Repos {
   waivers: WaiverRepository;
   /** League group chat (chat/model.ts). */
   chat: ChatRepository;
+  /** Playoff brackets, official finals, season archives, and achievements (repos/history.ts). */
+  history: HistoryRepository;
   /** Trade offers and their state machine (repos/trades.ts). */
   trades: TradeRepository;
 }

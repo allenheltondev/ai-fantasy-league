@@ -240,10 +240,10 @@ A league plays from `schedule.startWeek` through `schedule.regularSeasonEndWeek`
 
 - Seeds are the top `playoffs.teams` teams in the final standings, so the standings tiebreakers also decide seeding.
 - The bracket is single elimination with one round per week, from `playoffs.startWeek` to `playoffs.endWeek`. It uses the standard order (1 v 8, 4 v 5, 2 v 7, 3 v 6), and the top seeds get the byes. For example, in the default 6-team bracket, 4 v 5 and 3 v 6 play in week 15, and seeds 1 and 2 enter in week 16.
-- **There is no reseeding.** The bracket is fixed when it's built, as on Yahoo.
+- **By default there is no reseeding.** The bracket is fixed when it's built, as on Yahoo. With `playoffs.reseed: true`, once a round ends the teams left (winners plus first-round byes) are re-paired, the best seed against the worst.
 - The better seed is listed as home.
 - **A tie in a playoff game advances the better (lower-numbered) seed**, as on Yahoo. The game is marked `decidedBySeed`.
-- An **optional consolation bracket** (`{ consolation: true }`) is a single-elimination bracket for the teams that missed the playoffs. It ends in the same final week, and its top seeds get byes when the field isn't a power of two. If there are more teams than the playoff weeks can fit, the lowest seeds sit out.
+- An **optional consolation bracket** (`playoffs.consolation: true`, off by default; it needs at least 2 teams outside the playoffs, `CONSOLATION_TOO_FEW_TEAMS` otherwise) is a single-elimination bracket for the teams that missed the playoffs. It ends in the same final week, and its top seeds get byes when the field isn't a power of two. If there are more teams than the playoff weeks can fit, the lowest seeds sit out.
 - `buildBracket` rejects a seed count that doesn't match `playoffs.teams`, a bye count other than the bracket needs, a number of weeks that doesn't match the number of rounds, duplicate teams or seeds, and a consolation bracket with fewer than 2 teams.
 
 ## Draft

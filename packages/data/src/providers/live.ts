@@ -1,5 +1,11 @@
 import type { NflverseClient } from '../nflverse/client.js';
-import { applyCrosswalk, buildCrosswalk, type CrosswalkReport } from '../nflverse/crosswalk.js';
+import {
+  applyCrosswalk,
+  buildCrosswalk,
+  type CrosswalkReport,
+  type IdCrosswalk
+} from '../nflverse/crosswalk.js';
+import { reconcileWithNflverse } from '../nflverse/reconcile.js';
 import { computeByeWeeks } from '../nflverse/schedule.js';
 import type { DataProvider, TrendingOptions } from '../provider.js';
 import type { SleeperClient } from '../sleeper/client.js';
@@ -68,6 +74,26 @@ export class LiveDataProvider implements DataProvider {
 
   async getWeekStats(season: number, week: number, _asOf: Date): Promise<StatLine[]> {
     return normalizeWeekStats(await this.#sleeper.weekStats(season, week), season, week);
+  }
+
+  /**
+   * The week re-pulled from Sleeper and reconciled with nflverse's weekly file
+   * (`reconcileWithNflverse`), for the Thursday official final.
+   */
+  async getOfficialWeekStats(
+    season: number,
+    week: number,
+    asOf: Date,
+    crosswalk?: IdCrosswalk
+  ): Promise<StatLine[]> {
+    const [primary, official] = await Promise.all([
+      this.getWeekStats(season, week, asOf),
+      this.#nflverse.weeklyStats(season, crosswalk)
+    ]);
+    return reconcileWithNflverse(
+      primary,
+      official.filter((l) => l.week === week && l.seasonType === 'regular')
+    );
   }
 
   async getWeekProjections(season: number, week: number, _asOf: Date): Promise<ProjectionLine[]> {
