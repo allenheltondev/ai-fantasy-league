@@ -89,13 +89,14 @@ describe('operations (#130)', () => {
       'AgentRouterFunction',
       'AgentTaskFunction',
       'ChatEventsFunction',
-      'RealtimePublisherFunction'
+      'RealtimePublisherFunction',
+      'AlarmNotifierFunction'
     ]);
   });
 
   it('gives every EventBridge rule and schedule target the dead-letter queue', () => {
     const targets = functions.flatMap((f) => events(f.body).map((e) => ({ ...e, fn: f.id })));
-    expect(targets.filter((t) => t.type === 'EventBridgeRule')).toHaveLength(5);
+    expect(targets.filter((t) => t.type === 'EventBridgeRule')).toHaveLength(6);
     expect(targets.filter((t) => t.type === 'ScheduleV2')).toHaveLength(11);
     const policy = all.find((r) => r.id === 'EventsDeadLetterQueuePolicy')?.body ?? '';
     expect(policy).toContain('Service: events.amazonaws.com');
@@ -106,8 +107,8 @@ describe('operations (#130)', () => {
       // SAM names a rule <Function><Event>; the queue policy admits exactly those rules.
       if (t.type === 'EventBridgeRule') expect(policy).toContain(`- !GetAtt ${t.fn}${t.id}.Arn\n`);
     }
-    // The five rules, plus the queue itself as the Resource.
-    expect([...policy.matchAll(/!GetAtt (\w+)\.Arn/g)]).toHaveLength(6);
+    // The six rules, plus the queue itself as the Resource.
+    expect([...policy.matchAll(/!GetAtt (\w+)\.Arn/g)]).toHaveLength(7);
     const dlqAlarm = all.find((r) => r.id === 'EventsDeadLetterAlarm')?.body ?? '';
     expect(dlqAlarm).toContain('MetricName: ApproximateNumberOfMessagesVisible');
     expect(dlqAlarm).toContain('Value: !GetAtt EventsDeadLetterQueue.QueueName');
@@ -149,13 +150,34 @@ describe('operations (#130)', () => {
     }
   });
 
-  it('notifies the alarm topic, with an optional email subscription', () => {
+  it('names every alarm with the stack prefix, and uses no SNS', () => {
     // Three per function, plus the dead-letter queue.
     expect(alarms).toHaveLength(functions.length * 3 + 1);
-    for (const a of alarms) expect(a.body, a.id).toContain('AlarmActions:\n        - !Ref AlarmTopic\n');
-    const subscription = all.find((r) => r.type === 'AWS::SNS::Subscription')?.body ?? '';
-    expect(subscription).toContain('Condition: SubscribeAlarmEmail');
-    expect(subscription).toContain('Endpoint: !Ref AlarmEmail');
-    expect(template).toMatch(/AlarmEmail:\n {4}Type: String\n {4}Default: ''/);
+    for (const a of alarms) {
+      expect(a.body, a.id).toContain(`AlarmName: !Sub \${AWS::StackName}-${a.id}\n`);
+      expect(a.body, a.id).not.toMatch(/AlarmActions|OKActions/);
+    }
+    expect(template).not.toMatch(/AWS::SNS::|\bsns:\w/i);
+  });
+
+  it("emails this stack's alarms entering ALARM through rsc-core's Send Email, with PutEvents only", () => {
+    const notifier = functions.find((f) => f.id === 'AlarmNotifierFunction')?.body ?? '';
+    expect(notifier).toContain('Handler: alarm-notifier.handler');
+    expect(notifier).toContain('ALARM_EMAIL: !Ref AlarmEmail\n');
+    expect(notifier).toContain('STACK_NAME: !Ref AWS::StackName\n');
+    const rule = events(notifier).find((e) => e.id === 'AlarmStateChange')?.body ?? '';
+    expect(rule).toContain('EventBusName: default\n');
+    expect(rule).toMatch(/source:\n\s+- aws\.cloudwatch\n/);
+    expect(rule).toMatch(/detail-type:\n\s+- CloudWatch Alarm State Change\n/);
+    // The same prefix every AlarmName starts with.
+    expect(rule).toMatch(/alarmName:\n\s+- prefix: !Sub \$\{AWS::StackName\}-\n/);
+    expect(rule).toMatch(/state:\n\s+value:\n\s+- ALARM\n/);
+    const policies = notifier.slice(
+      notifier.indexOf('      Policies:\n'),
+      notifier.indexOf('      Events:\n')
+    );
+    expect([...policies.matchAll(/Action: (\S+)/g)].map((m) => m[1])).toEqual(['events:PutEvents']);
+    expect(policies).toContain('event-bus/default\n');
+    expect(template).toMatch(/AlarmEmail:\n {4}Type: String\n {4}Default: allenheltondev@gmail\.com\n/);
   });
 });

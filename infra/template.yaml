@@ -126,12 +126,12 @@ Parameters:
   # --------------------------------------------------------------------------
   AlarmEmail:
     Type: String
-    Default: ''
-    AllowedPattern: ^$|^[^\s@]+@[^\s@]+$
+    Default: allenheltondev@gmail.com
+    AllowedPattern: ^[^\s@]+@[^\s@]+$
     Description: >
-      Optional address subscribed to the alarm topic (AWS sends a confirmation
-      email first). Empty (the default) creates the topic and alarms with no
-      subscription; subscribe to AlarmTopicArn by other means.
+      Where alarm emails go. AlarmNotifierFunction sends them through
+      rsc-core's `Send Email` event (its SendEmailFunction on the default bus);
+      the default matches rsc-core's AdminEmail.
 
   # --------------------------------------------------------------------------
   # Custom domain (Production only)
@@ -153,9 +153,6 @@ Parameters:
 
 Conditions:
   DeployServer: !Not [!Equals [!Ref ServerArtifactKey, '']]
-  SubscribeAlarmEmail: !And
-    - !Condition DeployServer
-    - !Not [!Equals [!Ref AlarmEmail, '']]
   # Both halves are needed: the certificate validates, and the alias records
   # live, in the hosted zone.
   DeployCustomDomain: !And
@@ -1152,12 +1149,15 @@ Resources:
   # ===========================================================================
   # Operations (#130): alarms, error-log metrics, and the dead-letter queue.
   #
-  # Every alarm notifies AlarmTopic (subscribe AlarmEmail, or anything else, to
-  # it). Per function: Errors (an invocation threw), Throttles, and ErrorLogs,
-  # a metric filter on the structured JSON logger (packages/server/src/log.ts
+  # Every alarm is named <stack>-<LogicalId>. CloudWatch puts each state change
+  # on the default bus (`CloudWatch Alarm State Change`); AlarmNotifierFunction
+  # picks up this stack's alarms entering ALARM and emails AlarmEmail through
+  # rsc-core's `Send Email` event (no SNS: the deploy role cannot use it).
+  # Per function: Errors (an invocation threw), Throttles, and ErrorLogs, a
+  # metric filter on the structured JSON logger (packages/server/src/log.ts
   # writes {"level":"error","message":...} for 'job failed', 'could not advance
   # league', 'waiver processing failed', 'unhandled request error', and the
-  # rest), so a job that logs a per-league failure and carries on still pages.
+  # rest), so a job that logs a per-league failure and carries on still alerts.
   # Each function logs to its own group here (LoggingConfig) because a metric
   # filter needs the group to exist, and Lambda's implicit /aws/lambda/<name>
   # groups may already exist outside the stack.
@@ -1169,19 +1169,65 @@ Resources:
   # Plain resources and inline/resource policies only (no managed policies).
   # ===========================================================================
 
-  AlarmTopic:
-    Type: AWS::SNS::Topic
+  # Emails this stack's alarms as they enter ALARM
+  # (packages/server/src/alarms/notify.ts).
+  AlarmNotifierFunction:
+    Type: AWS::Serverless::Function
     Condition: DeployServer
+    Metadata:
+      SkipBuild: true
     Properties:
-      DisplayName: !Sub ${AWS::StackName} alarms
-
-  AlarmEmailSubscription:
-    Type: AWS::SNS::Subscription
-    Condition: SubscribeAlarmEmail
-    Properties:
-      TopicArn: !Ref AlarmTopic
-      Protocol: email
-      Endpoint: !Ref AlarmEmail
+      Description: Emails this stack's CloudWatch alarms through rsc-core's Send Email event
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: alarm-notifier.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          ALARM_EMAIL: !Ref AlarmEmail
+          STACK_NAME: !Ref AWS::StackName
+          EVENT_BUS_NAME: default
+          NODE_OPTIONS: --enable-source-maps
+      LoggingConfig:
+        LogGroup: !Ref AlarmNotifierLogGroup
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt EventsDeadLetterQueue.Arn
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            # Send Email only.
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+      Events:
+        AlarmStateChange:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - aws.cloudwatch
+              detail-type:
+                - CloudWatch Alarm State Change
+              detail:
+                alarmName:
+                  - prefix: !Sub ${AWS::StackName}-
+                state:
+                  value:
+                    - ALARM
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+            DeadLetterConfig:
+              Arn: !GetAtt EventsDeadLetterQueue.Arn
 
   EventsDeadLetterQueue:
     Type: AWS::SQS::Queue
@@ -1217,11 +1263,14 @@ Resources:
                   - !GetAtt AgentTaskFunctionAgentActionRequested.Arn
                   - !GetAtt ChatEventsFunctionLeagueEvents.Arn
                   - !GetAtt RealtimePublisherFunctionRealtimeEvents.Arn
+                  - !GetAtt AlarmNotifierFunctionAlarmStateChange.Arn
 
   EventsDeadLetterAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-EventsDeadLetterAlarm
       AlarmDescription: An event was dead-lettered (undeliverable, or its handler kept failing). Inspect and redrive EventsDeadLetterQueue.
       Namespace: AWS/SQS
       MetricName: ApproximateNumberOfMessagesVisible
@@ -1234,10 +1283,6 @@ Resources:
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   # --- the API (ApiFunction) ---
   ApiLogGroup:
@@ -1263,6 +1308,8 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-ApiErrorLogsAlarm
       AlarmDescription: The API logged an error (level "error" in ApiLogGroup).
       Namespace: !Sub AiFantasyLeague/${AWS::StackName}
       MetricName: ApiErrorLogs
@@ -1272,15 +1319,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   ApiErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-ApiErrorsAlarm
       AlarmDescription: An invocation of the API failed.
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -1293,15 +1338,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   ApiThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-ApiThrottlesAlarm
       AlarmDescription: An invocation of the API was throttled.
       Namespace: AWS/Lambda
       MetricName: Throttles
@@ -1314,10 +1357,6 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   # --- the scheduled data jobs (DataJobsFunction) ---
   DataJobsLogGroup:
@@ -1343,6 +1382,8 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-DataJobsErrorLogsAlarm
       AlarmDescription: The scheduled data jobs logged an error (level "error" in DataJobsLogGroup).
       Namespace: !Sub AiFantasyLeague/${AWS::StackName}
       MetricName: DataJobsErrorLogs
@@ -1352,15 +1393,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   DataJobsErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-DataJobsErrorsAlarm
       AlarmDescription: An invocation of the scheduled data jobs failed.
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -1373,15 +1412,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   DataJobsThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-DataJobsThrottlesAlarm
       AlarmDescription: An invocation of the scheduled data jobs was throttled.
       Namespace: AWS/Lambda
       MetricName: Throttles
@@ -1394,10 +1431,6 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   # --- the agent router (AgentRouterFunction) ---
   AgentRouterLogGroup:
@@ -1423,6 +1456,8 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AgentRouterErrorLogsAlarm
       AlarmDescription: The agent router logged an error (level "error" in AgentRouterLogGroup).
       Namespace: !Sub AiFantasyLeague/${AWS::StackName}
       MetricName: AgentRouterErrorLogs
@@ -1432,15 +1467,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   AgentRouterErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AgentRouterErrorsAlarm
       AlarmDescription: An invocation of the agent router failed.
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -1453,15 +1486,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   AgentRouterThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AgentRouterThrottlesAlarm
       AlarmDescription: An invocation of the agent router was throttled.
       Namespace: AWS/Lambda
       MetricName: Throttles
@@ -1474,10 +1505,6 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   # --- the agent task runner (AgentTaskFunction) ---
   AgentTaskLogGroup:
@@ -1503,6 +1530,8 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AgentTaskErrorLogsAlarm
       AlarmDescription: The agent task runner logged an error (level "error" in AgentTaskLogGroup).
       Namespace: !Sub AiFantasyLeague/${AWS::StackName}
       MetricName: AgentTaskErrorLogs
@@ -1512,15 +1541,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   AgentTaskErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AgentTaskErrorsAlarm
       AlarmDescription: An invocation of the agent task runner failed.
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -1533,15 +1560,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   AgentTaskThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AgentTaskThrottlesAlarm
       AlarmDescription: An invocation of the agent task runner was throttled.
       Namespace: AWS/Lambda
       MetricName: Throttles
@@ -1554,10 +1579,6 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   # --- the chat system-message handler (ChatEventsFunction) ---
   ChatEventsLogGroup:
@@ -1583,6 +1604,8 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-ChatEventsErrorLogsAlarm
       AlarmDescription: The chat system-message handler logged an error (level "error" in ChatEventsLogGroup).
       Namespace: !Sub AiFantasyLeague/${AWS::StackName}
       MetricName: ChatEventsErrorLogs
@@ -1592,15 +1615,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   ChatEventsErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-ChatEventsErrorsAlarm
       AlarmDescription: An invocation of the chat system-message handler failed.
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -1613,15 +1634,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   ChatEventsThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-ChatEventsThrottlesAlarm
       AlarmDescription: An invocation of the chat system-message handler was throttled.
       Namespace: AWS/Lambda
       MetricName: Throttles
@@ -1634,10 +1653,6 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   # --- the realtime publisher (RealtimePublisherFunction) ---
   RealtimePublisherLogGroup:
@@ -1663,6 +1678,8 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-RealtimePublisherErrorLogsAlarm
       AlarmDescription: The realtime publisher logged an error (level "error" in RealtimePublisherLogGroup).
       Namespace: !Sub AiFantasyLeague/${AWS::StackName}
       MetricName: RealtimePublisherErrorLogs
@@ -1672,15 +1689,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   RealtimePublisherErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-RealtimePublisherErrorsAlarm
       AlarmDescription: An invocation of the realtime publisher failed.
       Namespace: AWS/Lambda
       MetricName: Errors
@@ -1693,15 +1708,13 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
 
   RealtimePublisherThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: DeployServer
     Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-RealtimePublisherThrottlesAlarm
       AlarmDescription: An invocation of the realtime publisher was throttled.
       Namespace: AWS/Lambda
       MetricName: Throttles
@@ -1714,10 +1727,80 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmTopic
-      OKActions:
-        - !Ref AlarmTopic
+
+  # --- the alarm notifier (AlarmNotifierFunction) ---
+  AlarmNotifierLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: DeployServer
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/alarm-notifier
+      RetentionInDays: 30
+
+  AlarmNotifierErrorLogsFilter:
+    Type: AWS::Logs::MetricFilter
+    Condition: DeployServer
+    Properties:
+      LogGroupName: !Ref AlarmNotifierLogGroup
+      FilterPattern: '{ $.level = "error" }'
+      MetricTransformations:
+        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
+          MetricName: AlarmNotifierErrorLogs
+          MetricValue: '1'
+          Unit: Count
+
+  AlarmNotifierErrorLogsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: DeployServer
+    Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AlarmNotifierErrorLogsAlarm
+      AlarmDescription: The alarm notifier logged an error (level "error" in AlarmNotifierLogGroup).
+      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
+      MetricName: AlarmNotifierErrorLogs
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  AlarmNotifierErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: DeployServer
+    Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AlarmNotifierErrorsAlarm
+      AlarmDescription: An invocation of the alarm notifier failed.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AlarmNotifierFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  AlarmNotifierThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: DeployServer
+    Properties:
+      # The stack prefix is what AlarmNotifierFunction's rule matches on.
+      AlarmName: !Sub ${AWS::StackName}-AlarmNotifierThrottlesAlarm
+      AlarmDescription: An invocation of the alarm notifier was throttled.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AlarmNotifierFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
 
   # ===========================================================================
   # End of operations section
@@ -1784,10 +1867,6 @@ Outputs:
   AgentKillSwitchParameterName:
     Description: SSM parameter to set to "on" to put every agent into deterministic mode
     Value: !Ref AgentKillSwitchParameter
-  AlarmTopicArn:
-    Condition: DeployServer
-    Description: SNS topic every alarm notifies (subscribe on-call here)
-    Value: !Ref AlarmTopic
   EventsDeadLetterQueueUrl:
     Condition: DeployServer
     Description: >

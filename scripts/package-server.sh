@@ -8,6 +8,7 @@
 #   jobs.mjs          the data jobs (packages/server/src/jobs/lambda.ts), Handler: jobs.handler
 #   chat-events.mjs   system chat messages (packages/server/src/chat/lambda.ts)
 #   realtime.mjs      the Momento realtime publisher (packages/server/src/realtime/lambda.ts)
+#   alarm-notifier.mjs  alarm emails (packages/server/src/alarms/lambda.ts)
 #   agent-router.mjs  the agent trigger router (packages/agents/src/lambda/router.ts)
 #   agent-task.mjs    the agent task runner (packages/agents/src/lambda/task.ts)
 #
@@ -67,9 +68,11 @@ if [ "${SERVER_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
   done
 fi
 
-# Chat and realtime handlers (#68, #70) share the API's code; bundled when present.
+# Chat and realtime handlers (#68, #70) and the alarm notifier (#130) share the
+# API's code; bundled when present.
 EXTRA_ENTRIES=()
-for spec in "chat-events:packages/server/src/chat/lambda.ts" "realtime:packages/server/src/realtime/lambda.ts"; do
+for spec in "chat-events:packages/server/src/chat/lambda.ts" "realtime:packages/server/src/realtime/lambda.ts" \
+  "alarm-notifier:packages/server/src/alarms/lambda.ts"; do
   [ -f "${ROOT}/${spec#*:}" ] && EXTRA_ENTRIES+=("${spec%%:*}=${ROOT}/${spec#*:}")
 done
 
