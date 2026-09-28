@@ -72,7 +72,11 @@ describe('runAgentAction with the fake model', () => {
     const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
     expect(memory.notes).toEqual(['rb3 is my guy.']);
     expect(memory.decisions).toEqual([
-      expect.objectContaining({ kind: 'lineup', action: 'set_lineup', summary: 'Start the optimizer lineup.' })
+      expect.objectContaining({
+        kind: 'lineup',
+        action: 'set_lineup',
+        summary: 'Start the optimizer lineup.'
+      })
     ]);
     expect(await s.repos.agents.weekUsage(LEAGUE_ID, 5)).toEqual([
       expect.objectContaining({ agentId: AGENT_ID, modelKey: 'kimi-k2-thinking', tasks: 1 })

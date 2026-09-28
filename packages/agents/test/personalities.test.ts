@@ -9,7 +9,10 @@ import { league } from './support.js';
  * character. The snapshots pin each persona's prompt so a catalog edit shows up in review.
  */
 
-function prompt(personalityId: (typeof PERSONALITY_IDS)[number], task: { title: string; instructions: string }) {
+function prompt(
+  personalityId: (typeof PERSONALITY_IDS)[number],
+  task: { title: string; instructions: string }
+) {
   return assembleSystemPrompt({
     config: resolveAgentConfig({ personalityId, difficulty: 'pro', archetype: 'balanced' }),
     league: league(),
@@ -26,8 +29,8 @@ const DECISION = { title: 'Set your lineup', instructions: 'Pick starters.' };
 describe('personality prompts', () => {
   for (const p of PERSONALITIES) {
     it(`${p.id}: persona section`, () => {
-      const persona = resolveAgentConfig({ personalityId: p.id, difficulty: 'pro', archetype: 'balanced' }).prompt
-        .persona;
+      const persona = resolveAgentConfig({ personalityId: p.id, difficulty: 'pro', archetype: 'balanced' })
+        .prompt.persona;
       expect(persona).toMatchSnapshot();
     });
   }

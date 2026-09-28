@@ -32,7 +32,9 @@ export const getAgentActivity = defineOperation({
         configured: z.boolean().describe('False when this deployment has no kill switch parameter.'),
         engaged: z
           .boolean()
-          .describe('True while every agent is in deterministic mode (no model calls). Unreadable counts as engaged.')
+          .describe(
+            'True while every agent is in deterministic mode (no model calls). Unreadable counts as engaged.'
+          )
       })
       .describe('The global agent kill switch, set by the operators (not per league).')
   }),

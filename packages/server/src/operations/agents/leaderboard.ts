@@ -20,7 +20,10 @@ const RecordFields = {
   wins: z.number().int(),
   losses: z.number().int(),
   ties: z.number().int(),
-  winRate: z.number().nullable().describe('(wins + ties / 2) / games, 0 to 1; null before any game is final.'),
+  winRate: z
+    .number()
+    .nullable()
+    .describe('(wins + ties / 2) / games, 0 to 1; null before any game is final.'),
   pointsFor: z.number(),
   costUsd: z.number().describe('Estimated model spend this season (0 for people).')
 };
@@ -71,7 +74,7 @@ export const getModelLeaderboard = defineOperation({
   path: '/leagues/{leagueId}/model-leaderboard',
   summary: 'Which model wins the league: standings and cost by model',
   description: [
-    "Joins every team's standing (rank, record, win rate, points for) with the model that plays it: an agent seat's primary decision model, or \"human\" for a person. Then rolls the same numbers up per model, best win rate first, with estimated model spend and spend per win.",
+    'Joins every team\'s standing (rank, record, win rate, points for) with the model that plays it: an agent seat\'s primary decision model, or "human" for a person. Then rolls the same numbers up per model, best win rate first, with estimated model spend and spend per win.',
     'Use it for "model power rankings" posts and to compare how model families value players. Standings are as of the last final week; costs are estimates from the model catalog, not billing data. Any league member can read it.',
     'Errors: FORBIDDEN if you are not in the league; LEAGUE_NOT_FOUND for an unknown league.'
   ].join(' '),
@@ -79,7 +82,11 @@ export const getModelLeaderboard = defineOperation({
   mutation: false,
   input: z.object({ leagueId: LeagueIdSchema }),
   output: z.object({
-    throughWeek: z.number().int().nullable().describe('Last week included, or null when no week is final yet.'),
+    throughWeek: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Last week included, or null when no week is final yet.'),
     teams: z.array(TeamEntrySchema).describe('One entry per team, in standings order.'),
     models: z.array(ModelEntrySchema).describe('One entry per model (and one for people), best first.')
   }),
@@ -126,7 +133,10 @@ export const getModelLeaderboard = defineOperation({
       const wins = sum((e) => e.wins);
       const losses = sum((e) => e.losses);
       const ties = sum((e) => e.ties);
-      const costUsd = round(sum((e) => e.costUsd), 6);
+      const costUsd = round(
+        sum((e) => e.costUsd),
+        6
+      );
       const first = group[0] as (typeof group)[number];
       return {
         modelKey,

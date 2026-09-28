@@ -49,7 +49,11 @@ describe('archetypes change decisions', () => {
             order: ['team-2', 'team-1', 'team-3', 'team-4'],
             players: pool,
             beforeStart: async (d) => {
-              await d.run('configure_agent_seat', { leagueId: d.leagueId, teamId: 'team-2', ...seatFor(archetype) });
+              await d.run('configure_agent_seat', {
+                leagueId: d.leagueId,
+                teamId: 'team-2',
+                ...seatFor(archetype)
+              });
             }
           });
           await runAgentAction(s.deps(new ScriptedModelClient(), { killSwitch }), s.turnRequest());

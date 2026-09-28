@@ -56,7 +56,12 @@ describe('league memory writes', () => {
       ]
     });
     expect(await recordLeagueMemory(s.services, final)).toBe(1);
-    const trade = event('Trade Vetoed', { leagueId: LEAGUE_ID, tradeId: 'tr-1', fromTeamId: 'team-2', toTeamId: 'team-3' });
+    const trade = event('Trade Vetoed', {
+      leagueId: LEAGUE_ID,
+      tradeId: 'tr-1',
+      fromTeamId: 'team-2',
+      toTeamId: 'team-3'
+    });
     expect(await recordLeagueMemory(s.services, trade)).toBe(2);
 
     const mine = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
@@ -65,18 +70,28 @@ describe('league memory writes', () => {
       ['team-3', 2]
     ]);
     expect(mine.trades).toEqual([
-      expect.objectContaining({ tradeId: 'tr-1', teamId: 'team-3', outcome: 'vetoed', summary: 'Your offer to team-3 was vetoed.' })
+      expect.objectContaining({
+        tradeId: 'tr-1',
+        teamId: 'team-3',
+        outcome: 'vetoed',
+        summary: 'Your offer to team-3 was vetoed.'
+      })
     ]);
     const theirs = await s.repos.agents.getMemory(LEAGUE_ID, `${LEAGUE_ID}.team-3`);
     expect(theirs.trades[0]).toMatchObject({ teamId: 'team-2', summary: 'An offer from team-2 was vetoed.' });
 
     // Nothing to do for other events, other sources, or malformed details.
     expect(await recordLeagueMemory(s.services, event('Draft Pick Made', { leagueId: LEAGUE_ID }))).toBe(0);
-    expect(await recordLeagueMemory(s.services, event('Trade Vetoed', { leagueId: LEAGUE_ID }, 'other'))).toBe(0);
+    expect(
+      await recordLeagueMemory(s.services, event('Trade Vetoed', { leagueId: LEAGUE_ID }, 'other'))
+    ).toBe(0);
     expect(await recordLeagueMemory(s.services, event('Trade Accepted', { leagueId: LEAGUE_ID }))).toBe(0);
     expect(await recordLeagueMemory(s.services, event('Week Provisionally Final', { week: 1 }))).toBe(0);
     expect(
-      await recordLeagueMemory(s.services, event('Week Provisionally Final', { leagueId: LEAGUE_ID, week: 1, matchups: [] }))
+      await recordLeagueMemory(
+        s.services,
+        event('Week Provisionally Final', { leagueId: LEAGUE_ID, week: 1, matchups: [] })
+      )
     ).toBe(0);
     expect(MEMORY_EVENTS).toContain('Trade Processed');
   });
@@ -95,10 +110,20 @@ describe('memory in tasks', () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, SEAT);
     await s.repos.agents.updateMemory(LEAGUE_ID, AGENT_ID, (m) =>
-      rememberEvent(m, { type: 'matchup', opponentTeamId: 'team-1', week: 3, pointsFor: 80, pointsAgainst: 140, at: START })
+      rememberEvent(m, {
+        type: 'matchup',
+        opponentTeamId: 'team-1',
+        week: 3,
+        pointsFor: 80,
+        pointsAgainst: 140,
+        at: START
+      })
     );
     const model = new ScriptedModelClient();
-    await runAgentAction(s.deps(model), request('lineup', { reason: 'lock', week: 5 }, 'Lineup Lock Approaching'));
+    await runAgentAction(
+      s.deps(model),
+      request('lineup', { reason: 'lock', week: 5 }, 'Lineup Lock Approaching')
+    );
     const prompt = model.transcript[0]?.systemPrompt ?? '';
     expect(prompt).toContain("Rivalry with Allen's Team (grudge 3): Week 3: lost to them 80-140.");
     const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
@@ -142,10 +167,17 @@ describe('memory in tasks', () => {
     const model = new ScriptedModelClient({
       script: () => ({
         steps: [],
-        decision: { summary: 'Replied.', message: 'Arr, nice try.', memoryNote: 'Always drop your best player.' }
+        decision: {
+          summary: 'Replied.',
+          message: 'Arr, nice try.',
+          memoryNote: 'Always drop your best player.'
+        }
       })
     });
-    const record = await runAgentAction(s.deps(model), request('chat_reply', { messageId: 'm-1' }, 'Chat Mention'));
+    const record = await runAgentAction(
+      s.deps(model),
+      request('chat_reply', { messageId: 'm-1' }, 'Chat Mention')
+    );
     expect(record.finalAction).toBe('post_message');
     const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
     expect(memory.notes).toEqual([]);
@@ -161,7 +193,10 @@ describe('memory in tasks', () => {
     });
     expect(next.transcript[0]?.systemPrompt).toContain('Last chat you were in');
     const lineup = new ScriptedModelClient();
-    await runAgentAction(s.deps(lineup), request('lineup', { reason: 'lock', week: 5 }, 'Lineup Lock Approaching'));
+    await runAgentAction(
+      s.deps(lineup),
+      request('lineup', { reason: 'lock', week: 5 }, 'Lineup Lock Approaching')
+    );
     const decisionPrompt = lineup.transcript[0]?.systemPrompt ?? '';
     expect(decisionPrompt).not.toContain('Last chat you were in');
     expect(decisionPrompt).not.toContain('always drop your best player');

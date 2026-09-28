@@ -14,15 +14,46 @@ const AT = '2026-10-12T12:00:00.000Z';
 
 describe('agent league memory', () => {
   it('parses stored memory written before the structured fields existed', () => {
-    expect(AgentLeagueMemorySchema.parse({ notes: ['old note'] })).toEqual({ ...emptyMemory(), notes: ['old note'] });
+    expect(AgentLeagueMemorySchema.parse({ notes: ['old note'] })).toEqual({
+      ...emptyMemory(),
+      notes: ['old note']
+    });
   });
 
   it('builds grudges from matchup results, trades, and keeps the biggest first', () => {
     let m = emptyMemory();
-    m = rememberEvent(m, { type: 'matchup', opponentTeamId: 'team-3', week: 1, pointsFor: 80, pointsAgainst: 120, at: AT });
-    m = rememberEvent(m, { type: 'matchup', opponentTeamId: 'team-4', week: 2, pointsFor: 100, pointsAgainst: 90, at: AT });
-    m = rememberEvent(m, { type: 'matchup', opponentTeamId: 'team-5', week: 3, pointsFor: 90, pointsAgainst: 95, at: AT });
-    m = rememberEvent(m, { type: 'matchup', opponentTeamId: 'team-6', week: 4, pointsFor: 90, pointsAgainst: 90, at: AT });
+    m = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-3',
+      week: 1,
+      pointsFor: 80,
+      pointsAgainst: 120,
+      at: AT
+    });
+    m = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-4',
+      week: 2,
+      pointsFor: 100,
+      pointsAgainst: 90,
+      at: AT
+    });
+    m = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-5',
+      week: 3,
+      pointsFor: 90,
+      pointsAgainst: 95,
+      at: AT
+    });
+    m = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-6',
+      week: 4,
+      pointsFor: 90,
+      pointsAgainst: 90,
+      at: AT
+    });
     expect(m.rivals.map((r) => [r.teamId, r.grudge])).toEqual([
       ['team-3', 3],
       ['team-5', 2],
@@ -32,9 +63,23 @@ describe('agent league memory', () => {
     expect(m.rivals[0]?.reason).toBe('Week 1: lost to them 80-120.');
     expect(m.rivals.find((r) => r.teamId === 'team-6')?.reason).toContain('tied');
 
-    m = rememberEvent(m, { type: 'trade', teamId: 'team-4', tradeId: 't1', outcome: 'proposed', summary: 'Asked for their WR1.', at: AT });
+    m = rememberEvent(m, {
+      type: 'trade',
+      teamId: 'team-4',
+      tradeId: 't1',
+      outcome: 'proposed',
+      summary: 'Asked for their WR1.',
+      at: AT
+    });
     expect(m.rivals.find((r) => r.teamId === 'team-4')?.grudge).toBe(1);
-    m = rememberEvent(m, { type: 'trade', teamId: 'team-4', tradeId: 't1', outcome: 'vetoed', summary: 'League vetoed it.', at: AT });
+    m = rememberEvent(m, {
+      type: 'trade',
+      teamId: 'team-4',
+      tradeId: 't1',
+      outcome: 'vetoed',
+      summary: 'League vetoed it.',
+      at: AT
+    });
     expect(m.trades).toEqual([expect.objectContaining({ tradeId: 't1', outcome: 'vetoed' })]);
     expect(m.rivals.find((r) => r.teamId === 'team-4')?.grudge).toBe(3);
   });
@@ -43,7 +88,13 @@ describe('agent league memory', () => {
     let m = emptyMemory();
     for (let i = 0; i < 30; i++) {
       m = rememberEvent(m, { type: 'note', text: `note ${i}` });
-      m = rememberEvent(m, { type: 'decision', kind: 'lineup', action: 'set_lineup', summary: `d${i}`, at: AT });
+      m = rememberEvent(m, {
+        type: 'decision',
+        kind: 'lineup',
+        action: 'set_lineup',
+        summary: `d${i}`,
+        at: AT
+      });
     }
     m = rememberEvent(m, { type: 'note', text: '   ' });
     expect(m.notes).toHaveLength(MEMORY_LIMITS.notes);
@@ -52,7 +103,11 @@ describe('agent league memory', () => {
     const long = 'x'.repeat(1000);
     m = rememberEvent(m, {
       type: 'chat',
-      messages: Array.from({ length: 12 }, (_, i) => ({ author: `A${i}`, text: i === 11 ? long : 'hi', at: AT }))
+      messages: Array.from({ length: 12 }, (_, i) => ({
+        author: `A${i}`,
+        text: i === 11 ? long : 'hi',
+        at: AT
+      }))
     });
     expect(m.chat).toHaveLength(MEMORY_LIMITS.chat);
     expect(m.chat.at(-1)?.text.length).toBe(MEMORY_LIMITS.text);
@@ -61,11 +116,34 @@ describe('agent league memory', () => {
 
   it('summarizes the most useful memories first, within the token budget', () => {
     let m = emptyMemory();
-    m = rememberEvent(m, { type: 'matchup', opponentTeamId: 'team-3', week: 1, pointsFor: 80, pointsAgainst: 120, at: AT });
-    m = rememberEvent(m, { type: 'trade', teamId: 'team-4', tradeId: 't1', outcome: 'processed', summary: 'Got their RB.', at: AT });
+    m = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-3',
+      week: 1,
+      pointsFor: 80,
+      pointsAgainst: 120,
+      at: AT
+    });
+    m = rememberEvent(m, {
+      type: 'trade',
+      teamId: 'team-4',
+      tradeId: 't1',
+      outcome: 'processed',
+      summary: 'Got their RB.',
+      at: AT
+    });
     m = rememberEvent(m, { type: 'note', text: 'I like rb3.' });
-    m = rememberEvent(m, { type: 'decision', kind: 'waivers', action: 'claim_waiver', summary: 'Bid $12 on wr9.', at: AT });
-    m = rememberEvent(m, { type: 'chat', messages: [{ author: 'Allen', text: 'Your kicker stinks.', at: AT }] });
+    m = rememberEvent(m, {
+      type: 'decision',
+      kind: 'waivers',
+      action: 'claim_waiver',
+      summary: 'Bid $12 on wr9.',
+      at: AT
+    });
+    m = rememberEvent(m, {
+      type: 'chat',
+      messages: [{ author: 'Allen', text: 'Your kicker stinks.', at: AT }]
+    });
     const names = (id: string) => ({ 'team-3': 'Bench Mob', 'team-4': 'Taco Corp' })[id] ?? id;
     const all = summarizeMemory(m, { teamName: names });
     expect(all).toEqual([

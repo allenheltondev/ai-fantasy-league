@@ -22,7 +22,8 @@ import { AGENT_TEAM, LEAGUE_ID, START, setup } from './support.js';
  */
 
 const AGENT_ID = `${LEAGUE_ID}.${AGENT_TEAM}`;
-const seat = (difficulty: Difficulty) => ({ personalityId: 'stats-nerd', difficulty, archetype: 'balanced' }) as const;
+const seat = (difficulty: Difficulty) =>
+  ({ personalityId: 'stats-nerd', difficulty, archetype: 'balanced' }) as const;
 const MAX_TOKENS = { low: 1024, medium: 2048, high: 4096 } as const;
 const LINEUP_TOOLS = defaultTaskKinds.get('lineup')?.tools ?? [];
 
@@ -86,7 +87,10 @@ describe('difficulty levers reach the model run', () => {
   it('stops mutations at the action budget', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, { ...seat('pro'), advanced: { levers: { actionsPerTrigger: 1 } } });
-    const set = { tool: 'set_lineup', args: { teamId: AGENT_TEAM, week: 5, moves: [{ playerId: 'qb1', slot: 'QB' }] } };
+    const set = {
+      tool: 'set_lineup',
+      args: { teamId: AGENT_TEAM, week: 5, moves: [{ playerId: 'qb1', slot: 'QB' }] }
+    };
     const model = new ScriptedModelClient({
       script: () => ({ steps: [set, set], decision: { summary: 'Twice.', confirm: true } })
     });

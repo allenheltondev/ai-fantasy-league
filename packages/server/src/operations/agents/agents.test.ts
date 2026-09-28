@@ -123,7 +123,11 @@ describe('agent seat operations', () => {
     const agent = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT }, AGENT);
     expect(agent.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
     const midSeason = await setup('regular_season');
-    const change = await midSeason.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    const change = await midSeason.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT
+    });
     expect(change.body).toMatchObject({ data: { seat: { version: 1 } } });
     const complete = await setup('complete');
     const late = await complete.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
@@ -231,7 +235,10 @@ describe('agent seat operations', () => {
     await put('team-3', 'rookie');
     const empty = await run('get_model_leaderboard', { leagueId: 'lg-1' }, MEMBER);
     expect(empty.body).toMatchObject({
-      data: { throughWeek: null, models: expect.arrayContaining([expect.objectContaining({ winRate: null })]) }
+      data: {
+        throughWeek: null,
+        models: expect.arrayContaining([expect.objectContaining({ winRate: null })])
+      }
     });
 
     const row = (teamId: string, rank: number, wins: number, losses: number, pointsFor: number) => ({
@@ -250,13 +257,24 @@ describe('agent seat operations', () => {
     await repos.schedule.putStandings({
       leagueId: 'lg-1',
       week: 4,
-      rows: [row('team-2', 1, 4, 0, 520), row('team-1', 2, 2, 2, 450), row('team-4', 3, 2, 2, 430), row('team-3', 4, 0, 4, 380)],
+      rows: [
+        row('team-2', 1, 4, 0, 520),
+        row('team-1', 2, 2, 2, 450),
+        row('team-4', 3, 2, 2, 430),
+        row('team-3', 4, 0, 4, 380)
+      ],
       computedAt: START
     });
     const usage = { leagueId: 'lg-1', modelKey: 'claude-opus-5', inputTokens: 1, outputTokens: 1, tasks: 1 };
     await repos.agents.addUsage({ ...usage, week: 1, agentId: 'lg-1.team-2', costUsd: 0.4 });
     await repos.agents.addUsage({ ...usage, week: 5, agentId: 'lg-1.team-2', costUsd: 0.4 });
-    await repos.agents.addUsage({ ...usage, week: 3, agentId: 'lg-1.team-3', modelKey: 'nova-micro', costUsd: 0.01 });
+    await repos.agents.addUsage({
+      ...usage,
+      week: 3,
+      agentId: 'lg-1.team-3',
+      modelKey: 'nova-micro',
+      costUsd: 0.01
+    });
 
     const result = await run('get_model_leaderboard', { leagueId: 'lg-1' }, MEMBER);
     const data = (result.body as { data: { throughWeek: number; teams: unknown[]; models: unknown[] } }).data;
@@ -272,7 +290,13 @@ describe('agent seat operations', () => {
       costUsd: 0.8
     });
     expect(data.models).toEqual([
-      expect.objectContaining({ modelKey: 'claude-opus-5', teams: 1, wins: 4, costPerWinUsd: 0.2, bestRank: 1 }),
+      expect.objectContaining({
+        modelKey: 'claude-opus-5',
+        teams: 1,
+        wins: 4,
+        costPerWinUsd: 0.2,
+        bestRank: 1
+      }),
       expect.objectContaining({
         modelKey: 'human',
         modelName: 'Human',

@@ -115,8 +115,18 @@ export async function recordLeagueMemory(
     for (const m of parsed.data.matchups) {
       if (m.homeScore === null || m.awayScore === null) continue;
       const sides = [
-        { teamId: m.homeTeamId, opponentTeamId: m.awayTeamId, pointsFor: m.homeScore, pointsAgainst: m.awayScore },
-        { teamId: m.awayTeamId, opponentTeamId: m.homeTeamId, pointsFor: m.awayScore, pointsAgainst: m.homeScore }
+        {
+          teamId: m.homeTeamId,
+          opponentTeamId: m.awayTeamId,
+          pointsFor: m.homeScore,
+          pointsAgainst: m.awayScore
+        },
+        {
+          teamId: m.awayTeamId,
+          opponentTeamId: m.homeTeamId,
+          pointsFor: m.awayScore,
+          pointsAgainst: m.homeScore
+        }
       ];
       for (const { teamId, ...rest } of sides) {
         writes.push({ leagueId, teamId, event: { type: 'matchup', week, at, ...rest } });
@@ -131,12 +141,26 @@ export async function recordLeagueMemory(
       {
         leagueId,
         teamId: fromTeamId,
-        event: { type: 'trade', teamId: toTeamId, tradeId, outcome, summary: `Your offer to ${toTeamId} was ${outcome}.`, at }
+        event: {
+          type: 'trade',
+          teamId: toTeamId,
+          tradeId,
+          outcome,
+          summary: `Your offer to ${toTeamId} was ${outcome}.`,
+          at
+        }
       },
       {
         leagueId,
         teamId: toTeamId,
-        event: { type: 'trade', teamId: fromTeamId, tradeId, outcome, summary: `An offer from ${fromTeamId} was ${outcome}.`, at }
+        event: {
+          type: 'trade',
+          teamId: fromTeamId,
+          tradeId,
+          outcome,
+          summary: `An offer from ${fromTeamId} was ${outcome}.`,
+          at
+        }
       }
     );
   } else {

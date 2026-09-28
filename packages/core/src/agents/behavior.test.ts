@@ -6,8 +6,10 @@ import { agentBehavior, lineupProjection, tradeAppetite, waiverMinGain } from '.
 import { DIFFICULTIES, DIFFICULTY_TIERS } from './difficulty.js';
 import { resolveAgentConfig } from './seat-config.js';
 
-const resolved = (archetype: (typeof ARCHETYPES)[number], difficulty: (typeof DIFFICULTIES)[number] = 'pro') =>
-  resolveAgentConfig({ personalityId: 'stats-nerd', difficulty, archetype });
+const resolved = (
+  archetype: (typeof ARCHETYPES)[number],
+  difficulty: (typeof DIFFICULTIES)[number] = 'pro'
+) => resolveAgentConfig({ personalityId: 'stats-nerd', difficulty, archetype });
 
 describe('archetype behavior levers', () => {
   it('gives every archetype a distinct behavior profile', () => {
@@ -37,7 +39,9 @@ describe('archetype behavior levers', () => {
 
   it('takes the counter-offer budget from the difficulty', () => {
     for (const d of DIFFICULTIES) {
-      expect(tradeAppetite(resolved('balanced', d)).maxCounters).toBe(DIFFICULTY_TIERS[d].levers.negotiationRounds);
+      expect(tradeAppetite(resolved('balanced', d)).maxCounters).toBe(
+        DIFFICULTY_TIERS[d].levers.negotiationRounds
+      );
     }
   });
 
@@ -66,11 +70,15 @@ describe('archetype behavior levers', () => {
         (a, b, status, points) => {
           const [lo, hi] = a <= b ? [a, b] : [b, a];
           expect(waiverMinGain(hi)).toBeLessThanOrEqual(waiverMinGain(lo));
-          expect(lineupProjection(points, status, hi)).toBeGreaterThanOrEqual(lineupProjection(points, status, lo));
+          expect(lineupProjection(points, status, hi)).toBeGreaterThanOrEqual(
+            lineupProjection(points, status, lo)
+          );
           expect(lineupProjection(points, status, lo)).toBeLessThanOrEqual(Math.round(points * 100) / 100);
           const levers = DIFFICULTY_TIERS.pro.levers;
           const t = tradeAppetite({ tradeFrequency: hi, levers });
-          expect(t.proposalsPerWeek).toBeGreaterThanOrEqual(tradeAppetite({ tradeFrequency: lo, levers }).proposalsPerWeek);
+          expect(t.proposalsPerWeek).toBeGreaterThanOrEqual(
+            tradeAppetite({ tradeFrequency: lo, levers }).proposalsPerWeek
+          );
           expect(t.proposalsPerWeek).toBeLessThanOrEqual(4);
         }
       )

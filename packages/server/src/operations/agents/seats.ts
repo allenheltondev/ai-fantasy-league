@@ -52,7 +52,7 @@ export const configureAgentSeat = defineOperation({
   path: '/leagues/{leagueId}/agents/{teamId}',
   summary: 'Set the personality, difficulty, and strategy of an agent seat',
   description: [
-    'Commissioner only, any time until the season is complete. A change takes effect on the agent\'s next trigger; nothing is redeployed.',
+    "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed.",
     'Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor).',
     'Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite.',
     'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids or out-of-range levers.'

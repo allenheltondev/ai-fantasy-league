@@ -22,11 +22,16 @@ export const LeagueBudgetSchema = z
     byAgent: z.array(
       TotalsSchema.extend({
         agentId: z.string(),
-        teamId: z.string().nullable().describe('The team the agent plays; null for a seat that no longer exists.'),
+        teamId: z
+          .string()
+          .nullable()
+          .describe('The team the agent plays; null for a seat that no longer exists.'),
         allowanceUsd: z
           .number()
           .nullable()
-          .describe("This agent's share of the ceiling, from its difficulty; null for a seat that no longer exists.")
+          .describe(
+            "This agent's share of the ceiling, from its difficulty; null for a seat that no longer exists."
+          )
       })
     ),
     byModel: z.array(TotalsSchema.extend({ modelKey: z.string() }))
