@@ -35,7 +35,13 @@ export const LeagueStateSchema = z.object({
     playoffWeeks: z.array(z.number().int()),
     tradeDeadlineWeek: z.number().int().describe('No trades process once this week kicks off.'),
     tradeDeadlineAt: z.string().nullable(),
-    draftStartsAt: z.string().nullable(),
+    draftStartsAt: z.string().nullable().describe('When the draft started (once it has).'),
+    draftScheduledAt: z
+      .string()
+      .nullable()
+      .describe(
+        'Before the draft: when it starts by itself (`settings.draft.scheduledAt`), or null if the commissioner starts it by hand.'
+      ),
     nextLineupLockAt: z.string().nullable(),
     nextWaiverRunAt: z.string().nullable()
   }),
@@ -76,6 +82,7 @@ export function leagueState(
       tradeDeadlineWeek: league.settings.trades.deadlineWeek,
       tradeDeadlineAt: league.deadlines.tradeDeadlineAt,
       draftStartsAt: league.deadlines.draftStartsAt,
+      draftScheduledAt: league.phase === 'setup' ? league.settings.draft.scheduledAt : null,
       nextLineupLockAt: nextLineupLock(league, now),
       nextWaiverRunAt: league.deadlines.nextWaiverRunAt
     },

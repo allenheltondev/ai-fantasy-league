@@ -44,6 +44,15 @@ export const DRAFT_CASES: Record<string, Case[]> = {
       status: 403
     }
   ],
+  check_in_draft_lobby: [
+    { label: 'in the room', path: `${D}/lobby`, init: { idempotencyKey: key('lobby') }, status: 200 },
+    {
+      label: 'outsider',
+      path: `${D}/lobby`,
+      init: { token: outsider, idempotencyKey: key('lobby-out') },
+      status: 403
+    }
+  ],
   get_draft_queue: [
     { label: 'own queue', path: `${D}/queue`, status: 200 },
     { label: 'another team', path: `${D}/queue?teamId=team-2`, status: 403 }

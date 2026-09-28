@@ -123,6 +123,17 @@ describe('replayLeague: the real league on the simulated clock', () => {
     expect(stable(again)).toEqual(stable(first));
   });
 
+  it('starts a scheduled draft by itself when the clock reaches its time', async () => {
+    const report = await replayLeague({
+      archive: await fixtureArchive(),
+      seed: 'scheduled',
+      weeks: 3,
+      scheduledDraft: true
+    });
+    expectClean(report, [1, 2, 3]);
+    expect(report.timings[0]?.label).toBe('draft');
+  });
+
   it('refuses weeks the archive does not cover', async () => {
     await expect(
       replayLeague({ archive: await fixtureArchive(), seed: 'x', startWeek: 3, weeks: 3 })

@@ -7,6 +7,7 @@ import {
   eventDetailSchema,
   executeOperation,
   handleDraftDeadline,
+  handleLeagueEvent,
   handleTradeTimer,
   invokeTool,
   newsAlertDetail,
@@ -786,6 +787,62 @@ describe('event contract: league setup and the draft', () => {
   });
 });
 
+describe('event contract: the scheduled draft', () => {
+  it('the start and reminder timers, Draft Starting Soon, and Draft Start Blocked render and relay', async () => {
+    const outcomes: Record<string, Consumed> = {};
+    await draftSetup({
+      beforeStart: async (base) => {
+        const scheduledAt = new Date(base.clock.now().getTime() + 3_600_000).toISOString();
+        await base.run('update_league_settings', {
+          leagueId: base.leagueId,
+          changes: { draft: { scheduledAt } }
+        });
+        const timers = base.events.events
+          .filter((e) => e.detailType === 'Schedule Event')
+          .map((e) => (e.detail as { event: { detailType: string; detail: EventDetail } }).event);
+        const timer = (type: string) => {
+          const found = timers.find((t) => t.detailType === type);
+          if (found === undefined) throw new Error(`no ${type} timer`);
+          return found;
+        };
+        // The timers themselves are for the API function alone: no chat, no relay, no agents.
+        for (const type of ['Draft Start Scheduled', 'Draft Reminder Due']) {
+          const consumed = await consume(base.services, delivered(timer(type)));
+          expect(consumed.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+          expect(consumed.relay.topics).toEqual([]);
+          expect(consumed.routed).toEqual([]);
+        }
+
+        base.clock.set(new Date(Date.parse(scheduledAt) - 600_000).toISOString());
+        await handleLeagueEvent(base.services, delivered(timer('Draft Reminder Due')));
+        outcomes.soon = await consume(
+          base.services,
+          delivered(last(base.events.events, 'Draft Starting Soon'))
+        );
+
+        await base.run('set_seat_type', { leagueId: base.leagueId, teamId: 'team-2', seatType: 'human' });
+        base.clock.set(scheduledAt);
+        await handleLeagueEvent(base.services, delivered(timer('Draft Start Scheduled')));
+        outcomes.blocked = await consume(
+          base.services,
+          delivered(last(base.events.events, 'Draft Start Blocked'))
+        );
+        await base.run('set_seat_type', { leagueId: base.leagueId, teamId: 'team-2', seatType: 'agent' });
+      }
+    });
+    const soon = outcomes.soon!;
+    expect(posted(soon).text).toBe('The draft starts in 10 minutes. Set your queue in the draft room!');
+    expect(soon.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
+    expect(soon.routed).toEqual([]);
+    const blocked = outcomes.blocked!;
+    expect(posted(blocked).text).toMatch(
+      /^The draft could not start at its scheduled time\. 1 human seat\(s\) are still open: .+ Commissioner: Invite people/
+    );
+    expect(blocked.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
+    expect(blocked.routed).toEqual([]);
+  });
+});
+
 describe('event contract: trades', () => {
   /** team-1 (Allen) holds rb3; team-2 (an agent) the rest of the support roster. */
   async function tradeLeague(): Promise<Setup> {
@@ -1008,6 +1065,10 @@ describe('event contract coverage', () => {
       'Draft Completed',
       'Draft Paused',
       'Draft Resumed',
+      'Draft Start Scheduled',
+      'Draft Reminder Due',
+      'Draft Starting Soon',
+      'Draft Start Blocked',
       'Week Provisionally Final',
       'Member Joined',
       'Member Left',

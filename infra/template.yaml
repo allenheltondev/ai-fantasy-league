@@ -323,6 +323,9 @@ Resources:
       # "Draft Pick Deadline" through the rsc-core deferred-event scheduler. At
       # the deadline this function autopicks if the pick is still open; a
       # deadline for a pick already made is a no-op (packages/server/src/events/handlers.ts).
+      # The scheduled draft start (#134) too: "Draft Start Scheduled" starts the
+      # draft at settings.draft.scheduledAt, and "Draft Reminder Due" warns the
+      # league ten minutes before.
       # Trade timers (#65, #79) work the same way: offer expiry, the end of a
       # trade's review period, and the league's trade deadline.
       Events:
@@ -335,6 +338,8 @@ Resources:
                 - fantasy
               detail-type:
                 - Draft Pick Deadline
+                - Draft Start Scheduled
+                - Draft Reminder Due
                 - Trade Offer Deadline
                 - Trade Review Ended
                 - Trade Deadline Passed
@@ -1025,6 +1030,8 @@ Resources:
                 - Draft Completed
                 - Draft Paused
                 - Draft Resumed
+                - Draft Starting Soon
+                - Draft Start Blocked
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed
@@ -1109,6 +1116,8 @@ Resources:
                 - Draft Completed
                 - Draft Paused
                 - Draft Resumed
+                - Draft Starting Soon
+                - Draft Start Blocked
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed

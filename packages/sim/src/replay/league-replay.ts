@@ -84,6 +84,11 @@ export interface LeagueReplayOptions {
   model?: ModelClient;
   /** Serve pseudonymous player names (docs/sim.md). */
   anonymizePlayers?: boolean;
+  /**
+   * Schedule the draft (`draft.scheduledAt`, shuffled order) instead of starting it by hand: the
+   * league's own scheduled-start handler starts it when the clock gets there.
+   */
+  scheduledDraft?: boolean;
   /** Replace job cadences (e.g. `{ ingestStats: 'rate(10 minutes)' }`) for faster long replays. */
   jobCadences?: Partial<Record<JobName, string>>;
   /** Progress lines (one per week). */
@@ -255,14 +260,25 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   league = (await repos.leagues.get(created.id)) as League;
   human.join(league);
 
-  // The draft: the human starts it at the draft moment; agents and the human pick from its events.
+  // The draft: the human starts it at the draft moment (or schedules it for then, and the league
+  // starts it); agents and the human pick from its events.
   const draftStart = performance.now();
-  await loop.runUntil(new Date(draftMoment(momentOf(startWeek))));
-  const order = seededShuffle(
-    Array.from({ length: teamCount }, (_, i) => `team-${i + 1}`),
-    seededRandom(`draft-order:${seed}`)
-  );
-  dataOf(await run('start_draft', { leagueId: league.id, order }, HUMAN), 'start_draft');
+  const draftAt = draftMoment(momentOf(startWeek));
+  if (options.scheduledDraft === true) {
+    const changes = { draft: { scheduledAt: new Date(draftAt).toISOString(), orderMode: 'random' } };
+    dataOf(
+      await run('update_league_settings', { leagueId: league.id, changes }, HUMAN),
+      'update_league_settings'
+    );
+    await loop.runUntil(new Date(draftAt));
+  } else {
+    await loop.runUntil(new Date(draftAt));
+    const order = seededShuffle(
+      Array.from({ length: teamCount }, (_, i) => `team-${i + 1}`),
+      seededRandom(`draft-order:${seed}`)
+    );
+    dataOf(await run('start_draft', { leagueId: league.id, order }, HUMAN), 'start_draft');
+  }
   await loop.drain();
   const draft = await repos.drafts.get(league.id);
   /* v8 ignore next 5 -- a stalled draft (a handler failing on its turn) is reported, not waited on */

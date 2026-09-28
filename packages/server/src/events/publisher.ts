@@ -23,6 +23,14 @@ export type FantasyEventType =
   | 'Draft Resumed'
   /** Scheduled at each pick's deadline; the draft clock handler autopicks if the pick is still open. */
   | 'Draft Pick Deadline'
+  /** Scheduled at `draft.scheduledAt`; the API function starts the draft if the time still holds. */
+  | 'Draft Start Scheduled'
+  /** Scheduled a few minutes before `draft.scheduledAt`; the API function announces `Draft Starting Soon`. */
+  | 'Draft Reminder Due'
+  /** The scheduled draft starts in a few minutes (chat, and pushed to open lobbies). */
+  | 'Draft Starting Soon'
+  /** The scheduled draft could not start (open seats, ...); the commissioner is told in chat. */
+  | 'Draft Start Blocked'
   | 'Week Rolled Over'
   | 'Lineup Lock Approaching'
   | 'Waiver Window Opened'
