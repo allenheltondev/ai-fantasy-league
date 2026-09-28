@@ -85,6 +85,13 @@ describe('scorePlayerEvents', () => {
     expect(scored[1]?.changes.map((c) => c.stat)).not.toContain('rec');
   });
 
+  it("describes a defense's first line at 0 points allowed, which scores the shutout tier", () => {
+    const scored = scorePlayerEvents(scoringPreset('yahoo_standard'), [event(1, { pts_allow: 0 })]);
+    expect(scored[0]).toMatchObject({ points: 10, summary: '0 pts allowed' });
+    expect(statChanges({ pts_allow: 0 }, {})).toEqual([{ stat: 'pts_allow', delta: 0 }]);
+    expect(statChanges({ rec: 0 }, { rec: 0 })).toEqual([]);
+  });
+
   it('scores tier changes: a defense giving up a touchdown', () => {
     const yahoo = scoringPreset('yahoo_standard');
     const scored = scorePlayerEvents(yahoo, [event(1, { pts_allow: 0 }), event(2, { pts_allow: 7 })]);
