@@ -17,6 +17,8 @@ test('the commissioner compares models and reviews AI activity', async ({ browse
   const models = page.getByRole('table', { name: 'Model power rankings' });
   await expect(models.getByText('Claude Opus 5')).toBeVisible();
   await expect(models.getByText('Human')).toBeVisible();
+  await expect(models.getByRole('columnheader', { name: 'Trade value' })).toBeVisible();
+  await expect(models.getByRole('columnheader', { name: 'Waiver hits' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'AI activity' }).click();
@@ -26,6 +28,16 @@ test('the commissioner compares models and reviews AI activity', async ({ browse
   const spend = panel.getByRole('table', { name: 'Spend by agent' });
   await expect(spend.getByRole('row')).toHaveCount(4);
   await expect(panel.getByRole('heading', { name: 'Decision log' })).toBeVisible();
+
+  // Each agent seat's saved versions, the current one marked.
+  const history = page.getByRole('table', { name: 'Seat version history' });
+  await expect(history.getByText('Current')).toBeVisible();
+  await expect(history.getByText('First version')).toBeVisible();
+  const seatPicker = page.getByLabel('Agent seat');
+  const seats = await seatPicker.locator('option').count();
+  expect(seats).toBe(3);
+  await seatPicker.selectOption({ index: 2 });
+  await expect(history.getByText('Current')).toBeVisible();
 
   await page.getByRole('button', { name: 'League settings' }).click();
   await expect(page.getByRole('heading', { name: 'Seats' })).toBeVisible();

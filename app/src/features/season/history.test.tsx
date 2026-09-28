@@ -219,7 +219,24 @@ const history: LeagueHistoryData = {
       added: null,
       dropped: { id: 'p1', name: 'Player One', team: 'KC', position: 'WR' }
     }
-  ]
+  ],
+  tradeRecords: {
+    best: [
+      {
+        tradeId: 'tr1',
+        at: '2026-10-01T00:00:00.000Z',
+        week: 5,
+        teamId: 't1',
+        teamName: 'Team t1',
+        partnerTeamId: 't2',
+        partnerName: 'Team t2',
+        received: [{ id: 'p1', name: 'Player One', team: 'KC', position: 'WR' }],
+        sent: [],
+        valueDelta: 42.25
+      }
+    ],
+    worst: []
+  }
 };
 
 describe('History tab', () => {
@@ -236,6 +253,10 @@ describe('History tab', () => {
     expect(screen.getByText(/Blowout \(Won by 100.5 in week 3\)/)).toBeInTheDocument();
     expect(screen.getByText('Week 5: Team t1 gets Player One')).toBeInTheDocument();
     expect(screen.getByText('Week 5: Team t2 sends Player One')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Best trades' })).toHaveTextContent(
+      'Team t1 +42.3 (week 5): got Player One for nothing from Team t2'
+    );
+    expect(screen.getByText('None yet.')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Standings' }));
     expect(await screen.findByText('No standings yet')).toBeInTheDocument();
   });
@@ -245,6 +266,7 @@ describe('History tab', () => {
     expect(await screen.findByText('No completed seasons yet.')).toBeInTheDocument();
     expect(screen.getByText('No achievements earned yet.')).toBeInTheDocument();
     expect(screen.getByText('No trades yet.')).toBeInTheDocument();
+    expect(screen.getByText("No trade has changed a team's value yet.")).toBeInTheDocument();
     expect(screen.getByText('No games final yet.')).toBeInTheDocument();
   });
 

@@ -298,6 +298,25 @@ describe('event contract: the weekly cycle', () => {
     expect(EVENT_DETAIL_SCHEMAS['Week Rolled Over'].safeParse(rolled.detail).success).toBe(true);
   });
 
+  it('Model Power Rankings posts the weekly standings by model at the rollover', async () => {
+    const s = await scoredWeek();
+    s.clock.set('2026-10-06T12:00:00.000Z');
+    await JOBS.advanceSeason(jobDeps(s), s.clock);
+    const rankings = await consume(s.services, delivered(last(s.events.events, 'Model Power Rankings')));
+    const detail = rankings.event.detail as {
+      week: number;
+      lines: string[];
+      rankings: { modelKey: string }[];
+    };
+    expect(detail.week).toBe(5);
+    expect(detail.rankings.map((r) => r.modelKey)).toContain('human');
+    expect(detail.lines).toHaveLength(detail.rankings.length);
+    expect(posted(rankings).text).toBe(`Model power rankings after week 5: ${detail.lines.join(', ')}.`);
+    expect(rankings.chat).toMatchObject({ moment: false });
+    expect(rankings.relay.topics).toEqual([]);
+    expect(rankings.routed).toEqual([]);
+  });
+
   it('Lineup Lock Approaching (a deferred event) sends every agent to its lineup', async () => {
     const s = await inSeason();
     const league = await s.repos.leagues.get(LEAGUE_ID);
@@ -821,7 +840,8 @@ describe('event contract coverage', () => {
       'Week Official Final',
       'Stat Correction Applied',
       'Season Completed',
-      'Achievement Earned'
+      'Achievement Earned',
+      'Model Power Rankings'
     ]);
     for (const type of consumed) expect(eventDetailSchema(type), type).toBeDefined();
     for (const type of [
