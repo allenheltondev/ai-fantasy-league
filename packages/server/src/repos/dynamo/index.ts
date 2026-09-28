@@ -2,6 +2,7 @@ import type { Repos } from '../types.js';
 import { DynamoAgentRepository } from './agents.js';
 import { DynamoAuditRepository } from './audit.js';
 import { DynamoDraftRepository } from './drafts.js';
+import { DynamoChatRepository } from './chat.js';
 import { DynamoIdempotencyRepository } from './idempotency.js';
 import { DynamoInviteRepository } from './invites.js';
 import { DynamoLeagueRepository } from './leagues.js';
@@ -26,7 +27,8 @@ export function createDynamoRepos(table: TableContext): Repos {
     lineups: new DynamoLineupRepository(table),
     drafts: new DynamoDraftRepository(table),
     agents: new DynamoAgentRepository(table),
-    waivers: new DynamoWaiverRepository(table)
+    waivers: new DynamoWaiverRepository(table),
+    chat: new DynamoChatRepository(table)
   };
 }
 
@@ -34,6 +36,7 @@ export {
   DynamoAgentRepository,
   DynamoAuditRepository,
   DynamoDraftRepository,
+  DynamoChatRepository,
   DynamoIdempotencyRepository,
   DynamoInviteRepository,
   DynamoLeagueRepository,

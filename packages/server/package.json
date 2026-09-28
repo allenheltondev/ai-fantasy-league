@@ -26,10 +26,12 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1141.0",
     "@aws-sdk/client-eventbridge": "^3.1141.0",
+    "@aws-sdk/client-secrets-manager": "^3.1141.0",
     "@aws-sdk/client-ssm": "^3.1141.0",
     "@aws-sdk/lib-dynamodb": "^3.1141.0",
     "@fantasy/core": "0.0.0",
     "@fantasy/data": "0.0.0",
+    "@gomomento/sdk": "^1.118.1",
     "aws-jwt-verify": "^5.2.1",
     "hono": "^4.13.9",
     "zod": "^4.6.5"

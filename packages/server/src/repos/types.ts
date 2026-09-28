@@ -1,5 +1,6 @@
 import type { DraftState, LeagueSettings, LineupEntry, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
+import type { ChatRepository } from '../chat/model.js';
 import type { AgentRepository } from './agents.js';
 import type { WaiverRepository } from './waivers.js';
 
@@ -335,4 +336,6 @@ export interface Repos {
   agents: AgentRepository;
   /** Waiver claims, the waiver wire, transactions, processing runs, and ownership locks (repos/waivers.ts). */
   waivers: WaiverRepository;
+  /** League group chat (chat/model.ts). */
+  chat: ChatRepository;
 }

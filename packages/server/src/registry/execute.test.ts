@@ -50,6 +50,7 @@ const COMMISSIONER_SETUP_ACTIONS = [
   'create_invite',
   'delete_league',
   'pick_player',
+  'post_message',
   'randomize_agent_seats',
   'remove_member',
   'rename_league',
@@ -247,6 +248,7 @@ describe('executeOperation', () => {
     const actor = resolveActor(playoffs, [], USER);
     expect(leagueAllowedActions(testRegistry.operations, playoffs, actor, new Date(START))).toEqual([
       'pick_player',
+      'post_message',
       'rename_team',
       'transfer_commissioner',
       'update_league_settings'

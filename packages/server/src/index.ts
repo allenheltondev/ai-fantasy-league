@@ -40,3 +40,12 @@ export { listInSeason } from './season/lineups.js';
 export { fixtureDraftPool, fixturePlayers } from './players/fixtures.js';
 export { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/handlers.js';
 export { handleDraftDeadline, type DeadlineOutcome } from './league/draft.js';
+export * from './chat/model.js';
+export {
+  postSystemMessage,
+  SYSTEM_MESSAGE_EVENTS,
+  type SystemMessageOutcome
+} from './chat/system-messages.js';
+export * from './realtime/realtime.js';
+export { relayEvent, RELAYED_EVENTS } from './realtime/relay.js';
+export type { BusEvent } from './events/bus.js';

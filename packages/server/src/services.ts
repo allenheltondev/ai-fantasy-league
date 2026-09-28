@@ -4,6 +4,7 @@ import type { EventPublisher } from './events/publisher.js';
 import type { NflStateSource } from './league/calendar.js';
 import type { Logger } from './log.js';
 import { PlayerDirectory } from './players/directory.js';
+import { InMemoryRealtime, type Realtime } from './realtime/realtime.js';
 import { createInMemoryReferenceStore } from './repos/memory-reference.js';
 import type { ReferenceStore } from './repos/reference.js';
 import type { Repos } from './repos/types.js';
@@ -19,6 +20,8 @@ export function createServices(options: {
   limits?: Limits;
   /** Reference data (stats, projections, news, ...). Defaults to an in-memory store. */
   reference?: ReferenceStore;
+  /** Live updates. Defaults to the no-op implementation (no Momento credentials needed). */
+  realtime?: Realtime;
 }): Services {
   const players = new PlayerDirectory({
     repo: options.repos.players,
@@ -35,6 +38,7 @@ export function createServices(options: {
       reference: options.reference ?? createInMemoryReferenceStore(options.repos.players),
       ...(options.nflState === undefined ? {} : { nflState: options.nflState })
     },
-    limits: options.limits ?? DEFAULT_LIMITS
+    limits: options.limits ?? DEFAULT_LIMITS,
+    realtime: options.realtime ?? new InMemoryRealtime()
   };
 }

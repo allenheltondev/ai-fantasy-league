@@ -3,6 +3,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
 import { DRAFT_CASES, seedDraftContractLeague } from '../support/contract-draft.js';
+import { CHAT_CASES } from '../support/contract-chat.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
 import { seedContractWaivers, WAIVER_CASES } from '../support/contract-waivers.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
@@ -140,6 +141,7 @@ const CASES: Record<string, Case[]> = {
   ],
   ...DRAFT_CASES,
   ...WAIVER_CASES,
+  ...CHAT_CASES,
   configure_agent_seat: [
     {
       label: 'commissioner',

@@ -13,6 +13,10 @@ This is the contract every work stream builds against. The product is described 
 - **Frontend:** a Vite + React 19 SPA in `app/`, served from S3 + CloudFront at `fantasy.readysetcloud.io` (Staging uses the CloudFront domain). It uses `@readysetcloud/ui` for components, tokens, the Tailwind preset, and auth (`@readysetcloud/ui/auth`).
 - **Identity:** the shared rsc-core Cognito pool (`/readysetcloud/auth/user-pool-id` from SSM). This stack creates its own app client in that pool. The API verifies ID tokens with `aws-jwt-verify`.
 - **Realtime:** Momento Topics, using the API key from the rsc-core secrets SSM parameter. The API vends short-lived, scoped tokens to browsers.
+  - **Settings:** the key is the `momento` field of the rsc-core secret (`/readysetcloud/secrets` names it), and the cache is rsc-core's default cache (`/readysetcloud/cache-name`). Realtime is on only when both are configured (`packages/server/src/realtime/config.ts`); otherwise the no-op implementation is used, and nothing in local dev, tests, or CI needs Momento credentials.
+  - **Topics:** `fantasy.league.<leagueId>` carries a league's chat messages and events, and `fantasy.global` carries events with no league (the live-stats job's `Scores Updated`). Items are JSON: `{ type: 'chat', leagueId, message }` or `{ type: 'event', detailType, eventId, time, leagueId, detail }`, with the event detail passed through unchanged.
+  - **Tokens:** `get_realtime_token` (people only) returns a disposable token that can only subscribe to those two topics, for 30 minutes. When realtime is off it returns `enabled: false`, and the app polls `get_chat` every `pollIntervalSeconds`.
+  - **Publisher:** `RealtimePublisherFunction` (`realtime/relay.ts`) relays league events from the bus to the topics. It is the only function besides the API that reads the Momento key.
 - **Agents:** `@readysetcloud/agent` runs Strands on Bedrock. Agents call the league **only** through the operation registry (below) with their own principal.
   - **Flow:** league events → the trigger router Lambda (`packages/agents/src/router.ts`) → `Agent Action Requested` → the agent task Lambda (`packages/agents/src/runner.ts`).
   - **Runs:** autonomous turns use `runAgent` in-Lambda: structured output, bounded tool loops, and trusted `invocationState`.
@@ -163,8 +167,9 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine |
 | `Player News Alert` | News hits a player |
 | `Player Status Changed` | A player's status, injury, team, or depth chart changes |
-| `Chat Mention` | Someone is mentioned in chat |
-| `Chat Moment` | A league event agents can react to in chat |
+| `Chat Mention` | Someone is mentioned in chat (`messageId`, `mentionedTeamIds`, `authorTeamId`, `authorType`). Mentions written by agents do not trigger agent replies. |
+| `Chat Moment` | A league event agents can react to in chat (emitted with the system chat message for big moments) |
+| `Chat Message Posted` | A chat message was stored (`detail.message`); the realtime publisher pushes it to the league topic |
 | `Scores Updated` | Live stats change (`ingestStats`, player ids), or a league's matchup scores change (`scoreLiveWeek`, `leagueId`) |
 | `Week Provisionally Final` | The last Monday night game ends |
 | `Week Official Final` | The Thursday stat-correction job finishes |

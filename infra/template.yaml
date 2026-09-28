@@ -73,6 +73,14 @@ Parameters:
       The same parameter, resolved at deploy time, so the API's IAM policy can
       name the secret exactly. Keep it pointing at SecretsParameterName.
 
+  MomentoCacheParameterName:
+    Type: String
+    Default: /readysetcloud/cache-name
+    Description: >
+      Name of the rsc-core SSM parameter holding the Momento cache that
+      realtime topics (chat, live league events) are published in. Read at
+      runtime, so realtime simply stays off (the app polls) if it is missing.
+
   # --------------------------------------------------------------------------
   # Custom domain (Production only)
   # --------------------------------------------------------------------------
@@ -209,6 +217,8 @@ Resources:
           # rsc-core's convention for the shared secret (functions read it with
           # getSecret(process.env.SECRET_ID)).
           SECRET_ID: !Ref SecretsArn
+          # Realtime (#68): get_realtime_token vends subscribe-only Momento tokens.
+          MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
           NODE_OPTIONS: --enable-source-maps
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -231,6 +241,10 @@ Resources:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource: !Ref SecretsArn
+            # The Momento cache realtime tokens are scoped to.
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MomentoCacheParameterName}
       # The draft pick clock (#46): start_draft and every pick schedule a
       # "Draft Pick Deadline" through the rsc-core deferred-event scheduler. At
       # the deadline this function autopicks if the pick is still open; a
@@ -779,6 +793,149 @@ Resources:
 
   # ===========================================================================
   # End of agent platform section
+  # ===========================================================================
+
+  # ===========================================================================
+  # Group chat and realtime (#68, #70)
+  #
+  # League event --> ChatEventsFunction --> system chat message (+ "Chat
+  #   Message Posted", and "Chat Moment" for big moments)
+  # League event / "Chat Message Posted" --> RealtimePublisherFunction -->
+  #   Momento Topics (fantasy.league.<id>, fantasy.global)
+  # Both handlers ship in the API zip (scripts/package-server.sh bundles
+  # chat-events.mjs and realtime.mjs next to index.mjs).
+  # ===========================================================================
+
+  # Turns league events into system chat messages, idempotently per event id
+  # (packages/server/src/chat/system-messages.ts).
+  ChatEventsFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      SkipBuild: true
+    Properties:
+      Description: System chat messages for league events
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: chat-events.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FantasyTable
+          EVENT_BUS_NAME: default
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            # Reads the league and teams; writes CHAT# messages.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+              Resource: !GetAtt FantasyTable.Arn
+            # Chat Message Posted, Chat Moment.
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+      Events:
+        LeagueEvents:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - fantasy
+              detail-type:
+                - Draft Pick Made
+                - Draft Completed
+                - Waivers Processed
+                - Trade Accepted
+                - Trade Processed
+                - Trade Vetoed
+                - Week Provisionally Final
+                - Week Official Final
+                - Stat Correction Applied
+                - Member Joined
+                - Member Left
+                - Settings Changed
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+
+  # Publishes league events and chat messages to Momento Topics
+  # (packages/server/src/realtime/relay.ts). The only function besides the API
+  # that reads the Momento key.
+  RealtimePublisherFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      SkipBuild: true
+    Properties:
+      Description: Pushes league events and chat to Momento Topics
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: realtime.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          SECRETS_PARAMETER_NAME: !Ref SecretsParameterName
+          SECRET_ID: !Ref SecretsArn
+          MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SecretsParameterName}
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MomentoCacheParameterName}
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref SecretsArn
+      Events:
+        RealtimeEvents:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - fantasy
+              detail-type:
+                - Chat Message Posted
+                - Scores Updated
+                - Draft Turn Started
+                - Draft Pick Made
+                - Draft Completed
+                - Waivers Processed
+                - Trade Accepted
+                - Trade Processed
+                - Trade Vetoed
+                - Week Provisionally Final
+                - Week Official Final
+                - Stat Correction Applied
+            # Live updates are only worth delivering while they are fresh.
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 300
+
+  # ===========================================================================
+  # End of group chat and realtime section
   # ===========================================================================
 
 Outputs:

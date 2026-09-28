@@ -16,18 +16,25 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Trade Proposed / Trade Countered             | trade_response | `detail.toTeamId` (the team to answer)  | yes    |
  * | Player News Alert / Player Status Changed    | lineup         | teams rostering `detail.playerId`       | no     |
  * | Lineup Lock Approaching                      | lineup         | `detail.teamIds`, else every agent team | yes    |
- * | Chat Mention                                 | chat_reply     | `detail.mentionedTeamIds`               | no     |
+ * | Chat Mention                                 | chat_reply     | `detail.mentionedTeamIds` (people only) | no     |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     |
  *
  * Gating, in order: the team must have an agent seat; the task kind must be registered (kinds
  * not built yet are skipped, so feature streams turn triggers on by registering a kind); non-urgent
- * triggers respect the difficulty's cooldown. Per-trigger action budgets are enforced when the task
- * runs (the tool binding stops mutations at `actionsPerTrigger`). Every decision is logged.
+ * triggers respect the difficulty's cooldown. Chat triggers have their own cooldowns instead
+ * (`CHAT_COOLDOWNS`: per agent, and per league for chat moments), so banter never delays a waiver
+ * or lineup decision. Per-trigger action budgets are enforced when the task runs (the tool binding
+ * stops mutations at `actionsPerTrigger`). Every decision is logged.
+ *
+ * Mentions in messages written by agents do not trigger agent replies, so two agents can never
+ * talk each other into an endless thread; agents still banter by reacting to chat moments.
  */
 
 export interface TriggerRule {
   kind: string;
   urgent: boolean;
+  /** Its own cooldown instead of the difficulty's (chat). */
+  cooldown?: ChatCooldown;
   /** Which of the league's agent teams this event affects. */
   teams(detail: Record<string, unknown>, agentTeams: readonly string[], eventId: string): string[];
   payload(detail: Record<string, unknown>): Record<string, unknown>;
@@ -42,6 +49,21 @@ const only = (ids: readonly (string | undefined)[], agentTeams: readonly string[
 
 /** How many agents may react to one chat moment. */
 export const CHAT_MOMENT_AGENTS = 2;
+
+export interface ChatCooldown {
+  /** Trigger-state slot, so chat cooldowns are separate from decision cooldowns. */
+  scope: string;
+  /** Minimum minutes between two chat tasks for one agent. */
+  agentMinutes: number;
+  /** Minimum minutes between two triggers of this rule in one league. */
+  leagueMinutes?: number;
+}
+
+/** Chat cooldowns, per agent and per league. Daily message budgets are enforced by the chat tasks. */
+export const CHAT_COOLDOWNS = {
+  reply: { scope: 'chat', agentMinutes: 2 },
+  moment: { scope: 'chat', agentMinutes: 20, leagueMinutes: 10 }
+} as const satisfies Record<string, ChatCooldown>;
 
 const tradeRule: TriggerRule = {
   kind: 'trade_response',
@@ -84,17 +106,25 @@ export const TRIGGER_RULES: Readonly<Partial<Record<FantasyEventType, TriggerRul
   'Chat Mention': {
     kind: 'chat_reply',
     urgent: false,
-    teams: (d, agents) => only([...strs(d.mentionedTeamIds), str(d.teamId)], agents),
-    payload: (d) => ({ messageId: d.messageId, channel: d.channel })
+    cooldown: CHAT_COOLDOWNS.reply,
+    teams: (d, agents) =>
+      d.authorType === 'agent'
+        ? []
+        : only(
+            strs(d.mentionedTeamIds).filter((id) => id !== d.authorTeamId),
+            agents
+          ),
+    payload: (d) => ({ messageId: d.messageId })
   },
   'Chat Moment': {
     kind: 'chat_moment',
     urgent: false,
+    cooldown: CHAT_COOLDOWNS.moment,
     teams: (_d, agents, eventId) =>
       [...agents]
         .sort((a, b) => hashString(`${eventId}:${a}`) - hashString(`${eventId}:${b}`) || a.localeCompare(b))
         .slice(0, CHAT_MOMENT_AGENTS),
-    payload: (d) => ({ moment: d.moment, subjectTeamId: d.teamId })
+    payload: (d) => ({ moment: d.moment, subjectTeamId: d.teamId, messageId: d.messageId })
   }
 };
 
@@ -185,7 +215,12 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
     const agentTeams = seats.map((s) => s.teamId);
     const teams =
       rule === newsRule ? only(target.teams, agentTeams) : rule.teams(detail, agentTeams, event.id);
+    const leagueCooling = teams.length > 0 && (await leagueCooldown(deps, rule, target.leagueId, now));
     for (const teamId of teams) {
+      if (leagueCooling) {
+        decisions.push({ teamId, leagueId: target.leagueId, decision: 'cooldown', kind: rule.kind });
+        continue;
+      }
       const seat = seats.find((s) => s.teamId === teamId) as AgentSeatRecord;
       const decision = await decide(deps, rule, seat, now);
       if (decision !== 'requested') {
@@ -226,16 +261,35 @@ async function decide(
 ): Promise<'requested' | 'no_handler' | 'cooldown'> {
   if (deps.kinds.get(rule.kind) === undefined) return 'no_handler';
   const agents = deps.services.repos.agents;
+  const slot = rule.cooldown === undefined ? seat.agentId : `${seat.agentId}#${rule.cooldown.scope}`;
   if (!rule.urgent) {
-    const state = await agents.getTriggerState(seat.leagueId, seat.agentId);
-    const cooldownMs = resolveAgentConfig(seat.config).levers.cooldownMinutes * 60_000;
-    if (state !== null && now.getTime() - new Date(state.lastTriggeredAt).getTime() < cooldownMs)
+    const state = await agents.getTriggerState(seat.leagueId, slot);
+    const minutes = rule.cooldown?.agentMinutes ?? resolveAgentConfig(seat.config).levers.cooldownMinutes;
+    if (state !== null && now.getTime() - new Date(state.lastTriggeredAt).getTime() < minutes * 60_000)
       return 'cooldown';
   }
   await agents.putTriggerState({
     leagueId: seat.leagueId,
-    agentId: seat.agentId,
+    agentId: slot,
     lastTriggeredAt: now.toISOString()
   });
   return 'requested';
+}
+
+/** True when the rule fired in this league too recently; otherwise starts a new league window. */
+async function leagueCooldown(
+  deps: RouterDeps,
+  rule: TriggerRule,
+  leagueId: string,
+  now: Date
+): Promise<boolean> {
+  const minutes = rule.cooldown?.leagueMinutes;
+  if (minutes === undefined || deps.kinds.get(rule.kind) === undefined) return false;
+  const agents = deps.services.repos.agents;
+  const slot = `league#${rule.kind}`;
+  const state = await agents.getTriggerState(leagueId, slot);
+  if (state !== null && now.getTime() - new Date(state.lastTriggeredAt).getTime() < minutes * 60_000)
+    return true;
+  await agents.putTriggerState({ leagueId, agentId: slot, lastTriggeredAt: now.toISOString() });
+  return false;
 }

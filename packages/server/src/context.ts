@@ -4,6 +4,7 @@ import type { EventPublisher } from './events/publisher.js';
 import type { NflStateSource } from './league/calendar.js';
 import type { Logger } from './log.js';
 import type { PlayerDirectory } from './players/directory.js';
+import type { Realtime } from './realtime/realtime.js';
 import type { Registry } from './registry/registry.js';
 import type { ReferenceStore } from './repos/reference.js';
 import type { Repos } from './repos/types.js';
@@ -51,6 +52,8 @@ export interface Ctx {
   data: DataServices;
   log: Logger;
   limits: Limits;
+  /** Momento Topics for live updates (a no-op when not configured). */
+  realtime: Realtime;
   /** The registry running this operation (set by `executeOperation`), for allowed-action lists. */
   registry?: Registry;
 }
@@ -63,6 +66,7 @@ export interface Services {
   data: DataServices;
   log: Logger;
   limits: Limits;
+  realtime: Realtime;
 }
 
 export function createContext(services: Services, principal: Principal, log: Logger = services.log): Ctx {
@@ -73,6 +77,7 @@ export function createContext(services: Services, principal: Principal, log: Log
     events: services.events,
     data: services.data,
     log,
-    limits: services.limits
+    limits: services.limits,
+    realtime: services.realtime
   };
 }
