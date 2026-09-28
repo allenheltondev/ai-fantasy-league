@@ -155,6 +155,56 @@ describe('trade response task', () => {
     });
   });
 
+  it('counters for their player, suggests drops, and rejects an offer that stopped being legal', async () => {
+    const s = await tradeLeague(PRO);
+    await s.repos.players.putMany(
+      ['xdef', 'xk'].map((id) => ({
+        id,
+        name: id.toUpperCase(),
+        firstName: 'X',
+        lastName: id,
+        team: 'SF',
+        position: id === 'xk' ? ('K' as const) : ('DEF' as const),
+        status: 'active' as const,
+        injuryStatus: null,
+        aliases: [],
+        rank: null,
+        updatedAt: START
+      }))
+    );
+    const team = await s.repos.teams.get(LEAGUE_ID, 'team-1');
+    if (team === null) throw new Error('team-1');
+    await s.repos.teams.update({ ...team, roster: [...team.roster, 'xdef', 'xk'] });
+    const weak = await allen(s, 'propose_trade', {
+      withTeamId: AGENT_TEAM,
+      send: ['xdef'],
+      receive: ['rb4', 'wr4']
+    });
+    const model = new ScriptedModelClient();
+    await runAgentAction(s.deps(model), request(weak.id, 'e9'));
+    expect(model.transcript[0]?.systemPrompt).toMatch(/Suggested: counter \(send (rb4|wr4); receive xdef\)/);
+
+    const big = await allen(s, 'propose_trade', { withTeamId: AGENT_TEAM, send: ['rb3', 'xdef', 'xk'] });
+    const drops = new ScriptedModelClient();
+    const record = await runAgentAction(s.deps(drops), request(big.id, 'e10'));
+    expect(drops.transcript[0]?.systemPrompt).toContain('Accepting needs drops; suggested:');
+    expect(record).toMatchObject({ finalAction: 'accept_trade' });
+
+    const stale = await allen(s, 'propose_trade', {
+      withTeamId: AGENT_TEAM,
+      send: ['xdef'],
+      receive: ['k1']
+    });
+    const team1 = await s.repos.teams.get(LEAGUE_ID, 'team-1');
+    if (team1 === null) throw new Error('team-1');
+    await s.repos.teams.update({ ...team1, roster: team1.roster.filter((id) => id !== 'xdef') });
+    const staleModel = new ScriptedModelClient();
+    expect(await runAgentAction(s.deps(staleModel), request(stale.id, 'e11'))).toMatchObject({
+      finalAction: 'reject_trade'
+    });
+    expect(staleModel.transcript[0]?.systemPrompt).toContain('It is not legal right now');
+  });
+
   it('is triggered for the team an offer is made to', async () => {
     const s = await tradeLeague(PRO);
     const decisions = await routeEvent(

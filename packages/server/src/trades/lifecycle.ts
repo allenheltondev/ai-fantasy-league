@@ -64,7 +64,7 @@ export function tradeError(issues: readonly RuleIssue[]): ApiError {
       ? 'VOTE_NOT_ALLOWED'
       : 'TRADE_INVALID';
   return new ApiError(apiCode, issues.map((i) => i.message).join(' '), {
-    fix: issues.map((i) => i.fix).join(' '),
+    fix: issues.map((i) => i.fix).join(' ') || 'Check the trade with preview_trade and try again.',
     details: { issues: issues.map(issueJson) }
   });
 }

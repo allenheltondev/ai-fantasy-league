@@ -222,6 +222,49 @@ describe('TradesPage', () => {
     expect(screen.getByText(/must drop 1/)).toBeInTheDocument();
   });
 
+  it('shows closed trading, lopsided previews, notes, finished counters, and preview errors', async () => {
+    const user = userEvent.setup();
+    const lopsided = {
+      ...preview(),
+      warnings: [{ code: 'RESPONDER_MUST_DROP', message: 'They must drop one.', fix: 'x' }],
+      fairness: { favors: null, lineupGap: 50, valueGap: 50, lopsided: true }
+    };
+    const api = fakeApi([trade({ id: 't6', status: 'processed', round: 1, toSends: [], yourActions: [] })], {
+      setup: vi.fn(async () => ({ yourTeam: MINE, teams: [MINE, ROBO], allowedActions: [] })),
+      preview: vi.fn(async () => lopsided)
+    });
+    const first = renderPage(api);
+    expect(await screen.findByText('Trading is closed right now.')).toBeInTheDocument();
+    const history = screen.getByRole('region', { name: 'History' });
+    expect(await within(history).findByText('Counter #1')).toBeInTheDocument();
+    expect(within(history).getByText(/for nothing\./)).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Trade with'), 'team-2');
+    const send = await screen.findByLabelText('You send: Christian McCaffrey');
+    await user.click(send);
+    await user.click(send);
+    await user.click(send);
+    await user.type(screen.getByLabelText('Note (optional)'), 'hi');
+    const panel = await screen.findByRole('region', { name: 'Trade preview' });
+    expect(panel).toHaveTextContent('It looks lopsided.');
+    expect(panel).toHaveTextContent('They must drop one.');
+    expect(api.preview).toHaveBeenLastCalledWith('L1', expect.objectContaining({ message: 'hi' }));
+
+    const failing = fakeApi([], {
+      preview: vi.fn(async () => {
+        throw new ApiError(404, {
+          code: 'PLAYER_NOT_FOUND',
+          message: 'No such player.',
+          fix: 'Search again.'
+        });
+      })
+    });
+    first.unmount();
+    renderPage(failing);
+    await user.selectOptions(await screen.findByLabelText('Trade with'), 'team-2');
+    await user.click(await screen.findByLabelText('You send: Christian McCaffrey'));
+    expect(await screen.findByText('Search again.')).toBeInTheDocument();
+  });
+
   it('formats the countdown', () => {
     expect(countdown('2026-10-01T12:35:00Z', NOW)).toBe('35m');
     expect(countdown('2026-10-01T15:05:00Z', NOW)).toBe('3h 5m');

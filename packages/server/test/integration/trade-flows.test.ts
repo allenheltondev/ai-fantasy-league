@@ -142,6 +142,8 @@ describe('offers', () => {
   });
 
   it('refuses illegal offers with a fix', async () => {
+    const byName = await alice.post(`${L}/trades`, { withTeamId: 'team-2', receive: ['Lamar Jackson'] });
+    expect(byName.body).toMatchObject({ error: { code: 'PLAYER_NOT_ON_ROSTER' } });
     const notOnRoster = await alice.post(`${L}/trades`, { withTeamId: 'team-2', send: ['fx-lamar'] });
     expect(notOnRoster.body).toMatchObject({
       error: { code: 'PLAYER_NOT_ON_ROSTER', fix: expect.any(String) }
@@ -196,6 +198,35 @@ describe('offers', () => {
     });
   });
 
+  it('never lets an offer outlive the trade deadline; the responder drops to accept', async () => {
+    const league = await h.repos.leagues.get('lg-t');
+    if (league === null) throw new Error('league');
+    const deadlines = league.deadlines;
+    await h.repos.leagues.update({
+      ...league,
+      deadlines: { ...deadlines, tradeDeadlineAt: '2026-09-11T00:00:00.000Z' }
+    });
+    const res = await carol.post(`${L}/trades`, { withTeamId: 'team-2', send: ['fx-hurts'] });
+    expect((res.body as { warnings: { code: string }[] }).warnings.map((w) => w.code)).toEqual([
+      'RESPONDER_MUST_DROP'
+    ]);
+    const offer = trade(res);
+    expect(offer.expiresAt).toBe('2026-09-11T00:00:00.000Z');
+    expect(errorCode(await bob.post(`${L}/trades/${offer.id}/respond`, { response: 'accept' }))).toBe(
+      'ROSTER_LIMIT_EXCEEDED'
+    );
+    const accepted = trade(
+      await bob.post(`${L}/trades/${offer.id}/respond`, { response: 'accept', drops: ['fx-chase'] })
+    );
+    expect(accepted.status).toBe('in_review');
+    // Keep the rest of the suite's rosters: the league vetoes it.
+    await alice.post(`${L}/trades/${offer.id}/votes`, { decision: 'veto' });
+    await asAgent(agent4, 'vote_trade', { tradeId: offer.id, idempotencyKey: 'agent-4-veto-deadline' });
+    const current = await h.repos.leagues.get('lg-t');
+    if (current === null) throw new Error('league');
+    await h.repos.leagues.update({ ...current, deadlines });
+  });
+
   it('withdraws an offer; a withdrawn offer cannot be answered', async () => {
     const offer = await propose(alice, { withTeamId: 'team-3', send: ['fx-jallen'], receive: ['fx-hurts'] });
     expect(errorCode(await carol.post(`${L}/trades/${offer.id}/withdraw`))).toBe('NOT_YOUR_TRADE_ACTION');
@@ -245,6 +276,14 @@ describe('acceptance, league review, and processing', () => {
     });
     const seen = data<{ trades: View[] }>(await carol.get(`${L}/trades?status=review`)).trades;
     expect(seen.map((t) => [t.id, t.direction, t.yourActions])).toEqual([[offer.id, 'league', ['vote']]]);
+  });
+
+  it('previews an accepted trade against the current rosters', async () => {
+    const preview = data(await carol.get(`${L}/trades/preview?tradeId=${accepted.id}`));
+    expect(preview).toMatchObject({
+      valid: true,
+      sides: [{ team: { id: 'team-1' } }, { team: { id: 'team-2' } }]
+    });
   });
 
   it('takes veto votes from teams outside the trade, once each', async () => {
@@ -322,6 +361,18 @@ describe('acceptance, league review, and processing', () => {
   });
 });
 
+describe('persistence', () => {
+  it('refuses a duplicate trade id and a stale write', async () => {
+    const [record] = await h.repos.trades.list('lg-t');
+    if (record === undefined) throw new Error('no trades');
+    await expect(h.repos.trades.create(record)).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(h.repos.trades.update({ ...record, version: 0 })).rejects.toMatchObject({
+      code: 'CONFLICT',
+      fix: expect.stringContaining('list_trades')
+    });
+  });
+});
+
 describe('agents, the lopsided guard, and the deadline', () => {
   it('refuses a lopsided trade between two AI teams', async () => {
     await h.services.data.reference.projections.putSnapshot(
@@ -351,6 +402,12 @@ describe('agents, the lopsided guard, and the deadline', () => {
     const league = await h.repos.leagues.get('lg-t');
     if (league === null) throw new Error('league');
     await h.repos.leagues.update({ ...league, week: 12 });
+    const blocked = data(await alice.get(`${L}/trades/preview?withTeamId=team-3&send=fx-jallen`));
+    expect(blocked.valid).toBe(false);
+    expect((blocked.issues as { code: string }[]).map((x) => x.code)).toEqual([
+      'TRADE_DEADLINE_PASSED',
+      'TRADE_DEADLINE_PASSED'
+    ]);
     const res = await alice.post(`${L}/trades`, { withTeamId: 'team-3', send: ['fx-jallen'] });
     expect(res.body).toMatchObject({
       error: { code: 'TRADE_DEADLINE_PASSED', fix: expect.stringContaining('waivers') }
