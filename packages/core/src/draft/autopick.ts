@@ -1,7 +1,8 @@
+import { ruleError, type RuleIssue } from '../rules/issues.js';
 import { ROSTER_SLOTS, SLOT_ELIGIBILITY, isEligibleForSlot, isStarterSlot } from '../rules/positions.js';
 import type { Position, RosterSlot } from '../rules/positions.js';
 import type { LeagueSettings } from '../rules/settings.js';
-import { currentPick, teamPicks, type DraftState } from './draft.js';
+import { currentPick, picksRemaining, teamPicks, type DraftState } from './draft.js';
 
 export interface DraftablePlayer {
   playerId: string;
@@ -47,6 +48,32 @@ export function unfilledStarterSlots(
     if (idx >= 0) open.splice(idx, 1);
   }
   return open;
+}
+
+/**
+ * Checks that drafting a player keeps `teamId`'s roster completable: after the pick, the team must
+ * still have a pick for every starting slot left empty. Returns the problem, or null when the pick
+ * is fine. (A seventh QB with two picks left and K and DEF still empty would be refused.)
+ */
+export function draftRosterIssue(
+  draft: DraftState,
+  teamId: string,
+  positions: readonly Position[],
+  needs: RosterNeeds
+): RuleIssue | null {
+  const mine = teamPicks(draft, teamId).map((p) => p.positions);
+  const before = unfilledStarterSlots(needs, mine);
+  const after = unfilledStarterSlots(needs, [...mine, positions]);
+  const left = Math.max(0, picksRemaining(draft, teamId) - 1);
+  if (after.length <= left) return null;
+  const wanted = [...new Set(before.flatMap((slot) => SLOT_ELIGIBILITY[slot]))];
+  return ruleError(
+    'ROSTER_WOULD_BE_INVALID',
+    'playerId',
+    `Taking a ${positions[0] ?? 'player'} leaves ${after.length} empty starting slot(s) (${after.join(', ')}) and only ${left} pick(s) to fill them.`,
+    `Draft a player for an empty starting slot (${before.join(', ')}): a ${wanted.join(', ')}.`,
+    { openStarterSlots: before, picksLeftAfter: left }
+  );
 }
 
 function rankOf(rankings: PlayerRankings): (id: string) => number {

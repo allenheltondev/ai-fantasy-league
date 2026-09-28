@@ -38,6 +38,7 @@ export function createJobDeps(env: Record<string, string | undefined>, clock: Cl
   return {
     provider,
     reference: createDynamoReferenceStore(table),
+    repos,
     events: new EventBridgePublisher({ busName: config.eventBusName }),
     directory: new PlayerDirectory({ repo: repos.players, clock }),
     log,

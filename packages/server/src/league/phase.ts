@@ -187,6 +187,9 @@ export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
       fix: 'Hand the league to another member with transfer_commissioner first, or delete it with delete_league.'
     }
   },
+  start_draft: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
+  pause_draft: { phases: ['drafting'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
+  resume_draft: { phases: ['drafting'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   rename_team: {
     phases: ACTIVE,
     roles: ['member', 'agent', 'commissioner'],
@@ -218,6 +221,7 @@ export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
     }
   },
   cancel_waiver_claim: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
+  reorder_waiver_claims: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
   propose_trade: tradeRule(),
   counter_trade: tradeRule(),
   respond_to_trade: tradeRule(),

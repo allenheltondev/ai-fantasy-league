@@ -230,13 +230,17 @@ A league plays from `schedule.startWeek` through `schedule.regularSeasonEndWeek`
 
 - **Format:** a snake draft. The round-1 order reverses every other round.
 - **Rounds:** one per active roster spot (`draftRoundsFor`, 16 by default). IR isn't drafted.
-- **Pick clock:** `deadlineFor(draft, startedAt)` is `pickSeconds` after the previous pick, or after the draft start for the first pick. The server schedules the autopick at that time.
+- **Pick clock:** `draft.pickSeconds` in the league settings, 90 seconds by default (a Yahoo-style live draft; 15 seconds to 24 hours). `deadlineFor(draft, startedAt)` is `pickSeconds` after the previous pick, or after the draft start for the first pick. The server schedules a `Draft Pick Deadline` event at that time with the rsc-core scheduler; if the pick is still open then, autopick picks. A deadline for a pick already made does nothing. The commissioner can pause the clock (`pause_draft`) and resume it with the time that was left (at least 30 seconds).
+- **Order:** the seats' draft slots, an explicit round-1 order, or a shuffle, chosen by the commissioner at `start_draft`. Every human seat must be taken before the draft starts; agent seats without a configured agent get a random one.
+- **Mid-season start:** if the league's start week has kicked off by the time the draft starts, the start week moves to the next open week (it must still be before the trade deadline). When the last pick is made the league moves to the regular season at the later of its start week and the current NFL week.
+- **Roster check:** a pick is refused (`ROSTER_WOULD_BE_INVALID`) when the team's remaining picks could no longer fill every empty starting slot (`draftRosterIssue`). A team with nine empty starting slots and nine picks left must fill a starting slot with each pick.
 - **Errors:**
   - `NOT_YOUR_TURN` says how many picks until the team is on the clock.
   - `PLAYER_ALREADY_DRAFTED` says who took the player, and in which round and pick.
   - `ROSTER_POSITION_LIMIT` applies only when the draft sets per-team position maximums, counted by each player's primary position.
   - `DRAFT_COMPLETE`.
 - **Autopick:** the best-ranked available player who fills an empty starting slot. A team never takes a bench player, such as a second K or DEF, while a starting slot is open. Once every starting slot is full, autopick takes the best-ranked player available. Players drafted earlier fill the most specific open slot first (a WR goes to WR before W/R/T). Unranked players come after ranked ones, and equal ranks are broken by player id.
+- **Concurrency:** the draft and all its picks are one item written with a version check, so of two picks racing for the same slot exactly one lands; the other gets `CONFLICT` (or `NOT_YOUR_TURN` on a retry). Passing `pick` (the overall pick number) to `make_draft_pick` stops a late request from landing on a later pick.
 - **Traded picks:** a draft carries `tradedPicks` (round, original team, owner), and the order honours them. Trading picks isn't offered yet.
 
 ## Editability
@@ -279,6 +283,13 @@ Processing runs in rounds, the Yahoo way:
 The result lists awarded and failed claims (each failure has a code, a message, and a fix), the new budgets, the new priority list, the new rosters, and one transaction per award. Property tests check four things: FAAB spent equals the sum of winning bids, no player is awarded twice, no budget goes negative, and no roster goes over the limit.
 
 **Waiver period** (`waiverClearsAt`). A dropped player clears waivers `waiverPeriodDays` days after the drop. If his game had already kicked off when he was dropped, the period starts when locks lift (`locksReleaseAt`, the weekly rollover) instead. `isOnWaivers(player, now)` is true until that time.
+
+**In the league** (`packages/server/src/operations/waivers/`, `packages/server/src/waivers/`):
+
+- `claim_waiver` adds a **free agent** (not rostered, not on waivers) at once and at no cost. A player **on waivers** gets a pending claim instead, with a FAAB bid and the team's own `priority`.
+- `drop_player` (or a claim's drop) puts the player on waivers until `waiverClearsAt`.
+- Claims are processed once a day at `WAIVER_RUN_HOUR_UTC` (08:00 UTC, 3 AM US Central in daylight time). A claim is due at the first run after its player clears waivers, and all due claims go through `resolveWaivers` together. Each run is one window: it records the awards and failures, charges FAAB, updates the priority list, emits `Waivers Processed`, and opens the next window (`Waiver Window Opened`).
+- Claims and adds are accepted while `waiversOpen` (the regular season and playoffs).
 
 ## Trade lifecycle
 

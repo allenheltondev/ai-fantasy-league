@@ -14,6 +14,8 @@ export type FantasyEventType =
   | 'Draft Turn Started'
   | 'Draft Pick Made'
   | 'Draft Completed'
+  /** Scheduled at each pick's deadline; the draft clock handler autopicks if the pick is still open. */
+  | 'Draft Pick Deadline'
   | 'Week Rolled Over'
   | 'Lineup Lock Approaching'
   | 'Waiver Window Opened'

@@ -1,10 +1,13 @@
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
+import { ToastProvider } from '@readysetcloud/ui';
 import { AUTH_KEY, configureAuth } from '@readysetcloud/ui/auth';
 import { App } from '../App';
+import type { LeagueApi } from '../api/league';
 import { toAuthConfig } from '../auth/authConfig';
 import { ConfigContext } from '../config/ConfigContext';
 import type { RuntimeConfig } from '../config/runtimeConfig';
+import { fakeApi } from './fakeApi';
 
 export const TEST_CONFIG: RuntimeConfig = {
   region: 'us-east-1',
@@ -33,13 +36,19 @@ export function signInAs(claims: Record<string, unknown>) {
   );
 }
 
-export function renderApp(path: string, config: RuntimeConfig | null = TEST_CONFIG) {
+export function renderApp(
+  path: string,
+  config: RuntimeConfig | null = TEST_CONFIG,
+  api: LeagueApi = fakeApi()
+) {
   configureAuth(config ? toAuthConfig(config) : null);
   return render(
-    <ConfigContext.Provider value={{ auth: config }}>
-      <MemoryRouter initialEntries={[path]}>
-        <App />
-      </MemoryRouter>
-    </ConfigContext.Provider>
+    <ToastProvider>
+      <ConfigContext.Provider value={{ auth: config }}>
+        <MemoryRouter initialEntries={[path]}>
+          <App api={api} />
+        </MemoryRouter>
+      </ConfigContext.Provider>
+    </ToastProvider>
   );
 }

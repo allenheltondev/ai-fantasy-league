@@ -1,7 +1,8 @@
-import type { LeagueSettings, StandingsRow } from '@fantasy/core';
+import type { DraftState, LeagueSettings, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
 import type { ChatRepository } from '../chat/model.js';
 import type { AgentRepository } from './agents.js';
+import type { WaiverRepository } from './waivers.js';
 
 /**
  * Repository interfaces. Each has a DynamoDB implementation (single table, see
@@ -143,6 +144,8 @@ export interface LeagueRepository {
   update(league: League): Promise<League>;
   /** Every league this user created (GSI1 `CREATOR#<sub>`), oldest first. */
   listByCreator(userId: string): Promise<League[]>;
+  /** Every league in a phase (GSI2 `LEAGUEPHASE#<phase>`), for scheduled jobs such as waiver processing. */
+  listByPhase(phase: LeaguePhase): Promise<League[]>;
   /** Deletes the whole league partition: the league, its teams, members, invites, and schedule. */
   delete(leagueId: string): Promise<void>;
 }
@@ -262,6 +265,40 @@ export interface ScheduleRepository {
   latestStandings(leagueId: string): Promise<StandingsSnapshot | null>;
 }
 
+// ---------------------------------------------------------------------------
+// Draft (`DRAFT` in the league partition)
+// ---------------------------------------------------------------------------
+
+export const DRAFT_STATUSES = ['in_progress', 'paused', 'complete'] as const;
+export type DraftStatus = (typeof DRAFT_STATUSES)[number];
+
+/**
+ * The live draft: the core snake-draft state (order, rounds, clock, every pick) plus the clock
+ * deadline. Picks live on this one item, so a pick is one version-checked write: two racing picks
+ * can never both land.
+ */
+export interface DraftRecord {
+  leagueId: string;
+  state: DraftState;
+  status: DraftStatus;
+  startedAt: string;
+  /** When the team on the clock must pick; null while paused and once complete. */
+  deadline: string | null;
+  /** Seconds that were left on the clock when the commissioner paused the draft. */
+  pausedRemainingSeconds: number | null;
+  completedAt: string | null;
+  updatedAt: string;
+  version: number;
+}
+
+export interface DraftRepository {
+  get(leagueId: string): Promise<DraftRecord | null>;
+  /** Fails with CONFLICT when the league already has a draft. */
+  create(draft: DraftRecord): Promise<void>;
+  /** Writes `draft` with `version + 1` if the stored version equals `draft.version`; else CONFLICT. */
+  update(draft: DraftRecord): Promise<DraftRecord>;
+}
+
 export interface Repos {
   idempotency: IdempotencyRepository;
   audit: AuditRepository;
@@ -271,8 +308,11 @@ export interface Repos {
   members: MemberRepository;
   invites: InviteRepository;
   schedule: ScheduleRepository;
+  drafts: DraftRepository;
   /** Agent seats, notes, task records, and usage rollups (repos/agents.ts). */
   agents: AgentRepository;
+  /** Waiver claims, the waiver wire, transactions, processing runs, and ownership locks (repos/waivers.ts). */
+  waivers: WaiverRepository;
   /** League group chat (chat/model.ts). */
   chat: ChatRepository;
 }

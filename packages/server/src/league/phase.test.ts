@@ -168,6 +168,7 @@ describe('action rules', () => {
       'rename_team',
       'revoke_invite',
       'set_seat_type',
+      'start_draft',
       'transfer_commissioner',
       'update_league_settings'
     ]);
@@ -191,6 +192,7 @@ describe('action rules', () => {
       'post_message',
       'propose_trade',
       'rename_team',
+      'reorder_waiver_claims',
       'respond_to_trade',
       'set_lineup',
       'withdraw_trade'

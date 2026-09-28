@@ -20,16 +20,18 @@ import { createDocumentClient } from './repos/dynamo/table.js';
 import { limitsFromEnv } from './context.js';
 import { realtimeFromEnv } from './realtime/config.js';
 import { createServices } from './services.js';
+import type { Services } from './context.js';
+import { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/handlers.js';
 
 export type FunctionUrlEvent = Extract<LambdaEvent, { rawPath: string }>;
 
-/** Builds the production app from environment variables. */
-export function createLambdaApp(env: Record<string, string | undefined> = process.env): Hono {
+/** Production services from environment variables. */
+export function createLambdaServices(env: Record<string, string | undefined> = process.env): Services {
   const config = loadLambdaConfig(env);
   const log = createLogger({ level: config.logLevel });
   const table = { doc: createDocumentClient(), tableName: config.tableName };
   const repos = createDynamoRepos(table);
-  const services = createServices({
+  return createServices({
     clock: systemClock,
     repos,
     events: new EventBridgePublisher({ busName: config.eventBusName }),
@@ -38,6 +40,12 @@ export function createLambdaApp(env: Record<string, string | undefined> = proces
     reference: createDynamoReferenceStore(table),
     realtime: realtimeFromEnv(env, { clock: systemClock, log })
   });
+}
+
+/** Builds the production app from environment variables. */
+export function createLambdaApp(env: Record<string, string | undefined> = process.env): Hono {
+  const config = loadLambdaConfig(env);
+  const services = createLambdaServices(env);
   const verifier = createCognitoVerifier({
     userPoolId: config.userPoolId,
     clientId: config.userPoolClientId
@@ -47,11 +55,25 @@ export function createLambdaApp(env: Record<string, string | undefined> = proces
 
 let cached: ((event: FunctionUrlEvent, context?: LambdaContext) => Promise<APIGatewayProxyResult>) | null =
   null;
+let cachedServices: Services | null = null;
 
+/**
+ * Function URL requests go to the REST app; EventBridge events (the draft pick clock) go to the
+ * league event handlers.
+ */
 export async function handler(
   event: FunctionUrlEvent,
   context?: LambdaContext
-): Promise<APIGatewayProxyResult> {
+): Promise<APIGatewayProxyResult>;
+export async function handler(event: LeagueBusEvent): Promise<{ handled: boolean }>;
+export async function handler(
+  event: FunctionUrlEvent | LeagueBusEvent,
+  context?: LambdaContext
+): Promise<APIGatewayProxyResult | { handled: boolean }> {
+  if (isBusEvent(event)) {
+    cachedServices ??= createLambdaServices();
+    return handleLeagueEvent(cachedServices, event);
+  }
   cached ??= handle(createLambdaApp());
   return cached(event, context);
 }

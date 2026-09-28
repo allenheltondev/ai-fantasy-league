@@ -4,6 +4,7 @@ import type { EventPublisher } from '../events/publisher.js';
 import type { Logger } from '../log.js';
 import type { PlayerDirectory } from '../players/directory.js';
 import type { ReferenceStore } from '../repos/reference.js';
+import type { Repos } from '../repos/types.js';
 import type { FeedConfig } from './news/feeds.js';
 
 /** Where news comes from: the configured feeds and a way to fetch one. */
@@ -19,6 +20,8 @@ export interface NewsSource {
 export interface JobDeps {
   provider: DataProvider;
   reference: ReferenceStore;
+  /** League repositories, for league jobs such as waiver processing. */
+  repos: Repos;
   events: EventPublisher;
   directory: PlayerDirectory;
   log: Logger;

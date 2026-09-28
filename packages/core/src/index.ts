@@ -17,6 +17,8 @@ export * from './draft/autopick.js';
 export * from './time.js';
 export * from './waivers/resolve.js';
 export * from './waivers/period.js';
+export * from './waivers/bid.js';
+export * from './waivers/schedule.js';
 export * from './trades/trade.js';
 export * from './trades/machine.js';
 export * from './valuation/value.js';

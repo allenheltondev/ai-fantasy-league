@@ -20,6 +20,7 @@ Each EventBridge Scheduler schedule invokes it with `{ "job": "<name>" }`. Run o
 | `ingestProjections` | `rate(1 hour)` | Sleeper `/v1/projections/nfl/regular/{season}/{week}` | `PROJ#<season>#W05#<capturedAt>`/`PLAYER#<id>`, then the pointer `PROJ#<season>#W05`/`ASOF#<capturedAt>`; skipped when the content hash is unchanged | none |
 | `ingestTrending` | `rate(1 hour)` | Sleeper `/v1/players/nfl/trending/{add,drop}` for 24h, 72h, and 168h lookbacks (top 50) | `TRENDING#<add\|drop>`/`ASOF#<capturedAt>` (30-day TTL) | none |
 | `ingestNews` | `rate(15 minutes)` | The RSS feeds below | `NEWS#<id>`/`ITEM` (GSI2 `NEWS`/`<publishedAt>#<id>`), copies at `PLAYER#<id>` and `TEAMNEWS#<team>` / `NEWS#<publishedAt>#<id>` (90-day TTL) | `Player News Alert` for each new item tagged to a player |
+| `processWaivers` | `cron(0 8 * * ? *)` (daily, 3 AM US Central in daylight time; `WAIVER_RUN_HOUR_UTC`) | The league table only: every league in `regular_season` or `playoffs` (GSI2 `LEAGUEPHASE#<phase>`) | Claims (`WAIVER#<claimId>`), team rosters and FAAB, `TXN#…`, `OWN#<playerId>`, and `WAIVERRUN#<YYYY-MM-DD>` (one run per league per day, so a retry is a no-op) | `Waivers Processed` and `Waiver Window Opened` per league |
 
 Notes:
 

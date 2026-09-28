@@ -4,7 +4,11 @@
  */
 
 import { Link, NavLink, Outlet, useParams } from 'react-router';
-import { Button, EmptyState } from '@readysetcloud/ui';
+import { EmptyState } from '@readysetcloud/ui';
+import { CreateLeagueWizard } from '../features/create/CreateLeagueWizard';
+import { MyLeaguesPage } from '../features/leagues/MyLeaguesPage';
+import { PlayersPage } from '../features/players/PlayersPage';
+import { SettingsPage } from '../features/settings/SettingsPage';
 
 export const LEAGUE_SECTIONS = [
   { path: 'draft', label: 'Draft' },
@@ -19,35 +23,11 @@ export const LEAGUE_SECTIONS = [
 
 export type LeagueSectionPath = (typeof LEAGUE_SECTIONS)[number]['path'];
 
-export function HomePage() {
-  return (
-    <section aria-labelledby="home-title" className="space-y-6">
-      <h1 id="home-title" className="text-2xl font-semibold">
-        My Leagues
-      </h1>
-      <EmptyState
-        title="No leagues yet"
-        description="Create a league, invite friends, and fill the other seats with AI managers."
-        action={
-          <Link to="/leagues/new">
-            <Button variant="primary">Create a league</Button>
-          </Link>
-        }
-      />
-    </section>
-  );
-}
+/** My Leagues (#86). */
+export const HomePage = MyLeaguesPage;
 
-export function CreateLeaguePage() {
-  return (
-    <section aria-labelledby="create-title" className="space-y-4">
-      <h1 id="create-title" className="text-2xl font-semibold">
-        Create League
-      </h1>
-      <p className="text-muted-foreground">League setup is coming soon.</p>
-    </section>
-  );
-}
+/** The create-league wizard (#86). */
+export const CreateLeaguePage = CreateLeagueWizard;
 
 export function LeagueLayout() {
   const { leagueId = '' } = useParams();
@@ -77,6 +57,8 @@ export function LeagueLayout() {
 }
 
 export function LeagueSectionPage({ section }: { section: LeagueSectionPath }) {
+  if (section === 'settings') return <SettingsPage />;
+  if (section === 'players') return <PlayersPage />;
   const label = LEAGUE_SECTIONS.find((s) => s.path === section)?.label ?? section;
   return (
     <div data-testid={`league-section-${section}`}>

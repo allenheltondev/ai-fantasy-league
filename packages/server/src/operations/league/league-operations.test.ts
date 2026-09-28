@@ -735,6 +735,9 @@ describe('standings and matchups', () => {
       data: { week: 1, teamId: 'team-2', matchup: null },
       warnings: [{ code: 'NO_SCHEDULE_YET' }]
     });
+    expect(data<{ leagues: { record: string | null }[] }>(await bob.get('/leagues')).leagues).toEqual([
+      expect.objectContaining({ id: 'lg-g', record: null })
+    ]);
   });
 
   it('show 0-0 standings until a week is final, then the stored snapshot', async () => {
@@ -746,6 +749,9 @@ describe('standings and matchups', () => {
     expect(zero.throughWeek).toBeNull();
     expect(zero.standings).toHaveLength(8);
     expect(zero.standings[0]).toMatchObject({ record: '0-0', streak: null });
+    const record = async (caller: Caller) =>
+      data<{ leagues: { record: string | null }[] }>(await caller.get('/leagues')).leagues[0]?.record;
+    expect(await record(bob)).toBe('0-0');
     await h.repos.schedule.putStandings({
       leagueId: 'lg-g',
       week: 1,
@@ -786,6 +792,8 @@ describe('standings and matchups', () => {
         expect.objectContaining({ teamName: 'team-gone', record: '0-1', streak: 'L1' })
       ]
     });
+    expect(await record(bob)).toBe('1-0');
+    expect(await record(alice)).toBe('0-0');
   });
 
   it('find a team matchup by week once the schedule exists', async () => {
@@ -821,5 +829,30 @@ describe('standings and matchups', () => {
       error: { code: 'INVALID_INPUT', fix: expect.stringContaining('team-1') }
     });
     expect((await dave.get('/leagues/lg-nt/matchup?teamId=team-2')).status).toBe(200);
+  });
+});
+
+describe('get_default_settings', () => {
+  it('returns Yahoo defaults for the preset, with editability and labels', async () => {
+    const res = await alice.get('/settings/defaults?teamCount=6&preset=full_ppr&startWeek=4');
+    expect(res.status).toBe(200);
+    const body = data<Record<string, unknown>>(res);
+    expect(body).toMatchObject({
+      settings: {
+        teamCount: 6,
+        schedule: { startWeek: 4 },
+        scoring: { perStat: { rec: 1 } },
+        playoffs: { teams: 4 }
+      },
+      editability: { trades: 'any_time', scoring: 'pre_draft' },
+      statLabels: { rec: 'Receptions' }
+    });
+    expect(body.rosterSlots).toContain('W/R/T');
+    expect(body.playerStatuses).toContain('ir');
+    const defaults = data<{ settings: { teamCount: number; scoring: { perStat: { rec: number } } } }>(
+      await alice.get('/settings/defaults')
+    );
+    expect(defaults.settings).toMatchObject({ teamCount: 8, scoring: { perStat: { rec: 0.5 } } });
+    expect(errorCode(await alice.get('/settings/defaults?teamCount=13'))).toBe('INVALID_INPUT');
   });
 });

@@ -146,14 +146,21 @@ describe('research operations over seeded reference data', () => {
     expect((older.body.data.items as { id: string }[]).map((i) => i.id)).toEqual(['news-2']);
   });
 
-  it('search_players accepts an availability filter that is not applied until rosters exist', async () => {
+  it('search_players filters by league availability', async () => {
     const res = await get(
       h,
       `/api/v1/players?q=williams&leagueId=${RESEARCH_LEAGUE_ID}&availability=free_agent`
     );
     expect(res.status).toBe(200);
-    expect((res.body.data.players as unknown[]).length).toBe(4);
-    expect(res.body.warnings.map((w) => w.code)).toEqual(['AVAILABILITY_NOT_APPLIED']);
+    const players = res.body.data.players as { availability: unknown }[];
+    expect(players.length).toBe(4);
+    expect(players.every((p) => (p.availability as { status: string }).status === 'free_agent')).toBe(true);
+    expect(res.body.warnings).toEqual([]);
+    const rostered = await get(
+      h,
+      `/api/v1/players?q=williams&leagueId=${RESEARCH_LEAGUE_ID}&availability=rostered`
+    );
+    expect(rostered.body.data.players).toEqual([]);
     const noLeague = await get(h, '/api/v1/players?q=williams&availability=rostered');
     expect(noLeague.status).toBe(400);
   });
@@ -209,6 +216,7 @@ describe('jobs feeding the API (DynamoDB)', () => {
     const deps: JobDeps = {
       provider: new FixtureDataProvider(),
       reference: h.services.data.reference,
+      repos: h.repos,
       events: h.events,
       directory: h.services.data.players,
       log: silentLogger,

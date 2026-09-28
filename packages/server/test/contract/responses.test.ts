@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
+import { DRAFT_CASES, seedDraftContractLeague } from '../support/contract-draft.js';
 import { CHAT_CASES } from '../support/contract-chat.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
+import { seedContractWaivers, WAIVER_CASES } from '../support/contract-waivers.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 import { seedLeague } from '../support/leagues.js';
 import { RESEARCH_LEAGUE_ID, seedReferenceData } from '../support/reference-seed.js';
@@ -91,6 +93,8 @@ const CASES: Record<string, Case[]> = {
     { label: 'unknown player', path: '/api/v1/news?playerId=nope', status: 404 }
   ],
   ...LEAGUE_CASES,
+  ...DRAFT_CASES,
+  ...WAIVER_CASES,
   ...CHAT_CASES,
   configure_agent_seat: [
     {
@@ -138,6 +142,16 @@ const CASES: Record<string, Case[]> = {
       status: 403
     },
     { label: 'no seat', path: '/api/v1/leagues/lg-1/agents/team-9', status: 404 }
+  ],
+  get_agent_catalog: [
+    { label: 'catalog', path: '/api/v1/agents/catalog', status: 200 },
+    { label: 'suggested seats', path: '/api/v1/agents/catalog?suggest=5&seed=contract', status: 200 },
+    { label: 'too many', path: '/api/v1/agents/catalog?suggest=50', status: 400 },
+    { label: 'anonymous', path: '/api/v1/agents/catalog', init: { token: null }, status: 401 }
+  ],
+  get_default_settings: [
+    { label: 'defaults', path: '/api/v1/settings/defaults?teamCount=10&preset=standard', status: 200 },
+    { label: 'odd bounds', path: '/api/v1/settings/defaults?teamCount=2', status: 400 }
   ],
   get_agent_activity: [
     { label: 'commissioner', path: '/api/v1/leagues/lg-1/agent-activity?limit=5', status: 200 },
@@ -190,6 +204,8 @@ beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
   await seedReferenceData(h.services, h.repos);
   await seedContractLeagues(h.repos);
+  await seedDraftContractLeague(h.repos);
+  await seedContractWaivers(h.repos);
   await seedLeague(h.repos, { id: 'lg-1', owners: [{ sub: 'user-123', name: 'Allen' }], teamCount: 4 });
 });
 afterAll(() => h.close());

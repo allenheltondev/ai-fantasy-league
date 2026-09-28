@@ -57,6 +57,7 @@ const COMMISSIONER_SETUP_ACTIONS = [
   'rename_team',
   'revoke_invite',
   'set_seat_type',
+  'start_draft',
   'transfer_commissioner',
   'update_league_settings'
 ];

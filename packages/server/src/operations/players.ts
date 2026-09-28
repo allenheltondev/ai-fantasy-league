@@ -7,8 +7,14 @@ import {
   toPlayerDetail
 } from '../players/model.js';
 import { ApiError } from '../errors.js';
-import { applyAvailability, AvailabilitySchema } from '../players/availability.js';
-import { defineOperation, withWarnings } from '../registry/operation.js';
+import {
+  applyAvailability,
+  AVAILABILITY_SEARCH_POOL,
+  AvailabilitySchema,
+  StandingSchema,
+  standingView
+} from '../players/availability.js';
+import { defineOperation } from '../registry/operation.js';
 
 /** `detail` arrives as a string in a query and as a boolean in JSON; both parse here. */
 export const detailFlag = z
@@ -26,7 +32,7 @@ export const searchPlayers = defineOperation({
     '`q` matches full names, last names, name prefixes, nicknames ("CMC"), and small typos; add a team or position to narrow it ("mccaffrey sf", "allen qb").',
     'With no `q`, returns the best-ranked players that match `position` and `team`.',
     'Results are ranked best match first.',
-    'To limit results to players available in your league, pass `leagueId` with `availability`; until league rosters exist that filter is not applied and the response carries an AVAILABILITY_NOT_APPLIED warning.'
+    'Pass your `leagueId` to see where each player stands in your league (`availability`: free_agent, waivers with the time he clears, or rostered with the team), and add `availability` to list only those players, e.g. `availability: "free_agent"` for pickups you can add right now with claim_waiver.'
   ].join(' '),
   tags: ['players'],
   mutation: false,
@@ -39,33 +45,41 @@ export const searchPlayers = defineOperation({
       .describe('NFL team abbreviation, e.g. "SF". Free agents have no team.'),
     limit: z.number().int().min(1).max(50).default(10).describe('Maximum results (1-50, default 10).'),
     detail: detailFlag,
-    leagueId: z.string().min(1).optional().describe('Your league id. Required with `availability`.'),
+    leagueId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Your league id: adds each player’s league availability. Required with `availability`.'),
     availability: AvailabilitySchema.optional()
   }),
-  output: z.object({ players: z.array(PlayerDetailSchema) }),
+  output: z.object({
+    players: z.array(PlayerDetailSchema.extend({ availability: StandingSchema.optional() }))
+  }),
   handler: async (ctx, input) => {
+    if (input.availability !== undefined && input.leagueId === undefined) {
+      throw new ApiError('INVALID_INPUT', '`availability` needs a league.', {
+        fix: 'Pass `leagueId` with `availability`, or drop `availability` to search every player.'
+      });
+    }
     const players = await ctx.data.players.search({
       query: input.q,
       position: input.position,
       team: input.team,
-      limit: input.limit
+      limit: input.availability === undefined ? input.limit : AVAILABILITY_SEARCH_POOL
     });
-    if (input.availability === undefined) {
-      return { players: players.map((p) => toPlayerDetail(p, input.detail)) };
-    }
     if (input.leagueId === undefined) {
-      throw new ApiError('INVALID_INPUT', '`availability` needs a league.', {
-        fix: 'Pass `leagueId` with `availability`, or drop `availability` to search every player.'
-      });
+      return { players: players.map((p) => toPlayerDetail(p, input.detail)) };
     }
     const filtered = await applyAvailability(ctx, players, {
       leagueId: input.leagueId,
       availability: input.availability
     });
-    return withWarnings(
-      { players: filtered.players.map((p) => toPlayerDetail(p, input.detail)) },
-      filtered.warnings
-    );
+    return {
+      players: filtered.players.slice(0, input.limit).map((p) => ({
+        ...toPlayerDetail(p, input.detail),
+        availability: standingView(filtered.standingOf(p.id))
+      }))
+    };
   }
 });
 
