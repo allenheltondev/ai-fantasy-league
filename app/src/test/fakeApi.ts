@@ -251,7 +251,16 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       throw new Error('setLineup is not faked in this test');
     }),
     getMatchup: vi.fn(async () => ({ week: 1, teamId: 'team-1', matchup: null, lineups: null })),
-    getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] }))
+    getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] })),
+    getRealtime: vi.fn(async () => ({
+      enabled: false,
+      token: null,
+      endpoint: null,
+      cacheName: null,
+      topics: null,
+      expiresAt: null,
+      pollIntervalSeconds: 5
+    }))
   };
   return { ...api, ...overrides };
 }

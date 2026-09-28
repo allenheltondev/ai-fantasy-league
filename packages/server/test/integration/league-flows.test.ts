@@ -165,7 +165,12 @@ describe('league lifecycle over HTTP (dynalite)', () => {
     const extra = data<{ leagues: { id: string; name: string }[] }>(await alice.get('/leagues')).leagues.find(
       (l) => l.name === 'Third'
     );
+    expect(
+      (await alice.post(`/leagues/${extra!.id}/chat/messages`, { text: 'about to delete this' })).status
+    ).toBe(200);
     expect((await alice.del(`/leagues/${extra!.id}`)).status).toBe(200);
+    // The chat partition goes with the league.
+    expect((await h.repos.chat.list(extra!.id, { limit: 10 })).messages).toEqual([]);
     expect((await alice.post('/leagues', { name: 'Fourth' })).status).toBe(200);
   });
 

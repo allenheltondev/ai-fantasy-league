@@ -6,6 +6,7 @@ import { ApiError, type ApiFetch, type ApiRequest } from '../api/client';
 import type { DraftBoard } from './board';
 import { formatClock, overallPick, secondsUntil } from './board';
 import { DraftPage } from './DraftPage';
+import type { EventConnect, LeagueEvent } from '../realtime/leagueEvents';
 
 const NOW = Date.parse('2026-09-30T12:00:00.000Z');
 const ref = (id: string, name: string, position: string, team: string | null = 'SF') => ({
@@ -74,7 +75,7 @@ function fakeApi(handler: Handler) {
   return { api, calls };
 }
 
-function renderDraft(api: ApiFetch, pollMs = 60_000) {
+function renderDraft(api: ApiFetch, pollMs = 60_000, connect?: EventConnect) {
   let now = NOW;
   const clock = { now: () => now, advance: (ms: number) => (now += ms) };
   render(
@@ -82,7 +83,7 @@ function renderDraft(api: ApiFetch, pollMs = 60_000) {
       <Routes>
         <Route
           path="/leagues/:leagueId/draft"
-          element={<DraftPage api={api} pollMs={pollMs} now={clock.now} />}
+          element={<DraftPage api={api} pollMs={pollMs} now={clock.now} connect={connect} />}
         />
       </Routes>
     </MemoryRouter>
@@ -92,7 +93,18 @@ function renderDraft(api: ApiFetch, pollMs = 60_000) {
 
 afterEach(() => {
   vi.useRealTimers();
+  localStorage.clear();
 });
+
+const LIVE_INFO = {
+  enabled: true,
+  token: 't',
+  endpoint: null,
+  cacheName: 'c',
+  topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
+  expiresAt: null,
+  pollIntervalSeconds: 5
+};
 
 describe('board helpers', () => {
   it('snakes the grid, counts down, and formats the clock', () => {
@@ -124,7 +136,7 @@ describe('DraftPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/DEF · FA · rank —/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: "Draft Ja'Marr Chase" })).toBeDisabled();
-    expect(calls[0]).toEqual({
+    expect(calls.find((c) => c.path === '/leagues/L1/draft')).toEqual({
       path: '/leagues/L1/draft',
       request: { query: { q: undefined, position: undefined, limit: 25 } }
     });
@@ -260,6 +272,104 @@ describe('DraftPage', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText(/is on the clock/)).toBeInTheDocument();
     expect(screen.queryByText(/Your next pick/)).not.toBeInTheDocument();
+  });
+
+  it('refreshes the board on live draft events instead of polling fast', async () => {
+    let onEvent: (event: LeagueEvent) => void = () => undefined;
+    const connect: EventConnect = async (target, handlers) => {
+      expect(target.topics).toEqual(['fantasy.league.L1']);
+      onEvent = handlers.onEvent;
+      return () => undefined;
+    };
+    let picks = board().picks;
+    const { api, calls } = fakeApi((path) => (path.endsWith('/realtime') ? LIVE_INFO : board({ picks })));
+    renderDraft(api, 3000, connect);
+    expect(await screen.findByText('Updating live')).toBeInTheDocument();
+    picks = [
+      ...picks,
+      {
+        overall: 2,
+        round: 1,
+        pick: 2,
+        teamId: 'team-2',
+        player: ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN'),
+        auto: false,
+        madeAt: null
+      }
+    ];
+    const before = calls.filter((c) => c.path.endsWith('/draft')).length;
+    act(() => onEvent({ detailType: 'Draft Pick Made', leagueId: 'L1' }));
+    expect(await screen.findByTestId('cell-2')).toHaveTextContent("Ja'Marr Chase (WR)");
+    expect(calls.filter((c) => c.path.endsWith('/draft')).length).toBe(before + 1);
+  });
+
+  it('says it is polling when realtime is off', async () => {
+    const { api } = fakeApi(() => board());
+    renderDraft(api, 3000);
+    expect(await screen.findByText('Refreshing every 3s')).toBeInTheDocument();
+  });
+
+  it('keeps a player queue you can reorder, prune, and draft from', async () => {
+    const user = userEvent.setup();
+    let picked = false;
+    const mine = board({
+      onTheClock: {
+        overall: 2,
+        round: 1,
+        pick: 2,
+        teamId: 'team-1',
+        teamName: "Allen's Team",
+        deadline: null,
+        secondsLeft: 30
+      }
+    });
+    const { api, calls } = fakeApi((path) => {
+      if (path.endsWith('/picks')) {
+        picked = true;
+        return { pick: { overall: 2 } };
+      }
+      if (!picked) return mine;
+      return board({
+        onTheClock: null,
+        status: 'complete',
+        picks: [
+          ...mine.picks,
+          {
+            overall: 2,
+            round: 1,
+            pick: 2,
+            teamId: 'team-1',
+            player: ref('fx-def-nyj', 'NYJ Defense', 'DEF', null),
+            auto: false,
+            madeAt: null
+          }
+        ]
+      });
+    });
+    renderDraft(api);
+    expect(await screen.findByText(/Queue players from Best available/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: "Queue Ja'Marr Chase" }));
+    await user.click(screen.getByRole('button', { name: 'Queue NYJ Defense' }));
+    expect(screen.getByRole('button', { name: "Queue Ja'Marr Chase" })).toBeDisabled();
+    const list = () => within(screen.getByRole('list', { name: 'Your queue' }));
+    expect(
+      list()
+        .getAllByRole('listitem')
+        .map((li) => li.textContent)
+    ).toEqual([expect.stringContaining("1. Ja'Marr Chase"), expect.stringContaining('2. NYJ Defense')]);
+    expect(list().getByRole('button', { name: "Move Ja'Marr Chase up" })).toBeDisabled();
+    await user.click(list().getByRole('button', { name: 'Move NYJ Defense up' }));
+    expect(list().getAllByRole('listitem')[0]).toHaveTextContent('1. NYJ Defense');
+    await user.click(list().getByRole('button', { name: 'Draft NYJ Defense from the queue' }));
+    expect(calls.find((c) => c.path.endsWith('/picks'))?.request.body).toEqual({
+      playerId: 'fx-def-nyj',
+      pick: 2
+    });
+    // Drafted players drop out of the queue.
+    expect(await screen.findByText(/The draft is complete/)).toBeInTheDocument();
+    expect(list().queryByText(/NYJ Defense/)).not.toBeInTheDocument();
+    await user.click(list().getByRole('button', { name: "Remove Ja'Marr Chase from the queue" }));
+    expect(screen.getByText(/Queue players from Best available/)).toBeInTheDocument();
   });
 
   it('shows a loading state first', () => {

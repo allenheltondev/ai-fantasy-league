@@ -93,9 +93,14 @@ function InviteCard({ token, preview }: { token: string; preview: InvitePreview 
             </Button>
           </form>
         ) : (
-          <Link to="/login" state={{ from: `/join/${token}` }}>
-            <Button variant="primary">Sign in to join</Button>
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link to="/login" state={{ from: `/join/${token}` }}>
+              <Button variant="primary">Sign in to join</Button>
+            </Link>
+            <Link to="/signup" state={{ from: `/join/${token}` }}>
+              <Button variant="secondary">Create an account</Button>
+            </Link>
+          </div>
         )}
       </CardBody>
     </Card>

@@ -24,6 +24,11 @@ interface LeagueWaivers {
 export class InMemoryWaiverRepository implements WaiverRepository {
   readonly #leagues = new Map<string, LeagueWaivers>();
 
+  /** In DynamoDB these items live in the league partition; mirrors `leagues.delete` (memory.ts). */
+  dropLeague(leagueId: string): void {
+    this.#leagues.delete(leagueId);
+  }
+
   #league(leagueId: string): LeagueWaivers {
     let league = this.#leagues.get(leagueId);
     if (league === undefined) {

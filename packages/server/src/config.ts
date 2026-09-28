@@ -7,6 +7,8 @@ const LambdaEnvSchema = z.object({
   USER_POOL_ID: z.string().min(1),
   USER_POOL_CLIENT_ID: z.string().min(1),
   EVENT_BUS_NAME: z.string().min(1).default('default'),
+  // CloudFront's origin-verify secret (http/origin.ts). Required so the API never runs open.
+  ORIGIN_VERIFY_SECRET: z.string().trim().min(1),
   LOG_LEVEL: z.string().optional()
 });
 

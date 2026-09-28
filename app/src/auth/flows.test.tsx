@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '../api';
 import { fakeIdToken, renderApp, signInAs } from '../test/render';
+import { RETURN_KEY } from './AuthScreens';
 
 function cognito(handler: (target: string, body: Record<string, unknown>) => Response) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -57,6 +58,37 @@ describe('sign-in flows', () => {
     const user = userEvent.setup();
     renderApp('/leagues/new');
     await submitLogin(user);
+    expect(await screen.findByRole('heading', { name: 'Create League' })).toBeInTheDocument();
+  });
+
+  it('still signs in when session storage is unavailable', async () => {
+    for (const method of ['getItem', 'setItem', 'removeItem'] as const) {
+      vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+        throw new Error('blocked');
+      });
+    }
+    renderApp('/login');
+    expect(await screen.findByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    vi.restoreAllMocks();
+    cognito((target) =>
+      target === 'InitiateAuth'
+        ? new Response(
+            JSON.stringify({
+              AuthenticationResult: {
+                IdToken: fakeIdToken({ sub: 'u1', email: 'alice@example.com', exp: 4_102_444_800 }),
+                RefreshToken: 'refresh',
+                ExpiresIn: 3600
+              }
+            }),
+            { status: 200 }
+          )
+        : cognitoError('UnexpectedTarget')
+    );
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    sessionStorage.setItem(RETURN_KEY, '/leagues/new');
+    await submitLogin(userEvent.setup());
     expect(await screen.findByRole('heading', { name: 'Create League' })).toBeInTheDocument();
   });
 
