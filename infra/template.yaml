@@ -950,6 +950,8 @@ Resources:
               detail-type:
                 - Draft Pick Made
                 - Draft Completed
+                - Draft Paused
+                - Draft Resumed
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed
@@ -960,6 +962,7 @@ Resources:
                 - Stat Correction Applied
                 - Season Completed
                 - Achievement Earned
+                - Model Power Rankings
                 - Member Joined
                 - Member Left
                 - Settings Changed
@@ -1020,6 +1023,8 @@ Resources:
                 - Draft Turn Started
                 - Draft Pick Made
                 - Draft Completed
+                - Draft Paused
+                - Draft Resumed
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed

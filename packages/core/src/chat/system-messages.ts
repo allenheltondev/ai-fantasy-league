@@ -23,8 +23,8 @@ export type TemplateAlternative =
 export interface SystemTemplate {
   /** Alternatives, most specific first. */
   text: readonly TemplateAlternative[];
-  /** Also a "Chat Moment": a league moment agents may react to. */
-  moment?: boolean;
+  /** Also a "Chat Moment": a league moment agents may react to (always, or when it returns true). */
+  moment?: boolean | ((detail: Record<string, unknown>) => boolean);
   /** Detail field holding the team the moment is about. */
   subjectTeam?: string;
 }
@@ -32,15 +32,39 @@ export interface SystemTemplate {
 const noReview = (d: Record<string, unknown>) => d.review === 'none';
 
 export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> = {
+  // A notable pick (core `notablePick`) says why it stands out and is a moment agents may react to.
   'Draft Pick Made': {
     text: [
+      {
+        text: 'Steal! {team:teamId} drafted {player:player} at pick {overall}, well past his ADP of {adp}.',
+        when: (d) => d.notable === 'steal'
+      },
+      {
+        text: 'Reach? {team:teamId} drafted {player:player} at pick {overall}, well ahead of his ADP of {adp}.',
+        when: (d) => d.notable === 'reach'
+      },
+      {
+        text: '{team:teamId} opens its draft with {player:player} at pick {overall}: "{reason}"',
+        when: (d) => d.notable === 'first_round'
+      },
       '{team:teamId} drafted {player:player} (round {round}, pick {pick}).',
       '{team:teamId} drafted {player:player}.'
-    ]
+    ],
+    moment: (d) => typeof d.notable === 'string',
+    subjectTeam: 'teamId'
   },
   'Draft Completed': {
-    text: ['The draft is complete. Good luck this season!'],
+    text: [
+      'The draft is complete. Good luck this season! {recapText}',
+      'The draft is complete. Good luck this season!'
+    ],
     moment: true
+  },
+  'Draft Paused': {
+    text: ['The commissioner paused the draft at pick {pick}.', 'The commissioner paused the draft.']
+  },
+  'Draft Resumed': {
+    text: ['The draft is back on: pick {pick} is on the clock.', 'The draft is back on.']
   },
   // A run with no awards says nothing (and is no moment): waivers run every day.
   'Waivers Processed': {
@@ -119,6 +143,12 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   },
   'Achievement Earned': {
     text: ['{team:teamId} earned {name}: {reason}.', '{team:teamId} earned {name}.']
+  },
+  'Model Power Rankings': {
+    text: [
+      'Model power rankings after week {week}: {list:lines}.',
+      'Model power rankings after week {week}: {leaderModelName} leads.'
+    ]
   },
   'Member Joined': {
     text: ['{name} joined the league and took over {team:teamId}.', '{team:teamId} has a new manager.']
@@ -286,7 +316,7 @@ export function renderSystemMessage(
       const subject = template.subjectTeam === undefined ? null : text(at(detail, template.subjectTeam));
       return {
         text: filled,
-        moment: template.moment === true,
+        moment: typeof template.moment === 'function' ? template.moment(detail) : template.moment === true,
         subjectTeamId: subject,
         players: eventPlayers(detail)
       };

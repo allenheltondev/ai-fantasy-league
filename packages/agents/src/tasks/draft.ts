@@ -134,8 +134,17 @@ export function agentRank(ctx: Pick<TaskContext, 'config' | 'seat'>, candidate: 
   return (candidate.rank ?? UNRANKED) / (weight * noise);
 }
 
-async function pick(ctx: TaskContext, prep: DraftPrep, playerId: string): Promise<Envelope> {
-  return ctx.tools.call('make_draft_pick', { teamId: ctx.principal.teamId, playerId, pick: prep.overall });
+/** The longest reason `make_draft_pick` keeps. */
+export const PICK_REASON_MAX = 280;
+
+async function pick(ctx: TaskContext, prep: DraftPrep, playerId: string, reason?: string): Promise<Envelope> {
+  return ctx.tools.call('make_draft_pick', {
+    teamId: ctx.principal.teamId,
+    playerId,
+    pick: prep.overall,
+    // The agent's reasoning goes with the pick: the draft recap and notable-pick chat show it.
+    ...(reason === undefined ? {} : { reason: reason.trim().slice(0, PICK_REASON_MAX) })
+  });
 }
 
 async function fallbackPick(ctx: TaskContext, prep: DraftPrep, why: string): Promise<TaskOutcome> {
@@ -216,11 +225,12 @@ export const draftTask = defineTaskKind<DraftPayload, DraftDecision, DraftPrep>(
       prep.recommended === null
         ? 'No recommendation.'
         : `Recommended: ${prep.recommended.name} (${prep.recommended.playerId}).`,
-      'Research with your tools if you like, then answer with the `playerId` of one available player. The runtime makes the pick; you do not call make_draft_pick yourself.'
+      'Research with your tools if you like, then answer with the `playerId` of one available player. The runtime makes the pick; you do not call make_draft_pick yourself.',
+      'Your `summary` is posted with the pick as your reasoning: the league reads it in the draft recap.'
     ].join('\n');
   },
   async apply(ctx, _payload, prep, decision) {
-    const result = await pick(ctx, prep, decision.playerId);
+    const result = await pick(ctx, prep, decision.playerId, decision.summary);
     if (!('error' in result)) return { action: 'make_draft_pick', summary: decision.summary };
     ctx.log.warn('model draft pick refused; autopicking', {
       code: result.error.code,

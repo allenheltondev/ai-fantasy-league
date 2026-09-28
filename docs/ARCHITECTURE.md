@@ -115,14 +115,14 @@ Every error looks like this:
 - Players always appear as `{ id, name, team, position }`.
 - Any operation that takes a player accepts either `playerId` or `player` (a name). Ambiguous names return `AMBIGUOUS_PLAYER` with a list of candidates.
 - `detail: true` switches compact responses to full ones.
-- Mutations take an `Idempotency-Key` header (for agent tools, the `idempotencyKey` argument). Replays return the stored response.
+- Mutations take an `Idempotency-Key` header (for agent tools, the `idempotencyKey` argument). Replays return the stored response. A 5xx or a `CONFLICT` (a write race) is not stored, so a retry with the same key runs again.
 
 ### Context
 
 Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`. `limits` holds per-deployment limits such as the league quota (`LEAGUE_QUOTA`, default 3 active leagues per creator, and `LEAGUE_QUOTA_ADMINS`, a comma-separated allowlist of subs or emails).
 - **Never** call `Date.now()` or `new Date()` in domain or server code. Use `ctx.clock.now()`. The simulator swaps in its own clock.
 - `ctx.events.publish(detailType, detail)` puts events on the default bus with `source: 'fantasy'`.
-- `ctx.events.scheduleAt(...)` emits the rsc-core `Schedule Event`.
+- `ctx.events.scheduleAt(...)` emits the rsc-core `Schedule Event`. Its `name` becomes an EventBridge Scheduler schedule name (at most 64 characters of `[0-9a-zA-Z-_.]`; rsc-core cuts longer names at 64), so build every name with `scheduleName(...parts)` (`events/schedule-name.ts`), which hashes a long name to a stable short one. The in-memory publisher refuses any other name.
 
 ## Data
 
@@ -163,8 +163,9 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 |---|---|
 | `League Created` | A league is created |
 | `Draft Turn Started` | A team is on the clock |
-| `Draft Pick Made` | A pick is made |
-| `Draft Completed` | The draft ends |
+| `Draft Pick Made` | A pick is made (`adp`, the pick's `reason`, and `notable`: a steal or reach by ADP, or an agent's first-round pick, which the chat calls out; core `notablePick`) |
+| `Draft Completed` | The draft ends (`recap`: steals, reaches, and each agent's first pick with its reasoning, and `recapText` for the chat; core `draftRecap`) |
+| `Draft Paused` / `Draft Resumed` | The commissioner freezes or restarts the pick clock; relayed so open boards stop or restart their countdown |
 | `Draft Pick Deadline` | A pick's clock runs out (scheduled with `scheduleAt`; the API function autopicks if the pick is still open) |
 | `Week Rolled Over` | A new NFL week starts (`syncNflState`), or a league moves to its next week (the weekly cycle; carries `leagueId`) |
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
@@ -183,6 +184,7 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Stat Correction Applied` | A stat correction changes a matchup's score (`resultFlipped` when the winner changed) |
 | `Season Completed` | The last playoff week is final and the league is `complete` (`championTeamId`, `runnerUpTeamId`) |
 | `Achievement Earned` | A team earns a league achievement (`packages/core/src/history/achievements.ts`); the chat announces it |
+| `Model Power Rankings` | A league with at least one agent seat rolls over to its next week: the "which model wins the league?" standings by model (record, trade value, waiver hit rate, cost), with one chat line per model (`season/model-stats.ts`). The chat posts it. |
 | `Track Activity` | rsc-core badge chest activity for a human's achievement (`userId`, `action` such as `fantasy.championship.won`, `service: fantasy`). Only with `BADGE_CHEST_ENABLED=true` on the data jobs function (the template sets it; tests and local dev leave it off) |
 | `Agent Action Requested` | An agent is triggered to act |
 | `Member Joined` | A person takes a seat with an invite (`name`) |

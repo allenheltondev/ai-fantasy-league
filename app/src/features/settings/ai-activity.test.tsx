@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LeagueApi } from '../../api/league';
 import type { AgentActivity, AgentTaskRecord } from '../../api/types';
-import { fakeApi, state } from '../../test/fakeApi';
+import { catalog, fakeApi, league, state, team } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 
 beforeEach(() => signInAs({ sub: 'alice', given_name: 'Alice' }));
@@ -157,6 +157,94 @@ describe('settings: AI activity', () => {
     expect(log).toHaveTextContent('Skipped');
     await user.selectOptions(screen.getByLabelText('Filter by team'), 'team-4');
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+  });
+
+  it("lists each agent seat's versions, newest first, with what changed", async () => {
+    const base = { personalityId: 'p4', difficulty: 'pro', archetype: 'balanced' };
+    const api = fakeApi({
+      getAgentSeat: vi.fn(async (_id: string, teamId: string) => ({
+        seat: {
+          teamId,
+          personality: catalog().personalities[4]!,
+          difficulty: { id: 'rookie', displayName: 'Rookie' }
+        },
+        commissioner: {
+          current: { version: 3, config: { ...base, difficulty: 'rookie' } },
+          history: [
+            {
+              version: 3,
+              updatedAt: '2026-09-20T12:00:00.000Z',
+              updatedBy: 'user#alice',
+              config: { ...base, difficulty: 'rookie', advanced: { modelOverride: 'claude-opus-5' } }
+            },
+            {
+              version: 2,
+              updatedAt: '2026-09-10T12:00:00.000Z',
+              updatedBy: 'user#alice',
+              config: { ...base, advanced: { customFlavor: 'Pirate talk.' } }
+            },
+            { version: 1, updatedAt: '2026-09-01T12:00:00.000Z', updatedBy: 'user#alice', config: base }
+          ]
+        }
+      }))
+    });
+    await openAi(api);
+    const table = await screen.findByRole('table', { name: 'Seat version history' });
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(4);
+    expect(rows[1]).toHaveTextContent('v3 Current');
+    expect(rows[1]).toHaveTextContent('Persona 4 · Rookie · Balanced · Claude Opus 5');
+    expect(rows[1]).toHaveTextContent(
+      'Difficulty: Pro → Rookie; Model: Difficulty default → Claude Opus 5; Advanced levers or flavor changed'
+    );
+    expect(rows[2]).toHaveTextContent('Advanced levers or flavor changed');
+    expect(rows[3]).toHaveTextContent('alice');
+    expect(rows[3]).toHaveTextContent('First version');
+    expect(api.getAgentSeat).toHaveBeenCalledWith('L1', 'team-4');
+  });
+
+  it('explains a seat without saved versions, an unchanged save, and load errors', async () => {
+    const config = { personalityId: 'p1', difficulty: 'pro', archetype: 'balanced' };
+    const revision = (version: number) => ({
+      version,
+      updatedAt: '2026-09-01T12:00:00.000Z',
+      updatedBy: 'agent',
+      config
+    });
+    const seat = (history: ReturnType<typeof revision>[]) => ({
+      seat: {
+        teamId: 'team-4',
+        personality: catalog().personalities[1]!,
+        difficulty: { id: 'pro', displayName: 'Pro' }
+      },
+      commissioner: { current: { version: history.length, config }, history }
+    });
+    let down = false;
+    const api = fakeApi({
+      getLeague: vi.fn(async () => league({ teams: [team(1, { seatType: 'human' }), team(4), team(5)] })),
+      getAgentSeat: vi.fn(async (_id: string, teamId: string) => {
+        if (teamId === 'team-5') return seat([]);
+        if (down) throw new Error('seat down');
+        return seat([revision(2), revision(1)]);
+      })
+    });
+    const user = await openAi(api);
+    expect(await screen.findByText('Saved with no changes')).toBeInTheDocument();
+    const picker = screen.getByLabelText('Agent seat');
+    await user.selectOptions(picker, 'team-5');
+    expect(await screen.findByText('This seat has no saved config yet.')).toBeInTheDocument();
+    down = true;
+    await user.selectOptions(picker, 'team-4');
+    expect(await screen.findByText('seat down')).toBeInTheDocument();
+  });
+
+  it('has no seat history without agent seats', async () => {
+    const api = fakeApi({
+      getLeague: vi.fn(async () => league({ teams: [team(1, { seatType: 'human' })] }))
+    });
+    await openAi(api);
+    expect(await screen.findByText('No agent seats')).toBeInTheDocument();
+    expect(api.getAgentSeat).not.toHaveBeenCalled();
   });
 
   it('is only offered to the commissioner', async () => {

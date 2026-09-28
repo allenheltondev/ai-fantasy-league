@@ -298,6 +298,25 @@ describe('event contract: the weekly cycle', () => {
     expect(EVENT_DETAIL_SCHEMAS['Week Rolled Over'].safeParse(rolled.detail).success).toBe(true);
   });
 
+  it('Model Power Rankings posts the weekly standings by model at the rollover', async () => {
+    const s = await scoredWeek();
+    s.clock.set('2026-10-06T12:00:00.000Z');
+    await JOBS.advanceSeason(jobDeps(s), s.clock);
+    const rankings = await consume(s.services, delivered(last(s.events.events, 'Model Power Rankings')));
+    const detail = rankings.event.detail as {
+      week: number;
+      lines: string[];
+      rankings: { modelKey: string }[];
+    };
+    expect(detail.week).toBe(5);
+    expect(detail.rankings.map((r) => r.modelKey)).toContain('human');
+    expect(detail.lines).toHaveLength(detail.rankings.length);
+    expect(posted(rankings).text).toBe(`Model power rankings after week 5: ${detail.lines.join(', ')}.`);
+    expect(rankings.chat).toMatchObject({ moment: false });
+    expect(rankings.relay.topics).toEqual([]);
+    expect(rankings.routed).toEqual([]);
+  });
+
   it('Lineup Lock Approaching (a deferred event) sends every agent to its lineup', async () => {
     const s = await inSeason();
     const league = await s.repos.leagues.get(LEAGUE_ID);
@@ -601,11 +620,27 @@ describe('event contract: league setup and the draft', () => {
         expect(posted(made).text).toMatch(new RegExp(` drafted ${player.name} \\(round 1, pick 1\\)\\.$`));
         expect(posted(made).players).toEqual([(made.event.detail as { player: unknown }).player]);
         expect(made.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+
+        // The commissioner pauses and resumes the clock: both are pushed to boards and announced.
+        await d.run('pause_draft', { leagueId: d.leagueId });
+        const paused = await consume(d.services, delivered(last(d.events.events, 'Draft Paused')));
+        expect(EVENT_DETAIL_SCHEMAS['Draft Paused'].safeParse(paused.event.detail).success).toBe(true);
+        expect(paused.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+        expect(posted(paused).text).toBe('The commissioner paused the draft at pick 2.');
+        expect(paused.routed).toEqual([]);
+        await d.run('resume_draft', { leagueId: d.leagueId });
+        const resumed = await consume(d.services, delivered(last(d.events.events, 'Draft Resumed')));
+        expect(EVENT_DETAIL_SCHEMAS['Draft Resumed'].safeParse(resumed.event.detail).success).toBe(true);
+        expect(resumed.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+        expect(posted(resumed).text).toBe('The draft is back on: pick 2 is on the clock.');
       }
       if (pick > 100) throw new Error('the draft did not finish');
     }
     const completed = await consume(d.services, delivered(last(d.events.events, 'Draft Completed')));
-    expect(posted(completed).text).toBe('The draft is complete. Good luck this season!');
+    expect(EVENT_DETAIL_SCHEMAS['Draft Completed'].safeParse(completed.event.detail).success).toBe(true);
+    expect(posted(completed).text).toMatch(
+      /^The draft is complete\. Good luck this season! Draft recap: \d+ picks\./
+    );
     expect(completed.chat).toMatchObject({ moment: true });
     expect(completed.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
 
@@ -843,6 +878,8 @@ describe('event contract coverage', () => {
       'Waivers Processed',
       'Draft Pick Made',
       'Draft Completed',
+      'Draft Paused',
+      'Draft Resumed',
       'Week Provisionally Final',
       'Member Joined',
       'Member Left',
@@ -853,7 +890,8 @@ describe('event contract coverage', () => {
       'Week Official Final',
       'Stat Correction Applied',
       'Season Completed',
-      'Achievement Earned'
+      'Achievement Earned',
+      'Model Power Rankings'
     ]);
     for (const type of consumed) expect(eventDetailSchema(type), type).toBeDefined();
     for (const type of [

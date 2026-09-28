@@ -41,7 +41,7 @@ describe('renderSystemMessage', () => {
     ).toEqual({
       text: 'Robo Ballers drafted Bijan Robinson (round 1, pick 3).',
       moment: false,
-      subjectTeamId: null,
+      subjectTeamId: 'team-2',
       players: [{ id: 'p1', name: 'Bijan Robinson', team: 'ATL', position: 'RB' }]
     });
     expect(render('Draft Pick Made', { teamId: 'team-2', player: 'Bijan Robinson' })?.text).toBe(
@@ -49,6 +49,34 @@ describe('renderSystemMessage', () => {
     );
     expect(render('Draft Pick Made', { teamId: 'team-2', playerName: 'Bijan Robinson' })).toBeNull();
     expect(render('Draft Pick Made', { teamId: 'team-9', player: 'X' })).toBeNull();
+  });
+
+  it('calls out notable picks, which are moments, and the draft recap and clock changes', () => {
+    const pick = { teamId: 'team-2', player: 'Bijan Robinson', round: 2, pick: 3, overall: 11 };
+    const steal = render('Draft Pick Made', { ...pick, adp: 2, notable: 'steal' });
+    expect(steal).toMatchObject({
+      text: 'Steal! Robo Ballers drafted Bijan Robinson at pick 11, well past his ADP of 2.',
+      moment: true
+    });
+    expect(render('Draft Pick Made', { ...pick, adp: 30, notable: 'reach' })?.text).toBe(
+      'Reach? Robo Ballers drafted Bijan Robinson at pick 11, well ahead of his ADP of 30.'
+    );
+    expect(render('Draft Pick Made', { ...pick, notable: 'first_round', reason: 'Bell cow.' })?.text).toBe(
+      'Robo Ballers opens its draft with Bijan Robinson at pick 11: "Bell cow."'
+    );
+    // Without its reasoning an agent's first pick reads as a plain pick, still a moment.
+    expect(render('Draft Pick Made', { ...pick, notable: 'first_round', reason: null })).toMatchObject({
+      text: 'Robo Ballers drafted Bijan Robinson (round 2, pick 3).',
+      moment: true
+    });
+    expect(render('Draft Pick Made', { ...pick, notable: null })?.moment).toBe(false);
+    expect(render('Draft Completed', { recapText: 'Draft recap: 2 picks.' })?.text).toBe(
+      'The draft is complete. Good luck this season! Draft recap: 2 picks.'
+    );
+    expect(render('Draft Paused', { pick: 4 })?.text).toBe('The commissioner paused the draft at pick 4.');
+    expect(render('Draft Paused', { pick: null })?.text).toBe('The commissioner paused the draft.');
+    expect(render('Draft Resumed', { pick: 4 })?.text).toBe('The draft is back on: pick 4 is on the clock.');
+    expect(render('Draft Resumed', {})?.text).toBe('The draft is back on.');
   });
 
   it('renders waiver awards, preferring the FAAB paid, and says nothing when nothing was awarded', () => {

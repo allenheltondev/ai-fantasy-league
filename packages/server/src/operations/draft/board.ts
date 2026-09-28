@@ -4,11 +4,12 @@ import {
   picksUntilTurn,
   teamPicks,
   unfilledStarterSlots,
-  type LeagueSettings
+  type LeagueSettings,
+  type RecapEntry
 } from '@fantasy/core';
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
-import { draftPool, secondsLeft } from '../../league/draft.js';
+import { draftPool, draftRecapOf, secondsLeft } from '../../league/draft.js';
 import { SEAT_TYPES, DRAFT_STATUSES, type DraftRecord, type Team } from '../../repos/types.js';
 import { matchPlayers } from '../../players/match.js';
 import {
@@ -37,6 +38,15 @@ export const OnTheClockSchema = SlotSchema.extend({
   secondsLeft: z.number().int().nullable().describe('Seconds left on the clock.')
 }).describe('The pick being made now.');
 
+const RecapEntrySchema = SlotSchema.omit({ pick: true }).extend({
+  teamId: z.string(),
+  teamName: z.string(),
+  player: PlayerRefSchema,
+  adp: z.number().nullable(),
+  value: z.number().nullable().describe('Picks after ADP: positive for a steal, negative for a reach.'),
+  reason: z.string().nullable()
+});
+
 export const DraftBoardSchema = z.object({
   status: z.enum(DRAFT_STATUSES).describe('`in_progress`, `paused` (clock frozen), or `complete`.'),
   rounds: z.number().int(),
@@ -61,9 +71,21 @@ export const DraftBoardSchema = z.object({
       teamId: z.string(),
       player: PlayerRefSchema,
       auto: z.boolean().describe('True when autopick made it (clock expired).'),
-      madeAt: z.string().nullable()
+      madeAt: z.string().nullable(),
+      adp: z.number().nullable().describe("The player's consensus rank when he was picked."),
+      reason: z.string().nullable().describe('Why the team made the pick, in its own words.')
     })
   ),
+  recap: z
+    .object({
+      steals: z.array(RecapEntrySchema).describe('The biggest steals by ADP, best first.'),
+      reaches: z.array(RecapEntrySchema).describe('The biggest reaches by ADP, biggest first.'),
+      agentPicks: z.array(RecapEntrySchema).describe("Each agent team's first pick, with its reasoning.")
+    })
+    .nullable()
+    .describe(
+      "Once the draft is complete: its steals, reaches, and the agents' first picks. Null until then."
+    ),
   rosters: z
     .array(z.object({ teamId: z.string(), teamName: z.string(), players: z.array(PlayerRefSchema) }))
     .describe('Each team’s drafted players, in pick order.'),
@@ -128,7 +150,9 @@ export async function buildBoard(
     teamId: p.teamId,
     player: ref(p.playerId, p.positions),
     auto: p.auto,
-    madeAt: p.madeAt
+    madeAt: p.madeAt,
+    adp: p.adp ?? null,
+    reason: p.reason ?? null
   }));
   const slot = currentPick(state);
   const drafted = new Set(state.picks.map((p) => p.playerId));
@@ -178,11 +202,37 @@ export async function buildBoard(
             teamPicks(state, yourTeamId).map((p) => p.positions)
           ),
     picks,
+    recap: record.status === 'complete' ? boardRecap(state, teams, players, ref) : null,
     rosters: state.teamIds.map((teamId) => ({
       teamId,
       teamName: name(teamId),
       players: teamPicks(state, teamId).map((p) => ref(p.playerId, p.positions))
     })),
     bestAvailable: available
+  };
+}
+
+function boardRecap(
+  state: DraftRecord['state'],
+  teams: readonly Team[],
+  players: ReadonlyMap<string, Player>,
+  ref: (id: string, positions: readonly string[]) => DraftBoard['picks'][number]['player']
+): DraftBoard['recap'] {
+  const recap = draftRecapOf(state, teams, players);
+  const positions = new Map(state.picks.map((p) => [p.playerId, p.positions]));
+  const view = (e: RecapEntry) => ({
+    overall: e.overall,
+    round: e.round,
+    teamId: e.teamId,
+    teamName: teams.find((t) => t.id === e.teamId)?.name ?? e.teamId,
+    player: ref(e.playerId, positions.get(e.playerId) ?? []),
+    adp: e.adp,
+    value: e.value,
+    reason: e.reason
+  });
+  return {
+    steals: recap.steals.map(view),
+    reaches: recap.reaches.map(view),
+    agentPicks: recap.agentPicks.map(view)
   };
 }

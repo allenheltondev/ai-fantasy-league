@@ -51,6 +51,16 @@ function roster(players: RosterEntry[], extra: Partial<Roster> = {}): Roster {
 }
 
 const inSeason = () => state({ phase: 'regular_season', week: 1 });
+const noMoves = {
+  trades: 0,
+  tradesWon: 0,
+  tradesLost: 0,
+  tradeValue: 0,
+  waiverClaims: 0,
+  waiverHits: 0,
+  waiverHitRate: null,
+  waiverNetPoints: 0
+};
 const refused = (status: number, code: string, message: string, fix: string) =>
   new ApiError(status, { code, message, fix });
 
@@ -219,6 +229,44 @@ function matchupData(status: 'scheduled' | 'in_progress' | 'final', homeScore: n
   };
 }
 
+describe('team achievements on the roster', () => {
+  const achievement = (id: string, teamId: string, name: string, week: number | null) => ({
+    id,
+    achievementId: 'blowout-win',
+    name,
+    teamId,
+    teamName: teamId,
+    week,
+    reason: `${name} reason`
+  });
+
+  it("shows the team's own badges in the roster header", async () => {
+    open('/leagues/L1/roster', {
+      getRoster: vi.fn(async () => roster([entry('qb1', 'QB', 'QB')])),
+      getLeagueHistory: vi.fn(async () => ({
+        ...(await fakeApi().getLeagueHistory('L1')),
+        achievements: [
+          achievement('a1', 'team-1', 'Blowout', 3),
+          achievement('a2', 'team-1', 'League Champion', null),
+          achievement('a3', 'team-2', 'Record Setter', null)
+        ]
+      }))
+    });
+    const badges = await screen.findByRole('list', { name: 'Team achievements' });
+    expect(badges).toHaveTextContent('Blowout · week 3');
+    expect(badges).toHaveTextContent('League Champion');
+    expect(badges).not.toHaveTextContent('Record Setter');
+    expect(within(badges).getAllByRole('listitem')[0]).toHaveAttribute('title', 'Blowout reason');
+  });
+
+  it('shows nothing before the team earns one', async () => {
+    const api = open('/leagues/L1/roster', { getRoster: vi.fn(async () => roster([])) });
+    await screen.findByText('No players yet');
+    await waitFor(() => expect(api.getLeagueHistory).toHaveBeenCalled());
+    expect(screen.queryByTestId('team-achievements')).not.toBeInTheDocument();
+  });
+});
+
 describe('MatchupPage', () => {
   it('shows both lineups and polls for live scores', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -339,7 +387,7 @@ describe('StandingsPage', () => {
   });
 
   it('ranks the models playing the league next to the standings', async () => {
-    const record = { wins: 2, losses: 0, ties: 0, winRate: 1, pointsFor: 250.5, costUsd: 0.4 };
+    const record = { wins: 2, losses: 0, ties: 0, winRate: 1, pointsFor: 250.5, costUsd: 0.4, ...noMoves };
     open('/leagues/L1/standings', {
       getStandings: vi.fn(async () => standings),
       getModelLeaderboard: vi.fn(async () => ({
@@ -354,7 +402,14 @@ describe('StandingsPage', () => {
             teams: 1,
             bestRank: 1,
             pointsForPerTeam: 250.5,
-            costPerWinUsd: 0.2
+            costPerWinUsd: 0.2,
+            trades: 2,
+            tradesWon: 2,
+            tradesLost: 0,
+            tradeValue: 31.25,
+            waiverClaims: 3,
+            waiverHits: 2,
+            waiverHitRate: 0.667
           },
           {
             ...record,
@@ -368,7 +423,11 @@ describe('StandingsPage', () => {
             teams: 1,
             bestRank: 2,
             pointsForPerTeam: 200,
-            costPerWinUsd: null
+            costPerWinUsd: null,
+            trades: 2,
+            tradesWon: 0,
+            tradesLost: 2,
+            tradeValue: -31.25
           }
         ]
       }))
@@ -376,8 +435,8 @@ describe('StandingsPage', () => {
     const table = await screen.findByRole('table', { name: 'Model power rankings' });
     expect(screen.getByRole('heading', { name: 'Which model wins the league?' })).toBeInTheDocument();
     const rows = within(table).getAllByRole('row');
-    expect(rows[1]).toHaveTextContent('1Claude Opus 512-0100%250.5$0.40$0.20');
-    expect(rows[2]).toHaveTextContent('2Human10-20%200.0––');
+    expect(rows[1]).toHaveTextContent('1Claude Opus 512-0100%250.5+31.3 (2-0)2/3 (67%)$0.40$0.20');
+    expect(rows[2]).toHaveTextContent('2Human10-20%200.0-31.3 (0-2)–––');
   });
 
   it('shows ties, tiny costs, and a league with no final week in the model rankings', async () => {
@@ -394,7 +453,8 @@ describe('StandingsPage', () => {
       teams: 1,
       bestRank: 1,
       pointsForPerTeam: 200,
-      costPerWinUsd: 0.004
+      costPerWinUsd: 0.004,
+      ...noMoves
     };
     open('/leagues/L1/standings', {
       getStandings: vi.fn(async () => standings),
@@ -407,9 +467,9 @@ describe('StandingsPage', () => {
     const table = await screen.findByRole('table', { name: 'Model power rankings' });
     expect(within(table).getByText(/No games final yet/)).toBeInTheDocument();
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent(
-      '1Amazon Nova Micro11-0-175%200.0<$0.01<$0.01'
+      '1Amazon Nova Micro11-0-175%200.0––<$0.01<$0.01'
     );
-    expect(within(table).getAllByRole('row')[2]).toHaveTextContent('1-0-1–200.0$0.00–');
+    expect(within(table).getAllByRole('row')[2]).toHaveTextContent('1-0-1–200.0––$0.00–');
   });
 
   it('hides the model rankings in a league without agents or when they fail to load', async () => {

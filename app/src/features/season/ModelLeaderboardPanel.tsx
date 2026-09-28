@@ -12,9 +12,23 @@ function record(m: ModelLeaderboardModel): string {
   return m.ties > 0 ? `${m.wins}-${m.losses}-${m.ties}` : `${m.wins}-${m.losses}`;
 }
 
+/** Player value won or lost in trades, with the trades won and lost: "+12.5 (2-1)". */
+export function tradeValue(m: ModelLeaderboardModel): string {
+  if (m.trades === 0) return '–';
+  const sign = m.tradeValue > 0 ? '+' : '';
+  return `${sign}${m.tradeValue.toFixed(1)} (${m.tradesWon}-${m.tradesLost})`;
+}
+
+/** Waiver claims that outscored the player dropped for them: "2/3 (67%)". */
+export function waiverHits(m: ModelLeaderboardModel): string {
+  if (m.waiverHitRate === null) return '–';
+  return `${m.waiverHits}/${m.waiverClaims} (${(m.waiverHitRate * 100).toFixed(0)}%)`;
+}
+
 /**
  * "Which model wins the league?" (#76): standings rolled up by the model that plays each team, with
- * people grouped as Human. Shown under the standings; hidden when the league has no agents.
+ * people grouped as Human, plus trade value won or lost and waiver hit rate. Shown under the
+ * standings; hidden when the league has no agents.
  */
 export function ModelLeaderboardPanel({ leagueId }: { leagueId: string }) {
   const api = useLeagueApi();
@@ -46,6 +60,8 @@ export function ModelLeaderboardPanel({ leagueId }: { leagueId: string }) {
                 <th scope="col">Record</th>
                 <th scope="col">Win %</th>
                 <th scope="col">PF / team</th>
+                <th scope="col">Trade value</th>
+                <th scope="col">Waiver hits</th>
                 <th scope="col">Cost</th>
                 <th scope="col">Cost / win</th>
               </tr>
@@ -59,6 +75,8 @@ export function ModelLeaderboardPanel({ leagueId }: { leagueId: string }) {
                   <td>{record(m)}</td>
                   <td>{m.winRate === null ? '–' : `${(m.winRate * 100).toFixed(0)}%`}</td>
                   <td>{m.pointsForPerTeam.toFixed(1)}</td>
+                  <td>{tradeValue(m)}</td>
+                  <td>{waiverHits(m)}</td>
                   <td>{m.modelKey === 'human' ? '–' : formatUsd(m.costUsd)}</td>
                   <td>{formatUsd(m.costPerWinUsd)}</td>
                 </tr>
