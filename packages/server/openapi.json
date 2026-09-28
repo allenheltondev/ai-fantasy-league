@@ -13910,10 +13910,11 @@
                                     "reject",
                                     "counter",
                                     "withdraw",
-                                    "vote"
+                                    "vote",
+                                    "approve"
                                   ]
                                 },
-                                "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade)."
+                                "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision \"veto\"), approve (commissioner review: vote_trade with decision \"approve\")."
                               }
                             },
                             "required": [
@@ -14481,10 +14482,11 @@
                                   "reject",
                                   "counter",
                                   "withdraw",
-                                  "vote"
+                                  "vote",
+                                  "approve"
                                 ]
                               },
-                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade)."
+                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision \"veto\"), approve (commissioner review: vote_trade with decision \"approve\")."
                             }
                           },
                           "required": [
@@ -15130,10 +15132,11 @@
                                   "reject",
                                   "counter",
                                   "withdraw",
-                                  "vote"
+                                  "vote",
+                                  "approve"
                                 ]
                               },
-                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade)."
+                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision \"veto\"), approve (commissioner review: vote_trade with decision \"approve\")."
                             }
                           },
                           "required": [
@@ -15529,10 +15532,11 @@
                                   "reject",
                                   "counter",
                                   "withdraw",
-                                  "vote"
+                                  "vote",
+                                  "approve"
                                 ]
                               },
-                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade)."
+                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision \"veto\"), approve (commissioner review: vote_trade with decision \"approve\")."
                             }
                           },
                           "required": [
@@ -16171,10 +16175,11 @@
                                   "reject",
                                   "counter",
                                   "withdraw",
-                                  "vote"
+                                  "vote",
+                                  "approve"
                                 ]
                               },
-                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade)."
+                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision \"veto\"), approve (commissioner review: vote_trade with decision \"approve\")."
                             }
                           },
                           "required": [
@@ -16799,10 +16804,11 @@
                                   "reject",
                                   "counter",
                                   "withdraw",
-                                  "vote"
+                                  "vote",
+                                  "approve"
                                 ]
                               },
-                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade)."
+                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision \"veto\"), approve (commissioner review: vote_trade with decision \"approve\")."
                             }
                           },
                           "required": [
@@ -17408,10 +17414,11 @@
                                   "reject",
                                   "counter",
                                   "withdraw",
-                                  "vote"
+                                  "vote",
+                                  "approve"
                                 ]
                               },
-                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade)."
+                              "description": "What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision \"veto\"), approve (commissioner review: vote_trade with decision \"approve\")."
                             }
                           },
                           "required": [

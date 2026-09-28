@@ -29,7 +29,7 @@ export const MessageField = z
   .optional()
   .describe('An optional note to the other team, shown with the offer (only the two teams see it).');
 
-export const TRADE_ACTIONS = ['accept', 'reject', 'counter', 'withdraw', 'vote'] as const;
+export const TRADE_ACTIONS = ['accept', 'reject', 'counter', 'withdraw', 'vote', 'approve'] as const;
 export const PUBLIC_STATUSES: ReadonlySet<string> = new Set(['accepted', 'in_review', 'processed', 'vetoed']);
 
 const TeamRefSchema = z.object({ id: z.string(), name: z.string() });
@@ -64,7 +64,7 @@ export const TradeViewSchema = z.object({
   yourActions: z
     .array(z.enum(TRADE_ACTIONS))
     .describe(
-      'What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade).'
+      'What you can do now: accept/reject/counter (respond_to_trade, counter_trade), withdraw (withdraw_trade), vote (vote_trade with decision "veto"), approve (commissioner review: vote_trade with decision "approve").'
     )
 });
 export type TradeView = z.infer<typeof TradeViewSchema>;
@@ -103,7 +103,7 @@ function actionsFor(access: LeagueAccess, trade: Trade, now: Date): TradeView['y
     if (review === 'league_vote' && open && team !== null && !party && !trade.vetoVotes.includes(team.id))
       return ['vote'];
     if (review === 'commissioner' && access.actor.kind === 'user' && access.actor.isCommissioner)
-      return ['vote'];
+      return ['approve', 'vote'];
   }
   return [];
 }

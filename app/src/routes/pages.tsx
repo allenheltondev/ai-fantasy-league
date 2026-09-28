@@ -12,6 +12,7 @@ import { RosterPage } from '../features/season/RosterPage';
 import { StandingsPage } from '../features/season/StandingsPage';
 import { PlayersPage } from '../features/players/PlayersPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import { TradesPage } from '../trades/TradesPage';
 
 export const LEAGUE_SECTIONS = [
   { path: 'draft', label: 'Draft' },
@@ -65,6 +66,7 @@ export function LeagueSectionPage({ section }: { section: LeagueSectionPath }) {
   if (section === 'matchup') return <MatchupPage />;
   if (section === 'standings') return <StandingsPage />;
   if (section === 'players') return <PlayersPage />;
+  if (section === 'trades') return <TradesPage />;
   const label = LEAGUE_SECTIONS.find((s) => s.path === section)?.label ?? section;
   return (
     <div data-testid={`league-section-${section}`}>
