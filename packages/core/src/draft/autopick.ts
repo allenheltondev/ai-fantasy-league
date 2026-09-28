@@ -22,8 +22,11 @@ export type RosterNeeds = Pick<LeagueSettings, 'roster'>;
 export interface AutopickChoice {
   playerId: string;
   positions: readonly Position[];
-  /** `starter_need`: fills an empty starting slot. `best_available`: every starting slot is full. */
-  reason: 'starter_need' | 'best_available';
+  /**
+   * `queued`: the first player in the team's draft queue who still fits. `starter_need`: fills an
+   * empty starting slot. `best_available`: every starting slot is full.
+   */
+  reason: 'queued' | 'starter_need' | 'best_available';
 }
 
 /**
@@ -85,10 +88,47 @@ function rankOf(rankings: PlayerRankings): (id: string) => number {
   return (id) => (Object.hasOwn(map, id) ? (map[id] as number) : Number.POSITIVE_INFINITY);
 }
 
+/** Whether a team's pick of `player` would go over the league's maximum at his primary position. */
+function atPositionLimit(draft: DraftState, teamId: string, player: DraftablePlayer): boolean {
+  const primary = player.positions[0];
+  if (primary === undefined) return false;
+  const limit = draft.positionLimits[primary];
+  if (limit === undefined) return false;
+  return teamPicks(draft, teamId).filter((p) => p.positions[0] === primary).length >= limit;
+}
+
+/** The most players a team's draft queue holds. */
+export const MAX_DRAFT_QUEUE = 50;
+
 /**
- * Chooses a pick for the team on the clock: the best-ranked available player who fills an empty
- * starting slot, or the best-ranked available player once every starting slot is filled. So a team
- * never takes a second K or DEF (or any bench player) while a starting slot is still open.
+ * The first player in `queue` (player ids, most wanted first) that the team on the clock can take:
+ * still available, under the position maximum, and leaving the roster completable
+ * (`draftRosterIssue`). Returns null when the draft is over or no queued player fits.
+ */
+export function queuedPick(
+  draft: DraftState,
+  availablePlayers: readonly DraftablePlayer[],
+  queue: readonly string[],
+  rosterNeeds: RosterNeeds
+): AutopickChoice | null {
+  const slot = currentPick(draft);
+  if (!slot || queue.length === 0) return null;
+  const drafted = new Set(draft.picks.map((p) => p.playerId));
+  const byId = new Map(availablePlayers.map((p) => [p.playerId, p]));
+  for (const id of queue) {
+    const player = byId.get(id);
+    if (player === undefined || drafted.has(id) || atPositionLimit(draft, slot.teamId, player)) continue;
+    if (draftRosterIssue(draft, slot.teamId, player.positions, rosterNeeds) !== null) continue;
+    return { playerId: player.playerId, positions: player.positions, reason: 'queued' };
+  }
+  return null;
+}
+
+/**
+ * Chooses a pick for the team on the clock. First the team's draft queue (`queuedPick`), when one
+ * is given. Otherwise the best-ranked available player who fills an empty starting slot, or the
+ * best-ranked available player once every starting slot is filled. So a team never takes a second K
+ * or DEF (or any bench player) while a starting slot is still open.
  *
  * Players already drafted, and players at a position the team has maxed out, are skipped. Equal
  * ranks break by player id. Returns null when the draft is over or no player qualifies.
@@ -97,23 +137,16 @@ export function autopick(
   draft: DraftState,
   availablePlayers: readonly DraftablePlayer[],
   rankings: PlayerRankings,
-  rosterNeeds: RosterNeeds
+  rosterNeeds: RosterNeeds,
+  queue: readonly string[] = []
 ): AutopickChoice | null {
   const slot = currentPick(draft);
   if (!slot) return null;
+  const queued = queuedPick(draft, availablePlayers, queue, rosterNeeds);
+  if (queued) return queued;
   const drafted = new Set(draft.picks.map((p) => p.playerId));
   const mine = teamPicks(draft, slot.teamId);
-  const counts = new Map<Position, number>();
-  for (const p of mine) {
-    const primary = p.positions[0];
-    if (primary) counts.set(primary, (counts.get(primary) ?? 0) + 1);
-  }
-  const atLimit = (player: DraftablePlayer): boolean => {
-    const primary = player.positions[0];
-    if (primary === undefined) return false;
-    const limit = draft.positionLimits[primary];
-    return limit !== undefined && (counts.get(primary) ?? 0) >= limit;
-  };
+  const atLimit = (player: DraftablePlayer): boolean => atPositionLimit(draft, slot.teamId, player);
   const rank = rankOf(rankings);
   const candidates = availablePlayers
     .filter((p) => !drafted.has(p.playerId) && !atLimit(p))

@@ -1,9 +1,41 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { move, readQueue, useDraftQueue } from './queue';
+import { ApiError, type ApiFetch, type ApiRequest } from '../api/client';
+import { move, readQueue, useDraftQueue, type ServerDraftQueue } from './queue';
 
 const chase = { id: 'fx-chase', name: "Ja'Marr Chase", team: 'CIN', position: 'WR' };
 const lamb = { id: 'fx-lamb', name: 'CeeDee Lamb', team: 'DAL', position: 'WR' };
+const KNOWN = [chase, lamb];
+
+/** A server queue in memory; `fail` makes the next request of that method throw. */
+function server(initial: string[] = []) {
+  let ids = initial;
+  const calls: { path: string; request: ApiRequest }[] = [];
+  const fail: Record<'GET' | 'PUT', false | 'api' | 'network'> = { GET: false, PUT: false };
+  const view = (): ServerDraftQueue => ({
+    teamId: 'team-1',
+    maxSize: 50,
+    updatedAt: null,
+    players: ids.map((id) => ({
+      player: KNOWN.find((p) => p.id === id) as typeof chase,
+      rank: null,
+      available: true
+    }))
+  });
+  const api = (async (path: string, request: ApiRequest = {}) => {
+    calls.push({ path, request });
+    const method = request.method === 'PUT' ? 'PUT' : 'GET';
+    const failure = fail[method];
+    if (failure !== false) {
+      fail[method] = false;
+      if (failure === 'network') throw 'offline';
+      throw new ApiError(403, { code: 'FORBIDDEN', message: 'You do not manage a team in this league.' });
+    }
+    if (method === 'PUT') ids = (request.body as { playerIds: string[] }).playerIds;
+    return { data: view(), league: null, warnings: [] };
+  }) as ApiFetch;
+  return { api, calls, fail, ids: () => ids };
+}
 
 afterEach(() => {
   localStorage.clear();
@@ -17,33 +49,102 @@ describe('draft queue', () => {
     expect(move(['a', 'b', 'c'], 1, 5)).toEqual(['a', 'c', 'b']);
   });
 
-  it('keeps the queue per league in this browser', () => {
-    const { result } = renderHook(() => useDraftQueue('L1'));
+  it('loads the server queue and saves every change as the whole ordered list', async () => {
+    const s = server(['fx-lamb']);
+    const { result } = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.players).toEqual([lamb]);
     act(() => result.current.add(chase));
-    act(() => result.current.add(lamb));
     act(() => result.current.add(chase));
-    expect(result.current.players.map((p) => p.id)).toEqual(['fx-chase', 'fx-lamb']);
-    expect(result.current.has('fx-lamb')).toBe(true);
-    act(() => result.current.move('fx-lamb', -1));
-    expect(readQueue('L1').map((p) => p.id)).toEqual(['fx-lamb', 'fx-chase']);
+    expect(result.current.has('fx-chase')).toBe(true);
+    act(() => result.current.move('fx-chase', -1));
+    await waitFor(() => expect(s.ids()).toEqual(['fx-chase', 'fx-lamb']));
     act(() => result.current.remove('fx-lamb'));
-    expect(readQueue('L1')).toEqual([chase]);
-    expect(readQueue('L2')).toEqual([]);
-    expect(renderHook(() => useDraftQueue('L1')).result.current.players).toEqual([chase]);
+    await waitFor(() => expect(s.ids()).toEqual(['fx-chase']));
+    expect(s.calls.map((c) => c.path)).toEqual(Array(4).fill('/leagues/L1/draft/queue'));
   });
 
-  it('ignores stored junk and a storage that refuses writes', () => {
+  it('uploads a queue this browser kept once, when the server queue is empty', async () => {
+    localStorage.setItem('fantasy:draft-queue:L1', JSON.stringify([chase, { id: 1 }, lamb]));
+    const s = server();
+    const { result } = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(result.current.players).toEqual([chase, lamb]));
+    expect(s.calls[1]?.request).toEqual({ method: 'PUT', body: { playerIds: ['fx-chase', 'fx-lamb'] } });
+    expect(readQueue('L1')).toEqual([]);
+    // Next time the server has it, so nothing is uploaded again.
+    const again = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(again.result.current.players).toEqual([chase, lamb]));
+    expect(s.calls.filter((c) => c.request.method === 'PUT')).toHaveLength(1);
+  });
+
+  it('keeps the server queue over a local one, and forgets the local one', async () => {
+    localStorage.setItem('fantasy:draft-queue:L1', JSON.stringify([chase]));
+    const s = server(['fx-lamb']);
+    const { result } = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(result.current.players).toEqual([lamb]));
+    expect(s.calls.some((c) => c.request.method === 'PUT')).toBe(false);
+    expect(readQueue('L1')).toEqual([]);
+  });
+
+  it('says why a load or save failed, and keeps a local queue it could not upload', async () => {
+    localStorage.setItem('fantasy:draft-queue:L1', JSON.stringify([chase]));
+    const s = server();
+    s.fail.GET = 'api';
+    const { result } = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(result.current.error).toMatch(/do not manage a team/));
+    expect(result.current.ready).toBe(true);
+    expect(readQueue('L1')).toEqual([chase]);
+    s.fail.PUT = 'api';
+    act(() => result.current.add(lamb));
+    await waitFor(() => expect(result.current.error).toMatch(/do not manage a team/));
+    act(() => result.current.add(chase));
+    await waitFor(() => expect(result.current.error).toBeNull());
+    expect(s.ids()).toEqual(['fx-lamb', 'fx-chase']);
+    s.fail.PUT = 'network';
+    act(() => result.current.remove('fx-chase'));
+    await waitFor(() => expect(result.current.error).toBe('Could not save your queue.'));
+  });
+
+  it('falls back to a plain message when the network fails, and ignores a load after unmount', async () => {
+    const s = server();
+    s.fail.GET = 'network';
+    const { result } = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(result.current.error).toBe('Could not load your queue.'));
+    let release: () => void = () => undefined;
+    const slow = (async (...args: Parameters<ApiFetch>) => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return s.api(...args);
+    }) as ApiFetch;
+    const gone = renderHook(() => useDraftQueue('L1', slow));
+    gone.unmount();
+    release();
+    await waitFor(() => expect(s.calls).toHaveLength(2));
+    expect(gone.result.current.ready).toBe(false);
+    const failing = server();
+    failing.fail.GET = 'network';
+    let releaseFail: () => void = () => undefined;
+    const slowFail = (async (...args: Parameters<ApiFetch>) => {
+      await new Promise<void>((resolve) => (releaseFail = resolve));
+      return failing.api(...args);
+    }) as ApiFetch;
+    const goneFail = renderHook(() => useDraftQueue('L1', slowFail));
+    goneFail.unmount();
+    releaseFail();
+    await waitFor(() => expect(failing.calls).toHaveLength(1));
+    expect(goneFail.result.current.error).toBeNull();
+  });
+
+  it('ignores stored junk and a storage that refuses access', async () => {
     localStorage.setItem('fantasy:draft-queue:L1', '{bad');
     expect(readQueue('L1')).toEqual([]);
     localStorage.setItem('fantasy:draft-queue:L1', '{"not":"a list"}');
     expect(readQueue('L1')).toEqual([]);
-    localStorage.setItem('fantasy:draft-queue:L1', JSON.stringify([chase, { id: 1 }, null]));
-    expect(readQueue('L1')).toEqual([chase]);
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('full');
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('blocked');
     });
-    const { result } = renderHook(() => useDraftQueue('L1'));
-    act(() => result.current.add(lamb));
-    expect(result.current.players).toEqual([chase, lamb]);
+    const s = server(['fx-chase']);
+    const { result } = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(result.current.players).toEqual([chase]));
+    expect(result.current.error).toBeNull();
   });
 });

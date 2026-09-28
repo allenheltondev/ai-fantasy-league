@@ -325,12 +325,29 @@ export interface DraftRecord {
   version: number;
 }
 
+/**
+ * A team's draft queue (`DRAFTQUEUE#<teamId>`): the players it wants next, most wanted first.
+ * Autopick takes the first one still available when the team's clock runs out.
+ */
+export interface DraftQueueRecord {
+  leagueId: string;
+  teamId: string;
+  playerIds: string[];
+  updatedAt: string;
+  /** `user#<sub>` or `agent#<agentId>`. */
+  updatedBy: string;
+}
+
 export interface DraftRepository {
   get(leagueId: string): Promise<DraftRecord | null>;
   /** Fails with CONFLICT when the league already has a draft. */
   create(draft: DraftRecord): Promise<void>;
   /** Writes `draft` with `version + 1` if the stored version equals `draft.version`; else CONFLICT. */
   update(draft: DraftRecord): Promise<DraftRecord>;
+  /** The team's draft queue, or null when it has never set one. */
+  getQueue(leagueId: string, teamId: string): Promise<DraftQueueRecord | null>;
+  /** Replaces the team's draft queue. */
+  putQueue(queue: DraftQueueRecord): Promise<void>;
 }
 
 export interface Repos {
