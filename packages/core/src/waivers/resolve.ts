@@ -308,3 +308,20 @@ export function resolveWaivers(
   }
   return { awarded, failed, budgets, priorityOrder: order, rosters, transactions };
 }
+
+/**
+ * Team ids worst record first: the `reverse_standings` FAAB tiebreak (`WaiverState.reverseStandings`)
+ * and the priority list that `priorityOrder: reverse_standings_weekly` resets to every week. Teams
+ * missing from the standings follow in the order given; ids not in `teamIds` are left out.
+ */
+export function reverseStandingsOrder(
+  rows: readonly { teamId: string; rank: number }[],
+  teamIds: readonly string[]
+): string[] {
+  const wanted = new Set(teamIds);
+  const ranked = [...rows]
+    .filter((r) => wanted.has(r.teamId))
+    .sort((a, b) => b.rank - a.rank || a.teamId.localeCompare(b.teamId))
+    .map((r) => r.teamId);
+  return [...new Set([...ranked, ...teamIds])];
+}
