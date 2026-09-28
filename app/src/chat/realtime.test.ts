@@ -127,7 +127,14 @@ describe('chat api', () => {
         data: {
           teams: [
             { id: 'team-1', name: 'A', ownerName: null, extra: true },
-            { id: 'team-2', name: 'B', ownerName: null, manager: { name: 'Mei Park', avatarSeed: 'm' } }
+            {
+              id: 'team-2',
+              name: 'B',
+              ownerName: null,
+              seatType: 'agent',
+              manager: { name: 'Mei Park', avatarSeed: 'm', personality: 'The Spreadsheet' }
+            },
+            { id: 'team-3', name: 'C', ownerName: null, seatType: 'agent' }
           ]
         },
         league: null,
@@ -139,10 +146,18 @@ describe('chat api', () => {
     expect(await api.list('L1')).toEqual({ messages: [message], nextCursor: null });
     expect(await api.post('L1', 'hi')).toEqual(message);
     expect(await api.realtime('L1')).toEqual({ enabled: false });
-    // An AI team answers to its manager's name (#159).
+    // An AI team answers to its manager's name (#159), and says it is one, with its personality (#177).
     expect(await api.teams('L1')).toEqual([
-      { id: 'team-1', name: 'A', ownerName: null },
-      { id: 'team-2', name: 'B', ownerName: 'Mei Park', avatarSeed: 'm' }
+      { id: 'team-1', name: 'A', ownerName: null, ai: false },
+      {
+        id: 'team-2',
+        name: 'B',
+        ownerName: 'Mei Park',
+        ai: true,
+        avatarSeed: 'm',
+        personality: 'The Spreadsheet'
+      },
+      { id: 'team-3', name: 'C', ownerName: null, ai: true }
     ]);
     expect(calls[0]).toEqual([
       '/leagues/L%201/chat/messages',
