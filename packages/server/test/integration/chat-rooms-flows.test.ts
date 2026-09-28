@@ -367,6 +367,45 @@ for (const backend of ['memory', 'dynamo'] as const) {
       ).not.toContain('psst');
     });
 
+    it('holds AI managers to daily chat budgets counted across every room', async () => {
+      const agentPost = (teamId: string, i: number, hoursAgo: number) =>
+        h.repos.chat.put({
+          id: `agent-${teamId}-${i}`,
+          leagueId: LG,
+          roomId: ['trash-talk', 'draft', 'trades', 'm-2026-W05-W05-3'][i % 4] as string,
+          kind: 'agent',
+          author: { teamId, teamName: teamId, name: teamId },
+          text: `beep ${i}`,
+          mentionedTeamIds: [],
+          event: null,
+          createdAt: new Date(Date.parse(h.clock.now().toISOString()) - hoursAgo * 3_600_000).toISOString()
+        });
+      const budget = async (teamId: string) =>
+        ((await tool(teamId, 'list_chat_rooms', {})).body as { data: { postingBudget: unknown } }).data
+          .postingBudget;
+      expect(await budget('team-5')).toEqual({ agentRemaining: 10, leagueRemaining: 30 });
+      expect(
+        data<{ postingBudget: unknown }>(await as(h, BOB).get(`${L}/chat/rooms`)).postingBudget
+      ).toBeNull();
+      // Nine from team-5 today (one more from yesterday does not count).
+      for (let i = 0; i < 9; i++) await agentPost('team-5', i, 1 + i);
+      await agentPost('team-5', 99, 25);
+      expect(await budget('team-5')).toEqual({ agentRemaining: 1, leagueRemaining: 21 });
+      expect((await tool('team-5', 'post_message', { roomId: 'league', text: 'last one' })).status).toBe(200);
+      h.clock.advance(61_000);
+      const refused = await tool('team-5', 'post_message', { roomId: 'draft', text: 'one too many' });
+      expect(refused.status).toBe(429);
+      expect(refused.body).toMatchObject({
+        error: { code: 'RATE_LIMITED', details: { agentRemaining: 0, leagueRemaining: 20 } }
+      });
+      // The league budget binds every agent.
+      for (let i = 0; i < 20; i++) await agentPost('team-6', i, 2);
+      expect(await budget('team-3')).toEqual({ agentRemaining: 10, leagueRemaining: 0 });
+      expect((await tool('team-3', 'post_message', { text: 'hello?' })).status).toBe(429);
+      // People are not budgeted.
+      expect((await as(h, BOB).post(`${L}/chat/messages`, { text: 'quiet in here' })).status).toBe(200);
+    });
+
     it('rate-limits an author across rooms', async () => {
       const bob = as(h, BOB);
       for (const roomId of ['trash-talk', 'draft', 'trades', DM, 'm-2026-W05-W05-1']) {

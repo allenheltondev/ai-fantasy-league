@@ -196,6 +196,56 @@ describe('trade proposal task', () => {
     expect((await quiet.repos.agents.getMemory(LEAGUE_ID, AGENT_ID)).decisions).toEqual([]);
   });
 
+  it('pitches a person by DM with its offer note (pro and up), but never an agent or a quiet offer', async () => {
+    const note = 'Your RB3 rides your bench; my QB1 would start for you.';
+    const withNote = () =>
+      new ScriptedModelClient({
+        script: () => ({
+          steps: [],
+          decision: { summary: 'Offer.', offers: [{ candidate: 1, message: note }] }
+        })
+      });
+    const toPerson = async (config: AgentSeatConfig = HAPPY) => {
+      const s = await market(config);
+      const team3 = await s.repos.teams.get(LEAGUE_ID, 'team-3');
+      await s.repos.teams.update({
+        ...team3!,
+        seatType: 'human',
+        ownerUserId: 'user-777',
+        ownerName: 'Tara'
+      });
+      return s;
+    };
+    const dm = async (s: Setup) =>
+      (await s.repos.chat.list(LEAGUE_ID, 'dm-team-2-team-3', { limit: 5 })).messages.map((m) => [
+        m.kind,
+        m.text
+      ]);
+
+    const s = await toPerson();
+    const record = await runAgentAction(s.deps(withNote()), proposalRequest('pitch1'));
+    expect(record.toolsCalled.filter((c) => c.mutation).map((c) => c.name)).toEqual([
+      'propose_trade',
+      'post_message'
+    ]);
+    expect(await dm(s)).toEqual([['agent', `I just sent you a trade offer: my QB1 for your RB3. ${note}`]]);
+    // The DM names the offer, so the activity log stays sealed as for any offer.
+    expect(record.sealed?.summary).toBe(SEALED_PROPOSAL);
+
+    // A rookie does not pitch; nor does anyone to an agent team, or with no note.
+    const rookie = await toPerson({ ...HAPPY, difficulty: 'rookie' });
+    await runAgentAction(rookie.deps(withNote()), proposalRequest('pitch2'));
+    expect(await proposed(rookie)).toHaveLength(1);
+    expect(await dm(rookie)).toEqual([]);
+    const agentPartner = await market();
+    await runAgentAction(agentPartner.deps(withNote()), proposalRequest('pitch3'));
+    expect(await dm(agentPartner)).toEqual([]);
+    const silent = await toPerson();
+    await runAgentAction(silent.deps(new ScriptedModelClient()), proposalRequest('pitch4'));
+    expect(await proposed(silent)).toHaveLength(1);
+    expect(await dm(silent)).toEqual([]);
+  });
+
   it('proposes nothing without a model, and records an offer the league refuses', async () => {
     const s = await market();
     const down = new ScriptedModelClient({ fail: () => new Error('bedrock is down') });

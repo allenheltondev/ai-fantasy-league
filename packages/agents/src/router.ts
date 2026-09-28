@@ -25,8 +25,11 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Player News Alert                            | lineup         | teams rostering any `detail.playerIds`  | no     |
  * | Player Status Changed                        | lineup         | teams rostering `detail.playerId`       | no     |
  * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    |
- * | Chat Mention                                 | chat_reply     | `detail.mentionedTeamIds` (people only) | no     |
+ * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (people only) | no     |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     |
+ *
+ * Chat tasks carry the `roomId` of the mention or moment and answer there. A matchup-room moment
+ * (`detail.teamIds`) goes to the agents playing in that game when there are any.
  *
  * Rules read the typed event contract (`EventDetailOf` from `@fantasy/server`), so a field an
  * emitter does not send fails typecheck here. The cross-stream contract suite
@@ -170,17 +173,19 @@ export const TRIGGER_RULES: RuleMap = {
             strs(d.mentionedTeamIds).filter((id) => id !== d.authorTeamId),
             agents
           ),
-    payload: (d) => ({ messageId: d.messageId })
+    payload: (d) => ({ messageId: d.messageId, roomId: d.roomId })
   },
   'Chat Moment': {
     kind: 'chat_moment',
     urgent: false,
     cooldown: CHAT_COOLDOWNS.moment,
-    teams: (_d, agents, eventId) =>
-      [...agents]
+    teams: (d, agents, eventId) => {
+      const playing = only(strs(d.teamIds), agents);
+      return [...(playing.length > 0 ? playing : agents)]
         .sort((a, b) => hashString(`${eventId}:${a}`) - hashString(`${eventId}:${b}`) || a.localeCompare(b))
-        .slice(0, CHAT_MOMENT_AGENTS),
-    payload: (d) => ({ moment: d.moment, subjectTeamId: d.teamId, messageId: d.messageId })
+        .slice(0, CHAT_MOMENT_AGENTS);
+    },
+    payload: (d) => ({ moment: d.moment, subjectTeamId: d.teamId, messageId: d.messageId, roomId: d.roomId })
   }
 };
 

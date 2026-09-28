@@ -1,4 +1,4 @@
-import { hashString, tradeAppetite, type MemoryEvent } from '@fantasy/core';
+import { dmRoomId, hashString, tradeAppetite, type MemoryEvent } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
@@ -60,7 +60,7 @@ const StateSchema = z.object({
   week: z.number().int().nullable(),
   allowedActions: z.array(z.string()),
   yourTeam: z.object({ id: z.string() }).nullable(),
-  teams: z.array(z.object({ id: z.string(), name: z.string() }))
+  teams: z.array(z.object({ id: z.string(), name: z.string(), seatType: z.string().optional() }))
 });
 const RosterSchema = z.object({
   players: z.array(
@@ -84,7 +84,7 @@ const OpenSchema = z.object({
 const ProposedSchema = z.object({ trade: z.object({ id: z.string() }) });
 
 export interface ProposalCandidate {
-  team: { id: string; name: string };
+  team: { id: string; name: string; seatType?: string | undefined };
   send: { id: string; name: string; position: string };
   receive: { id: string; name: string; position: string };
   /** The agent's score by the value math (lineup + discounted value, with its noise). */
@@ -169,7 +169,7 @@ async function prepare(ctx: TaskContext): Promise<ProposalPrep> {
     week -= 1;
     mine = await rosterOf(me);
   }
-  const ideas: (ReturnType<typeof swapIdeas>[number] & { team: { id: string; name: string } })[] = [];
+  const ideas: (ReturnType<typeof swapIdeas>[number] & { team: ProposalCandidate['team'] })[] = [];
   for (const team of state.teams) {
     if (team.id === me || pending.has(team.id)) continue;
     const theirs = await rosterOf(team.id);
@@ -232,7 +232,7 @@ async function propose(
     .filter((o, i) => picks.findIndex((p) => p.candidate === o.candidate) === i)
     .filter((o) => o.candidate <= prep.candidates.length)
     .slice(0, prep.limit);
-  const made: { id: string; c: ProposalCandidate }[] = [];
+  const made: { id: string; c: ProposalCandidate; message: string | undefined }[] = [];
   const refused: string[] = [];
   for (const o of chosen) {
     const c = prep.candidates[o.candidate - 1] as ProposalCandidate;
@@ -243,8 +243,9 @@ async function propose(
       ...(o.message === undefined ? {} : { message: o.message })
     });
     if ('error' in result) refused.push(`${c.team.id} (${result.error.code})`);
-    else made.push({ id: ProposedSchema.parse(result.data).trade.id, c });
+    else made.push({ id: ProposedSchema.parse(result.data).trade.id, c, message: o.message });
   }
+  await pitchByDm(ctx, made);
   const at = ctx.clock.now().toISOString();
   const lines = made.map(
     ({ c }) => `${c.send.name} to ${c.team.id} for ${c.receive.name} (value for you ${c.score})`
@@ -278,6 +279,30 @@ async function propose(
         })
   };
   return outcome;
+}
+
+/** Agents from this difficulty up (by `negotiationRounds`) follow an offer up with a DM pitch. */
+export const DM_PITCH_MIN_NEGOTIATION_ROUNDS = 2;
+
+/**
+ * The DM pitch (#144): when the agent sent an offer with a note to a team a person manages, a
+ * negotiating agent (difficulty `negotiationRounds` >= 2) also sends that person one direct
+ * message, in its own voice (the model wrote the note in its personality), naming the offer. One
+ * pitch per task; post_message applies the chat budgets and moderation, and a refused pitch changes
+ * nothing about the offer. Agents never pitch other agents.
+ */
+async function pitchByDm(
+  ctx: TaskContext,
+  made: readonly { c: ProposalCandidate; message: string | undefined }[]
+): Promise<void> {
+  if (ctx.config.levers.negotiationRounds < DM_PITCH_MIN_NEGOTIATION_ROUNDS) return;
+  const pitch = made.find((m) => m.c.team.seatType === 'human' && (m.message ?? '').trim().length > 0);
+  if (pitch === undefined) return;
+  const { c } = pitch;
+  await ctx.tools.call('post_message', {
+    roomId: dmRoomId(ctx.principal.teamId, c.team.id),
+    text: `I just sent you a trade offer: my ${c.send.name} for your ${c.receive.name}. ${(pitch.message ?? '').trim()}`
+  });
 }
 
 export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, ProposalPrep>({
