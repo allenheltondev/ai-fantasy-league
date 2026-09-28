@@ -194,9 +194,11 @@ test('open a player card from best available, queue him, then view depth', async
   await card.getByRole('button', { name: 'Queue', exact: true }).click();
   await expect(card.getByRole('button', { name: 'Queued' })).toBeDisabled();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText("1. Ja'Marr Chase");
+  await expect(page.getByRole('tab', { name: 'Queue' })).toHaveText('Queue (1)');
+  await page.getByRole('tab', { name: 'Queue' }).click();
+  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText("1.WRJa'Marr Chase");
 
-  await page.getByRole('button', { name: 'Depth' }).click();
+  await page.getByRole('tab', { name: 'Depth' }).click();
   const chart = page.getByRole('table', { name: 'Depth chart' });
   await expect(chart.getByRole('row').nth(1)).toContainText("Allen's Team");
   await expect(page.getByTestId('depth-team-2-RB')).toContainText('RB 1/2');

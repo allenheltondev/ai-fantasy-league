@@ -30,8 +30,13 @@ const LAMB = ref('fx-lamb', 'CeeDee Lamb', 'WR', 'DAL');
  * queue lives in the stand-in, as on the server; `expire()` runs the pick clock's autopick, which
  * takes the first queued player still available.
  */
-function draftApi(page: Page, options: { pickSeconds?: number; startsAt?: number } = {}) {
+function draftApi(
+  page: Page,
+  options: { pickSeconds?: number; startsAt?: number; allowedActions?: string[] } = {}
+) {
   const pickSeconds = options.pickSeconds ?? 90;
+  // The draft's status (the commissioner can pause it) and what the caller may do.
+  const clock = { status: 'in_progress' };
   const deadline = new Date(Date.now() + pickSeconds * 1000).toISOString();
   let queue: string[] = [];
   const picks: {
@@ -46,7 +51,7 @@ function draftApi(page: Page, options: { pickSeconds?: number; startsAt?: number
   const board = () => {
     const mine = picks.length === 1;
     return {
-      status: 'in_progress',
+      status: clock.status,
       rounds: 2,
       pickSeconds: 90,
       startedAt: new Date().toISOString(),
@@ -85,7 +90,7 @@ function draftApi(page: Page, options: { pickSeconds?: number; startsAt?: number
   };
   const envelope = (data: unknown) => ({
     data,
-    league: { id: 'L1', phase: 'drafting', week: null, allowedActions: [] },
+    league: { id: 'L1', phase: 'drafting', week: null, allowedActions: options.allowedActions ?? [] },
     warnings: []
   });
   const posted: unknown[] = [];
@@ -203,7 +208,7 @@ function draftApi(page: Page, options: { pickSeconds?: number; startsAt?: number
       madeAt: null
     });
   };
-  return { posted, expire, queue: () => queue };
+  return { posted, expire, queue: () => queue, clock };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -310,27 +315,35 @@ test('a human on the clock drafts a player from the board', async ({ page }) => 
   const { posted } = draftApi(page);
   await page.goto('/leagues/L1/draft');
   await expect(page.getByText('You are on the clock!')).toBeVisible();
-  await expect(page.getByTestId('cell-1')).toHaveText('Christian McCaffrey (RB)');
+  await expect(page.getByTestId('youre-up')).toHaveText("You're up!");
+  await expect(page.getByTestId('ticker-1')).toContainText('C. McCaffrey');
   await expect(page.getByTestId('pick-clock')).toHaveText(/^1:(2\d|30)$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Draft Day League' })).toBeVisible();
   await expect(page.getByTestId('draft-updates')).toHaveText('Refreshing every 3s');
 
   // Line up a queue, then draft from it.
+  await expect(page.getByTestId('queue-hint')).toHaveCount(0);
   await page.getByRole('button', { name: 'Queue CeeDee Lamb' }).click();
   await page.getByRole('button', { name: "Queue Ja'Marr Chase" }).click();
+  await page.getByRole('tab', { name: 'Queue' }).click();
   await page.getByRole('button', { name: "Move Ja'Marr Chase up" }).click();
   await expect(page.getByRole('list', { name: 'Your queue' }).getByRole('listitem').first()).toContainText(
-    "1. Ja'Marr Chase"
+    "1.WRJa'Marr Chase"
   );
   await page.getByRole('button', { name: "Draft Ja'Marr Chase from the queue" }).click();
 
-  await expect(page.getByTestId('cell-2')).toHaveText("Ja'Marr Chase (WR)");
-  await expect(page.getByRole('list', { name: 'Your roster' })).toContainText("Ja'Marr Chase");
+  await expect(page.getByTestId('ticker-2')).toContainText('J. Chase');
+  await page.getByRole('tab', { name: 'Board' }).click();
+  await expect(page.getByTestId('cell-2')).toHaveText('J. ChaseWR · CIN');
   await expect(page.getByText('You are on the clock!')).toHaveCount(0);
-  await expect(page.getByText(/Your next pick is #3/)).toBeVisible();
+  await expect(page.getByTestId('your-next-pick')).toHaveText('Your pick #3 in 1 pick');
   // Drafted players leave the queue; the rest stays on the server, across a reload.
   await expect(page.getByRole('list', { name: 'Your queue' })).not.toContainText("Ja'Marr Chase");
+  await page.getByRole('tab', { name: 'My roster' }).click();
+  await expect(page.getByRole('list', { name: 'Your roster' })).toContainText("Ja'Marr Chase");
   await page.reload();
+  await expect(page.getByRole('tab', { name: 'Queue' })).toHaveText('Queue (1)');
+  await page.getByRole('tab', { name: 'Queue' }).click();
   await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('CeeDee Lamb');
   expect(posted).toEqual([{ body: { playerId: 'fx-chase', pick: 2 }, key: expect.any(String) }]);
 });
@@ -341,14 +354,18 @@ test('when the clock runs out, autopick takes your first queued player', async (
   await expect(page.getByText('You are on the clock!')).toBeVisible();
   // Chase is the best available, but Allen queues Lamb.
   await page.getByRole('button', { name: 'Queue CeeDee Lamb' }).click();
-  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('1. CeeDee Lamb');
+  await page.getByRole('tab', { name: 'Queue' }).click();
+  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('1.WRCeeDee Lamb');
   await expect.poll(() => api.queue()).toEqual(['fx-lamb']);
   await expect(page.getByTestId('pick-clock')).toHaveText('0:00', { timeout: 10_000 });
 
   api.expire();
-  await expect(page.getByTestId('cell-2')).toHaveText('CeeDee Lamb (WR) · auto', { timeout: 10_000 });
+  await expect(page.getByTestId('ticker-2')).toContainText('auto', { timeout: 10_000 });
+  await expect(page.getByTestId('queue-hint')).toBeVisible();
+  await page.getByRole('tab', { name: 'Board' }).click();
+  await expect(page.getByTestId('cell-2')).toHaveText('C. LambWR · DAL · auto');
+  await page.getByRole('tab', { name: 'My roster' }).click();
   await expect(page.getByRole('list', { name: 'Your roster' })).toContainText('CeeDee Lamb');
-  await expect(page.getByRole('list', { name: 'Your queue' })).toHaveCount(0);
 });
 
 test('a scheduled draft: the lobby counts down, then flips to the live board', async ({ page }) => {
@@ -362,8 +379,89 @@ test('a scheduled draft: the lobby counts down, then flips to the live board', a
   await lobby.getByRole('button', { name: 'Queue CeeDee Lamb' }).click();
   await expect(lobby.getByRole('list', { name: 'Your queue' })).toContainText('1. CeeDee Lamb');
 
-  // The countdown runs out and the board replaces the lobby, no reload.
+  // The countdown runs out and the room replaces the lobby, no reload.
   await expect(page.getByText('You are on the clock!')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('draft-lobby')).toHaveCount(0);
-  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('1. CeeDee Lamb');
+  await expect(page.getByRole('tab', { name: 'Queue' })).toHaveText('Queue (1)');
+  await page.getByRole('tab', { name: 'Queue' }).click();
+  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('1.WRCeeDee Lamb');
+});
+
+test('the draft room fits a desktop screen, with the chat a tab away', async ({ page }) => {
+  draftApi(page);
+  await page.route('**/api/v1/leagues/L1/chat/**', (route) =>
+    route.fulfill({
+      json: {
+        data: route.request().url().includes('/rooms')
+          ? { defaultRoomId: 'trash-talk', rooms: [] }
+          : {
+              messages: [
+                {
+                  id: 'm1',
+                  leagueId: 'L1',
+                  roomId: 'draft',
+                  kind: 'agent',
+                  author: { teamId: 'team-2', teamName: 'The Spreadsheet', name: 'Sheets', avatarSeed: 's' },
+                  text: 'Took the best back on the board. Your move.',
+                  mentionedTeamIds: [],
+                  event: null,
+                  createdAt: new Date().toISOString()
+                }
+              ],
+              nextCursor: null
+            },
+        league: null,
+        warnings: []
+      }
+    })
+  );
+  // The league's teams, for @mentions.
+  await page.route('**/api/v1/leagues/L1', (route) =>
+    route.fulfill({ json: { data: { teams: [] }, league: null, warnings: [] } })
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/leagues/L1/draft');
+  await expect(page.getByTestId('draft-room')).toHaveAttribute('data-layout', 'wide');
+  await expect(page.getByRole('table', { name: 'Best available' })).toBeVisible();
+  // Everything on one screen: the page itself does not scroll; the panels do.
+  const fits = async () =>
+    page.evaluate(() => ({
+      scroll: document.documentElement.scrollHeight - window.innerHeight,
+      sideways: document.documentElement.scrollWidth - window.innerWidth
+    }));
+  await expect.poll(fits).toEqual({ scroll: 0, sideways: 0 });
+  for (const id of ['draft-topbar', 'pick-ticker']) {
+    const box = await page.getByTestId(id).boundingBox();
+    expect(box !== null && box.y + box.height <= 900).toBe(true);
+  }
+  await expect(page.getByTestId('roster-needs')).toContainText('Need:');
+
+  await page.getByRole('tab', { name: 'Chat' }).click();
+  await expect(page.getByText('Took the best back on the board. Your move.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Board' }).click();
+  await expect(page.getByRole('table', { name: 'Draft board' })).toBeVisible();
+  await expect.poll(fits).toEqual({ scroll: 0, sideways: 0 });
+});
+
+test('the commissioner pauses a stalled draft and resumes it', async ({ page }) => {
+  const { clock } = draftApi(page, { allowedActions: ['pause_draft', 'resume_draft', 'make_draft_pick'] });
+  const posted: string[] = [];
+  await page.route(/\/api\/v1\/leagues\/L1\/draft\/(pause|resume)$/, async (route) => {
+    const action = route.request().url().endsWith('/pause') ? 'pause' : 'resume';
+    posted.push(action);
+    clock.status = action === 'pause' ? 'paused' : 'in_progress';
+    await route.fulfill({
+      json: { data: { status: clock.status, deadline: null, secondsLeft: 60 }, league: null, warnings: [] }
+    });
+  });
+  await page.goto('/leagues/L1/draft');
+  await page.getByRole('button', { name: 'Pause draft' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pause the draft?' });
+  await expect(dialog).toContainText('The pick clock freezes for everyone');
+  await dialog.getByRole('button', { name: 'Pause draft' }).click();
+  await expect(page.getByTestId('draft-topbar')).toContainText('Paused');
+  await expect(page.getByText('The commissioner paused the draft. The clock is frozen.')).toBeVisible();
+  await page.getByRole('button', { name: 'Resume draft' }).click();
+  await expect(page.getByRole('button', { name: 'Pause draft' })).toBeVisible();
+  expect(posted).toEqual(['pause', 'resume']);
 });

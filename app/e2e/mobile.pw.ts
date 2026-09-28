@@ -381,11 +381,28 @@ for (const viewport of VIEWPORTS) {
       ).toBeVisible();
       await expectFits(page, 'draft lobby (countdown)');
 
-      // The draft, in progress.
+      // The draft room, in progress (#170): a sticky clock, one panel at a time, bottom tabs.
       await callApi(context, alice, `/leagues/${leagueId}/draft/start`);
       await page.goto(`/leagues/${leagueId}/draft`);
-      await expect(page.getByRole('table', { name: 'Draft board' })).toBeVisible();
+      await expect(page.getByTestId('draft-room')).toHaveAttribute('data-layout', 'phone');
+      await expect(page.getByRole('table', { name: 'Best available' })).toBeVisible();
       await expectFits(page, 'draft (in progress)');
+      const roomTabs = page.getByRole('tablist', { name: 'Draft room' });
+      await roomTabs.getByRole('tab', { name: 'Queue' }).tap();
+      await expect(page.getByTestId('queue-hint')).toBeVisible();
+      await expectFits(page, 'draft: queue');
+      await roomTabs.getByRole('tab', { name: 'Roster' }).tap();
+      await expect(page.getByTestId('roster-needs')).toContainText('Need:');
+      await expectFits(page, 'draft: roster');
+      await roomTabs.getByRole('tab', { name: 'Board' }).tap();
+      await expect(page.getByRole('table', { name: 'Draft board' })).toBeVisible();
+      await expectFits(page, 'draft: board');
+      await roomTabs.getByRole('tab', { name: 'Chat' }).tap();
+      await expect(page.getByRole('list', { name: 'Chat messages' })).toBeVisible();
+      await expectFits(page, 'draft: chat');
+      // The clock stays in view while the panel scrolls.
+      await page.mouse.wheel(0, 600);
+      await expect(page.getByTestId('draft-topbar')).toBeInViewport();
       // The league's Home while drafting: who is on the clock (#166).
       await page.goto(`/leagues/${leagueId}/home`);
       await expect(page.getByRole('region', { name: 'Draft' })).toContainText('On the clock');
@@ -400,7 +417,8 @@ for (const viewport of VIEWPORTS) {
       await expectFits(page, 'draft: player card');
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('player-card')).toBeHidden();
-      await page.getByRole('button', { name: 'Depth' }).click();
+      await page.getByRole('tablist', { name: 'Draft room' }).getByRole('tab', { name: 'Board' }).tap();
+      await page.getByRole('tablist', { name: 'Board view' }).getByRole('tab', { name: 'Depth' }).tap();
       await expect(page.getByRole('table', { name: 'Depth chart' })).toBeVisible();
       await expectFits(page, 'draft: depth chart');
       await context.close();

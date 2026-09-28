@@ -78,13 +78,17 @@ describe('BestAvailableTable', () => {
     const cells = within(chase)
       .getAllByRole('cell')
       .map((c) => c.textContent);
-    expect(cells.slice(1, 6)).toEqual(['1', '250.5', '15.7', '270', '10']);
+    // Rank, player, position, team, bye, projection, PPG, points, actions.
+    expect([cells[0], ...cells.slice(2, 8)]).toEqual(['1', 'WR', 'CIN', '10', '270', '15.7', '250.5']);
     expect(within(chase).getByText('Q')).toHaveAttribute('title', 'Questionable');
-    expect(within(chase).getByTestId('compact-stats')).toHaveTextContent('· 15.7 PPG · proj 270 · bye 10');
+    expect(within(chase).getByTestId('compact-stats')).toHaveTextContent(
+      '#1 · CIN · bye 10 · proj 270 · 15.7 PPG'
+    );
     const cmc = screen.getByTestId('available-fx-cmc');
     expect(within(cmc).getByText('IR')).toBeInTheDocument();
-    expect(within(cmc).getByTestId('compact-stats')).toHaveTextContent('· — PPG · proj —');
-    expect(within(cmc).getAllByRole('cell')[2]).toHaveTextContent('—');
+    expect(within(cmc).getByTestId('compact-stats')).toHaveTextContent('#3 · SF · proj — · — PPG');
+    expect(within(cmc).getAllByRole('cell')[4]).toHaveTextContent('—');
+    expect(within(cmc).getByRole('button', { name: 'Queue Christian McCaffrey' })).toHaveTextContent('✓');
   });
 
   it('sorts by header, filters by position chip, and marks the active sort', async () => {
@@ -118,8 +122,36 @@ describe('BestAvailableTable', () => {
 
   it('shows the rank sort as ascending and disables picks off the clock', () => {
     renderTable({ canDraft: false });
-    expect(screen.getByRole('columnheader', { name: /Rank/ })).toHaveAttribute('aria-sort', 'ascending');
+    expect(screen.getByRole('columnheader', { name: /Rk/ })).toHaveAttribute('aria-sort', 'ascending');
     expect(screen.getByRole('button', { name: "Draft Ja'Marr Chase" })).toBeDisabled();
+  });
+
+  it('flags players likely gone before your pick, and counts the top 100 on the position chips', () => {
+    renderTable({
+      likelyGone: new Set(['fx-chase']),
+      scarcity: [
+        { position: 'WR', left: 12, likelyGone: 2 },
+        { position: 'TE', left: 5, likelyGone: 0 }
+      ]
+    });
+    expect(within(screen.getByTestId('available-fx-chase')).getByText('likely gone')).toBeInTheDocument();
+    expect(within(screen.getByTestId('available-fx-cmc')).queryByText('likely gone')).toBeNull();
+    const chips = within(screen.getByRole('group', { name: 'Position' }));
+    expect(chips.getByRole('button', { name: 'WR' })).toHaveTextContent('WR12');
+    expect(chips.getByRole('button', { name: 'WR' })).toHaveAttribute(
+      'title',
+      '12 WR left in the top 100, 2 likely gone before your pick'
+    );
+    expect(chips.getByRole('button', { name: 'TE' })).toHaveAttribute('title', '5 TE left in the top 100');
+    expect(chips.getByRole('button', { name: 'K' })).not.toHaveAttribute('title');
+  });
+
+  it('sorts from the phone menu, and says when nothing matches', async () => {
+    const user = userEvent.setup();
+    const props = renderTable({ rows: [] });
+    await user.selectOptions(screen.getByLabelText('Sort by'), 'ppg');
+    expect(props.onSort).toHaveBeenCalledWith('ppg');
+    expect(screen.getByText('No available players match.')).toBeInTheDocument();
   });
 });
 
