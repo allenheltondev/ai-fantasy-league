@@ -148,9 +148,16 @@ describe('system message routing', () => {
 
   it('sends each kind of news to its room', () => {
     const rooms = (types: string[]) => types.map((t) => systemMessageRoute(t).room);
-    expect(rooms(['Draft Pick Made', 'Draft Completed', 'Draft Paused', 'Draft Resumed'])).toEqual(
-      Array(4).fill('draft')
-    );
+    expect(
+      rooms([
+        'Draft Pick Made',
+        'Draft Completed',
+        'Draft Paused',
+        'Draft Resumed',
+        'Draft Starting Soon',
+        'Draft Start Blocked'
+      ])
+    ).toEqual(Array(6).fill('draft'));
     expect(rooms(['Trade Accepted', 'Trade Processed', 'Trade Vetoed', 'Trade Deadline Passed'])).toEqual(
       Array(4).fill('trades')
     );

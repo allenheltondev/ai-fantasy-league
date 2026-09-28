@@ -84,6 +84,29 @@ for (const [name, make] of backends) {
       expect(await repos.chat.readState(lg, 'user#alice')).toEqual({ draft: at(3), trades: at(5) });
     });
 
+    it('hides messages from before a reader may see them (a DM seat’s new occupant)', async () => {
+      const repos = make();
+      const lg = unique();
+      const dm = 'dm-team-1-team-2';
+      for (let i = 1; i <= 4; i++)
+        await repos.chat.put(message(lg, { id: `d${i}`, roomId: dm, createdAt: at(i) }));
+      expect(await repos.chat.summary(lg, dm, null, at(3))).toEqual({ lastMessageAt: at(4), unreadCount: 2 });
+      expect(await repos.chat.summary(lg, dm, at(3), at(2))).toEqual({
+        lastMessageAt: at(4),
+        unreadCount: 1
+      });
+      expect(await repos.chat.summary(lg, dm, at(1), at(3))).toEqual({
+        lastMessageAt: at(4),
+        unreadCount: 2
+      });
+      expect(await repos.chat.summary(lg, dm, at(4), at(2))).toEqual({
+        lastMessageAt: at(4),
+        unreadCount: 0
+      });
+      expect(await repos.chat.summary(lg, dm, null, at(5))).toEqual({ lastMessageAt: null, unreadCount: 0 });
+      expect(await repos.chat.summary(lg, dm, at(9), at(5))).toEqual({ lastMessageAt: null, unreadCount: 0 });
+    });
+
     it('caps unread counts at 100', async () => {
       const repos = make();
       const lg = unique();

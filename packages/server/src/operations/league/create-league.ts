@@ -1,10 +1,18 @@
-import { LEAGUE_PRESETS, LAST_NFL_WEEK, MAX_TEAMS, MIN_TEAMS, type LeaguePreset } from '@fantasy/core';
+import {
+  checkDraftSchedule,
+  LEAGUE_PRESETS,
+  LAST_NFL_WEEK,
+  MAX_TEAMS,
+  MIN_TEAMS,
+  type LeaguePreset
+} from '@fantasy/core';
 import { z } from 'zod';
 import { newId, type Ctx } from '../../context.js';
 import { ApiError, isApiError } from '../../errors.js';
 import { nextUnlockedWeek } from '../../league/calendar.js';
 import { newTeam } from '../../league/seats.js';
-import { buildLeagueSettings, SettingsPatchSchema } from '../../league/settings.js';
+import { syncDraftSchedule, utcDraftTime } from '../../league/draft-schedule.js';
+import { buildLeagueSettings, settingsError, SettingsPatchSchema } from '../../league/settings.js';
 import { leagueDetail, LeagueDetailSchema, TeamNameSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
 import type { League, Team } from '../../repos/types.js';
@@ -62,7 +70,11 @@ export const createLeague = defineOperation({
         details: { nextUnlockedWeek: next.week, season: next.season }
       });
     }
-    const { settings, warnings } = buildSettingsForSeason(input, startWeek, next.season);
+    const built = buildSettingsForSeason(input, startWeek, next.season);
+    const settings = utcDraftTime(built.settings);
+    const warnings = built.warnings;
+    const scheduleIssues = checkDraftSchedule(settings.draft.scheduledAt, now);
+    if (scheduleIssues.length > 0) throw settingsError(scheduleIssues);
     if (settings.teamCount !== input.teamCount) {
       throw new ApiError('INVALID_INPUT', 'Set the team count with `teamCount`, not inside `settings`.', {
         fix: `Remove teamCount from settings and pass teamCount: ${settings.teamCount} instead.`
@@ -126,6 +138,7 @@ export const createLeague = defineOperation({
       startWeek: settings.schedule.startWeek,
       midSeasonStart: settings.schedule.startWeek > 1
     });
+    if (settings.draft.scheduledAt !== null) await syncDraftSchedule(ctx, league);
     return withWarnings(leagueDetail(league, teams), warnings);
   }
 });

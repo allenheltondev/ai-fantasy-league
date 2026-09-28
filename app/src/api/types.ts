@@ -53,6 +53,17 @@ export interface LeagueSettings {
   waivers: Record<string, unknown>;
   trades: Record<string, unknown>;
   playoffs: Record<string, unknown>;
+  /** The draft: its pick clock, and when (and in which order) it starts by itself. */
+  draft?: DraftSettings;
+}
+
+export type DraftOrderMode = 'slots' | 'random';
+
+export interface DraftSettings {
+  pickSeconds?: number;
+  /** ISO instant (UTC); null when the commissioner starts the draft by hand. */
+  scheduledAt?: string | null;
+  orderMode?: DraftOrderMode;
 }
 
 export interface LeagueDetail {

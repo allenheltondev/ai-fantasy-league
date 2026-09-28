@@ -120,6 +120,8 @@ export const SYSTEM_MESSAGE_ROUTES: Readonly<Record<string, SystemMessageRoute>>
   'Draft Completed': { room: 'draft' },
   'Draft Paused': { room: 'draft' },
   'Draft Resumed': { room: 'draft' },
+  'Draft Starting Soon': { room: 'draft' },
+  'Draft Start Blocked': { room: 'draft' },
   'Trade Accepted': { room: 'trades' },
   'Trade Processed': { room: 'trades' },
   'Trade Vetoed': { room: 'trades' },

@@ -260,6 +260,8 @@ describe('server subscribers', () => {
     const [clock, messages] = serverSubscribers(services);
     expect(clock?.detailTypes).toEqual([
       'Draft Pick Deadline',
+      'Draft Start Scheduled',
+      'Draft Reminder Due',
       'Trade Offer Deadline',
       'Trade Review Ended',
       'Trade Deadline Passed'

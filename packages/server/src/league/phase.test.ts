@@ -177,6 +177,7 @@ describe('action rules', () => {
 
   it('lets only the commissioner configure the league before the draft', () => {
     expect(allowed(COMMISSIONER)).toEqual([
+      'check_in_draft_lobby',
       'configure_agent_seat',
       'create_invite',
       'delete_league',
@@ -191,13 +192,20 @@ describe('action rules', () => {
       'transfer_commissioner',
       'update_league_settings'
     ]);
-    expect(allowed(MEMBER)).toEqual(['leave_league', 'post_message', 'rename_team', 'set_draft_queue']);
+    expect(allowed(MEMBER)).toEqual([
+      'check_in_draft_lobby',
+      'leave_league',
+      'post_message',
+      'rename_team',
+      'set_draft_queue'
+    ]);
     expect(allowed(AGENT)).toEqual(['post_message', 'rename_team', 'set_draft_queue']);
     expect(allowed(OUTSIDER)).toEqual([]);
   });
 
   it('follows the season through the phases and flags', () => {
     expect(allowed(MEMBER, league({ phase: 'drafting' }))).toEqual([
+      'check_in_draft_lobby',
       'make_draft_pick',
       'post_message',
       'rename_team',

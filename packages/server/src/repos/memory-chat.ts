@@ -68,10 +68,15 @@ export class InMemoryChatRepository implements ChatRepository {
     };
   }
 
-  async summary(leagueId: string, roomId: string, lastReadAt: string | null): Promise<RoomSummary> {
-    const messages = this.#keys(leagueId, roomId).map(
-      (key) => this.#byLeague.get(leagueId)?.messages.get(key) as ChatMessage
-    );
+  async summary(
+    leagueId: string,
+    roomId: string,
+    lastReadAt: string | null,
+    visibleFrom: string | null = null
+  ): Promise<RoomSummary> {
+    const messages = this.#keys(leagueId, roomId)
+      .map((key) => this.#byLeague.get(leagueId)?.messages.get(key) as ChatMessage)
+      .filter((m) => visibleFrom === null || m.createdAt >= visibleFrom);
     const unread = messages.filter((m) => lastReadAt === null || m.createdAt > lastReadAt);
     return {
       lastMessageAt: messages[0]?.createdAt ?? null,
