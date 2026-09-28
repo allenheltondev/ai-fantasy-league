@@ -1,4 +1,4 @@
-import { DRAFT_GRADES, LeagueSettingsSchema, PositionSchema, RosterSlotSchema } from '@fantasy/core';
+import { REPORT_CARD_GRADES, LeagueSettingsSchema, PositionSchema, RosterSlotSchema } from '@fantasy/core';
 import { z } from 'zod';
 import { DRAFT_STATUSES, LEAGUE_PHASES, SEAT_TYPES } from '../types.js';
 import { weekKey } from './query.js';
@@ -228,7 +228,7 @@ export const DraftReportCardSchema = z.object({
   teams: z.array(
     z.object({
       teamId: z.string(),
-      grade: z.enum(DRAFT_GRADES),
+      grade: z.enum(REPORT_CARD_GRADES),
       headline: z.string(),
       strengths: z.array(z.string()),
       weaknesses: z.array(z.string()),

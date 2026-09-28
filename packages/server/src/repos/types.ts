@@ -1,4 +1,4 @@
-import type { DraftGrade, DraftState, LeagueSettings, LineupEntry, StandingsRow } from '@fantasy/core';
+import type { ReportCardGrade, DraftState, LeagueSettings, LineupEntry, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
 import type { ChatRepository } from '../chat/model.js';
 import type { AgentRepository } from './agents.js';
@@ -381,7 +381,7 @@ export interface DraftReportCard {
 
 export interface DraftReportTeam {
   teamId: string;
-  grade: DraftGrade;
+  grade: ReportCardGrade;
   /** One line. */
   headline: string;
   strengths: string[];

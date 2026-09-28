@@ -1,4 +1,4 @@
-import { DRAFT_GRADES } from '@fantasy/core';
+import { REPORT_CARD_GRADES } from '@fantasy/core';
 import { z } from 'zod';
 import { requireMember } from '../../league/access.js';
 import { requireDraft } from '../../league/draft.js';
@@ -10,7 +10,7 @@ const ReportTeamSchema = z.object({
   teamId: z.string(),
   teamName: z.string(),
   yours: z.boolean().describe('True for your own team.'),
-  grade: z.enum(DRAFT_GRADES).describe('Draft grade, A+ (best) through F- (worst).'),
+  grade: z.enum(REPORT_CARD_GRADES).describe('Draft grade, A+ (best) through F- (worst).'),
   headline: z.string(),
   strengths: z.array(z.string()).describe('What went well.'),
   weaknesses: z.array(z.string()).describe("What didn't."),

@@ -12,7 +12,7 @@ import { OUTLOOK_MODEL, winProbability } from '../outlook/outlook.js';
  */
 
 /** Letter grades, best first. */
-export const DRAFT_GRADES = [
+export const REPORT_CARD_GRADES = [
   'A+',
   'A',
   'A-',
@@ -29,7 +29,7 @@ export const DRAFT_GRADES = [
   'F',
   'F-'
 ] as const;
-export type DraftGrade = (typeof DRAFT_GRADES)[number];
+export type ReportCardGrade = (typeof REPORT_CARD_GRADES)[number];
 
 /** A regular-season matchup. */
 export interface ReportMatchup {
@@ -285,9 +285,9 @@ export function rankRecords(
 const GRADE_CUTOFFS = [1.6, 1.2, 0.9, 0.6, 0.3, 0.1, -0.1, -0.3, -0.5, -0.7, -0.9, -1.1, -1.4, -1.8] as const;
 
 /** A computed grade from a composite z-score (0 is league average). */
-export function gradeForScore(z: number): DraftGrade {
+export function gradeForScore(z: number): ReportCardGrade {
   const index = GRADE_CUTOFFS.findIndex((cut) => z >= cut);
-  return DRAFT_GRADES[index === -1 ? DRAFT_GRADES.length - 1 : index]!;
+  return REPORT_CARD_GRADES[index === -1 ? REPORT_CARD_GRADES.length - 1 : index]!;
 }
 
 /** z-scores of `values` against their own mean; all 0 when they do not vary. */

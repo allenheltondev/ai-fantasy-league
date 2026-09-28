@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { generateSchedule } from '../schedule/schedule.js';
 import {
-  DRAFT_GRADES,
+  REPORT_CARD_GRADES,
   expectedWins,
   gamesPerTeam,
   gradeForScore,
@@ -196,8 +196,8 @@ describe('grades', () => {
     expect(gradeForScore(0)).toBe('C+');
     expect(gradeForScore(-0.2)).toBe('C');
     expect(gradeForScore(-3)).toBe('F-');
-    expect(DRAFT_GRADES).toHaveLength(15);
-    for (let z = -3; z <= 3; z += 0.05) expect(DRAFT_GRADES).toContain(gradeForScore(z));
+    expect(REPORT_CARD_GRADES).toHaveLength(15);
+    for (let z = -3; z <= 3; z += 0.05) expect(REPORT_CARD_GRADES).toContain(gradeForScore(z));
   });
 
   it('computes z-scores, and zeros when nothing varies', () => {

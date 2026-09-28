@@ -1,5 +1,5 @@
 import {
-  DRAFT_GRADES,
+  REPORT_CARD_GRADES,
   expectedWins,
   gradeForScore,
   isStarterSlot,
@@ -11,7 +11,7 @@ import {
   seasonPoints,
   slotCount,
   zScores,
-  type DraftGrade,
+  type ReportCardGrade,
   type Position,
   type ReportMatchup,
   type RosterPlayer,
@@ -280,7 +280,7 @@ function positionStrength(
 /** A model's (or the computed) grade and projection for one team, before reconciliation. */
 export interface TeamJudgement {
   teamId: string;
-  grade: DraftGrade;
+  grade: ReportCardGrade;
   headline: string;
   strengths: string[];
   weaknesses: string[];
@@ -381,9 +381,9 @@ export function computedJudgements(inputs: DraftReportInputs): TeamJudgement[] {
     if (pros.length === 0) pros.push('A balanced roster without a glaring hole.');
     if (cons.length === 0) cons.push('No standout edge at any position.');
     const tier =
-      DRAFT_GRADES.indexOf(grade) <= 2
+      REPORT_CARD_GRADES.indexOf(grade) <= 2
         ? 'a contender'
-        : DRAFT_GRADES.indexOf(grade) <= 8
+        : REPORT_CARD_GRADES.indexOf(grade) <= 8
           ? 'in the mix'
           : 'an uphill climb';
     return {

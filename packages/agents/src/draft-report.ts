@@ -1,4 +1,4 @@
-import { DRAFT_GRADES, estimateCostUsd, getModel, modelChain, type ModelKey } from '@fantasy/core';
+import { REPORT_CARD_GRADES, estimateCostUsd, getModel, modelChain, type ModelKey } from '@fantasy/core';
 import {
   budgetWeek,
   computedJudgements,
@@ -54,7 +54,7 @@ export const DraftJudgementSchema = z.object({
     .array(
       z.object({
         teamId: z.string(),
-        grade: z.enum(DRAFT_GRADES),
+        grade: z.enum(REPORT_CARD_GRADES),
         headline: z.string().min(1).max(160).describe('One punchy line.'),
         strengths: z.array(z.string().min(1).max(240)).min(1).max(4).describe('What went well.'),
         weaknesses: z.array(z.string().min(1).max(240)).min(1).max(4).describe("What didn't."),
