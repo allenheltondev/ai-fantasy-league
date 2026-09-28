@@ -939,6 +939,7 @@ Resources:
                 - Member Joined
                 - Member Left
                 - Settings Changed
+                - Agent Seat Changed
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600

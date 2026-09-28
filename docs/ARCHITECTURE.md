@@ -183,6 +183,7 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Member Joined` | A person takes a seat with an invite (`name`) |
 | `Member Left` | A person leaves or is removed before the draft (`reason`: `left` or `removed`) |
 | `Settings Changed` | The commissioner changes league settings (`changedPaths`). The chat system message for it is queued by the chat stream. |
+| `Agent Seat Changed` | The commissioner changes an agent seat after the draft (`teamId`, `changedBy`, `changes: [{ field, from, to }]` by display name). The chat posts it, so a playing commissioner can't quietly weaken the AI teams they face. |
 
 ## Work-stream and PR rules
 

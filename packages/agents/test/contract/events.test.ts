@@ -443,6 +443,23 @@ describe('event contract: league setup and the draft', () => {
     expect(posted(completed).text).toBe('The draft is complete. Good luck this season!');
     expect(completed.chat).toMatchObject({ moment: true });
     expect(completed.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+
+    // After the draft, a commissioner's change to an AI seat is announced to the league.
+    const seat = { leagueId: d.leagueId, teamId: 'team-3', personalityId: 'hype-man', archetype: 'win_now' };
+    const announced = () => d.events.events.filter((e) => e.detailType === 'Agent Seat Changed').length;
+    await d.run('configure_agent_seat', { ...seat, difficulty: 'all_pro' });
+    const before = announced();
+    await d.run('configure_agent_seat', { ...seat, difficulty: 'all_pro' });
+    expect(announced()).toBe(before); // nothing changed, nothing announced
+    await d.run('configure_agent_seat', { ...seat, difficulty: 'rookie' });
+    expect(announced()).toBe(before + 1);
+    const changed = await consume(d.services, delivered(last(d.events.events, 'Agent Seat Changed')));
+    expect(EVENT_DETAIL_SCHEMAS['Agent Seat Changed'].safeParse(changed.event.detail).success).toBe(true);
+    expect(posted(changed).text).toMatch(
+      /^The commissioner changed .+'s AI difficulty from All-Pro to Rookie, AI decision model from Claude Sonnet 5 to Amazon Nova Micro\.$/
+    );
+    expect(changed.routed).toEqual([]);
+    expect(changed.relay.topics).toEqual([]);
   });
 });
 
@@ -457,6 +474,7 @@ describe('event contract coverage', () => {
       'Member Joined',
       'Member Left',
       'Settings Changed',
+      'Agent Seat Changed',
       'Chat Message Posted',
       'Scores Updated'
     ]);

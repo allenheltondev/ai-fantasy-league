@@ -149,6 +149,24 @@ describe('renderSystemMessage', () => {
       render('Settings Changed', { changedPaths: ['trades.reviewPeriodDays', 'waivers.type'] })?.text
     ).toBe('The commissioner changed league settings: trades.reviewPeriodDays, waivers.type.');
     expect(render('Settings Changed', {})?.text).toBe('The commissioner changed league settings.');
+    expect(
+      render('Agent Seat Changed', {
+        teamId: 'team-3',
+        changes: [
+          { field: 'difficulty', from: 'All-Pro', to: 'Rookie' },
+          { field: 'archetype', from: 'Win Now', to: 'Balanced' },
+          { field: 'mystery', from: 'A', to: 'B' }
+        ]
+      })?.text
+    ).toMatch(
+      /'s AI difficulty from All-Pro to Rookie, AI strategy from Win Now to Balanced, mystery from A to B\.$/
+    );
+    expect(
+      render('Agent Seat Changed', {
+        teamId: 'team-3',
+        changes: [{ field: 'difficulty', from: 'Pro' }, null]
+      })?.text
+    ).toMatch(/^The commissioner changed .+'s AI manager\.$/);
     expect(render('Draft Completed', {})?.moment).toBe(true);
   });
 

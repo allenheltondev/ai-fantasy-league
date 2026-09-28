@@ -1,9 +1,17 @@
-import { AgentSeatConfigSchema, MAX_TEAMS, randomizeAgentSeats, type AgentSeatConfig } from '@fantasy/core';
+import {
+  AgentSeatConfigSchema,
+  MAX_TEAMS,
+  getModel,
+  randomizeAgentSeats,
+  resolveAgentConfig,
+  type AgentSeatConfig
+} from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
 import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import { agentIdFor, type AgentSeatRecord } from '../../repos/agents.js';
+import type { League } from '../../repos/types.js';
 import { defineOperation } from '../../registry/operation.js';
 import {
   CommissionerSeatSchema,
@@ -18,13 +26,33 @@ import {
   requireCommissioner
 } from './shared.js';
 
+type SeatChange = { field: 'difficulty' | 'archetype' | 'model' | 'personality'; from: string; to: string };
+
+/** What a player of the league would notice changing about an agent, by display name. */
+export function seatChanges(before: AgentSeatConfig, after: AgentSeatConfig): SeatChange[] {
+  const a = resolveAgentConfig(before);
+  const b = resolveAgentConfig(after);
+  const pairs: [SeatChange['field'], string, string][] = [
+    ['difficulty', a.difficulty.displayName, b.difficulty.displayName],
+    ['archetype', a.archetype.displayName, b.archetype.displayName],
+    [
+      'model',
+      getModel(a.models.decision[0] as Parameters<typeof getModel>[0]).displayName,
+      getModel(b.models.decision[0] as Parameters<typeof getModel>[0]).displayName
+    ],
+    ['personality', a.personality.displayName, b.personality.displayName]
+  ];
+  return pairs.filter(([, from, to]) => from !== to).map(([field, from, to]) => ({ field, from, to }));
+}
+
 async function writeSeat(
   ctx: Ctx,
-  leagueId: string,
+  league: Pick<League, 'id' | 'phase'>,
   teamId: string,
   config: AgentSeatConfig,
   expectedVersion: number | undefined
 ): Promise<AgentSeatRecord> {
+  const leagueId = league.id;
   const current = await ctx.repos.agents.getSeat(leagueId, teamId);
   const currentVersion = current?.version ?? 0;
   if (expectedVersion !== undefined && expectedVersion !== currentVersion) {
@@ -43,6 +71,21 @@ async function writeSeat(
     updatedBy: principalKey(ctx.principal)
   };
   await ctx.repos.agents.putSeat(record);
+  // After the draft, changes are announced (event + chat line): the commissioner usually plays too,
+  // and must not be able to quietly weaken the AI teams they face.
+  if (league.phase !== 'setup' && current !== null) {
+    const changes = seatChanges(current.config, config);
+    if (changes.length > 0) {
+      await ctx.events.publish('Agent Seat Changed', {
+        leagueId,
+        teamId,
+        changedBy: record.updatedBy,
+        phase: league.phase,
+        version: record.version,
+        changes
+      });
+    }
+  }
   return record;
 }
 
@@ -52,7 +95,7 @@ export const configureAgentSeat = defineOperation({
   path: '/leagues/{leagueId}/agents/{teamId}',
   summary: 'Set the personality, difficulty, and strategy of an agent seat',
   description: [
-    "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed.",
+    "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat.",
     'Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor).',
     'Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite.',
     'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids or out-of-range levers.'
@@ -76,10 +119,10 @@ export const configureAgentSeat = defineOperation({
   handler: async (ctx, input) => {
     const access = await requireCommissioner(ctx, input.leagueId);
     requireAgentSeat(access, input.teamId);
-    const { leagueId, teamId, expectedVersion, ...config } = input;
+    const { leagueId: _leagueId, teamId, expectedVersion, ...config } = input;
     const record = await writeSeat(
       ctx,
-      leagueId,
+      access.league,
       teamId,
       AgentSeatConfigSchema.parse(config),
       expectedVersion
@@ -128,7 +171,7 @@ export const randomizeAgentSeatsOperation = defineOperation({
     const configs = randomizeAgentSeats(input.teamIds.length, seed);
     const seats = [];
     for (const [i, teamId] of input.teamIds.entries()) {
-      const record = await writeSeat(ctx, league.id, teamId, configs[i] as AgentSeatConfig, undefined);
+      const record = await writeSeat(ctx, league, teamId, configs[i] as AgentSeatConfig, undefined);
       seats.push(commissionerSeat(record));
     }
     return { seed, seats };

@@ -28,10 +28,11 @@ async function setup(phase: LeaguePhase = 'setup') {
     teamCount: 4,
     overrides: { phase, week: phase === 'setup' ? null : 5 }
   });
+  const events = new InMemoryEventPublisher();
   const services = createServices({
     clock: new FixedClock(START),
     repos,
-    events: new InMemoryEventPublisher(),
+    events,
     log: silentLogger
   });
   let n = 0;
@@ -47,7 +48,7 @@ async function setup(phase: LeaguePhase = 'setup') {
     });
     return result;
   };
-  return { repos, run, services };
+  return { repos, run, services, events };
 }
 
 describe('agent seat operations', () => {
@@ -138,6 +139,60 @@ describe('agent seat operations', () => {
     expect(human.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
     const ghost = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-9', ...SEAT });
     expect(ghost.body).toMatchObject({ error: { code: 'TEAM_NOT_FOUND' } });
+  });
+
+  it('announces post-draft changes that weaken or strengthen an agent, but not setup edits', async () => {
+    const pre = await setup();
+    await pre.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await pre.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'rookie'
+    });
+    expect(pre.events.events.filter((e) => e.detailType === 'Agent Seat Changed')).toEqual([]);
+
+    const mid = await setup('regular_season');
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'rookie',
+      archetype: 'balanced'
+    });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'rookie',
+      archetype: 'balanced',
+      personalityId: 'stats-nerd',
+      advanced: { modelOverride: 'claude-opus-5' }
+    });
+    const announced = mid.events.events.filter((e) => e.detailType === 'Agent Seat Changed');
+    expect(announced.map((e) => e.detail)).toEqual([
+      {
+        leagueId: 'lg-1',
+        teamId: 'team-2',
+        changedBy: 'user#user-123',
+        phase: 'regular_season',
+        version: 3,
+        changes: [
+          { field: 'difficulty', from: 'All-Pro', to: 'Rookie' },
+          { field: 'archetype', from: 'Win Now', to: 'Balanced' },
+          { field: 'model', from: 'Claude Sonnet 5', to: 'Amazon Nova Micro' }
+        ]
+      },
+      expect.objectContaining({
+        version: 4,
+        changes: [
+          { field: 'model', from: 'Amazon Nova Micro', to: 'Claude Opus 5' },
+          { field: 'personality', from: 'Hype Man', to: 'The Spreadsheet' }
+        ]
+      })
+    ]);
   });
 
   it('randomizes seats deterministically from a seed', async () => {

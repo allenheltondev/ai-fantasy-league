@@ -41,7 +41,8 @@ export type FantasyEventType =
   | 'Agent Action Requested'
   | 'Member Joined'
   | 'Member Left'
-  | 'Settings Changed';
+  | 'Settings Changed'
+  | 'Agent Seat Changed';
 
 export type EventDetail = Record<string, unknown>;
 
