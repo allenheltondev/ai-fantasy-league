@@ -8,7 +8,8 @@ import {
   weekProjections,
   type PlayerProjections,
   type ReplacementLevels,
-  type ValuationOptions
+  type ValuationOptions,
+  type ValuedPlayer
 } from './value.js';
 
 export interface LopsidedThreshold {
@@ -127,4 +128,42 @@ export function tradeValue(
     favors: net > 0 ? a.teamId : net < 0 ? b.teamId : null,
     lopsided: lineupGap >= threshold.lineupPoints || valueGap >= threshold.value
   };
+}
+
+export interface TradePlayersSide {
+  teamId: string;
+  /** Value of the players this team received (each counted at 0 or more). */
+  received: number;
+  /** Value of the players this team sent away or dropped to make room. */
+  given: number;
+  /** `received - given`: positive means the team won the trade on value. */
+  valueDelta: number;
+}
+
+/**
+ * Each side's player-value change from a trade, from the players in it alone: what a team received
+ * minus what it sent and dropped, each player valued like `tradeValue` does (rest-of-season value
+ * over replacement, never below 0). With the same replacement levels this equals `tradeValue`'s
+ * `valueDelta`, but it needs no rosters, so it can value a trade long after it was processed.
+ * Players missing from `players` count as 0.
+ */
+export function tradePlayersValue(
+  trade: Pick<Trade, 'sides'>,
+  players: Readonly<Record<string, ValuedPlayer>>,
+  projections: PlayerProjections,
+  options: ValuationOptions & { replacement: ReplacementLevels }
+): [TradePlayersSide, TradePlayersSide] {
+  const worth = (ids: readonly string[]) =>
+    ids.reduce((sum, id) => {
+      const player = players[id];
+      return player === undefined ? sum : sum + Math.max(0, playerValue(player, projections, options).value);
+    }, 0);
+  const side = (i: 0 | 1): TradePlayersSide => {
+    const own = trade.sides[i];
+    const other = i === 0 ? trade.sides[1] : trade.sides[0];
+    const received = roundPoints(worth(other.sends));
+    const given = roundPoints(worth([...own.sends, ...own.drops]));
+    return { teamId: own.teamId, received, given, valueDelta: roundPoints(received - given) };
+  };
+  return [side(0), side(1)];
 }

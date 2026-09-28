@@ -54,6 +54,8 @@ export type FantasyEventType =
   | 'Season Completed'
   /** A team earned a league achievement (history/achievements in core). */
   | 'Achievement Earned'
+  /** The weekly "which model wins the league?" standings, posted in chat at each rollover. */
+  | 'Model Power Rankings'
   /** rsc-core badge chest activity (its engine matches on this detail type; see season/achievements.ts). */
   | 'Track Activity';
 

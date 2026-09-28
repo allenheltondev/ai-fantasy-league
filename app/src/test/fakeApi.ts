@@ -241,7 +241,15 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
         difficulty: { id: 'pro', displayName: 'Pro' }
       },
       commissioner: {
-        current: { version: 1, config: { personalityId: 'p4', difficulty: 'pro', archetype: 'balanced' } }
+        current: { version: 1, config: { personalityId: 'p4', difficulty: 'pro', archetype: 'balanced' } },
+        history: [
+          {
+            version: 1,
+            updatedAt: '2026-09-01T12:00:00.000Z',
+            updatedBy: 'user#alice',
+            config: { personalityId: 'p4', difficulty: 'pro', archetype: 'balanced' }
+          }
+        ]
       }
     })),
     configureAgentSeat: vi.fn(async () => ({})),
@@ -303,7 +311,8 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
         headToHead: []
       },
       achievements: [],
-      trades: []
+      trades: [],
+      tradeRecords: { best: [], worst: [] }
     })),
     getMatchupOutlook: vi.fn(async () => {
       throw new Error('getMatchupOutlook is not faked in this test');

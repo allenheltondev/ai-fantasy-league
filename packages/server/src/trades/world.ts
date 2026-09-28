@@ -117,7 +117,8 @@ export interface TradeProjections {
 }
 
 /**
- * Projected points for `playerIds` over the valuation weeks, scored with league settings. A week
+ * Projected points for `playerIds` over the valuation weeks (from the league's current week, or
+ * `fromWeek` to value a past trade), scored with league settings. A week
  * without a projection snapshot yet repeats the latest earlier week's numbers, so rest-of-season
  * value is a flat estimate rather than zero.
  */
@@ -125,9 +126,9 @@ export async function loadProjections(
   reference: ReferenceStore,
   league: League,
   playerIds: readonly string[],
-  now: Date
+  now: Date,
+  fromWeek: number = tradeWeek(league)
 ): Promise<TradeProjections> {
-  const fromWeek = tradeWeek(league);
   const toWeek = Math.max(fromWeek, Math.min(fromWeek + VALUE_WEEKS - 1, league.settings.playoffs.endWeek));
   const table: Record<string, Record<number, number>> = {};
   let previous = new Map<string, number>();

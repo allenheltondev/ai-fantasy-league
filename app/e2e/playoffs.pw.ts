@@ -22,6 +22,8 @@ test('a manager checks the projected playoff bracket and the league history', as
   await page.getByRole('tab', { name: 'History' }).click();
   await expect(page.getByText('No completed seasons yet.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Head to head' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Best and worst trades' })).toBeVisible();
+  await expect(page.getByText("No trade has changed a team's value yet.")).toBeVisible();
 
   await page.getByRole('tab', { name: 'Standings' }).click();
   await expect(page.getByRole('table', { name: 'Standings' })).toBeVisible();
