@@ -1,7 +1,8 @@
 import type { TrendingEntry } from '@fantasy/data';
 import { z } from 'zod';
-import { PlayerRefSchema, PositionSchema, toPlayerRef } from '../../players/model.js';
+import { PlayerDetailSchema, PositionSchema, toPlayerDetail } from '../../players/model.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
+import { detailFlag } from '../players.js';
 
 /**
  * Picks the cached lookback window to serve: the smallest one that covers the request, else the
@@ -21,7 +22,7 @@ export const getTrendingPlayers = defineOperation({
     'Returns the NFL players most added (`type: "add"`) or dropped (`type: "drop"`) across Sleeper fantasy leagues over a lookback window, with the transaction count.',
     'It is a crowd signal for waiver decisions: breakout players and injury replacements show up in adds; injured, benched, or cut players in drops.',
     'Data refreshes hourly and covers 24, 72, or 168 hours; `lookbackHours` returns the closest cached window that covers the request and echoes the one used.',
-    'Filter by `position` to find, say, trending RBs. It does not say whether a player is available in your league.',
+    'Filter by `position` to find, say, trending RBs. It does not say whether a player is available in your league (search_players with `leagueId` does). `detail: true` adds each player’s status and injury designation.',
     'An empty list with a NO_TRENDING_DATA warning means no snapshot is stored yet.'
   ].join(' '),
   tags: ['research', 'players'],
@@ -39,7 +40,8 @@ export const getTrendingPlayers = defineOperation({
       .default(24)
       .describe('How far back to count transactions, in hours (1-168, default 24).'),
     position: PositionSchema.optional(),
-    limit: z.number().int().min(1).max(50).default(10).describe('Maximum players (1-50, default 10).')
+    limit: z.number().int().min(1).max(50).default(10).describe('Maximum players (1-50, default 10).'),
+    detail: detailFlag
   }),
   output: z.object({
     type: z.enum(['add', 'drop']),
@@ -55,7 +57,7 @@ export const getTrendingPlayers = defineOperation({
     players: z
       .array(
         z.object({
-          player: PlayerRefSchema,
+          player: PlayerDetailSchema,
           count: z.number().int().describe('Adds or drops in the window.')
         })
       )
@@ -84,7 +86,10 @@ export const getTrendingPlayers = defineOperation({
       })
       .filter(({ player }) => input.position === undefined || player.position === input.position)
       .slice(0, input.limit)
-      .map(({ player, count }) => ({ player: toPlayerRef(player), count: Math.round(count) }));
+      .map(({ player, count }) => ({
+        player: toPlayerDetail(player, input.detail),
+        count: Math.round(count)
+      }));
     return { type: input.type, lookbackHours: lookback, capturedAt: snapshot.capturedAt, players };
   }
 });
