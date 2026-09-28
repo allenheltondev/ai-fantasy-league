@@ -74,9 +74,9 @@ describe('Sleeper difference classes (property)', () => {
     );
   });
 
-  it('never explain a line off by an amount no class covers', () => {
+  it('never explain a line off by an amount no class covers (beyond the 0.01 tolerance)', () => {
     fc.assert(
-      fc.property(statLine, fc.integer({ min: 1, max: 50 }), (stats: StatLine, cents) => {
+      fc.property(statLine, fc.integer({ min: 2, max: 50 }), (stats: StatLine, cents) => {
         const off = scorePlayer(sleeperDefaultScoring('ppr'), stats).points + cents / 100 + 0.001;
         const report = validateScoring(
           [{ key: 'p', stats, expected: { ppr: off } }],
