@@ -4,6 +4,7 @@ import type { PlayerRef, SeasonRecordsView, TradeValueRecord } from '../../api/t
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton, stagger, Trophy } from '../../motion/decor';
+import { TableScroll } from '../../components/TableScroll';
 
 const points = (n: number) => n.toFixed(2);
 
@@ -127,21 +128,23 @@ export function HistoryPanel() {
         {current.headToHead.length === 0 ? (
           <p className="text-muted-foreground">No games final yet.</p>
         ) : (
-          <table className="w-full text-sm" aria-label="Head to head">
-            <tbody>
-              {current.headToHead.map((h) => (
-                <tr key={`${h.teamId}-${h.opponentId}`}>
-                  <td>
-                    {h.teamName} vs {h.opponentName}
-                  </td>
-                  <td className="tabular-nums">
-                    {h.wins}-{h.losses}
-                    {h.ties > 0 ? `-${h.ties}` : ''}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <TableScroll label="Head to head">
+            <table className="w-full text-sm" aria-label="Head to head">
+              <tbody>
+                {current.headToHead.map((h) => (
+                  <tr key={`${h.teamId}-${h.opponentId}`}>
+                    <td>
+                      {h.teamName} vs {h.opponentName}
+                    </td>
+                    <td className="tabular-nums">
+                      {h.wins}-{h.losses}
+                      {h.ties > 0 ? `-${h.ties}` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
         )}
       </section>
 

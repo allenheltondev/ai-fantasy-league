@@ -152,7 +152,7 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 
 `packages/core/src/agents/models.ts` is the model catalog. It holds each model's Bedrock ID (a cross-region inference profile ID where one exists) and an estimated price, and maps five model tiers (`micro` → `frontier`) to catalog models, best first. Difficulty tiers pick a decision tier and a cheaper chat tier.
 
-- **Verification:** every catalog entry starts `verified: false`. Both deploy workflows run `scripts/verify-models.mjs` after assuming the deploy role. It calls `bedrock list-inference-profiles` and `list-foundation-models` and fails the deploy, listing every catalog ID that isn't available in us-east-1.
+- **Verification:** every catalog entry was verified against the deploy account on 2026-09-28 (`verified: true`). Both deploy workflows run `scripts/verify-models.mjs` after assuming the deploy role. It calls `bedrock list-inference-profiles` and `list-foundation-models` and fails the deploy, listing every catalog ID that isn't available in us-east-1.
 - **Fallbacks:** if a tier's primary model is unavailable, the runtime uses the next model listed for that tier. If every model in the tier fails, the agent falls back to deterministic behavior (autopick, the lineup optimizer, no waiver claims, rejecting trades).
 - **Prices** are estimates for budgets and dashboards, not billing data.
 

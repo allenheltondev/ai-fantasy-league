@@ -146,7 +146,7 @@ export function RulesEditor({ league, defaults, canEdit, onSaved }: RulesEditorP
         </Card>
       ))}
       {canEdit && (
-        <div className="sticky bottom-0 flex justify-end gap-2 bg-background py-3">
+        <div className="sticky bottom-0 flex justify-end gap-2 bg-background pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
           <Button variant="ghost" disabled={!dirty || saving} onClick={() => setDraft(league.settings)}>
             Discard changes
           </Button>

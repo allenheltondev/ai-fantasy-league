@@ -2,10 +2,10 @@
  * The Bedrock model catalog for agents (us-east-1).
  *
  * Every id here is a Bedrock model id or cross-region inference profile id that the agent runtime
- * passes to Converse. None of them are verified from this repository: `scripts/verify-models.mjs`
- * checks every id against `bedrock list-inference-profiles` and `list-foundation-models` with the
- * deploy credentials and fails the deploy when one is missing. Flip `verified` to true only after
- * that script has passed against a real account.
+ * passes to Converse. `scripts/verify-models.mjs` checks every id against `bedrock
+ * list-inference-profiles` and `list-foundation-models` with the deploy credentials and fails the
+ * deploy when one is missing. Every id below was verified that way against the deploy account on
+ * 2026-09-28 (#105); a new entry must pass the same check before it ships.
  *
  * Fallbacks: each model tier lists catalog models best-first. The runtime uses the first model in
  * the list and moves to the next one when a call fails because the model is unavailable (access not
@@ -62,7 +62,7 @@ function model(
   input: Omit<CatalogModel, 'foundationModelId' | 'priceIsEstimate' | 'verified'>
 ): CatalogModel {
   const foundationModelId = input.inferenceProfile ? input.bedrockId.replace(/^us\./, '') : input.bedrockId;
-  return { ...input, foundationModelId, verified: false, priceIsEstimate: true };
+  return { ...input, foundationModelId, verified: true, priceIsEstimate: true };
 }
 
 export const MODEL_CATALOG = [
@@ -120,7 +120,7 @@ export const MODEL_CATALOG = [
     thinkingBudget: true,
     displayName: 'Claude Sonnet 5',
     provider: 'anthropic',
-    bedrockId: 'us.anthropic.claude-sonnet-5-v1',
+    bedrockId: 'us.anthropic.claude-sonnet-5',
     inferenceProfile: true,
     price: { inputPerMTok: 2, outputPerMTok: 10 }
   }),
@@ -129,7 +129,7 @@ export const MODEL_CATALOG = [
     thinkingBudget: true,
     displayName: 'Claude Opus 5',
     provider: 'anthropic',
-    bedrockId: 'us.anthropic.claude-opus-5-v1',
+    bedrockId: 'us.anthropic.claude-opus-5',
     inferenceProfile: true,
     price: { inputPerMTok: 5, outputPerMTok: 25 }
   })

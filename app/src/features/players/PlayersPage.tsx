@@ -6,6 +6,7 @@ import { ClaimPanel } from './ClaimPanel';
 import { MyClaims } from './MyClaims';
 import { Transactions } from './Transactions';
 import { describeError, formatTime, type LeagueStateData, type SearchPlayer } from './types';
+import { TableScroll } from '../../components/TableScroll';
 
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
 const SEARCH_LIMIT = 50;
@@ -118,51 +119,53 @@ export function PlayersPage() {
       {players !== null && shown.length === 0 ? (
         <p className="text-muted-foreground">No players match.</p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr>
-              <th>Player</th>
-              <th>Pos</th>
-              <th>Team</th>
-              <th>Status</th>
-              <th>
-                <span className="sr-only">Action</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((player) => {
-              const status = player.availability?.status;
-              const verb = status === 'waivers' ? 'Claim' : 'Add';
-              return (
-                <tr key={player.id}>
-                  <td>{player.name}</td>
-                  <td>{player.position}</td>
-                  <td>{player.team ?? 'FA'}</td>
-                  <td>
-                    <StatusCell player={player} teams={state?.teams ?? []} />
-                  </td>
-                  <td>
-                    {status !== 'rostered' && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!canClaim}
-                        aria-label={`${verb} ${player.name}`}
-                        onClick={() => {
-                          setNotice(null);
-                          setSelected(player);
-                        }}
-                      >
-                        {verb}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <TableScroll label="Players">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Pos</th>
+                <th>Team</th>
+                <th>Status</th>
+                <th>
+                  <span className="sr-only">Action</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((player) => {
+                const status = player.availability?.status;
+                const verb = status === 'waivers' ? 'Claim' : 'Add';
+                return (
+                  <tr key={player.id}>
+                    <td>{player.name}</td>
+                    <td>{player.position}</td>
+                    <td>{player.team ?? 'FA'}</td>
+                    <td>
+                      <StatusCell player={player} teams={state?.teams ?? []} />
+                    </td>
+                    <td>
+                      {status !== 'rostered' && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!canClaim}
+                          aria-label={`${verb} ${player.name}`}
+                          onClick={() => {
+                            setNotice(null);
+                            setSelected(player);
+                          }}
+                        >
+                          {verb}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </TableScroll>
       )}
       <MyClaims leagueId={leagueId} refreshKey={refreshKey} onChanged={refresh} />
       <Transactions leagueId={leagueId} refreshKey={refreshKey} />

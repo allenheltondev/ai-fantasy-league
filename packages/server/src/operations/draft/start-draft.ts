@@ -69,6 +69,7 @@ export const startDraft = defineOperation({
       record: started.record,
       teams: await ctx.repos.teams.list(access.league.id),
       settings: started.settings,
+      season: access.league.season,
       yourTeamId: access.actor.kind === 'user' ? (access.actor.team?.id ?? null) : null,
       query: {}
     });

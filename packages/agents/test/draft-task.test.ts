@@ -62,6 +62,46 @@ describe('draft_pick task', () => {
     expect(calls.at(-1)).toBe('make_draft_pick');
   });
 
+  it('shows last season PPG and the season projection in the candidate lines', async () => {
+    const s = await withAgent();
+    const reference = s.services.data.reference;
+    const state = {
+      season: 2026,
+      seasonType: 'pre' as const,
+      week: 1,
+      displayWeek: 1,
+      leagueSeason: 2026,
+      previousSeason: 2025,
+      seasonStartDate: null,
+      updatedAt: 'x'
+    };
+    await reference.nflState.put(state, null);
+    const lines = (season: number, weeks: Record<string, number>[]) => ({
+      playerId: 'fx-jjefferson',
+      season,
+      weeks: weeks.map((stats, i) => ({ week: i + 1, stats }))
+    });
+    const meta = { updatedAt: 'x', players: 1, weeks: [1, 2], hash: 'h' };
+    await reference.seasons.put({ ...meta, kind: 'stats', season: 2025 }, [
+      lines(2025, [
+        { gp: 1, rec: 6, rec_yd: 100 },
+        { gp: 1, rec: 4, rec_yd: 50 }
+      ])
+    ]);
+    await reference.seasons.put({ ...meta, kind: 'projections', season: 2026 }, [
+      lines(2026, [{ rec: 5, rec_yd: 80 }])
+    ]);
+    const model = new ScriptedModelClient({
+      script: () => ({ steps: [], decision: { summary: 'WR1.', playerId: 'fx-jjefferson' } })
+    });
+    await runAgentAction(s.deps(model), s.turnRequest());
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    // Half PPR: (3 + 10) + (2 + 5) = 20 over 2 games; projection 2.5 + 8 = 10.5.
+    expect(prompt).toMatch(
+      /Justin Jefferson \(fx-jjefferson, WR, MIN, rank \d+, 10 PPG last season \(2 games\), projected 10.5 pts\)/
+    );
+  });
+
   it('shapes the recommendation by archetype: zero RB passes on the top back', async () => {
     const s = await withAgent();
     const record = await runAgentAction(s.deps(new ScriptedModelClient()), s.turnRequest());

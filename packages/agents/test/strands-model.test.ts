@@ -145,7 +145,7 @@ describe('StrandsModelClient', () => {
     });
     const run = {
       ...request(),
-      modelId: 'us.anthropic.claude-opus-5-v1',
+      modelId: 'us.anthropic.claude-opus-5',
       maxTokens: 8192,
       thinkingBudgetTokens: 4096
     };
@@ -153,7 +153,7 @@ describe('StrandsModelClient', () => {
     expect(runAgent).not.toHaveBeenCalled();
     expect(strands.models.at(-1)).toEqual({
       region: 'us-east-1',
-      modelId: 'us.anthropic.claude-opus-5-v1',
+      modelId: 'us.anthropic.claude-opus-5',
       maxTokens: 8192,
       additionalRequestFields: { thinking: { type: 'enabled', budget_tokens: 4096 } }
     });
