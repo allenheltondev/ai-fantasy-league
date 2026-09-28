@@ -48,6 +48,8 @@ export type FantasyEventType =
   | 'Chat Moment'
   | 'Chat Message Posted'
   | 'Scores Updated'
+  /** The week's NFL games changed (scores, status, possession, red zone); league-less, on the global topic. */
+  | 'NFL Games Updated'
   | 'Week Provisionally Final'
   | 'Week Official Final'
   | 'Stat Correction Applied'

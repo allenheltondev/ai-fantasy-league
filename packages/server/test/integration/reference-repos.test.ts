@@ -14,6 +14,7 @@ import type {
 import { createInMemoryRepos } from '../../src/repos/memory.js';
 import type { Repos } from '../../src/repos/types.js';
 import { game, nflState, sourcePlayer } from '../support/jobs.js';
+import { liveGame, redZoneGame } from '../support/season.js';
 
 /**
  * The reference repositories' behavioral contract (stats, projections with as-of reads, trending,
@@ -227,6 +228,31 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
     const week1 = await reference.schedule.getWeek(season, 1);
     expect(week1.find((g) => g.gameId === 'g2')?.kickoff).toBe('2033-09-07T20:25:00.000Z');
     expect(week1.filter((g) => g.gameId === 'g2')).toHaveLength(1);
+  });
+
+  it("replaces a week's live NFL games and reads them back", async () => {
+    const { reference } = make();
+    const season = nextSeason();
+    expect(await reference.nflGames.get(season, 4)).toBeNull();
+    const first = {
+      season,
+      week: 4,
+      games: [
+        redZoneGame('2026_04_DAL_PHI'),
+        liveGame('2026_04_LAR_SF', { gameKey: null, state: 'pre' as const })
+      ],
+      updatedAt: '2026-10-04T18:00:00.000Z'
+    };
+    await reference.nflGames.put(first);
+    expect(await reference.nflGames.get(season, 4)).toEqual(first);
+    const next = {
+      ...first,
+      games: [liveGame('2026_04_DAL_PHI', { state: 'post' })],
+      updatedAt: '2026-10-04T21:00:00.000Z'
+    };
+    await reference.nflGames.put(next);
+    expect(await reference.nflGames.get(season, 4)).toEqual(next);
+    expect(await reference.nflGames.get(season, 5)).toBeNull();
   });
 
   it('writes the NFL state only over the state the caller read', async () => {

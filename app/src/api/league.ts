@@ -17,6 +17,7 @@ import type {
   LineupMove,
   MatchupData,
   MatchupOutlook,
+  NflGamesData,
   ModelLeaderboard,
   MyLeague,
   PlayoffBracketData,
@@ -92,6 +93,8 @@ export function createLeagueApi(api: ApiFetch) {
     },
     getMatchup: (id: string) => call<MatchupData>(`${league(id)}/matchup`),
     getMatchupOutlook: (id: string) => call<MatchupOutlook>(`${league(id)}/matchup/outlook`),
+    /** get_nfl_games (#132): the week's NFL games, for the games strip and the red-zone highlights. */
+    getNflGames: (id: string) => call<NflGamesData>(`${league(id)}/nfl-games`),
     getStandings: (id: string) => call<StandingsData>(`${league(id)}/standings`),
     /** get_model_leaderboard (#76). */
     getModelLeaderboard: (id: string) => call<ModelLeaderboard>(`${league(id)}/model-leaderboard`),
