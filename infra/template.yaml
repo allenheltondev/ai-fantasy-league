@@ -35,6 +35,22 @@ Parameters:
     MaxValue: 10240
     Description: Memory (MB) for the API Lambda. Lambda scales CPU with memory, so this is also a cold-start knob.
 
+  LeagueQuota:
+    Type: Number
+    Default: 3
+    MinValue: 0
+    Description: >
+      Active (not complete) leagues one person may have created (issue #93).
+      Bedrock spend grows with every league's agents; people on
+      LeagueQuotaAdmins are exempt.
+
+  LeagueQuotaAdmins:
+    Type: String
+    Default: ''
+    Description: >
+      Comma-separated Cognito subs or emails exempt from LeagueQuota (the
+      owner and anyone the owner allowlists). Empty means nobody is exempt.
+
   # --------------------------------------------------------------------------
   # Data jobs (packages/server/src/jobs, the same artifact as the API)
   # --------------------------------------------------------------------------
@@ -219,6 +235,11 @@ Resources:
           SECRET_ID: !Ref SecretsArn
           # Realtime (#68): get_realtime_token vends subscribe-only Momento tokens.
           MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
+          # Spend guard (#93): league quota per creator, and the agent kill
+          # switch state shown to commissioners (get_agent_activity).
+          LEAGUE_QUOTA: !Ref LeagueQuota
+          LEAGUE_QUOTA_ADMINS: !Ref LeagueQuotaAdmins
+          AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter
           NODE_OPTIONS: --enable-source-maps
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -245,6 +266,10 @@ Resources:
             - Effect: Allow
               Action: ssm:GetParameter
               Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MomentoCacheParameterName}
+            # The agent kill switch, read-only (get_agent_activity shows its state).
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/agents/kill-switch
       # The draft pick clock (#46): start_draft and every pick schedule a
       # "Draft Pick Deadline" through the rsc-core deferred-event scheduler. At
       # the deadline this function autopicks if the pick is still open; a
@@ -704,6 +729,13 @@ Resources:
                 - Lineup Lock Approaching
                 - Chat Mention
                 - Chat Moment
+                # Agent memory (#44): results and trade steps the agents remember.
+                - Week Provisionally Final
+                - Trade Accepted
+                - Trade Rejected
+                - Trade Expired
+                - Trade Processed
+                - Trade Vetoed
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600

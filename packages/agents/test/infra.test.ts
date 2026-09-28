@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MODEL_CATALOG } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
+import { MEMORY_EVENTS } from '../src/memory.js';
 import { TRIGGER_RULES } from '../src/router.js';
 
 /** infra/template.yaml must grant exactly the catalog's models and wire both agent handlers. */
@@ -37,12 +38,22 @@ describe('agent infrastructure', () => {
   it('routes every trigger event to the router and requested tasks to the task handler', () => {
     const router = section('  AgentRouterFunction:', '  AgentTaskFunction:');
     expect(router).toContain('Handler: agent-router.handler');
-    for (const detailType of Object.keys(TRIGGER_RULES)) expect(router).toContain(`- ${detailType}\n`);
+    for (const detailType of [...Object.keys(TRIGGER_RULES), ...MEMORY_EVENTS]) {
+      expect(router).toContain(`- ${detailType}\n`);
+    }
     const task = section('  AgentTaskFunction:', 'End of agent platform section');
     expect(task).toContain('Handler: agent-task.handler');
     expect(task).toContain('- Agent Action Requested');
     expect(task).toContain(policy);
     expect(template).not.toContain('AWS::IAM::ManagedPolicy');
     expect(task).toContain('AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter');
+  });
+
+  it('gives the API the spend guard settings and read access to the kill switch', () => {
+    const api = section('  ApiFunction:', '  AgentKillSwitchParameter:');
+    expect(api).toContain('LEAGUE_QUOTA: !Ref LeagueQuota');
+    expect(api).toContain('LEAGUE_QUOTA_ADMINS: !Ref LeagueQuotaAdmins');
+    expect(api).toContain('AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter');
+    expect(api).toContain('parameter/${AWS::StackName}/agents/kill-switch');
   });
 });

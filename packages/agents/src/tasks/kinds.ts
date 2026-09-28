@@ -1,4 +1,4 @@
-import type { Clock, ResolvedAgentConfig } from '@fantasy/core';
+import type { Clock, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
 import type { AgentPrincipal, AgentSeatRecord, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
 import type { FakeScript } from '../fake-model.js';
@@ -60,6 +60,8 @@ export interface TaskOutcome {
   action: string;
   /** What happened, for the activity log. */
   summary: string;
+  /** Extra events for the agent's memory (the runner already remembers the decision itself). */
+  memory?: MemoryEvent[];
 }
 
 export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
