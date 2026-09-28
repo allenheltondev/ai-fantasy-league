@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import { ToastProvider } from '@readysetcloud/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { LeagueApiContext } from '../api/league';
@@ -43,6 +43,11 @@ function chat(mentionedTeamIds: string[], authorTeamId: string | null = 'team-2'
       createdAt: '2026-09-30T12:00:00Z'
     }
   };
+}
+
+function Where() {
+  const location = useLocation();
+  return <p data-testid="where">{`${location.pathname}${location.search}`}</p>;
 }
 
 describe('notificationFor', () => {
@@ -133,6 +138,21 @@ describe('notificationFor', () => {
     expect(notificationFor(ev(CHAT_EVENT, anonymous), 'team-1')?.message).toBe(
       'Someone mentioned you: “hi @Alice”'
     );
+    // Toasts carry the room: the message's, or trash talk for messages from before rooms.
+    expect(note?.roomId).toBe('trash-talk');
+    const inTrades = { message: { ...short.message, roomId: 'trades' } };
+    expect(notificationFor(ev(CHAT_EVENT, inTrades), 'team-1')?.roomId).toBe('trades');
+  });
+
+  it('shows every direct message you receive, mention or not', () => {
+    const dm = { message: { ...chat([]).message, roomId: 'dm-team-1-team-2', text: 'psst' } };
+    expect(notificationFor(ev(CHAT_EVENT, dm), 'team-1')).toEqual({
+      message: 'The Spreadsheet sent you a message: “psst”',
+      variant: 'info',
+      roomId: 'dm-team-1-team-2'
+    });
+    const mine = { message: { ...dm.message, author: { teamId: 'team-1', teamName: 'A', name: 'Alice' } } };
+    expect(notificationFor(ev(CHAT_EVENT, mine), 'team-1')).toBeNull();
   });
 
   it('says nothing without a team, a detail, or for other events', () => {
@@ -193,6 +213,7 @@ describe('LeagueNotifications', () => {
         <LeagueApiContext.Provider value={api}>
           <MemoryRouter initialEntries={[path]}>
             <LeagueNotifications leagueId="L1" yourTeamId="team-1" connect={connect} />
+            <Where />
           </MemoryRouter>
         </LeagueApiContext.Provider>
       </ToastProvider>
@@ -217,9 +238,13 @@ describe('LeagueNotifications', () => {
     expect(screen.getByText(/New trade offer/)).toBeInTheDocument();
     expect(screen.getByText('Your trade was vetoed.')).toBeInTheDocument();
     expect(screen.getByText(/Trade accepted!/)).toBeInTheDocument();
-    // An event without an id is shown too.
-    push(ev(CHAT_EVENT, chat(['team-1'])));
+    // An event without an id is shown too; a chat toast links to its room.
+    push(ev(CHAT_EVENT, { message: { ...chat(['team-1']).message, roomId: 'trades' } }));
     expect(await screen.findByText(/mentioned you/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute(
+      'href',
+      '/leagues/L1/chat?room=trades'
+    );
   });
 
   it('skips chat mentions while you are reading the chat', async () => {

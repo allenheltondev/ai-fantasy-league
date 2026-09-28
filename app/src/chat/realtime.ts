@@ -9,7 +9,8 @@ import type { ChatMessage, RealtimeInfo } from './api';
 export interface LiveTarget {
   token: string;
   cacheName: string;
-  topic: string;
+  /** The league topic, and the caller's team topic (where their DMs arrive) when they have a seat. */
+  topics: string[];
 }
 
 /** Opens a subscription and resolves to a function that closes it. */
@@ -21,7 +22,12 @@ export type Connect = (
 /** The subscription target when realtime is on and the token is complete, else null. */
 export function liveTarget(info: RealtimeInfo): LiveTarget | null {
   if (!info.enabled || info.token === null || info.cacheName === null || info.topics === null) return null;
-  return { token: info.token, cacheName: info.cacheName, topic: info.topics.league };
+  const team = info.topics.team ?? null;
+  return {
+    token: info.token,
+    cacheName: info.cacheName,
+    topics: [info.topics.league, ...(team === null ? [] : [team])]
+  };
 }
 
 /** The chat message in a topic item, or null for other league events and anything malformed. */
@@ -46,15 +52,21 @@ export const connectMomento: Connect = async (target, handlers) => {
     configuration: sdk.TopicConfigurations.Browser.latest(),
     credentialProvider: sdk.CredentialProvider.fromDisposableToken({ authToken: target.token })
   });
-  const subscription = await client.subscribe(target.cacheName, target.topic, {
-    onItem: (item) => {
-      const message = parseChatItem(item.valueString());
-      if (message !== null) handlers.onChat(message);
-    },
-    onError: () => handlers.onError()
-  });
-  if (!(subscription instanceof sdk.TopicSubscribe.Subscription)) {
-    throw new Error('Could not subscribe to live chat.');
+  const closers: (() => void)[] = [];
+  const closeAll = () => closers.forEach((close) => close());
+  for (const topic of target.topics) {
+    const subscription = await client.subscribe(target.cacheName, topic, {
+      onItem: (item) => {
+        const message = parseChatItem(item.valueString());
+        if (message !== null) handlers.onChat(message);
+      },
+      onError: () => handlers.onError()
+    });
+    if (!(subscription instanceof sdk.TopicSubscribe.Subscription)) {
+      closeAll();
+      throw new Error('Could not subscribe to live chat.');
+    }
+    closers.push(() => subscription.unsubscribe());
   }
-  return () => subscription.unsubscribe();
+  return closeAll;
 };

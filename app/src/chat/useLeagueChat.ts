@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { mergeMessages, type ChatApi, type ChatMessage, type ChatTeam } from './api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { DEFAULT_ROOM_ID, mergeMessages, type ChatApi, type ChatMessage, type ChatTeam } from './api';
 import { liveTarget, type Connect } from './realtime';
 
 export type ChatStatus = 'loading' | 'live' | 'polling';
@@ -18,16 +18,25 @@ const RENEW_EARLY_MS = 60_000;
 const PAGE = 50;
 const DEFAULT_POLL_SECONDS = 5;
 const MAX_TIMER_MS = 2_147_483_647;
-/** The room this view shows: get_chat and post_message default to it. */
-const ROOM = 'trash-talk';
 
 /**
- * Loads a league's chat and keeps it current: live through Momento when the API vends a token,
- * otherwise (local dev, e2e, or a failed subscription) by polling get_chat. `api` and `connect`
- * must be stable (memoize them), or the chat reloads on every render; key the component by league
- * so a different league starts fresh.
+ * Loads one chat room and keeps it current: live through Momento when the API vends a token,
+ * otherwise (local dev, e2e, or a failed subscription) by polling get_chat. Live messages for other
+ * rooms go to `onOther` (to bump their unread counts). `api` and `connect` must be stable (memoize
+ * them), or the chat reloads on every render; key the component by league and room so a switch
+ * starts fresh.
  */
-export function useLeagueChat(leagueId: string, api: ChatApi, connect: Connect): LeagueChat {
+export function useLeagueChat(
+  leagueId: string,
+  api: ChatApi,
+  connect: Connect,
+  roomId: string = DEFAULT_ROOM_ID,
+  onOther?: (message: ChatMessage) => void
+): LeagueChat {
+  const other = useRef(onOther);
+  useEffect(() => {
+    other.current = onOther;
+  }, [onOther]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [teams, setTeams] = useState<ChatTeam[]>([]);
   const [status, setStatus] = useState<ChatStatus>('loading');
@@ -44,7 +53,7 @@ export function useLeagueChat(leagueId: string, api: ChatApi, connect: Connect):
     const later = (ms: number, run: () => void) => timers.push(setTimeout(run, ms));
     const chat = api;
 
-    const refresh = async () => add((await chat.list(leagueId, { limit: PAGE })).messages);
+    const refresh = async () => add((await chat.list(leagueId, { limit: PAGE, roomId })).messages);
     const disconnect = () => {
       close?.();
       close = null;
@@ -71,9 +80,10 @@ export function useLeagueChat(leagueId: string, api: ChatApi, connect: Connect):
       if (info === null || target === null) return poll(info?.pollIntervalSeconds ?? DEFAULT_POLL_SECONDS);
       try {
         const unsubscribe = await connect(target, {
-          // The league topic carries every room; this view shows one.
+          // The topics carry every room; this view shows one.
           onChat: (message) => {
-            if ((message.roomId ?? ROOM) === ROOM) add([message]);
+            if ((message.roomId ?? DEFAULT_ROOM_ID) === roomId) add([message]);
+            else other.current?.(message);
           },
           onError: () => {
             disconnect();
@@ -111,14 +121,14 @@ export function useLeagueChat(leagueId: string, api: ChatApi, connect: Connect):
       disconnect();
       for (const t of timers) clearTimeout(t);
     };
-  }, [leagueId, api, connect, add]);
+  }, [leagueId, roomId, api, connect, add]);
 
   const send = useCallback(
     async (text: string) => {
-      const message = await api.post(leagueId, text);
+      const message = await api.post(leagueId, text, roomId);
       add([message]);
     },
-    [leagueId, api, add]
+    [leagueId, roomId, api, add]
   );
 
   return { messages, teams, status, pollSeconds, send };

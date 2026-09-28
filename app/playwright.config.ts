@@ -8,6 +8,9 @@ const PREINSTALLED_CHROMIUM = '/opt/pw-browsers/chromium';
 // Overridable so two checkouts can run their e2e suites side by side.
 const PORT = Number(process.env.E2E_PORT ?? 5173);
 const API_PORT = Number(process.env.E2E_API_PORT ?? 8787);
+// A second API server with the in-process event loop and agents on the fake model (chat rooms).
+const AGENT_API_PORT = Number(process.env.E2E_AGENT_API_PORT ?? API_PORT + 1);
+process.env.E2E_AGENT_API_PORT = String(AGENT_API_PORT);
 
 /**
  * E2E for the SPA against the local API server (packages/server/src/local.ts):
@@ -49,6 +52,21 @@ export default defineConfig({
         FANTASY_LOCAL_NOW: '2026-09-10T12:00:00Z',
         // An in-season league for dev user local-season-e2e (e2e/lineup.pw.ts).
         FANTASY_LOCAL_SEASON_DEMO: 'season-e2e'
+      },
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000
+    },
+    {
+      // System messages, agent replies, and the season jobs, all in process (packages/agents/src/dev.ts).
+      // Only e2e/chat-rooms.pw.ts talks to it, by rerouting its API calls here.
+      command: 'npm run dev --workspace=@fantasy/agents',
+      cwd: '..',
+      url: `http://127.0.0.1:${AGENT_API_PORT}/api/v1/health`,
+      env: {
+        PORT: String(AGENT_API_PORT),
+        FANTASY_LOCAL_AUTH: '1',
+        FANTASY_LOCAL_NOW: '2026-09-10T12:00:00Z',
+        FANTASY_LOCAL_SEASON_DEMO: 'rooms-e2e'
       },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000
