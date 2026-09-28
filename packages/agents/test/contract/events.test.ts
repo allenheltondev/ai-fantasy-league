@@ -714,6 +714,30 @@ describe('event contract: trades', () => {
     expect(expired.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
   });
 
+  it('withdrawn offers, and offers voided when a player moves, reach only the two teams', async () => {
+    const s = await tradeLeague();
+    const offer = { leagueId: LEAGUE_ID, withTeamId: 'team-2', send: ['rb3'], receive: ['rb4'] };
+    const taken = offerOf(await run(s, 'propose_trade', offer, ALLEN_IN_SEASON));
+    await run(s, 'withdraw_trade', { leagueId: LEAGUE_ID, tradeId: taken.id }, ALLEN_IN_SEASON);
+    const withdrawn = await consume(s.services, delivered(last(s.events.events, 'Trade Withdrawn')));
+    expect(withdrawn.event.detail).toMatchObject({ tradeId: taken.id, status: 'withdrawn' });
+    expect(withdrawn.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(withdrawn.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+    expect(withdrawn.routed).toEqual([]);
+
+    const stale = offerOf(await run(s, 'propose_trade', offer, ALLEN_IN_SEASON));
+    await run(s, 'drop_player', { leagueId: LEAGUE_ID, playerId: 'rb3' }, ALLEN_IN_SEASON);
+    const voided = await consume(s.services, delivered(last(s.events.events, 'Trade Expired')));
+    expect(voided.event.detail).toMatchObject({
+      tradeId: stale.id,
+      status: 'expired',
+      voided: true,
+      reasonCode: 'PLAYER_MOVED'
+    });
+    expect(voided.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(voided.routed).toEqual([]);
+  });
+
   it('accepted, vetoed, and processed trades are league news with chat lines', async () => {
     const s = await tradeLeague();
     const vetoed = offerOf(
@@ -787,14 +811,22 @@ describe('event contract: trades', () => {
     const s = await tradeLeague();
     const league = await s.repos.leagues.get(LEAGUE_ID);
     if (league === null) throw new Error('league');
-    await scheduleTradeDeadline(
-      { events: s.events },
-      { ...league, deadlines: { ...league.deadlines, tradeDeadlineAt: '2026-11-20T00:20:00.000Z' } }
-    );
+    const deadlineAt = '2026-11-20T00:20:00.000Z';
+    const withDeadline = await s.repos.leagues.update({
+      ...league,
+      deadlines: { ...league.deadlines, tradeDeadlineAt: deadlineAt }
+    });
+    await scheduleTradeDeadline({ events: s.events }, withDeadline);
     const timer = last(s.events.events, 'Schedule Event').detail.event as {
       detailType: string;
       detail: EventDetail;
     };
+    // Delivered before the deadline (it moved later since): nothing to announce yet.
+    expect((await consume(s.services, delivered(timer))).chat).toEqual({
+      status: 'skipped',
+      reason: 'stale'
+    });
+    s.clock.set(deadlineAt);
     const passed = await consume(s.services, delivered(timer));
     expect(posted(passed).text).toBe(
       'The trade deadline has passed. Rosters change only through waivers from here on.'
@@ -828,6 +860,7 @@ describe('event contract coverage', () => {
       'Accepted',
       'Rejected',
       'Expired',
+      'Withdrawn',
       'Processed',
       'Vetoed',
       'Offer Deadline',

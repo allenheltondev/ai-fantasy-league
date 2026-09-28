@@ -13,6 +13,8 @@ export interface TradeRecord {
   trade: Trade;
   /** An optional note from the team that made this offer, shown only to the two teams. */
   message: string | null;
+  /** The answering team's note with its reply (accept or reject), shown only to the two teams. */
+  reply: string | null;
   /** Principal key of whoever made the offer (`user#<sub>` or `agent#<agentId>`). */
   createdBy: string;
   /**

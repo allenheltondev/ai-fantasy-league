@@ -55,7 +55,10 @@ export interface Trade {
   /** When review ends; set when review starts. */
   reviewEndsAt: string | null;
   commissionerApproved: boolean;
-  /** Why the trade was vetoed when it was voided rather than voted down. */
+  /**
+   * Why the trade was cancelled rather than answered or voted down: a `vetoed` trade that no longer
+   * validated at processing, or an `expired` offer voided because a player in it moved.
+   */
   voidReason: RuleIssue | null;
   history: readonly TradeEvent[];
 }

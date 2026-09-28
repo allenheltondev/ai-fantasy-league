@@ -238,8 +238,9 @@ export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
   counter_trade: tradeRule(),
   respond_to_trade: tradeRule(),
   withdraw_trade: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
+  // A trade accepted before the deadline can still be under review when the playoffs start.
   vote_trade: {
-    phases: ['regular_season'],
+    phases: IN_SEASON,
     roles: ['member', 'agent', 'commissioner'],
     roleFix: 'Only teams in this league (or the commissioner) can review trades.'
   },

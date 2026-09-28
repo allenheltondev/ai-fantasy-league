@@ -2,6 +2,7 @@ import { renderSystemMessage, SYSTEM_MESSAGE_TEMPLATES } from '@fantasy/core';
 import { eventDetail, type BusEvent } from '../events/bus.js';
 import { EVENT_SOURCE } from '../events/publisher.js';
 import type { Services } from '../context.js';
+import { phaseFlags } from '../league/phase.js';
 import type { ChatMessage } from './model.js';
 
 /**
@@ -17,7 +18,7 @@ import type { ChatMessage } from './model.js';
 export type SystemMessageOutcome =
   | { status: 'posted'; message: ChatMessage; moment: boolean }
   | { status: 'duplicate'; messageId: string }
-  | { status: 'skipped'; reason: 'not_ours' | 'no_template' | 'no_league' | 'nothing_to_say' };
+  | { status: 'skipped'; reason: 'not_ours' | 'no_template' | 'no_league' | 'nothing_to_say' | 'stale' };
 
 /** Detail types that may produce a system message (for the EventBridge rule and tests). */
 export const SYSTEM_MESSAGE_EVENTS = Object.keys(SYSTEM_MESSAGE_TEMPLATES);
@@ -52,6 +53,9 @@ async function post(
   const leagueId = typeof detail.leagueId === 'string' ? detail.leagueId : null;
   const league = leagueId === null ? null : await services.repos.leagues.get(leagueId);
   if (league === null) return { status: 'skipped', reason: 'no_league' };
+  // A deadline event left over from before the deadline moved later says nothing yet.
+  if (detailType === 'Trade Deadline Passed' && !phaseFlags(league, services.clock.now()).tradeDeadlinePassed)
+    return { status: 'skipped', reason: 'stale' };
   const teams = await services.repos.teams.list(league.id);
   const names = new Map(teams.map((t) => [t.id, t.name]));
   const rendered = renderSystemMessage(detailType, detail, { teamName: (id) => names.get(id) ?? null });

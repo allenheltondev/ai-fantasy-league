@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Services } from '../context.js';
+import { phaseFlags } from '../league/phase.js';
 import { expireOffer, processAccepted, type ExpireOutcome, type ProcessOutcome } from './lifecycle.js';
 import type { TradeDeps } from './world.js';
 
@@ -38,6 +39,8 @@ export async function handleTradeTimer(
     const parsed = LeagueDetail.safeParse(detail);
     const league = parsed.success ? await deps.repos.leagues.get(parsed.data.leagueId) : null;
     if (league === null) return 'ignored';
+    // A deadline that moved later (update_league_settings reschedules it) has not passed yet.
+    if (!phaseFlags(league, now).tradeDeadlinePassed) return 'early';
     let expired = 0;
     for (const record of await deps.repos.trades.list(league.id)) {
       if ((await expireOffer(deps, league, record, now, { force: true })) === 'expired') expired++;

@@ -8601,7 +8601,7 @@
       "post": {
         "operationId": "drop_player",
         "summary": "Release a player from your roster",
-        "description": "Releases a player from your roster. He goes on waivers for the league waiver period (`waivers.waiverPeriodDays`, 2 days by default, rounded up to the next daily waiver run) and becomes a free agent at `clearsAt`; until then other teams can only claim him with a FAAB bid. A player whose game this week has kicked off is locked and cannot be dropped until the week rolls over (PLAYER_LOCKED; get_roster shows `locked`). To swap a player for a pickup in one move, use claim_waiver with `dropPlayerId` instead. PLAYER_NOT_ON_ROSTER means he is not on your team.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Releases a player from your roster. He goes on waivers for the league waiver period (`waivers.waiverPeriodDays`, 2 days by default, rounded up to the next daily waiver run) and becomes a free agent at `clearsAt`; until then other teams can only claim him with a FAAB bid. A player whose game this week has kicked off is locked and cannot be dropped until the week rolls over (PLAYER_LOCKED; get_roster shows `locked`). To swap a player for a pickup in one move, use claim_waiver with `dropPlayerId` instead. PLAYER_NOT_ON_ROSTER means he is not on your team; PLAYER_IN_TRADE means he is leaving in a trade that is being processed right now. Open trade offers that include him are cancelled (they no longer work).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "waivers"
         ],
@@ -13930,7 +13930,7 @@
       "patch": {
         "operationId": "update_league_settings",
         "summary": "Change league rules (commissioner only)",
-        "description": "Changes league settings. Send only what changes in `changes`, shaped like `settings` from get_league: nested objects merge ({\"scoring\": {\"perStat\": {\"rec\": 1}}} switches to full PPR), arrays replace. Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed. Pass `expectedVersion` (the `version` from get_league) so you never overwrite a change you have not seen; a mismatch returns CONFLICT. Only the commissioner can call this.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Changes league settings. Send only what changes in `changes`, shaped like `settings` from get_league: nested objects merge ({\"scoring\": {\"perStat\": {\"rec\": 1}}} switches to full PPR), arrays replace. Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed; in season, a new `trades.deadlineWeek` moves the deadline to that week’s first kickoff. Pass `expectedVersion` (the `version` from get_league) so you never overwrite a change you have not seen; a mismatch returns CONFLICT. Only the commissioner can call this.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues"
         ],
@@ -17538,6 +17538,14 @@
                                 "description": "Players toTeam releases to make room (chosen when accepting)."
                               },
                               "message": {
+                                "description": "The offering team’s note. Only the two teams see it; null for everyone else.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "reply": {
+                                "description": "The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.",
                                 "type": [
                                   "string",
                                   "null"
@@ -17690,6 +17698,7 @@
                               "fromDrops",
                               "toDrops",
                               "message",
+                              "reply",
                               "proposedAt",
                               "expiresAt",
                               "reviewEndsAt",
@@ -17841,7 +17850,7 @@
       "post": {
         "operationId": "propose_trade",
         "summary": "Offer a trade to another team",
-        "description": "Creates a trade offer from your team to `withTeamId`: you `send` some of your players and `receive` some of theirs (ids or names). Only the two teams see a pending offer. The other team can accept, reject, or counter. The offer expires after the league’s offer window (48 hours by default) or at the next lineup lock, whichever comes first. If the other team would end up over the roster limit, it picks its drops when accepting (warning RESPONDER_MUST_DROP). Call preview_trade first to check legality and fairness. Errors carry a fix: PLAYER_NOT_ON_ROSTER (re-read both rosters), ROSTER_LIMIT_EXCEEDED (add `drops`), PLAYER_LOCKED (his game has kicked off this week), TRADE_DEADLINE_PASSED (trades are closed), TRADE_LOPSIDED (two AI teams, too one-sided), TRADE_INVALID (see details.issues).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Creates a trade offer from your team to `withTeamId`: you `send` some of your players and `receive` some of theirs (ids or names). Only the two teams see a pending offer. The other team can accept, reject, or counter. The offer expires after the league’s offer window (48 hours by default) or at the next lineup lock, whichever comes first. If the other team would end up over the roster limit, it picks its drops when accepting (warning RESPONDER_MUST_DROP). Call preview_trade first to check legality and fairness. Errors carry a fix: PLAYER_NOT_ON_ROSTER (re-read both rosters), ROSTER_LIMIT_EXCEEDED (add `drops`), PLAYER_LOCKED (his game has kicked off this week), TRADE_DEADLINE_PASSED (trades are closed), TRADE_LOPSIDED (two AI teams, too one-sided), TOO_MANY_OPEN_OFFERS (you already have 2 unanswered offers out to that team; wait or withdraw one), TRADE_INVALID (see details.issues).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "trades"
         ],
@@ -18110,6 +18119,14 @@
                               "description": "Players toTeam releases to make room (chosen when accepting)."
                             },
                             "message": {
+                              "description": "The offering team’s note. Only the two teams see it; null for everyone else.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reply": {
+                              "description": "The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.",
                               "type": [
                                 "string",
                                 "null"
@@ -18262,6 +18279,7 @@
                             "fromDrops",
                             "toDrops",
                             "message",
+                            "reply",
                             "proposedAt",
                             "expiresAt",
                             "reviewEndsAt",
@@ -18480,7 +18498,7 @@
       "post": {
         "operationId": "counter_trade",
         "summary": "Answer a trade offer with a different offer",
-        "description": "Counters an offer made to your team: the original closes as `countered` and your counter goes back to the team that offered, as a new offer they can accept, reject, or counter again. `send` is what you give, `receive` is what you want from them (ids or names). Only the team the offer was made to can counter, and only before it expires. The counter keeps the negotiation history in `counterChain`. AI managers have a limited number of counters per negotiation (their difficulty). Errors carry a fix: PLAYER_NOT_ON_ROSTER (re-read both rosters), ROSTER_LIMIT_EXCEEDED (add `drops`), PLAYER_LOCKED (his game has kicked off this week), TRADE_DEADLINE_PASSED (trades are closed), TRADE_LOPSIDED (two AI teams, too one-sided), TRADE_INVALID (see details.issues).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Counters an offer made to your team: the original closes as `countered` and your counter goes back to the team that offered, as a new offer they can accept, reject, or counter again. `send` is what you give, `receive` is what you want from them (ids or names). Only the team the offer was made to can counter, and only before it expires. The counter keeps the negotiation history in `counterChain`. AI managers have a limited number of counters per negotiation (their difficulty). Errors carry a fix: PLAYER_NOT_ON_ROSTER (re-read both rosters), ROSTER_LIMIT_EXCEEDED (add `drops`), PLAYER_LOCKED (his game has kicked off this week), TRADE_DEADLINE_PASSED (trades are closed), TRADE_LOPSIDED (two AI teams, too one-sided), TOO_MANY_OPEN_OFFERS (you already have 2 unanswered offers out to that team; wait or withdraw one), TRADE_INVALID (see details.issues).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "trades"
         ],
@@ -18760,6 +18778,14 @@
                               "description": "Players toTeam releases to make room (chosen when accepting)."
                             },
                             "message": {
+                              "description": "The offering team’s note. Only the two teams see it; null for everyone else.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reply": {
+                              "description": "The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.",
                               "type": [
                                 "string",
                                 "null"
@@ -18912,6 +18938,7 @@
                             "fromDrops",
                             "toDrops",
                             "message",
+                            "reply",
                             "proposedAt",
                             "expiresAt",
                             "reviewEndsAt",
@@ -19160,6 +19187,14 @@
                               "description": "Players toTeam releases to make room (chosen when accepting)."
                             },
                             "message": {
+                              "description": "The offering team’s note. Only the two teams see it; null for everyone else.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reply": {
+                              "description": "The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.",
                               "type": [
                                 "string",
                                 "null"
@@ -19312,6 +19347,7 @@
                             "fromDrops",
                             "toDrops",
                             "message",
+                            "reply",
                             "proposedAt",
                             "expiresAt",
                             "reviewEndsAt",
@@ -19803,6 +19839,14 @@
                               "description": "Players toTeam releases to make room (chosen when accepting)."
                             },
                             "message": {
+                              "description": "The offering team’s note. Only the two teams see it; null for everyone else.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reply": {
+                              "description": "The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.",
                               "type": [
                                 "string",
                                 "null"
@@ -19955,6 +19999,7 @@
                             "fromDrops",
                             "toDrops",
                             "message",
+                            "reply",
                             "proposedAt",
                             "expiresAt",
                             "reviewEndsAt",
@@ -20152,7 +20197,7 @@
       "post": {
         "operationId": "vote_trade",
         "summary": "Vote to veto an accepted trade under league review",
-        "description": "Trades other teams accepted are under review for a few days (status `in_review`, see `reviewEndsAt`). In a league-vote league any team not in the trade can vote to veto it once (`decision: \"veto\"`); when enough teams veto (`vetoVotesRequired`), the trade is cancelled. To let a trade pass, do nothing. In a commissioner-review league only the commissioner decides: `\"approve\"` processes it now and `\"veto\"` cancels it. Errors: VOTE_NOT_ALLOWED (you are in the trade, already voted, the review is over, or this league does not vote), TRADE_NOT_IN_REVIEW.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Trades other teams accepted are under review for a few days (status `in_review`, see `reviewEndsAt`). In a league-vote league any team not in the trade can vote to veto it once (`decision: \"veto\"`); when enough teams veto (`vetoVotesRequired`), the trade is cancelled. To let a trade pass, do nothing. In a commissioner-review league only the commissioner decides: `\"approve\"` processes it now and `\"veto\"` cancels it. A trade the commissioner’s own team is part of goes to a league vote instead, so the commissioner never reviews their own trade. Review continues into the playoffs for trades accepted before the deadline. Errors: VOTE_NOT_ALLOWED (you are in the trade, already voted, the review is over, or this league does not vote), TRADE_NOT_IN_REVIEW.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "trades"
         ],
@@ -20432,6 +20477,14 @@
                               "description": "Players toTeam releases to make room (chosen when accepting)."
                             },
                             "message": {
+                              "description": "The offering team’s note. Only the two teams see it; null for everyone else.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reply": {
+                              "description": "The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.",
                               "type": [
                                 "string",
                                 "null"
@@ -20584,6 +20637,7 @@
                             "fromDrops",
                             "toDrops",
                             "message",
+                            "reply",
                             "proposedAt",
                             "expiresAt",
                             "reviewEndsAt",
@@ -21042,6 +21096,14 @@
                               "description": "Players toTeam releases to make room (chosen when accepting)."
                             },
                             "message": {
+                              "description": "The offering team’s note. Only the two teams see it; null for everyone else.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "reply": {
+                              "description": "The answering team’s note sent with its accept or reject. Only the two teams see it; null for everyone else.",
                               "type": [
                                 "string",
                                 "null"
@@ -21194,6 +21256,7 @@
                             "fromDrops",
                             "toDrops",
                             "message",
+                            "reply",
                             "proposedAt",
                             "expiresAt",
                             "reviewEndsAt",
@@ -22718,7 +22781,7 @@
       "post": {
         "operationId": "claim_waiver",
         "summary": "Add a free agent now, or claim a player on waivers with a FAAB bid",
-        "description": "Adds a player to your roster. A free agent (not on a roster and not on waivers) joins immediately at no cost (`outcome: \"added\"`). A player on waivers (recently dropped) gets a pending claim instead (`outcome: \"claim_pending\"`), resolved at the waiver run in `claim.processesAt`: the highest FAAB bid wins, ties go to waiver priority, and your own claims run in their `priority` order. Pass `dropPlayerId` to release someone in the same move; it is required when your roster is full (ROSTER_FULL lists the players you can drop). The dropped player goes on waivers for the league waiver period. Call preview_waiver_claim first to check the outcome and the resulting roster. Errors: PLAYER_NOT_AVAILABLE (on a roster), INSUFFICIENT_FAAB (bid over your budget), ZERO_BID_NOT_ALLOWED, DUPLICATE_WAIVER_CLAIM (cancel the old one first), ACQUISITION_LIMIT_REACHED, PLAYER_LOCKED (the drop player's game has kicked off, or will have when the claim runs), and PHASE_NOT_ALLOWED outside the season. A player is on waivers after a drop, right after the draft (`postDraftPlayers: waivers`), and once his game this week has kicked off (game-time waivers, until the first run after the week).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Adds a player to your roster. A free agent (not on a roster and not on waivers) joins immediately at no cost (`outcome: \"added\"`). A player on waivers (recently dropped) gets a pending claim instead (`outcome: \"claim_pending\"`), resolved at the waiver run in `claim.processesAt`: the highest FAAB bid wins, ties go to waiver priority, and your own claims run in their `priority` order. Pass `dropPlayerId` to release someone in the same move; it is required when your roster is full (ROSTER_FULL lists the players you can drop). The dropped player goes on waivers for the league waiver period. Call preview_waiver_claim first to check the outcome and the resulting roster. Errors: PLAYER_NOT_AVAILABLE (on a roster), INSUFFICIENT_FAAB (bid over your budget), ZERO_BID_NOT_ALLOWED, DUPLICATE_WAIVER_CLAIM (cancel the old one first), ACQUISITION_LIMIT_REACHED, PLAYER_LOCKED (the drop player's game has kicked off, or will have when the claim runs), PLAYER_IN_TRADE (the drop player is leaving in a trade being processed right now), and PHASE_NOT_ALLOWED outside the season. A player is on waivers after a drop, right after the draft (`postDraftPlayers: waivers`), and once his game this week has kicked off (game-time waivers, until the first run after the week).\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "waivers"
         ],
@@ -27518,6 +27581,8 @@
                   "TRADE_DEADLINE_PASSED",
                   "TRADE_EXPIRED",
                   "TRADE_LOPSIDED",
+                  "TOO_MANY_OPEN_OFFERS",
+                  "PLAYER_IN_TRADE",
                   "ILLEGAL_TRADE_TRANSITION",
                   "NOT_YOUR_TRADE_ACTION",
                   "ROSTER_LIMIT_EXCEEDED",

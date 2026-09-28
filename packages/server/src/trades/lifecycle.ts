@@ -2,7 +2,11 @@ import {
   expireTrade,
   processTrade,
   reconcileLineup,
+  reviewSettingsFor,
+  ruleError,
+  voidOffer,
   voidTrade,
+  type LeagueSettings,
   type RuleIssue,
   type Trade,
   type TradeSide
@@ -11,7 +15,7 @@ import { ApiError, isApiError, type ErrorCode } from '../errors.js';
 import type { TradeEventDetail } from '../events/details.js';
 import type { FantasyEventType } from '../events/publisher.js';
 import { toPlayerRef, type PlayerRef } from '../players/model.js';
-import type { League, Repos } from '../repos/types.js';
+import type { League, Repos, Team } from '../repos/types.js';
 import type { TradeRecord } from '../repos/trades.js';
 import type { TransactionRecord } from '../repos/waivers.js';
 import { putOnWaivers } from '../waivers/rosters.js';
@@ -29,7 +33,12 @@ import { loadTradeWorld, locksReleaseAt, tradeWeek, type TradeDeps } from './wor
  * alone), the required drops go on waivers, the `TXN#` records have ids derived from the trade, and
  * the current week's saved lineups are reconciled with the new rosters. Only then does the trade
  * become `processed` and `Trade Processed` go out. A trade that no longer validates is voided
- * (`vetoed` with a `voidReason`).
+ * (`vetoed` with a `voidReason`), and so is one whose player a third team took before his lock
+ * moved (the locks already moved go back first). While a trade is processing, `drop_player` and
+ * waiver claims refuse its players (`assertNotInProcessingTrade`).
+ *
+ * When players move (a processed trade, a drop, a waiver award), every open offer that includes one
+ * of them is voided (`voidStaleOffers`): it becomes `expired` with a `voidReason`.
  */
 
 /** Core issue codes that already are API error codes. */
@@ -122,11 +131,31 @@ export function tradeEventDetail(
 /** Publishes a trade event with `tradeEventDetail`. */
 export type { TradeEventDetail };
 
-/** The seven state-machine events. */
+/** The state-machine events. */
 export type TradeEventType = Extract<
   FantasyEventType,
-  `Trade ${'Proposed' | 'Countered' | 'Accepted' | 'Rejected' | 'Expired' | 'Processed' | 'Vetoed'}`
+  `Trade ${'Proposed' | 'Countered' | 'Accepted' | 'Rejected' | 'Expired' | 'Withdrawn' | 'Processed' | 'Vetoed'}`
 >;
+
+/** The commissioner's own team, if they hold a seat. */
+export function commissionerTeamId(
+  league: Pick<League, 'commissionerId'>,
+  teams: readonly Team[]
+): string | null {
+  return teams.find((t) => t.ownerUserId === league.commissionerId)?.id ?? null;
+}
+
+/**
+ * The league settings with the review mode that applies to this trade: under commissioner review,
+ * the commissioner's own trade goes to a league vote instead (core `reviewSettingsFor`).
+ */
+export function tradeReviewSettings(
+  league: Pick<League, 'settings' | 'commissionerId'>,
+  teams: readonly Team[],
+  trade: Pick<Trade, 'sides'>
+): LeagueSettings {
+  return reviewSettingsFor(league.settings, trade, commissionerTeamId(league, teams));
+}
 
 export async function publishTradeEvent(
   deps: Pick<TradeDeps, 'repos' | 'events'>,
@@ -136,7 +165,11 @@ export async function publishTradeEvent(
   extra: Pick<TradeEventDetail, 'voided' | 'reason' | 'reasonCode'> = {}
 ): Promise<void> {
   const refs = await refsFor(deps.repos, tradePlayerIds(record.trade));
-  await deps.events.publish(type, tradeEventDetail(league, record, refs, extra));
+  const settings =
+    league.settings.trades.review === 'commissioner'
+      ? tradeReviewSettings(league, await deps.repos.teams.list(league.id), record.trade)
+      : league.settings;
+  await deps.events.publish(type, tradeEventDetail({ settings }, record, refs, extra));
 }
 
 export const offerExpiryName = (leagueId: string, tradeId: string) => `trade-expiry-${leagueId}-${tradeId}`;
@@ -234,7 +267,8 @@ export async function processAccepted(
   let current = record;
   if (current.processingAt === null) {
     const world = await loadTradeWorld(deps, league, now);
-    const result = processTrade(league.settings, current.trade, world.context);
+    const settings = tradeReviewSettings(league, world.teams, current.trade);
+    const result = processTrade(settings, current.trade, world.context);
     if (!result.ok && result.issues.every((i) => i.code === 'PLAYER_LOCKED')) {
       // Yahoo rule (docs/rules.md): a trade with a player whose game has kicked off waits until the
       // week's locks release, then processes; lineups never change under a locked player.
@@ -243,23 +277,31 @@ export async function processAccepted(
     }
     if (!result.ok) {
       const issue = result.issues[0] as RuleIssue;
-      const voided = NOT_READY.has(issue.code) ? null : voidTrade(current.trade, issue, now.toISOString());
-      if (voided === null || !voided.ok) return { outcome: 'not_ready', record: current };
-      const saved = await saveTrade(deps.repos, { ...current, trade: voided.trade }, now);
-      if (saved === null) return { outcome: 'raced', record: current };
-      await publishTradeEvent(deps, 'Trade Vetoed', league, saved, {
-        voided: true,
-        reason: `${issue.message} ${issue.fix}`,
-        reasonCode: issue.code
-      });
-      return { outcome: 'voided', record: saved };
+      if (NOT_READY.has(issue.code)) return { outcome: 'not_ready', record: current };
+      return voidAccepted(deps, league, current, issue, now);
     }
     const stamped = await saveTrade(deps.repos, { ...current, processingAt: now.toISOString() }, now);
     if (stamped === null) return { outcome: 'raced', record: current };
     current = stamped;
   }
   const at = current.processingAt as string;
-  await applyTrade(deps, league, current.trade, at, now);
+  const applied = await applyTrade(deps, league, current.trade, at, now);
+  if (!applied.ok) {
+    deps.log.warn('trade player taken by a third team; voiding the trade', {
+      leagueId: league.id,
+      tradeId: current.trade.tradeId,
+      playerId: applied.playerId
+    });
+    const name = (await refsFor(deps.repos, [applied.playerId])).get(applied.playerId)?.name;
+    const issue = ruleError(
+      'PLAYER_NOT_AVAILABLE',
+      `trades.${current.trade.tradeId}`,
+      `${name ?? applied.playerId} joined ${applied.holder === null ? 'another team' : `team ${applied.holder}`} before this trade could move him.`,
+      'This trade was cancelled. Re-read both rosters and propose a new trade if both teams are still interested.',
+      { playerId: applied.playerId, teamId: applied.holder }
+    );
+    return voidAccepted(deps, league, current, issue, now);
+  }
   const processed: Trade = {
     ...current.trade,
     status: 'processed',
@@ -269,7 +311,110 @@ export async function processAccepted(
   if (saved === null) return { outcome: 'raced', record: current };
   await publishTradeEvent(deps, 'Trade Processed', league, saved);
   deps.log.info('trade processed', { leagueId: league.id, tradeId: processed.tradeId });
+  await voidStaleOffers(deps, league, tradePlayerIds(processed), now);
   return { outcome: 'processed', record: saved };
+}
+
+/** Cancels an accepted trade that can no longer process (`vetoed` with a `voidReason`). */
+async function voidAccepted(
+  deps: TradeDeps,
+  league: League,
+  current: TradeRecord,
+  issue: RuleIssue,
+  now: Date
+): Promise<{ outcome: ProcessOutcome; record: TradeRecord }> {
+  const voided = voidTrade(current.trade, issue, now.toISOString());
+  if (!voided.ok) return { outcome: 'not_ready', record: current };
+  const saved = await saveTrade(deps.repos, { ...current, trade: voided.trade }, now);
+  if (saved === null) return { outcome: 'raced', record: current };
+  await publishTradeEvent(deps, 'Trade Vetoed', league, saved, {
+    voided: true,
+    reason: `${issue.message} ${issue.fix}`,
+    reasonCode: issue.code
+  });
+  return { outcome: 'voided', record: saved };
+}
+
+/**
+ * Voids every open offer that includes one of `playerIds`, because those players just moved (a
+ * processed trade, a drop, or a waiver award): each becomes `expired` with a `voidReason`, and
+ * `Trade Expired` goes to the two teams. Returns how many were voided.
+ */
+export async function voidStaleOffers(
+  deps: Pick<TradeDeps, 'repos' | 'events'>,
+  league: League,
+  playerIds: readonly (string | null)[],
+  now: Date
+): Promise<number> {
+  const moved = new Set(playerIds.filter((id): id is string => id !== null));
+  if (moved.size === 0) return 0;
+  const stale = (await deps.repos.trades.list(league.id)).filter(
+    (r) => r.trade.status === 'proposed' && tradePlayerIds(r.trade).some((id) => moved.has(id))
+  );
+  if (stale.length === 0) return 0;
+  const refs = await refsFor(deps.repos, [...moved]);
+  let voided = 0;
+  for (const record of stale) {
+    const ids = tradePlayerIds(record.trade).filter((id) => moved.has(id));
+    const names = ids.map((id) => refs.get(id)?.name ?? id).join(', ');
+    const issue = ruleError(
+      'PLAYER_MOVED',
+      `trades.${record.trade.tradeId}`,
+      `${names} changed rosters after this offer was made, so it no longer works.`,
+      'Re-read both rosters (get_roster) and propose a new trade if both teams are still interested.',
+      { playerIds: ids }
+    );
+    const result = voidOffer(record.trade, issue, now.toISOString());
+    if (!result.ok) continue;
+    const saved = await saveTrade(deps.repos, { ...record, trade: result.trade }, now);
+    if (saved === null) continue;
+    await publishTradeEvent(deps, 'Trade Expired', league, saved, {
+      voided: true,
+      reason: `${issue.message} ${issue.fix}`,
+      reasonCode: issue.code
+    });
+    voided++;
+  }
+  return voided;
+}
+
+/** Players in a trade that has started processing (`processingAt` set, not yet processed or voided). */
+export async function playersInProcessingTrades(
+  repos: Pick<Repos, 'trades'>,
+  leagueId: string
+): Promise<Map<string, string>> {
+  const players = new Map<string, string>();
+  for (const record of await repos.trades.list(leagueId)) {
+    if (record.processingAt === null) continue;
+    if (record.trade.status !== 'accepted' && record.trade.status !== 'in_review') continue;
+    for (const id of tradePlayerIds(record.trade)) players.set(id, record.trade.tradeId);
+  }
+  return players;
+}
+
+/** Throws PLAYER_IN_TRADE when one of `playerIds` is in a trade that is processing right now. */
+export async function assertNotInProcessingTrade(
+  repos: Pick<Repos, 'trades'>,
+  leagueId: string,
+  playerIds: readonly (string | null)[]
+): Promise<void> {
+  const trading = await playersInProcessingTrades(repos, leagueId);
+  for (const playerId of playerIds) {
+    const tradeId = playerId === null ? undefined : trading.get(playerId);
+    if (playerId !== null && tradeId !== undefined) throw inTradeError(playerId, tradeId);
+  }
+}
+
+/** The PLAYER_IN_TRADE error (also a waiver claim's failure reason). */
+export function inTradeError(playerId: string, tradeId: string): ApiError {
+  return new ApiError(
+    'PLAYER_IN_TRADE',
+    `Player ${playerId} is part of trade ${tradeId}, which is being processed right now.`,
+    {
+      fix: 'Wait a minute for the trade to finish (list_trades shows it as processed), then read your roster again and pick a player who is still on it.',
+      details: { playerId, tradeId }
+    }
+  );
 }
 
 const MAX_WRITE_ATTEMPTS = 4;
@@ -297,24 +442,51 @@ async function writeRoster(
   }
 }
 
+type ApplyResult = { ok: true } | { ok: false; playerId: string; holder: string | null };
+
+/**
+ * Moves a player's ownership lock from the team sending him to the team receiving him. A lock a
+ * third team holds without having him on its roster is stale and is taken over; a third team that
+ * does roster him keeps it (false).
+ */
+async function takeLock(
+  repos: Repos,
+  leagueId: string,
+  playerId: string,
+  to: string,
+  from: string
+): Promise<boolean> {
+  if (await repos.waivers.acquirePlayer(leagueId, playerId, to, from)) return true;
+  const holder = await repos.waivers.playerOwner(leagueId, playerId);
+  const holderTeam = holder === null ? null : await repos.teams.get(leagueId, holder);
+  if (holderTeam?.roster.includes(playerId) === true) return false;
+  return repos.waivers.acquirePlayer(leagueId, playerId, to, holder ?? from);
+}
+
 async function applyTrade(
   deps: TradeDeps,
   league: League,
   trade: Trade,
   at: string,
   now: Date
-): Promise<void> {
+): Promise<ApplyResult> {
   const { repos } = deps;
   const pairs = [
     [trade.sides[0], trade.sides[1]],
     [trade.sides[1], trade.sides[0]]
   ] as const;
-  // Each received player's ownership lock moves to his new team first, so no add can take him.
+  // Each received player's ownership lock moves to his new team first, so no add can take him. If a
+  // third team already holds one (he left the roster and was picked up before the trade got here),
+  // the locks moved so far go back and nothing else changes: the trade is voided, never half done.
+  const moved: { playerId: string; from: string; to: string }[] = [];
   for (const [side, other] of pairs) {
     for (const playerId of other.sends) {
-      if (!(await repos.waivers.acquirePlayer(league.id, playerId, side.teamId, other.teamId))) {
-        deps.log.warn('trade player lock held by a third team', { leagueId: league.id, playerId });
+      if (await takeLock(repos, league.id, playerId, side.teamId, other.teamId)) {
+        moved.push({ playerId, from: other.teamId, to: side.teamId });
+        continue;
       }
+      for (const m of moved) await repos.waivers.acquirePlayer(league.id, m.playerId, m.from, m.to);
+      return { ok: false, playerId, holder: await repos.waivers.playerOwner(league.id, playerId) };
     }
   }
   for (const [side, other] of pairs) await writeRoster(repos, league.id, side, other.sends, now);
@@ -365,4 +537,5 @@ async function applyTrade(
       }
     ]);
   }
+  return { ok: true };
 }

@@ -4,6 +4,7 @@ import { Alert, Button, Card, CardBody, Input, Select, StatusBadge } from '@read
 import { apiFetch } from '../api';
 import { ApiErrorAlert } from '../components/ApiErrorAlert';
 import { useLoad } from '../lib/useLoad';
+import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
 import {
   createTradesApi,
   type PlayerRef,
@@ -15,6 +16,28 @@ import {
 } from './api';
 
 const defaultApi = createTradesApi(apiFetch);
+
+/**
+ * Events that change what this page shows. Offers, counters, rejections, expiries, and withdrawals
+ * arrive on the caller's own team topic (only the two teams hear about them); accepted, processed,
+ * and vetoed trades on the league topic.
+ */
+export const TRADE_EVENTS = [
+  'Trade Proposed',
+  'Trade Countered',
+  'Trade Accepted',
+  'Trade Rejected',
+  'Trade Expired',
+  'Trade Withdrawn',
+  'Trade Processed',
+  'Trade Vetoed'
+] as const;
+/** How often the trade list refreshes without realtime. */
+export const TRADES_POLL_MS = 60_000;
+/** While live, a slow safety refresh in case an event is missed. */
+export const TRADES_LIVE_POLL_MS = 300_000;
+/** How often the expiry countdowns tick. */
+export const COUNTDOWN_TICK_MS = 30_000;
 
 const names = (players: readonly PlayerRef[]) => players.map((p) => p.name).join(', ') || 'nothing';
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
@@ -130,6 +153,7 @@ function TradeCard(props: {
             {t.round > 0 && <span>Counter #{t.round}</span>}
           </p>
           {t.message && <p className="italic">“{t.message}”</p>}
+          {t.reply && <p className="italic">Reply: “{t.reply}”</p>}
           {t.voidReason && <p>Cancelled: {t.voidReason.message}</p>}
           <div className="flex gap-2">
             {t.yourActions.map((a) => (
@@ -174,10 +198,35 @@ const EMPTY: Selection = { withTeamId: '', send: [], receive: [], drops: [] };
  * readout of legality and fairness), the inbox and outbox with accept, reject, counter, and
  * withdraw, and the league's trades under review with veto votes.
  */
-export function TradesPage({ api = defaultApi, now = Date.now }: { api?: TradesApi; now?: () => number }) {
+export function TradesPage({
+  api = defaultApi,
+  now = Date.now,
+  connect = connectMomentoEvents
+}: {
+  api?: TradesApi;
+  now?: () => number;
+  connect?: EventConnect;
+}) {
   const { leagueId = '' } = useParams();
   const setup = useLoad(() => api.setup(leagueId), leagueId);
-  const trades = useLoad(() => api.list(leagueId), leagueId);
+  const live = useLiveEvents({
+    leagueId,
+    types: TRADE_EVENTS,
+    realtime: api.realtime,
+    connect,
+    onEvent: () => trades.reload()
+  });
+  const trades = useLoad(
+    () => api.list(leagueId),
+    leagueId,
+    live === 'live' ? TRADES_LIVE_POLL_MS : TRADES_POLL_MS
+  );
+  const [clock, setClock] = useState(now);
+  useEffect(() => {
+    setClock(now());
+    const tick = setInterval(() => setClock(now()), COUNTDOWN_TICK_MS);
+    return () => clearInterval(tick);
+  }, [now]);
   const [selection, setSelection] = useState<Selection>(EMPTY);
   const [countering, setCountering] = useState<TradeView | null>(null);
   const [mine, setMine] = useState<PlayerRef[] | null>(null);
@@ -263,7 +312,7 @@ export function TradesPage({ api = defaultApi, now = Date.now }: { api?: TradesA
   const all = trades.data ?? [];
   const canTrade = setup.data?.allowedActions.includes('propose_trade') === true;
   const others = (setup.data?.teams ?? []).filter((t) => t.id !== myTeam?.id);
-  const listProps = { now: now(), onAction };
+  const listProps = { now: clock, onAction };
 
   return (
     <div data-testid="league-section-trades" className="space-y-6">

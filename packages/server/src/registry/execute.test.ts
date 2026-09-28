@@ -252,7 +252,9 @@ describe('executeOperation', () => {
       'post_message',
       'rename_team',
       'transfer_commissioner',
-      'update_league_settings'
+      'update_league_settings',
+      // Trade review goes on into the playoffs (#121).
+      'vote_trade'
     ]);
     const outsider = resolveActor(playoffs, [], { ...USER, sub: 'someone-else' } as Principal);
     expect(leagueAllowedActions(testRegistry.operations, playoffs, outsider, new Date(START))).toEqual([]);

@@ -367,6 +367,32 @@ export function voidTrade(trade: Trade, reason: RuleIssue, now: Instant): TradeR
   return { ok: true, trade: move(trade, 'vetoed', now, null, { voidReason: reason }), warnings: [] };
 }
 
+/**
+ * Closes an open offer early because it can no longer work (a player in it moved to another roster
+ * or was dropped): the offer becomes `expired` with a `voidReason`. Only an open offer can be voided
+ * this way; an accepted trade is voided at processing time with `voidTrade`.
+ */
+export function voidOffer(trade: Trade, reason: RuleIssue, now: Instant): TradeResult {
+  const problem = illegal(trade, 'expired');
+  if (problem) return failure(problem);
+  return { ok: true, trade: move(trade, 'expired', now, null, { voidReason: reason }), warnings: [] };
+}
+
+/**
+ * The review settings that apply to one trade. Under commissioner review, a trade the
+ * commissioner's own team is part of falls back to a league vote, so nobody approves or vetoes
+ * their own trade.
+ */
+export function reviewSettingsFor<S extends Pick<LeagueSettings, 'trades'>>(
+  settings: S,
+  trade: Pick<Trade, 'sides'>,
+  commissionerTeamId: string | null
+): S {
+  if (settings.trades.review !== 'commissioner' || commissionerTeamId === null) return settings;
+  if (!trade.sides.some((s) => s.teamId === commissionerTeamId)) return settings;
+  return { ...settings, trades: { ...settings.trades, review: 'league_vote' } };
+}
+
 export type ProcessTradeResult =
   | {
       ok: true;
