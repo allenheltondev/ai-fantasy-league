@@ -120,7 +120,9 @@ describe('waiver resolution properties', () => {
     fc.assert(
       fc.property(
         fc.uniqueArray(fc.constantFrom('a', 'b', 'c', 'd', 'e', 'f'), { minLength: 1 }),
-        fc.array(fc.record({ team: fc.constantFrom('a', 'b', 'c', 'x'), rank: fc.integer({ min: 1, max: 8 }) })),
+        fc.array(
+          fc.record({ team: fc.constantFrom('a', 'b', 'c', 'x'), rank: fc.integer({ min: 1, max: 8 }) })
+        ),
         (teamIds, raw) => {
           const rows = raw.map((r) => ({ teamId: r.team, rank: r.rank }));
           const order = reverseStandingsOrder(rows, teamIds);
@@ -130,7 +132,9 @@ describe('waiver resolution properties', () => {
           const ranked = order.filter((id) => worst.has(id));
           expect(order.slice(0, ranked.length)).toEqual(ranked);
           for (let i = 1; i < ranked.length; i++) {
-            expect(worst.get(ranked[i - 1] as string)).toBeGreaterThanOrEqual(worst.get(ranked[i] as string) ?? 0);
+            expect(worst.get(ranked[i - 1] as string)).toBeGreaterThanOrEqual(
+              worst.get(ranked[i] as string) ?? 0
+            );
           }
           expect(order.slice(ranked.length)).toEqual(teamIds.filter((id) => !worst.has(id)));
         }

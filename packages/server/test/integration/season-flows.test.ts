@@ -286,7 +286,11 @@ describe('set_lineup', () => {
     const drop = await alice.post(`${L}/drops`, { playerId: 'fx-mahomes' });
     expect(drop.status).toBe(409);
     expect(drop.body).toMatchObject({
-      error: { code: 'PLAYER_LOCKED', message: expect.stringContaining('Patrick Mahomes'), fix: expect.any(String) }
+      error: {
+        code: 'PLAYER_LOCKED',
+        message: expect.stringContaining('Patrick Mahomes'),
+        fix: expect.any(String)
+      }
     });
     expect(
       errorCode(await alice.post(`${L}/waivers/claims`, { playerId: 'fx-swift', dropPlayerId: 'fx-mahomes' }))
@@ -308,7 +312,10 @@ describe('set_lineup', () => {
     });
     const lamar = await alice.get(`${L}/waivers/preview?playerId=fx-lamar&dropPlayerId=fx-kwalker`);
     expect(data(lamar)).toMatchObject({ outcome: 'claim_pending', processesAt: '2026-09-15T08:00:00.000Z' });
-    await h.repos.teams.update({ ...(await h.repos.teams.get('lg-season', 'team-2'))!, roster: team2.roster });
+    await h.repos.teams.update({
+      ...(await h.repos.teams.get('lg-season', 'team-2'))!,
+      roster: team2.roster
+    });
 
     // Swift clears waivers at Monday's run; Josh Allen (Sunday) will be locked by then.
     await h.repos.waivers.putWireEntry({
@@ -318,7 +325,9 @@ describe('set_lineup', () => {
       droppedAt: '2026-09-11T00:00:00.000Z',
       clearsAt: '2026-09-13T20:00:00.000Z'
     });
-    const lockedLater = data(await alice.get(`${L}/waivers/preview?playerId=fx-swift&dropPlayerId=fx-jallen`));
+    const lockedLater = data(
+      await alice.get(`${L}/waivers/preview?playerId=fx-swift&dropPlayerId=fx-jallen`)
+    );
     expect(lockedLater).toMatchObject({
       wouldSucceed: false,
       processesAt: null,
@@ -333,7 +342,9 @@ describe('set_lineup', () => {
     const stored = (await h.repos.lineups.get('lg-season', 'team-1', 1))!;
     // Kelce (KC, W/R/T) locked Thursday; a roster change slips past the guards.
     await h.repos.teams.update({ ...team, roster: team.roster.filter((id) => id !== 'fx-kelce') });
-    const res = await alice.put(`${L}/teams/team-1/lineup`, { moves: [{ playerId: 'fx-lamb', slot: 'W/R/T' }] });
+    const res = await alice.put(`${L}/teams/team-1/lineup`, {
+      moves: [{ playerId: 'fx-lamb', slot: 'W/R/T' }]
+    });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const saved = (await h.repos.lineups.get('lg-season', 'team-1', 1))!;
     expect(saved.entries).toContainEqual({ playerId: 'fx-kelce', slot: 'W/R/T' });

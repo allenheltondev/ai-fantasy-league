@@ -113,7 +113,10 @@ export const setLineup = defineOperation({
         leagueId: league.id,
         teamId: team.id,
         week,
-        entries: [...check.lineup, ...(await frozenDeparted(ctx, current.stored, team.roster, data.games, now))],
+        entries: [
+          ...check.lineup,
+          ...(await frozenDeparted(ctx, current.stored, team.roster, data.games, now))
+        ],
         updatedAt: now.toISOString(),
         updatedBy: principalKey(ctx.principal)
       }

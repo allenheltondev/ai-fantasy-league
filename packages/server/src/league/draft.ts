@@ -292,7 +292,12 @@ export async function finishDraft(deps: DraftDeps, leagueId: string, record: Dra
 
 /** Starts the season loop, re-reading the league when another write got to it first. */
 async function startSeasonWithRetry(deps: DraftDeps, league: League, now: Date): Promise<void> {
-  const seasonDeps = { repos: deps.repos, reference: deps.data.reference, events: deps.events, log: deps.log };
+  const seasonDeps = {
+    repos: deps.repos,
+    reference: deps.data.reference,
+    events: deps.events,
+    log: deps.log
+  };
   let current = league;
   for (let attempt = 1; ; attempt++) {
     try {

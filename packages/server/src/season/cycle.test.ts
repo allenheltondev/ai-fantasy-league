@@ -121,7 +121,9 @@ describe('advanceLeague', () => {
       }
     });
     const week1 = (await repos.schedule.listMatchups(league.id)).filter((m) => m.week === 1);
-    await repos.schedule.putMatchups(week1.map((m) => ({ ...m, homeScore: 100, awayScore: 90, status: 'final' })));
+    await repos.schedule.putMatchups(
+      week1.map((m) => ({ ...m, homeScore: 100, awayScore: 90, status: 'final' }))
+    );
     await advanceLeague(deps, (await repos.leagues.get(league.id)) as League, afterWeek(2));
 
     const standings = (await repos.schedule.latestStandings(league.id))!;

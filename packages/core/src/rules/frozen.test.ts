@@ -10,7 +10,13 @@ const THU = '2026-09-11T00:20:00.000Z';
 const SUN = '2026-09-13T17:00:00.000Z';
 const games: WeekGames = { KC: { kickoff: THU }, BAL: { kickoff: THU }, BUF: { kickoff: SUN } };
 const FRIDAY = '2026-09-11T12:00:00.000Z';
-const teams: Record<string, string | null> = { qbKC: 'KC', qbBUF: 'BUF', wrKC: 'KC', wrBUF: 'BUF', wrBAL: 'BAL' };
+const teams: Record<string, string | null> = {
+  qbKC: 'KC',
+  qbBUF: 'BUF',
+  wrKC: 'KC',
+  wrBUF: 'BUF',
+  wrBAL: 'BAL'
+};
 const teamOf = (id: string) => teams[id];
 
 describe('frozenLineup', () => {
@@ -47,7 +53,9 @@ describe('frozenLineup', () => {
       { playerId: 'nobody', slot: 'WR' }
     ];
     const current: LineupEntry[] = [{ playerId: 'qbBUF', slot: 'QB' }];
-    expect(frozenLineup(settings, saved, current, teamOf, games, '2026-09-10T00:00:00.000Z')).toEqual(current);
+    expect(frozenLineup(settings, saved, current, teamOf, games, '2026-09-10T00:00:00.000Z')).toEqual(
+      current
+    );
     expect(frozenLineup(settings, saved.slice(1), current, teamOf, games, FRIDAY)).toEqual(current);
   });
 
@@ -114,7 +122,8 @@ describe('frozenLineup', () => {
         }
         for (const e of out) {
           const was = current.find((c) => c.playerId === e.playerId);
-          if (was !== undefined && e.slot !== was.slot) expect(e.slot === 'BN' || locked(e.playerId)).toBe(true);
+          if (was !== undefined && e.slot !== was.slot)
+            expect(e.slot === 'BN' || locked(e.playerId)).toBe(true);
         }
         for (const slot of SLOTS.filter(isStarterSlot)) {
           const inSlot = out.filter((e) => e.slot === slot);

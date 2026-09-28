@@ -34,7 +34,9 @@ export async function scoreWeek(
   const stats: Record<string, StatLine> = {};
   for (const line of lines) stats[line.playerId] = line.stats;
   const lineups = await resolveWeekLineups(deps.repos, teams, week);
-  const ids = new Set([...lineups.values()].flatMap((l) => [...l.stored, ...l.entries].map((e) => e.playerId)));
+  const ids = new Set(
+    [...lineups.values()].flatMap((l) => [...l.stored, ...l.entries].map((e) => e.playerId))
+  );
   const nflTeam = new Map((await deps.repos.players.getMany([...ids])).map((p) => [p.id, p.team]));
   const byTeam = gamesByTeam(games);
   const scores = new Map<string, TeamWeekScore>();

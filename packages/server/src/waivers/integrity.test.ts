@@ -85,7 +85,11 @@ async function seed(rosters: string[][], lg: League = league()) {
 }
 
 const run = (lg: League, now = SATURDAY) =>
-  processLeagueWaivers({ repos, reference, events: new InMemoryEventPublisher(), log: silentLogger }, lg, now);
+  processLeagueWaivers(
+    { repos, reference, events: new InMemoryEventPublisher(), log: silentLogger },
+    lg,
+    now
+  );
 
 beforeEach(async () => {
   repos = createInMemoryRepos({ players: fixturePlayers });
@@ -121,10 +125,15 @@ describe('where players stand', () => {
       droppedByTeamId: 't1'
     });
 
-    const afterDraft = { ...lg, deadlines: { ...lg.deadlines, postDraftWaiversUntil: '2026-10-11T08:00:00.000Z' } };
+    const afterDraft = {
+      ...lg,
+      deadlines: { ...lg.deadlines, postDraftWaiversUntil: '2026-10-11T08:00:00.000Z' }
+    };
     const held = await leaguePlayers(repos, afterDraft, teams, SATURDAY);
     expect(held.standing('fx-def-buf', 'BUF')).toMatchObject({ status: 'waivers', reason: 'post_draft' });
     expect(held.standing('fx-mahomes')).toEqual({ status: 'rostered', teamId: 't1' });
+    // With several reasons the latest end wins.
+    expect(held.standing('fx-chase', 'CIN')).toMatchObject({ clearsAt: '2026-10-11T08:00:00.000Z' });
     const later = await leaguePlayers(repos, afterDraft, teams, new Date('2026-10-11T08:00:00.000Z'));
     expect(later.standing('fx-def-buf', 'BUF')).toEqual({ status: 'free_agent' });
   });

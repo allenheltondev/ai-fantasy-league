@@ -78,13 +78,23 @@ export async function leaguePlayers(
       const entry = wire.get(playerId);
       if (entry !== undefined) {
         const clearsAt = waiverRunAtOrAfter(entry.clearsAt);
-        options.push({ status: 'waivers', clearsAt, reason: 'dropped', droppedByTeamId: entry.droppedByTeamId });
+        options.push({
+          status: 'waivers',
+          clearsAt,
+          reason: 'dropped',
+          droppedByTeamId: entry.droppedByTeamId
+        });
       }
       if (postDraft !== null) {
         options.push({ status: 'waivers', clearsAt: postDraft, reason: 'post_draft', droppedByTeamId: null });
       }
       if (gameTimeUntil !== null && nflTeam != null && locks?.isLocked({ team: nflTeam }) === true) {
-        options.push({ status: 'waivers', clearsAt: gameTimeUntil, reason: 'game_time', droppedByTeamId: null });
+        options.push({
+          status: 'waivers',
+          clearsAt: gameTimeUntil,
+          reason: 'game_time',
+          droppedByTeamId: null
+        });
       }
       const active = options
         .filter((o) => Date.parse(o.clearsAt) > now.getTime())

@@ -29,7 +29,12 @@ export const listWaiverClaims = defineOperation({
   mutation: false,
   input: z.object({
     leagueId: LeagueIdSchema,
-    teamId: z.string().min(1).max(64).optional().describe("Only this team's claims (another team's only once resolved)."),
+    teamId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe("Only this team's claims (another team's only once resolved)."),
     status: z
       .enum([...WAIVER_CLAIM_STATUSES, 'all'])
       .default('pending')

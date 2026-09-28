@@ -24,7 +24,8 @@ let carol: Caller;
 const agent = agentPrincipal({ agentId: 'agent-3', teamId: 'team-3', leagueId: 'lg-w' });
 const asAgent = (name: string, args: Record<string, unknown>) =>
   invokeTool({ registry, services: h.services, principal: agent, name, args: { leagueId: 'lg-w', ...args } });
-const job = () => processWaivers(
+const job = () =>
+  processWaivers(
     { repos: h.repos, reference: h.services.data.reference, events: h.events, log: silentLogger },
     h.clock
   );
@@ -177,9 +178,13 @@ describe('waiver claims', () => {
     expect(mine.claims.map((c) => c.teamId)).toEqual(['team-2']);
     const commissioner = data<{ claims: unknown[] }>(await alice.get(`${L}/waivers/claims?status=all`));
     expect(commissioner.claims).toEqual([]);
-    const agents = (await asAgent('list_waiver_claims', {})).body as { data: { claims: { teamId: string }[] } };
+    const agents = (await asAgent('list_waiver_claims', {})).body as {
+      data: { claims: { teamId: string }[] };
+    };
     expect(agents.data.claims.map((c) => c.teamId)).toEqual(['team-3', 'team-3']);
-    expect(data<{ claims: unknown[] }>(await bob.get(`${L}/waivers/claims?teamId=team-3`)).claims).toEqual([]);
+    expect(data<{ claims: unknown[] }>(await bob.get(`${L}/waivers/claims?teamId=team-3`)).claims).toEqual(
+      []
+    );
     expect(errorCode(await carol.get(`${L}/waivers/claims`))).toBe('FORBIDDEN');
   });
 

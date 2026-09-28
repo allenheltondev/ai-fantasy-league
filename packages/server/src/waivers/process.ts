@@ -82,9 +82,11 @@ export async function processLeagueWaivers(
   const players = await leaguePlayers(repos, league, teams, now, locks);
   const pending = await repos.waivers.listClaims(league.id, 'pending');
   const records = new Map(
-    (await repos.players.getMany([...new Set(pending.flatMap((c) => [c.addPlayerId, c.dropPlayerId ?? []].flat()))])).map(
-      (p) => [p.id, p]
-    )
+    (
+      await repos.players.getMany([
+        ...new Set(pending.flatMap((c) => [c.addPlayerId, c.dropPlayerId ?? []].flat()))
+      ])
+    ).map((p) => [p.id, p])
   );
   const due = pending.filter(
     (c) => players.standing(c.addPlayerId, records.get(c.addPlayerId)?.team).status !== 'waivers'
@@ -172,7 +174,9 @@ export async function processLeagueWaivers(
   }
   for (const f of resolution.failed) {
     const claim = byId.get(f.claim.claimId) as WaiverClaimRecord;
-    if (await markFailed(repos, claim, now, { code: f.issue.code, message: f.issue.message, fix: f.issue.fix }))
+    if (
+      await markFailed(repos, claim, now, { code: f.issue.code, message: f.issue.message, fix: f.issue.fix })
+    )
       failed += 1;
   }
   await repos.waivers.addTransactions(transactions);
@@ -294,7 +298,9 @@ async function markFailed(
   now: Date,
   failure: { code: string; message: string; fix: string }
 ): Promise<boolean> {
-  return (await updatePending(repos, claim, { status: 'failed', resolvedAt: now.toISOString(), failure })) !== null;
+  return (
+    (await updatePending(repos, claim, { status: 'failed', resolvedAt: now.toISOString(), failure })) !== null
+  );
 }
 
 function lockedFailure(name: string) {
