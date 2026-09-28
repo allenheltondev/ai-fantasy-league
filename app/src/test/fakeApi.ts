@@ -324,6 +324,15 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       },
       killSwitch: { configured: false, engaged: false }
     })),
+    getDataStatus: vi.fn(async () => ({
+      checkedAt: '2026-09-28T20:00:00.000Z',
+      nflState: null,
+      league: { season: 2026, week: null },
+      players: { total: 0, byPosition: { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 } },
+      weeks: [],
+      research: { stats: null, projections: null },
+      jobs: []
+    })),
     getRealtime: vi.fn(async () => ({
       enabled: false,
       token: null,

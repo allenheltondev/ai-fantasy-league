@@ -44,11 +44,14 @@ describe('ingestProjections', () => {
     expect(await ingestProjections(deps, deps.clock)).toMatchObject({
       status: 'ok',
       season: 2025,
-      weeks: [{ week: 1, stored: true, count: 1 }]
+      weeks: [
+        { week: 1, stored: true, count: 1 },
+        { week: 2, stored: false, reason: 'no_projections' }
+      ]
     });
     deps.clock.advance(3_600_000);
     expect(await ingestProjections(deps, deps.clock)).toMatchObject({
-      weeks: [{ week: 1, stored: false, reason: 'unchanged' }]
+      weeks: [{ week: 1, stored: false, reason: 'unchanged' }, { week: 2 }]
     });
     deps.clock.advance(3_600_000);
     provider.projections[1] = [line('1', 1, { rec: 6 })];
@@ -65,8 +68,10 @@ describe('ingestProjections', () => {
     expect((await projections.getLines(second!, ['1']))[0]?.stats).toEqual({ rec: 6 });
   });
 
-  it('adds next week once every game this week has kicked off', async () => {
-    const { provider, deps } = await setup('2025-09-09T01:00:00.000Z');
+  it('projects next week before the current week has kicked off (#181)', async () => {
+    // Monday of week 1 before its last game: Sleeper still says week 1, but a league drafted this
+    // week already plays week 2, so its projections must be stored now.
+    const { provider, deps } = await setup('2025-09-08T20:00:00.000Z');
     provider.projections[2] = [line('1', 2, { rec: 4 })];
     expect(await ingestProjections(deps, deps.clock)).toMatchObject({
       weeks: [
@@ -74,6 +79,18 @@ describe('ingestProjections', () => {
         { week: 2, stored: true }
       ]
     });
+    expect(await deps.reference.projections.latestSnapshot(2025, 2, deps.clock.now())).toMatchObject({
+      count: 1
+    });
+  });
+
+  it('projects nothing past the last regular-season week', async () => {
+    const { provider, deps } = await setup('2026-01-04T12:00:00.000Z', nflState({ week: 18 }));
+    provider.projections[18] = [line('1', 18, { rec: 4 })];
+    expect(await ingestProjections(deps, deps.clock)).toMatchObject({ weeks: [{ week: 18, stored: true }] });
+    expect(provider.calls.filter((c) => c.startsWith('getWeekProjections'))).toEqual([
+      'getWeekProjections:2025:18'
+    ]);
   });
 
   it('projects week 1 in the preseason and nothing in the off-season', async () => {
@@ -97,7 +114,7 @@ describe('ingestProjections', () => {
     provider.players = [sourcePlayer({ id: '1' })];
     await syncPlayers(deps, deps.clock);
     provider.projections[1] = [line('1', 1, { rec: 5 }), line('IDP', 1, { idp_tkl_solo: 4 })];
-    expect(await ingestProjections(deps, deps.clock)).toMatchObject({ weeks: [{ count: 1 }] });
+    expect(await ingestProjections(deps, deps.clock)).toMatchObject({ weeks: [{ count: 1 }, { week: 2 }] });
   });
 
   it('reads the recorded fixture projections', async () => {
@@ -107,7 +124,13 @@ describe('ingestProjections', () => {
     });
     await deps.reference.nflState.put({ ...nflState(), updatedAt: 'x' }, null);
     const result = await ingestProjections(deps, deps.clock);
-    expect(result).toMatchObject({ weeks: [{ week: 1, stored: true }] });
+    // Week 2's recording was captured after this moment, so the fixture source hides it.
+    expect(result).toMatchObject({
+      weeks: [
+        { week: 1, stored: true },
+        { week: 2, stored: false }
+      ]
+    });
     const snapshot = await deps.reference.projections.latestSnapshot(2025, 1, deps.clock.now());
     const mahomes = await deps.reference.projections.getLines(snapshot!, ['4046']);
     expect(mahomes[0]?.stats.pass_yd).toBeGreaterThan(0);

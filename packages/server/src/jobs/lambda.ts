@@ -19,6 +19,7 @@ import { loadJobsConfig } from './config.js';
 import type { JobDeps, JobResult } from './deps.js';
 import { isJobName, JOB_NAMES, JOBS } from './index.js';
 import { createNewsSource } from './news/source.js';
+import { jobRunFromError, jobRunFromResult, recordJobRun } from './runs.js';
 
 export interface JobEvent {
   job?: unknown;
@@ -55,7 +56,9 @@ export function createJobDeps(env: Record<string, string | undefined>, clock: Cl
 
 /**
  * Runs one job by name. Unknown names fail loudly, so a mistyped schedule fails the invocation and
- * reaches the failure email (FailureNotifierFunction in infra/template.yaml).
+ * reaches the failure email (FailureNotifierFunction in infra/template.yaml). Every run's outcome
+ * (ok, skipped with its reason, or failed with its error) is recorded as `JOBRUN#<job>` for the
+ * commissioner's data status (#181).
  */
 export async function runJob(
   event: JobEvent,
@@ -70,14 +73,21 @@ export async function runJob(
   const started = clock.now().getTime();
   try {
     const result = await JOBS[job]({ ...deps, log }, clock);
+    const finished = clock.now();
     log.info('job finished', {
       status: result.status,
       reason: result.reason,
-      ms: clock.now().getTime() - started
+      ms: finished.getTime() - started
     });
+    await recordJobRun(
+      { ...deps, log },
+      jobRunFromResult(job, result, finished, finished.getTime() - started)
+    );
     return { job, ...result };
   } catch (error) {
     log.error('job failed', { error });
+    const finished = clock.now();
+    await recordJobRun({ ...deps, log }, jobRunFromError(job, error, finished, finished.getTime() - started));
     throw error;
   }
 }

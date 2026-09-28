@@ -475,11 +475,13 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 1
         # Last season's stats once per season, this season's projections daily before it starts.
+        # Hourly so a missing set (a new deploy, a new season) fills within the hour; a set that
+        # is stored is rechecked at most daily (RESEARCH_RECHECK_MS), so most runs make no calls.
         SyncSeasonResearch:
           Type: ScheduleV2
           Properties:
             Description: Draft research, last season stats and season projections
-            ScheduleExpression: cron(37 11 * * ? *)
+            ScheduleExpression: rate(1 hour)
             Input: '{"job":"syncSeasonResearch"}'
             RetryPolicy:
               MaximumRetryAttempts: 1

@@ -22,7 +22,7 @@ export const JOB_SCHEDULE_EXPRESSIONS: Record<JobName, string> = {
   advanceSeason: 'rate(15 minutes)',
   officialFinal: 'cron(0 15 ? * THU,FRI *)',
   processWaivers: 'cron(0 8 * * ? *)',
-  syncSeasonResearch: 'cron(37 11 * * ? *)'
+  syncSeasonResearch: 'rate(1 hour)'
 };
 
 const UNIT_MS: Record<string, number> = { minute: 60_000, hour: 3_600_000, day: 86_400_000 };
