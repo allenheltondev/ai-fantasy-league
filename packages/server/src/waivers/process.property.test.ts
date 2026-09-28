@@ -5,6 +5,7 @@ import { InMemoryEventPublisher } from '../events/publisher.js';
 import { newTeam } from '../league/seats.js';
 import { silentLogger } from '../log.js';
 import { createInMemoryRepos } from '../repos/memory.js';
+import { createInMemoryReferenceStore } from '../repos/memory-reference.js';
 import type { League } from '../repos/types.js';
 import type { WaiverClaimRecord } from '../repos/waivers.js';
 import { processLeagueWaivers } from './process.js';
@@ -107,7 +108,12 @@ describe('processLeagueWaivers invariants', () => {
           await repos.waivers.createClaim(record);
         }
         const before = teams.reduce((sum, t) => sum + t.faabRemaining, 0);
-        const deps = { repos, events: new InMemoryEventPublisher(), log: silentLogger };
+        const deps = {
+          repos,
+          reference: createInMemoryReferenceStore(repos.players),
+          events: new InMemoryEventPublisher(),
+          log: silentLogger
+        };
         await processLeagueWaivers(deps, league, NOW);
 
         const after = await repos.teams.list('lg');

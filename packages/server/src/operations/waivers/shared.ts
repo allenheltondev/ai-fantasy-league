@@ -7,6 +7,7 @@ import { actorTeam } from '../../league/phase.js';
 import { PlayerRefSchema, toPlayerRef, type Player, type PlayerRef } from '../../players/model.js';
 import type { Team } from '../../repos/types.js';
 import { WAIVER_CLAIM_STATUSES, type WaiverClaimRecord } from '../../repos/waivers.js';
+import { assertNotLocked, resolveLineup, weekLocks, type WeekLocks } from '../../season/lineups.js';
 import { acquisitionsThisWeek, leaguePlayers, openSpots } from '../../waivers/rosters.js';
 
 export const TeamIdField = z
@@ -136,8 +137,9 @@ export async function planClaim(
   const { league, teams } = access;
   const { player, drop } = input;
   const settings = league.settings;
-  const standings = await leaguePlayers(ctx.repos, league.id, teams, now);
-  const standing = standings.standing(player.id);
+  const locks = await weekLocks(ctx.data.reference, league, now);
+  const standings = await leaguePlayers(ctx.repos, league, teams, now, locks);
+  const standing = standings.standing(player.id, player.team);
   if (standing.status === 'rostered') {
     const owner = teams.find((t) => t.id === standing.teamId);
     throw new ApiError(
@@ -160,9 +162,13 @@ export async function planClaim(
       details: { dropPlayerId: drop.id }
     });
   }
-  if (openSpots(settings, team, drop?.id ?? null) < 1) {
+  const lineup = await resolveLineup(ctx.repos, team, league.week ?? settings.schedule.startWeek);
+  if (openSpots(settings, lineup.entries, drop?.id ?? null) < 1) {
     const refs = await playerRefs(ctx, team.roster);
-    const droppable = team.roster.map((id) => refOf(refs, id));
+    const droppable = lineup.entries
+      .filter((e) => e.slot !== 'IR')
+      .map((e) => refOf(refs, e.playerId))
+      .filter((p) => !locks.isLocked(p));
     throw new ApiError('ROSTER_FULL', `Your roster is full (${team.roster.length} players).`, {
       fix: `Include dropPlayerId with one of: ${droppable.map((p) => `${p.id} (${p.name}, ${p.position})`).join(', ')}.`,
       details: { droppable }
@@ -195,13 +201,20 @@ export async function planClaim(
         details: { claimId: duplicate.id }
       });
     }
-    return {
-      kind: 'claim_pending',
-      clearsAt: standing.clearsAt,
-      processesAt: waiverRunAtOrAfter(standing.clearsAt),
-      bid
-    };
+    const processesAt = waiverRunAtOrAfter(standing.clearsAt);
+    if (drop !== null && lockedAt(locks, drop, processesAt)) {
+      throw new ApiError(
+        'PLAYER_LOCKED',
+        `${drop.name} will be locked when this claim runs at ${processesAt}: his game kicks off first.`,
+        {
+          fix: `Pick a drop player whose game this week starts after ${processesAt}, or claim again after the week rolls over.`,
+          details: { playerId: drop.id, processesAt }
+        }
+      );
+    }
+    return { kind: 'claim_pending', clearsAt: standing.clearsAt, processesAt, bid };
   }
+  if (drop !== null) assertNotLocked(locks, drop);
   const max = settings.waivers.maxAcquisitionsPerWeek;
   if (max !== null && ((await acquisitionsThisWeek(ctx.repos, league, now)).get(team.id) ?? 0) >= max) {
     throw new ApiError('ACQUISITION_LIMIT_REACHED', `You have used all ${max} adds for this week.`, {
@@ -210,4 +223,17 @@ export async function planClaim(
     });
   }
   return { kind: 'add_now', clearsAt: null, processesAt: null, bid: 0 };
+}
+
+/**
+ * Whether a claim's drop player will still be locked when the claim runs at `processesAt`: his game
+ * has kicked off by then and the week is not over yet (locks lift at the rollover).
+ */
+function lockedAt(locks: WeekLocks, player: Player, processesAt: string): boolean {
+  const kickoff = locks.kickoff(player);
+  const at = Date.parse(processesAt);
+  return (
+    locks.isLocked(player) ||
+    (kickoff !== null && kickoff.getTime() <= at && locks.endsAt !== null && at < Date.parse(locks.endsAt))
+  );
 }

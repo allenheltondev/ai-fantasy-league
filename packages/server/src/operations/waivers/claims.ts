@@ -2,11 +2,14 @@ import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import { requireMember, requireTeam } from '../../league/access.js';
-import { actorRoles, actorTeam, assertAction } from '../../league/phase.js';
+import { actorTeam, assertAction } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 import { WAIVER_CLAIM_STATUSES, type WaiverClaimRecord } from '../../repos/waivers.js';
 import { actingTeam, claimView, ClaimViewSchema, playerRefs, TeamIdField } from './shared.js';
+
+/** Claim statuses every member may see for any team: resolved claims, whose bids are no longer secret. */
+const PUBLIC_STATUSES: ReadonlySet<string> = new Set(['awarded', 'failed']);
 
 const ClaimIdSchema = z
   .string()
@@ -20,13 +23,18 @@ export const listWaiverClaims = defineOperation({
   path: '/leagues/{leagueId}/waivers/claims',
   summary: 'Your waiver claims: pending, awarded, failed, or cancelled',
   description: [
-    "Lists waiver claims, pending ones by default, in each team's processing order (priority, then age). You see your own team's claims; the commissioner sees every team's and can filter with `teamId`. Failed claims carry `failure` with the reason (for example PLAYER_CLAIMED when someone outbid you) and a fix."
+    "Lists waiver claims, pending ones by default, in each team's processing order (priority, then age). Bids are sealed: you see every claim of your own team, but another team's claims (and bids) only once they are resolved (`awarded` or `failed`); nobody, not even the commissioner, sees another team's pending or cancelled claims. Filter by team with `teamId`. Failed claims carry `failure` with the reason (for example PLAYER_CLAIMED when someone outbid you) and a fix."
   ].join(' '),
   tags: ['waivers'],
   mutation: false,
   input: z.object({
     leagueId: LeagueIdSchema,
-    teamId: z.string().min(1).max(64).optional().describe('Only this team (commissioner, or your own team).'),
+    teamId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe("Only this team's claims (another team's only once resolved)."),
     status: z
       .enum([...WAIVER_CLAIM_STATUSES, 'all'])
       .default('pending')
@@ -35,22 +43,14 @@ export const listWaiverClaims = defineOperation({
   output: z.object({ claims: z.array(ClaimViewSchema) }),
   handler: async (ctx, input) => {
     const access = await requireMember(ctx, input.leagueId);
-    const commissioner = actorRoles(access.actor).includes('commissioner');
-    let teamIds: string[] | null;
-    if (input.teamId !== undefined) {
-      if (commissioner) requireTeam(access, input.teamId);
-      else actingTeam(access, input.teamId);
-      teamIds = [input.teamId];
-    } else if (commissioner) {
-      teamIds = null;
-    } else {
-      const own = actorTeam(access.actor);
-      teamIds = own === null ? [] : [own.id];
-    }
+    if (input.teamId !== undefined) requireTeam(access, input.teamId);
+    const own = actorTeam(access.actor)?.id ?? null;
+    // Sealed bids: another team's claims are visible only once resolved, even to the commissioner.
+    const visible = (c: WaiverClaimRecord) => c.teamId === own || PUBLIC_STATUSES.has(c.status);
     const claims = (
       await ctx.repos.waivers.listClaims(access.league.id, input.status === 'all' ? undefined : input.status)
     )
-      .filter((c) => teamIds === null || teamIds.includes(c.teamId))
+      .filter((c) => (input.teamId === undefined || c.teamId === input.teamId) && visible(c))
       .sort(
         (a, b) =>
           a.teamId.localeCompare(b.teamId) ||

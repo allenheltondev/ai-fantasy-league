@@ -1,3 +1,4 @@
+import { nextKickoff } from '@fantasy/core';
 import type { Principal } from '../auth/principal.js';
 import { ApiError } from '../errors.js';
 import { LEAGUE_PHASES, type League, type LeaguePhase, type Team } from '../repos/types.js';
@@ -59,7 +60,7 @@ export function isInSeason(league: Pick<League, 'phase'>): boolean {
 export interface PhaseFlags {
   /** Waiver claims and free-agent adds are accepted. */
   waiversOpen: boolean;
-  /** The current week's lineups have not locked yet (before the week's first kickoff). */
+  /** Some of the current week's games have not kicked off yet, so those players' slots can still change. */
   preLock: boolean;
   /** No more trades can process this season. */
   tradeDeadlinePassed: boolean;
@@ -79,9 +80,20 @@ export function phaseFlags(league: League, now: Date): PhaseFlags {
         (deadlineAt !== null && !before(now, deadlineAt))));
   return {
     waiversOpen: inSeason,
-    preLock: inSeason && before(now, league.deadlines.nextLineupLockAt),
+    preLock: inSeason && before(now, nextLineupLock(league, now)),
     tradeDeadlinePassed
   };
+}
+
+/**
+ * The next lineup lock at `now`: the week's next kickoff still ahead (`deadlines.lineupLocksAt`),
+ * so after Thursday night it moves on to Sunday. Leagues without the list fall back to the week's
+ * first kickoff; with every game kicked off it is that last kickoff, already passed.
+ */
+export function nextLineupLock(league: League, now: Date): string | null {
+  const locks = league.deadlines.lineupLocksAt ?? [];
+  if (locks.length === 0) return league.deadlines.nextLineupLockAt;
+  return nextKickoff(locks, now) ?? (locks.at(-1) as string);
 }
 
 // ---------------------------------------------------------------------------

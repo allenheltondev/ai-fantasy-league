@@ -24,7 +24,11 @@ let carol: Caller;
 const agent = agentPrincipal({ agentId: 'agent-3', teamId: 'team-3', leagueId: 'lg-w' });
 const asAgent = (name: string, args: Record<string, unknown>) =>
   invokeTool({ registry, services: h.services, principal: agent, name, args: { leagueId: 'lg-w', ...args } });
-const job = () => processWaivers({ repos: h.repos, events: h.events, log: silentLogger }, h.clock);
+const job = () =>
+  processWaivers(
+    { repos: h.repos, reference: h.services.data.reference, events: h.events, log: silentLogger },
+    h.clock
+  );
 const eventsOf = (type: string) => h.events.events.filter((e) => e.detailType === type);
 
 beforeAll(async () => {
@@ -113,7 +117,8 @@ describe('free agency', () => {
     );
     expect(search.players[0]).toMatchObject({
       id: 'fx-bijan',
-      availability: { status: 'waivers', clearsAt: '2026-09-12T12:01:00.000Z' }
+      // Two days, rounded up to the waiver run that processes claims on him.
+      availability: { status: 'waivers', clearsAt: '2026-09-13T08:00:00.000Z' }
     });
   });
 });
@@ -124,7 +129,7 @@ describe('waiver claims', () => {
     const res = await alice.post(`${L}/drops`, { playerId: 'fx-cmc' });
     expect(data(res)).toMatchObject({
       dropped: { id: 'fx-cmc' },
-      clearsAt: '2026-09-12T12:02:00.000Z',
+      clearsAt: '2026-09-13T08:00:00.000Z',
       rosterSize: 2
     });
     expect(errorCode(await alice.post(`${L}/drops`, { playerId: 'fx-cmc' }))).toBe('PLAYER_NOT_ON_ROSTER');
@@ -168,12 +173,18 @@ describe('waiver claims', () => {
     expect(bijan.status).toBe(200);
   });
 
-  it('lists your own claims; the commissioner sees every team', async () => {
+  it('keeps bids sealed: each team sees only its own pending claims, even the commissioner', async () => {
     const mine = data<{ claims: { teamId: string }[] }>(await bob.get(`${L}/waivers/claims`));
     expect(mine.claims.map((c) => c.teamId)).toEqual(['team-2']);
-    const all = data<{ claims: { teamId: string }[] }>(await alice.get(`${L}/waivers/claims`));
-    expect(all.claims.map((c) => c.teamId)).toEqual(['team-2', 'team-3', 'team-3']);
-    expect(errorCode(await bob.get(`${L}/waivers/claims?teamId=team-3`))).toBe('FORBIDDEN');
+    const commissioner = data<{ claims: unknown[] }>(await alice.get(`${L}/waivers/claims?status=all`));
+    expect(commissioner.claims).toEqual([]);
+    const agents = (await asAgent('list_waiver_claims', {})).body as {
+      data: { claims: { teamId: string }[] };
+    };
+    expect(agents.data.claims.map((c) => c.teamId)).toEqual(['team-3', 'team-3']);
+    expect(data<{ claims: unknown[] }>(await bob.get(`${L}/waivers/claims?teamId=team-3`)).claims).toEqual(
+      []
+    );
     expect(errorCode(await carol.get(`${L}/waivers/claims`))).toBe('FORBIDDEN');
   });
 

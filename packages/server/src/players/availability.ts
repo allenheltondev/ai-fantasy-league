@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Ctx } from '../context.js';
 import { requireMember } from '../league/access.js';
+import { weekLocks } from '../season/lineups.js';
 import { leaguePlayers, type PlayerStanding } from '../waivers/rosters.js';
 import type { Player } from './model.js';
 
@@ -10,7 +11,7 @@ export type Availability = (typeof AVAILABILITY)[number];
 export const AvailabilitySchema = z
   .enum(AVAILABILITY)
   .describe(
-    'League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him).'
+    'League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him).'
   );
 
 /** How many players to search before filtering by availability, so filters still fill a page. */
@@ -42,13 +43,15 @@ export async function applyAvailability(
   ctx: Ctx,
   players: Player[],
   filter: { leagueId: string; availability?: Availability | undefined }
-): Promise<{ players: Player[]; standingOf: (playerId: string) => PlayerStanding }> {
+): Promise<{ players: Player[]; standingOf: (player: Pick<Player, 'id' | 'team'>) => PlayerStanding }> {
   const { league, teams } = await requireMember(ctx, filter.leagueId);
-  const standings = await leaguePlayers(ctx.repos, league.id, teams, ctx.clock.now());
+  const now = ctx.clock.now();
+  const locks = await weekLocks(ctx.data.reference, league, now);
+  const standings = await leaguePlayers(ctx.repos, league, teams, now, locks);
+  const standingOf = (p: Pick<Player, 'id' | 'team'>) => standings.standing(p.id, p.team);
   const wanted = filter.availability;
   return {
-    players:
-      wanted === undefined ? players : players.filter((p) => standings.standing(p.id).status === wanted),
-    standingOf: (playerId) => standings.standing(playerId)
+    players: wanted === undefined ? players : players.filter((p) => standingOf(p).status === wanted),
+    standingOf
   };
 }
