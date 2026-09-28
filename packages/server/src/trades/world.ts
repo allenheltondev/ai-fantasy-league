@@ -104,7 +104,10 @@ export const LOCK_RETRY_MS = 30 * 60 * 1000;
  * follows), or a short retry when that has already passed or there is no schedule.
  */
 export async function locksReleaseAt(reference: ReferenceStore, league: League, now: Date): Promise<string> {
-  const ends = weekEndsAt(await weekGames(reference, league.season, tradeWeek(league)), STATS_GAME_DURATION_MS);
+  const ends = weekEndsAt(
+    await weekGames(reference, league.season, tradeWeek(league)),
+    STATS_GAME_DURATION_MS
+  );
   const retry = now.getTime() + LOCK_RETRY_MS;
   return new Date(ends === null ? retry : Math.max(Date.parse(ends), retry)).toISOString();
 }

@@ -11,7 +11,11 @@ import { refsFor, tradePlayerIds } from '../../trades/lifecycle.js';
 import type { TradeDeps, TradeWorld } from '../../trades/world.js';
 import { refOf } from '../waivers/shared.js';
 
-export const TradeIdField = z.string().min(1).max(64).describe('The trade id (from list_trades or a trade event).');
+export const TradeIdField = z
+  .string()
+  .min(1)
+  .max(64)
+  .describe('The trade id (from list_trades or a trade event).');
 
 export function playersField(description: string) {
   return z.array(z.string().min(1).max(80)).max(12).default([]).describe(description);
@@ -98,7 +102,8 @@ function actionsFor(access: LeagueAccess, trade: Trade, now: Date): TradeView['y
     const party = trade.sides.some((s) => s.teamId === team?.id);
     if (review === 'league_vote' && open && team !== null && !party && !trade.vetoVotes.includes(team.id))
       return ['vote'];
-    if (review === 'commissioner' && access.actor.kind === 'user' && access.actor.isCommissioner) return ['vote'];
+    if (review === 'commissioner' && access.actor.kind === 'user' && access.actor.isCommissioner)
+      return ['vote'];
   }
   return [];
 }
@@ -166,9 +171,7 @@ export async function resolvePlayers(
       continue;
     }
     const needle = token.trim().toLowerCase();
-    const onRoster = team.roster.filter((id) =>
-      world.players.get(id)?.name.toLowerCase().includes(needle)
-    );
+    const onRoster = team.roster.filter((id) => world.players.get(id)?.name.toLowerCase().includes(needle));
     if (onRoster.length === 1) {
       ids.push(onRoster[0] as string);
       continue;

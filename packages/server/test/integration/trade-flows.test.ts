@@ -29,8 +29,14 @@ const asAgent = async (principal: typeof agent4, name: string, args: Record<stri
 const eventsOf = (type: string) => h.events.events.filter((e) => e.detailType === type);
 let eventSeq = 0;
 const timer = (detailType: string, detail: Record<string, unknown>) =>
-  handleLeagueEvent(h.services, { id: `evt-${++eventSeq}`, 'detail-type': detailType, source: 'fantasy', detail });
-const roster = async (teamId: string, leagueId = 'lg-t') => (await h.repos.teams.get(leagueId, teamId))?.roster;
+  handleLeagueEvent(h.services, {
+    id: `evt-${++eventSeq}`,
+    'detail-type': detailType,
+    source: 'fantasy',
+    detail
+  });
+const roster = async (teamId: string, leagueId = 'lg-t') =>
+  (await h.repos.teams.get(leagueId, teamId))?.roster;
 
 interface View {
   id: string;
@@ -74,9 +80,7 @@ afterAll(() => h.close());
 
 describe('offers', () => {
   it('previews a trade: legality, both sides’ impact, and fairness', async () => {
-    const preview = data(
-      await alice.get(`${L}/trades/preview?withTeamId=team-2&send=fx-cmc&receive=bijan`)
-    );
+    const preview = data(await alice.get(`${L}/trades/preview?withTeamId=team-2&send=fx-cmc&receive=bijan`));
     expect(preview).toMatchObject({
       valid: true,
       issues: [],
@@ -98,7 +102,12 @@ describe('offers', () => {
   });
 
   it('proposes, keeps the offer private to the two teams, and schedules its expiry', async () => {
-    const offer = await propose(alice, { withTeamId: 'team-2', send: ['fx-cmc'], receive: ['fx-bijan'], message: 'RB swap?' });
+    const offer = await propose(alice, {
+      withTeamId: 'team-2',
+      send: ['fx-cmc'],
+      receive: ['fx-bijan'],
+      message: 'RB swap?'
+    });
     expect(offer).toMatchObject({
       status: 'proposed',
       direction: 'outgoing',
@@ -120,7 +129,11 @@ describe('offers', () => {
       event: { detailType: 'Trade Offer Deadline', detail: { leagueId: 'lg-t', tradeId: offer.id } }
     });
     const incoming = data<{ trades: View[] }>(await bob.get(`${L}/trades?status=open`)).trades[0];
-    expect(incoming).toMatchObject({ id: offer.id, direction: 'incoming', yourActions: ['accept', 'reject', 'counter'] });
+    expect(incoming).toMatchObject({
+      id: offer.id,
+      direction: 'incoming',
+      yourActions: ['accept', 'reject', 'counter']
+    });
     expect(await listIds(carol)).not.toContain(offer.id);
     expect(errorCode(await carol.get(`${L}/trades/preview?tradeId=${offer.id}`))).toBe('TRADE_NOT_FOUND');
     expect(errorCode(await carol.post(`${L}/trades/${offer.id}/respond`, { response: 'accept' }))).toBe(
@@ -130,10 +143,15 @@ describe('offers', () => {
 
   it('refuses illegal offers with a fix', async () => {
     const notOnRoster = await alice.post(`${L}/trades`, { withTeamId: 'team-2', send: ['fx-lamar'] });
-    expect(notOnRoster.body).toMatchObject({ error: { code: 'PLAYER_NOT_ON_ROSTER', fix: expect.any(String) } });
+    expect(notOnRoster.body).toMatchObject({
+      error: { code: 'PLAYER_NOT_ON_ROSTER', fix: expect.any(String) }
+    });
     const full = await alice.post(`${L}/trades`, { withTeamId: 'team-2', receive: ['fx-bijan', 'fx-chase'] });
     expect(full.body).toMatchObject({
-      error: { code: 'ROSTER_LIMIT_EXCEEDED', fix: expect.stringContaining('Add 1 more drop(s) for team team-1') }
+      error: {
+        code: 'ROSTER_LIMIT_EXCEEDED',
+        fix: expect.stringContaining('Add 1 more drop(s) for team team-1')
+      }
     });
     expect(errorCode(await alice.post(`${L}/trades`, { withTeamId: 'team-1', send: ['fx-cmc'] }))).toBe(
       'TRADE_INVALID'
@@ -144,8 +162,16 @@ describe('offers', () => {
   });
 
   it('counters back and forth; only the team an offer was made to can answer it', async () => {
-    const offer = await propose(alice, { withTeamId: 'team-2', send: ['fx-jallen'], receive: ['fx-mahomes'] });
-    const res = await bob.post(`${L}/trades/${offer.id}/counter`, { send: ['mahomes'], receive: ['fx-jallen', 'fx-cmc'], drops: ['fx-chase'] });
+    const offer = await propose(alice, {
+      withTeamId: 'team-2',
+      send: ['fx-jallen'],
+      receive: ['fx-mahomes']
+    });
+    const res = await bob.post(`${L}/trades/${offer.id}/counter`, {
+      send: ['mahomes'],
+      receive: ['fx-jallen', 'fx-cmc'],
+      drops: ['fx-chase']
+    });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const { trade: counter, countered } = data<{ trade: View; countered: View }>(res);
     expect(countered).toMatchObject({ id: offer.id, status: 'countered' });
@@ -164,7 +190,10 @@ describe('offers', () => {
     );
     const rejected = trade(await alice.post(`${L}/trades/${counter.id}/respond`, { response: 'reject' }));
     expect(rejected.status).toBe('rejected');
-    expect(eventsOf('Trade Rejected').at(-1)?.detail).toMatchObject({ tradeId: counter.id, toTeamId: 'team-1' });
+    expect(eventsOf('Trade Rejected').at(-1)?.detail).toMatchObject({
+      tradeId: counter.id,
+      toTeamId: 'team-1'
+    });
   });
 
   it('withdraws an offer; a withdrawn offer cannot be answered', async () => {
@@ -183,9 +212,13 @@ describe('offers', () => {
       outcome: 'early'
     });
     h.clock.set(offer.expiresAt);
-    expect((await timer('Trade Offer Deadline', { leagueId: 'lg-t', tradeId: offer.id })).outcome).toBe('expired');
+    expect((await timer('Trade Offer Deadline', { leagueId: 'lg-t', tradeId: offer.id })).outcome).toBe(
+      'expired'
+    );
     expect(eventsOf('Trade Expired').at(-1)?.detail).toMatchObject({ tradeId: offer.id, status: 'expired' });
-    expect((await timer('Trade Offer Deadline', { leagueId: 'lg-t', tradeId: offer.id })).outcome).toBe('stale');
+    expect((await timer('Trade Offer Deadline', { leagueId: 'lg-t', tradeId: offer.id })).outcome).toBe(
+      'stale'
+    );
     expect(await timer('Trade Offer Deadline', { leagueId: 'lg-t', tradeId: 'nope' })).toEqual({
       handled: false,
       outcome: 'ignored'
@@ -203,7 +236,10 @@ describe('acceptance, league review, and processing', () => {
     const offer = offers.find((t) => t.direction === 'incoming') as View;
     accepted = trade(await bob.post(`${L}/trades/${offer.id}/respond`, { response: 'accept' }));
     expect(accepted).toMatchObject({ status: 'in_review', reviewEndsAt: '2026-09-12T12:00:00.000Z' });
-    expect(eventsOf('Trade Accepted').at(-1)?.detail).toMatchObject({ tradeId: offer.id, review: 'league_vote' });
+    expect(eventsOf('Trade Accepted').at(-1)?.detail).toMatchObject({
+      tradeId: offer.id,
+      review: 'league_vote'
+    });
     expect(eventsOf('Schedule Event').at(-1)?.detail).toMatchObject({
       event: { detailType: 'Trade Review Ended', detail: { tradeId: offer.id } }
     });
@@ -233,7 +269,10 @@ describe('acceptance, league review, and processing', () => {
     expect(await roster('team-2')).toEqual(['fx-mahomes', 'fx-chase', 'fx-cmc']);
     expect(await h.repos.waivers.playerOwner('lg-t', 'fx-bijan')).toBe('team-1');
     expect(await h.repos.waivers.playerOwner('lg-t', 'fx-cmc')).toBe('team-2');
-    expect(eventsOf('Trade Processed').at(-1)?.detail).toMatchObject({ tradeId: accepted.id, status: 'processed' });
+    expect(eventsOf('Trade Processed').at(-1)?.detail).toMatchObject({
+      tradeId: accepted.id,
+      status: 'processed'
+    });
     const log = data<{ transactions: { type: string; teamId: string; added: { id: string } }[] }>(
       await carol.get(`${L}/transactions`)
     );
@@ -241,7 +280,9 @@ describe('acceptance, league review, and processing', () => {
       ['trade', 'team-1', 'fx-bijan'],
       ['trade', 'team-2', 'fx-cmc']
     ]);
-    expect((await timer('Trade Review Ended', { leagueId: 'lg-t', tradeId: accepted.id })).outcome).toBe('stale');
+    expect((await timer('Trade Review Ended', { leagueId: 'lg-t', tradeId: accepted.id })).outcome).toBe(
+      'stale'
+    );
     h.clock.set(START);
   });
 
@@ -253,7 +294,10 @@ describe('acceptance, league review, and processing', () => {
     await bob.post(`${L}/trades/${offer.id}/votes`, { decision: 'veto' });
     const vote = await asAgent(agent4, 'vote_trade', { tradeId: offer.id, idempotencyKey: 'agent-4-veto-1' });
     expect(vote).toMatchObject({ data: { trade: { status: 'vetoed', vetoVotes: 2 } } });
-    expect(eventsOf('Trade Vetoed').at(-1)?.detail).toMatchObject({ tradeId: offer.id, fromTeamId: 'team-3' });
+    expect(eventsOf('Trade Vetoed').at(-1)?.detail).toMatchObject({
+      tradeId: offer.id,
+      fromTeamId: 'team-3'
+    });
     expect(await roster('team-3')).toEqual(['fx-hurts']);
   });
 
@@ -262,7 +306,9 @@ describe('acceptance, league review, and processing', () => {
     const inReview = trade(await alice.post(`${L}/trades/${offer.id}/respond`, { response: 'accept' }));
     expect((await carol.post(`${L}/drops`, { playerId: 'fx-hurts' })).status).toBe(200);
     h.clock.set(inReview.reviewEndsAt as string);
-    expect((await timer('Trade Review Ended', { leagueId: 'lg-t', tradeId: offer.id })).outcome).toBe('voided');
+    expect((await timer('Trade Review Ended', { leagueId: 'lg-t', tradeId: offer.id })).outcome).toBe(
+      'voided'
+    );
     expect(eventsOf('Trade Vetoed').at(-1)?.detail).toMatchObject({
       tradeId: offer.id,
       voided: true,
@@ -306,12 +352,14 @@ describe('agents, the lopsided guard, and the deadline', () => {
     if (league === null) throw new Error('league');
     await h.repos.leagues.update({ ...league, week: 12 });
     const res = await alice.post(`${L}/trades`, { withTeamId: 'team-3', send: ['fx-jallen'] });
-    expect(res.body).toMatchObject({ error: { code: 'TRADE_DEADLINE_PASSED', fix: expect.stringContaining('waivers') } });
+    expect(res.body).toMatchObject({
+      error: { code: 'TRADE_DEADLINE_PASSED', fix: expect.stringContaining('waivers') }
+    });
     const outcome = await timer('Trade Deadline Passed', { leagueId: 'lg-t' });
     expect(outcome.outcome).toEqual({ expired: 2 });
-    expect(data<{ trades: View[] }>(await alice.get(`${L}/trades?tradeId=${offer.id}`)).trades[0]?.status).toBe(
-      'expired'
-    );
+    expect(
+      data<{ trades: View[] }>(await alice.get(`${L}/trades?tradeId=${offer.id}`)).trades[0]?.status
+    ).toBe('expired');
     expect((await timer('Trade Deadline Passed', { leagueId: 'nope' })).handled).toBe(false);
   });
 });
@@ -333,7 +381,13 @@ describe('review settings and locks', () => {
 
   it('processes at once in a league without review', async () => {
     await reviewLeague('lg-tn', 'none');
-    const offer = trade(await alice.post('/leagues/lg-tn/trades', { withTeamId: 'team-2', send: ['fx-jallen'], receive: ['fx-mahomes'] }));
+    const offer = trade(
+      await alice.post('/leagues/lg-tn/trades', {
+        withTeamId: 'team-2',
+        send: ['fx-jallen'],
+        receive: ['fx-mahomes']
+      })
+    );
     const done = trade(await bob.post(`/leagues/lg-tn/trades/${offer.id}/respond`, { response: 'accept' }));
     expect(done.status).toBe('processed');
     expect(await roster('team-1', 'lg-tn')).toEqual(['fx-mahomes']);
@@ -341,16 +395,30 @@ describe('review settings and locks', () => {
 
   it('lets only the commissioner approve or veto in commissioner mode', async () => {
     await reviewLeague('lg-tc', 'commissioner');
-    const one = trade(await bob.post('/leagues/lg-tc/trades', { withTeamId: 'team-3', send: ['fx-mahomes'], receive: ['fx-hurts'] }));
+    const one = trade(
+      await bob.post('/leagues/lg-tc/trades', {
+        withTeamId: 'team-3',
+        send: ['fx-mahomes'],
+        receive: ['fx-hurts']
+      })
+    );
     await carol.post(`/leagues/lg-tc/trades/${one.id}/respond`, { response: 'accept' });
     expect(errorCode(await carol.post(`/leagues/lg-tc/trades/${one.id}/votes`, {}))).toBe('FORBIDDEN');
-    const approved = trade(await alice.post(`/leagues/lg-tc/trades/${one.id}/votes`, { decision: 'approve' }));
-    expect(approved.status).toBe('processed');
-    const two = trade(await bob.post('/leagues/lg-tc/trades', { withTeamId: 'team-3', send: ['fx-hurts'], receive: ['fx-mahomes'] }));
-    await carol.post(`/leagues/lg-tc/trades/${two.id}/respond`, { response: 'accept' });
-    expect(trade(await alice.post(`/leagues/lg-tc/trades/${two.id}/votes`, { decision: 'veto' })).status).toBe(
-      'vetoed'
+    const approved = trade(
+      await alice.post(`/leagues/lg-tc/trades/${one.id}/votes`, { decision: 'approve' })
     );
+    expect(approved.status).toBe('processed');
+    const two = trade(
+      await bob.post('/leagues/lg-tc/trades', {
+        withTeamId: 'team-3',
+        send: ['fx-hurts'],
+        receive: ['fx-mahomes']
+      })
+    );
+    await carol.post(`/leagues/lg-tc/trades/${two.id}/respond`, { response: 'accept' });
+    expect(
+      trade(await alice.post(`/leagues/lg-tc/trades/${two.id}/votes`, { decision: 'veto' })).status
+    ).toBe('vetoed');
     expect(errorCode(await alice.post(`/leagues/lg-tc/trades/${two.id}/votes`, { decision: 'veto' }))).toBe(
       'TRADE_NOT_IN_REVIEW'
     );
@@ -358,7 +426,13 @@ describe('review settings and locks', () => {
 
   it('waits for the week’s locks to release before processing a trade with a locked player', async () => {
     await reviewLeague('lg-tl', 'commissioner');
-    const offer = trade(await bob.post('/leagues/lg-tl/trades', { withTeamId: 'team-3', send: ['fx-mahomes'], receive: ['fx-hurts'] }));
+    const offer = trade(
+      await bob.post('/leagues/lg-tl/trades', {
+        withTeamId: 'team-3',
+        send: ['fx-mahomes'],
+        receive: ['fx-hurts']
+      })
+    );
     await carol.post(`/leagues/lg-tl/trades/${offer.id}/respond`, { response: 'accept' });
     // KC (Mahomes) kicks off before the commissioner approves.
     await h.services.data.reference.schedule.putSeason(
@@ -379,7 +453,9 @@ describe('review settings and locks', () => {
       new Date(START)
     );
     h.clock.set('2026-09-11T01:00:00.000Z');
-    const approved = trade(await alice.post(`/leagues/lg-tl/trades/${offer.id}/votes`, { decision: 'approve' }));
+    const approved = trade(
+      await alice.post(`/leagues/lg-tl/trades/${offer.id}/votes`, { decision: 'approve' })
+    );
     expect(approved.status).toBe('in_review');
     expect(eventsOf('Schedule Event').at(-1)?.detail).toMatchObject({
       at: '2026-09-11T04:50:00.000Z',
@@ -390,7 +466,9 @@ describe('review settings and locks', () => {
     const league = await h.repos.leagues.get('lg-tl');
     if (league === null) throw new Error('league');
     await h.repos.leagues.update({ ...league, week: 3 });
-    expect((await timer('Trade Review Ended', { leagueId: 'lg-tl', tradeId: offer.id })).outcome).toBe('processed');
+    expect((await timer('Trade Review Ended', { leagueId: 'lg-tl', tradeId: offer.id })).outcome).toBe(
+      'processed'
+    );
     expect(await roster('team-2', 'lg-tl')).toEqual(['fx-hurts']);
     h.clock.set(START);
   });

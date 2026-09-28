@@ -63,7 +63,11 @@ export class DynamoTradeRepository implements TradeRepository {
 
   async get(leagueId: string, tradeId: string): Promise<TradeRecord | null> {
     const result = await this.table.doc.send(
-      new GetCommand({ TableName: this.table.tableName, Key: tradeKey(leagueId, tradeId), ConsistentRead: true })
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: tradeKey(leagueId, tradeId),
+        ConsistentRead: true
+      })
     );
     return result.Item === undefined ? null : parse(result.Item);
   }

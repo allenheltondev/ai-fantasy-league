@@ -47,5 +47,7 @@ export function staleTrade(tradeId: string): ApiError {
 }
 
 export function byProposedAt(a: TradeRecord, b: TradeRecord): number {
-  return a.trade.proposedAt.localeCompare(b.trade.proposedAt) || a.trade.tradeId.localeCompare(b.trade.tradeId);
+  return (
+    a.trade.proposedAt.localeCompare(b.trade.proposedAt) || a.trade.tradeId.localeCompare(b.trade.tradeId)
+  );
 }

@@ -8,7 +8,7 @@ import {
   taskIdFor,
   TRIGGER_RULES
 } from '../src/router.js';
-import { defaultTaskKinds } from '../src/tasks/index.js';
+import { DEFAULT_TASK_KINDS, defaultTaskKinds } from '../src/tasks/index.js';
 import { createTaskKindRegistry, type TaskKind } from '../src/tasks/kinds.js';
 import { noopTask } from '../src/tasks/noop.js';
 import { LEAGUE_ID, setup } from './support.js';
@@ -183,7 +183,7 @@ describe('routeEvent', () => {
     const s = await withSeats();
     const decisions = await s.route(
       event('Trade Proposed', { leagueId: LEAGUE_ID, toTeamId: 'team-3', tradeId: 't1' }),
-      defaultTaskKinds
+      createTaskKindRegistry(DEFAULT_TASK_KINDS.filter((k) => k.kind !== 'trade_response'))
     );
     expect(decisions).toEqual([
       { teamId: 'team-3', leagueId: LEAGUE_ID, decision: 'no_handler', kind: 'trade_response' }

@@ -162,7 +162,10 @@ export const offerExpiryName = (leagueId: string, tradeId: string) => `trade-exp
 export const reviewEndName = (leagueId: string, tradeId: string) => `trade-review-${leagueId}-${tradeId}`;
 export const tradeDeadlineName = (leagueId: string) => `trade-deadline-${leagueId}`;
 
-export async function scheduleOfferExpiry(deps: Pick<TradeDeps, 'events'>, record: TradeRecord): Promise<void> {
+export async function scheduleOfferExpiry(
+  deps: Pick<TradeDeps, 'events'>,
+  record: TradeRecord
+): Promise<void> {
   await deps.events.scheduleAt({
     at: new Date(record.trade.expiresAt),
     name: offerExpiryName(record.leagueId, record.trade.tradeId),
@@ -186,7 +189,11 @@ export async function scheduleReviewEnd(
     whenPast: 'send',
     event: {
       detailType: 'Trade Review Ended',
-      detail: { leagueId: record.leagueId, tradeId: record.trade.tradeId, reviewEndsAt: record.trade.reviewEndsAt }
+      detail: {
+        leagueId: record.leagueId,
+        tradeId: record.trade.tradeId,
+        reviewEndsAt: record.trade.reviewEndsAt
+      }
     }
   });
 }
@@ -309,7 +316,13 @@ async function writeRoster(
   }
 }
 
-async function applyTrade(deps: TradeDeps, league: League, trade: Trade, at: string, now: Date): Promise<void> {
+async function applyTrade(
+  deps: TradeDeps,
+  league: League,
+  trade: Trade,
+  at: string,
+  now: Date
+): Promise<void> {
   const { repos } = deps;
   const pairs = [
     [trade.sides[0], trade.sides[1]],

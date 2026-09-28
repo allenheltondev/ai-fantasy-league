@@ -28,7 +28,13 @@ export async function seedContractTrades(repos: Repos): Promise<void> {
       'team-3': ['fx-hurts', 'fx-lamb']
     }
   });
-  const offer = { leagueId: 'lg-ct', from: 'team-2', to: 'team-1', fromSends: ['fx-bijan'], toSends: ['fx-cmc'] };
+  const offer = {
+    leagueId: 'lg-ct',
+    from: 'team-2',
+    to: 'team-1',
+    fromSends: ['fx-bijan'],
+    toSends: ['fx-cmc']
+  };
   for (const id of ['ct-counter', 'ct-reject', 'ct-withdraw']) await seedTrade(repos, { ...offer, id });
   await seedTrade(repos, {
     leagueId: 'lg-ct',
@@ -57,7 +63,11 @@ const post = (label: string, body: Record<string, unknown>, extra: RequestOption
 
 export const TRADE_CASES: Record<string, Case[]> = {
   preview_trade: [
-    { label: 'new offer', path: `${T}/trades/preview?withTeamId=team-2&send=fx-cmc&receive=fx-bijan`, status: 200 },
+    {
+      label: 'new offer',
+      path: `${T}/trades/preview?withTeamId=team-2&send=fx-cmc&receive=fx-bijan`,
+      status: 200
+    },
     { label: 'existing offer', path: `${T}/trades/preview?tradeId=ct-counter`, status: 200 },
     { label: 'nothing to preview', path: `${T}/trades/preview`, status: 400 }
   ],
@@ -114,10 +124,20 @@ export const TRADE_CASES: Record<string, Case[]> = {
       init: post('withdraw', {}, { token: bob }),
       status: 200
     },
-    { label: 'unknown trade', path: `${T}/trades/nope/withdraw`, init: post('withdraw-nope', {}), status: 404 }
+    {
+      label: 'unknown trade',
+      path: `${T}/trades/nope/withdraw`,
+      init: post('withdraw-nope', {}),
+      status: 404
+    }
   ],
   vote_trade: [
-    { label: 'veto vote', path: `${T}/trades/ct-review/votes`, init: post('vote', { decision: 'veto' }), status: 200 },
+    {
+      label: 'veto vote',
+      path: `${T}/trades/ct-review/votes`,
+      init: post('vote', { decision: 'veto' }),
+      status: 200
+    },
     { label: 'voted already', path: `${T}/trades/ct-review/votes`, init: post('vote-again', {}), status: 409 }
   ]
 };

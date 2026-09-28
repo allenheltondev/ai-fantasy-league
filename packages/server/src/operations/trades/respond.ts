@@ -20,7 +20,15 @@ import { processAccepted, publishTradeEvent, scheduleReviewEnd, tradeError } fro
 import { loadTradeWorld } from '../../trades/world.js';
 import { actingTeam, TeamIdField } from '../waivers/shared.js';
 import { resolvePlayers } from './shared.js';
-import { loadTrade, MessageField, playersField, TradeIdField, tradeDepsOf, tradeViews, TradeViewSchema } from './shared.js';
+import {
+  loadTrade,
+  MessageField,
+  playersField,
+  TradeIdField,
+  tradeDepsOf,
+  tradeViews,
+  TradeViewSchema
+} from './shared.js';
 
 const Output = z.object({ trade: TradeViewSchema });
 

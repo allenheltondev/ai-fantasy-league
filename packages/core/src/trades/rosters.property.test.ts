@@ -34,7 +34,11 @@ function initialRosters(): Record<string, RosteredPlayer[]> {
 }
 
 /** The drops a team needs so its roster fits after receiving `incoming` and sending `sends`. */
-function neededDrops(roster: readonly RosteredPlayer[], sends: readonly string[], incoming: number): string[] {
+function neededDrops(
+  roster: readonly RosteredPlayer[],
+  sends: readonly string[],
+  incoming: number
+): string[] {
   const staying = roster.filter((p) => !sends.includes(p.playerId));
   const excess = staying.length + incoming - LIMIT;
   return excess > 0 ? staying.slice(0, excess).map((p) => p.playerId) : [];

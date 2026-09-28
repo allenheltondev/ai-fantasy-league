@@ -58,13 +58,17 @@ export const previewTrade = defineOperation({
   output: z.object({
     valid: z.boolean(),
     issues: z.array(IssueSchema).describe('What makes the trade illegal right now, with fixes.'),
-    warnings: z.array(IssueSchema).describe('Advisory, e.g. RESPONDER_MUST_DROP: they must drop when accepting.'),
+    warnings: z
+      .array(IssueSchema)
+      .describe('Advisory, e.g. RESPONDER_MUST_DROP: they must drop when accepting.'),
     sides: z.tuple([SideImpactSchema, SideImpactSchema]).describe('[the offering team, the answering team]'),
     fairness: z.object({
       favors: z.string().nullable().describe('The team id that gains more, or null when even.'),
       lineupGap: z.number(),
       valueGap: z.number(),
-      lopsided: z.boolean().describe('True when one side gains far more (agent-to-agent trades like this are refused).'),
+      lopsided: z
+        .boolean()
+        .describe('True when one side gains far more (agent-to-agent trades like this are refused).'),
       fromWeek: z.number().int(),
       toWeek: z.number().int()
     }),
@@ -110,7 +114,8 @@ export const previewTrade = defineOperation({
       const active = (p: RosteredPlayer) => p.slot !== 'IR';
       const leaving = new Set([...side.sends, ...side.drops]);
       const activeBefore = roster.filter(active).length;
-      const activeAfter = roster.filter((p) => active(p) && !leaving.has(p.playerId)).length + other.sends.length;
+      const activeAfter =
+        roster.filter((p) => active(p) && !leaving.has(p.playerId)).length + other.sends.length;
       const dropsNeeded = Math.max(0, activeAfter - limit);
       const candidates =
         dropsNeeded === 0
