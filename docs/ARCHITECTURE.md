@@ -155,6 +155,7 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 | `Draft Turn Started` | A team is on the clock |
 | `Draft Pick Made` | A pick is made |
 | `Draft Completed` | The draft ends |
+| `Draft Pick Deadline` | A pick's clock runs out (scheduled with `scheduleAt`; the API function autopicks if the pick is still open) |
 | `Week Rolled Over` | A new NFL week starts (`syncNflState`), or a league moves to its next week (the weekly cycle; carries `leagueId`) |
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
 | `Waiver Window Opened` | Waivers open |

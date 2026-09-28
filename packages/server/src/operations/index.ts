@@ -1,4 +1,5 @@
 import { createRegistry, type Registry } from '../registry/registry.js';
+import { draftOperations } from './draft/index.js';
 import { leagueOperations } from './league/index.js';
 import { getPlayer, searchPlayers } from './players.js';
 import { getHealth, getMe } from './system.js';
@@ -24,6 +25,8 @@ export const operations = [
   ...leagueOperations,
   // Season loop: rosters and lineups (#52)
   ...seasonOperations,
+  // Draft (#46, #47)
+  ...draftOperations,
   // Agent platform (#39, #45)
   configureAgentSeat,
   randomizeAgentSeatsOperation,

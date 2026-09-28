@@ -40,8 +40,7 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 | Team / seat | `TEAM#<teamId>` | none | Name, seat type (`human` or `agent`), owner `sub` (null for open and agent seats), agent config id, draft slot, FAAB left, waiver priority, roster (player ids, empty until the draft), `version`. Items carry `entity = team`, because `TEAM#<teamId>#AGENT` and `TEAM#<teamId>#MEMORY#...` share the prefix: the team list is one `begins_with(TEAM#)` query filtered on `entity`. |
 | Agent config (the seat card) | `TEAM#<teamId>#AGENT` | none | Personality, difficulty, archetype, model, levers. Stored as data, so tuning needs no redeploy. |
 | Agent memory | `TEAM#<teamId>#MEMORY#<ts>` | none | Per-agent league memory injected into prompts (SPEC §10). |
-| Draft state | `DRAFT` | none | Order, current pick, clock deadline, version. |
-| Draft pick | `DRAFT#PICK#<nnn>` | none | `get_draft_board` is one query on `DRAFT`. `make_draft_pick` writes the pick with `attribute_not_exists` and bumps `DRAFT.version` in one transaction. |
+| Draft | `DRAFT` | none | The order, rounds, clock, every pick, the current deadline, status (`in_progress`, `paused`, `complete`), and `version`. `get_draft_board` is one GetItem. `make_draft_pick` rewrites the item with a `version` condition, so two racing picks cannot both land (a 16-round, 12-team draft is well under 100 KB). Team rosters are then set to the team's picks. |
 | Roster | `ROSTER#<teamId>` | none | `get_roster` is a GetItem. All rosters are one `begins_with(ROSTER#)` query (at most 12 items). |
 | Player ownership lock | `OWN#<playerId>` | none | Holds `teamId`. Adds, claims, picks, and trades write it with a condition in the same transaction as the roster change, so a player can never be on two rosters. Free agent check is a GetItem. |
 | Lineup | `LINEUP#W05#<teamId>` | none | Every rostered player with his slot, plus who saved it. `set_lineup` puts one item. A week's lineups are one query. A week with no lineup uses the team's latest earlier one (a reverse range query filtered on the team), and the weekly rollover writes the carried-forward copies. |
@@ -131,7 +130,7 @@ has a 90-day `ttl`.
 | Player sync diff | The six GSI1 `PLAYERIDX#` shards (the `source` attribute) |
 | `get_transactions` | Query `TXN#`, reverse, paginated |
 | `get_chat`, `post_message` | Query or put in `CHAT#<leagueId>` |
-| `get_draft_board`, `make_draft_pick` | Query `DRAFT`; transact the pick, `OWN#`, `ROSTER#`, and `DRAFT` |
+| `get_draft_board`, `make_draft_pick` | GetItem `DRAFT`; a version-checked put of `DRAFT`, then the team's roster |
 | `set_lineup` | Put `LINEUP#W05#<teamId>` |
 | `drop_player`, `claim_waiver`, `cancel_waiver_claim` | Transact `ROSTER#`, `OWN#`, and `WAIVER#`/`TXN#` |
 | `preview_waiver_claim`, `preview_trade` | Reads only (roster, lineup, projections) |

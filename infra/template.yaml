@@ -231,6 +231,23 @@ Resources:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource: !Ref SecretsArn
+      # The draft pick clock (#46): start_draft and every pick schedule a
+      # "Draft Pick Deadline" through the rsc-core deferred-event scheduler. At
+      # the deadline this function autopicks if the pick is still open; a
+      # deadline for a pick already made is a no-op (packages/server/src/events/handlers.ts).
+      Events:
+        DraftPickDeadline:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - fantasy
+              detail-type:
+                - Draft Pick Deadline
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
       # The Function URL stays AuthType NONE: CloudFront OAC for Lambda
       # function URLs needs the *viewer* to send an x-amz-content-sha256 body
       # hash on POST/PUT, which a browser cannot do (same finding as

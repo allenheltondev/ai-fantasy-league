@@ -381,3 +381,39 @@ describe('live scoring and the weekly cycle', () => {
     expect(await advanceSeason(jobDeps(), h.clock)).toMatchObject({ skipped: 1 });
   });
 });
+
+describe('a draft that ran into the season (void weeks)', () => {
+  it('scores nothing before the first week and leaves it out of the standings', async () => {
+    const deps = { repos: h.repos, reference: h.services.data.reference };
+    await seedSeasonLeague(deps, { id: 'lg-mid', owners: [ALICE, null, BOB], overrides: { week: 3 } });
+    // Stats exist for week 1, but the league began in week 3.
+    await deps.reference.stats.putLines([
+      {
+        playerId: 'fx-jallen',
+        season: SEASON,
+        week: 1,
+        stats: { pass_td: 3 },
+        updatedAt: '2026-09-13T20:00:00.000Z'
+      }
+    ]);
+    h.clock.set('2026-09-24T12:00:00.000Z');
+    const week1 = await alice.get('/leagues/lg-mid/matchup?week=1');
+    expect(warnings(week1)).toEqual(['WEEK_VOID']);
+    const side = data<{ matchup: { home: { score: number | null }; away: { score: number | null } } }>(week1);
+    expect([side.matchup.home.score, side.matchup.away.score]).toEqual([null, null]);
+
+    const jobDeps = { ...deps, events: h.events, log: silentLogger };
+    h.clock.set(new Date(Date.parse(MONDAY_KICKOFF) + 2 * 7 * 86_400_000 + 5 * 3_600_000));
+    await advanceSeason(jobDeps, h.clock);
+    expect(await h.repos.leagues.get('lg-mid')).toMatchObject({ week: 4 });
+    const standings = data<{ throughWeek: number; standings: { record: string }[] }>(
+      await alice.get('/leagues/lg-mid/standings')
+    );
+    expect(standings.throughWeek).toBe(3);
+    // One game each: only week 3 counted.
+    const games = (record: string) => record.split('-').reduce((sum, n) => sum + Number(n), 0);
+    expect(standings.standings.every((r) => games(r.record) === 1)).toBe(true);
+    const voided = await h.repos.schedule.listMatchups('lg-mid', 1);
+    expect(voided.every((m) => m.status === 'scheduled' && m.homeScore === null)).toBe(true);
+  });
+});

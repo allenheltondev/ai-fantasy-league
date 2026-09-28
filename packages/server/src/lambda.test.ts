@@ -61,6 +61,17 @@ describe('lambda handler', () => {
     expect(JSON.parse(openApi.body)).toMatchObject({ openapi: '3.1.0' });
   });
 
+  it('routes EventBridge events to the league event handlers', async () => {
+    const handler = await loadHandler();
+    const result = await handler({
+      id: 'e1',
+      source: 'fantasy',
+      'detail-type': 'League Created',
+      detail: {}
+    });
+    expect(result).toEqual({ handled: false });
+  });
+
   it('never accepts dev sign-in, even with FANTASY_LOCAL_AUTH=1', async () => {
     const handler = await loadHandler();
     const result = await handler(functionUrlEvent('GET', '/api/v1/me', { authorization: 'Bearer dev' }));

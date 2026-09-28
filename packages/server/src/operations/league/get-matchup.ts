@@ -25,6 +25,7 @@ export const getMatchup = defineOperation({
     "Returns one team's matchup for a week: both teams and their scores (null until the week is scored), and whether it is scheduled, in progress, or final.",
     'Defaults: your own team and the current week (before the season, the first week). Pass `teamId` for any team in the league and `week` for any week the league plays.',
     "`lineups` shows both teams' lineups with each player's projected and actual points; while the week is live the scores are recomputed from the latest stats on every read, so poll this for live scoring.",
+    "A week before the league's first week (a draft that finished mid-season) is void: no scores, not in the standings, and a WEEK_VOID warning.",
     'Before the draft there is no schedule yet: `matchup` is null and a NO_SCHEDULE_YET warning says so. A week with no game for the team (a playoff bye, or eliminated) also returns null. Only members can read it.'
   ].join(' '),
   tags: ['leagues', 'season'],
@@ -77,10 +78,20 @@ export const getMatchup = defineOperation({
       const lineups = await matchupLineups(ctx, league, teams, matchup);
       const hasStats = [...lineups.home.players, ...lineups.away.players].some((p) => p.points !== null);
       const live =
-        matchup.status === 'final' || !hasStats
-          ? matchup
-          : { ...matchup, homeScore: lineups.home.points, awayScore: lineups.away.points };
-      return { week, teamId: team.id, matchup: matchupView(live, teams), lineups };
+        matchup.status !== 'final' && matchup.week === league.week && hasStats
+          ? { ...matchup, homeScore: lineups.home.points, awayScore: lineups.away.points }
+          : matchup;
+      const result = { week, teamId: team.id, matchup: matchupView(live, teams), lineups };
+      // A week before the league's first week (a draft that ran into the season) is void.
+      if (matchup.status !== 'final' && league.week !== null && matchup.week < league.week) {
+        return withWarnings(result, [
+          {
+            code: 'WEEK_VOID',
+            message: `Week ${week} was played before this league's season began; it does not count.`
+          }
+        ]);
+      }
+      return result;
     }
     const data = { week, teamId: team.id, matchup: null, lineups: null };
     return withWarnings(data, [

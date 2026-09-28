@@ -182,11 +182,11 @@ describe('routeEvent', () => {
   it('skips triggers whose task kind is not built yet', async () => {
     const s = await withSeats();
     const decisions = await s.route(
-      event('Draft Turn Started', { leagueId: LEAGUE_ID, teamId: 'team-3' }),
+      event('Trade Proposed', { leagueId: LEAGUE_ID, toTeamId: 'team-3', tradeId: 't1' }),
       defaultTaskKinds
     );
     expect(decisions).toEqual([
-      { teamId: 'team-3', leagueId: LEAGUE_ID, decision: 'no_handler', kind: 'draft_pick' }
+      { teamId: 'team-3', leagueId: LEAGUE_ID, decision: 'no_handler', kind: 'trade_response' }
     ]);
     expect(s.requested()).toEqual([]);
     expect(s.logs.some((l) => l.includes('"decision":"no_handler"'))).toBe(true);

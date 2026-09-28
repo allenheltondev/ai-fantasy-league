@@ -1,4 +1,4 @@
-import type { Player, PlayerStatus, Position } from './model.js';
+import { NFL_TEAMS, type Player, type PlayerStatus, type Position } from './model.js';
 
 /**
  * A small fixed player universe for tests and local dev until the Sleeper sync
@@ -69,3 +69,49 @@ export const fixturePlayers: readonly Player[] = ROWS.map(
     updatedAt: FIXTURE_UPDATED_AT
   })
 );
+
+/** Depth players per position, so a full 12-team draft never runs dry. */
+const DEPTH: readonly [Position, number][] = [
+  ['QB', 24],
+  ['RB', 50],
+  ['WR', 60],
+  ['TE', 24],
+  ['K', 20]
+];
+
+/**
+ * `fixturePlayers` plus generated depth ("Reserve RB12") and a defense for every NFL team: a pool
+ * deep enough for mock drafts in tests, local dev, and e2e. Ranks put depth players after the named
+ * fixtures, interleaved by position.
+ */
+export const fixtureDraftPool: readonly Player[] = [
+  ...fixturePlayers,
+  ...DEPTH.flatMap(([position, count], p) =>
+    Array.from({ length: count }, (_, i): Player => ({
+      id: `fx-${position.toLowerCase()}-${i + 1}`,
+      name: `Reserve ${position}${i + 1}`,
+      firstName: 'Reserve',
+      lastName: `${position}${i + 1}`,
+      team: NFL_TEAMS[(i + p * 7) % NFL_TEAMS.length] as string,
+      position,
+      status: 'active',
+      injuryStatus: null,
+      aliases: [],
+      rank: 200 + i * DEPTH.length + p,
+      updatedAt: FIXTURE_UPDATED_AT
+    }))
+  ),
+  ...NFL_TEAMS.filter((team) => team !== 'SF' && team !== 'BUF').map((team, i): Player => ({
+    id: `fx-def-${team.toLowerCase()}`,
+    name: `${team} Defense`,
+    firstName: team,
+    lastName: 'Defense',
+    team,
+    position: 'DEF',
+    status: 'active',
+    injuryStatus: null,
+    aliases: [],
+    rank: 130 + i,
+    updatedAt: FIXTURE_UPDATED_AT
+  }))
+];

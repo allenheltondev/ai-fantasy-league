@@ -224,20 +224,26 @@ export function storedNflState(reference: ReferenceStore): NflStateSource {
 }
 
 /**
- * Starts a drafted league's season (#85). The draft stream calls this when the draft completes:
- * the league scores from its first unlocked week (`firstScoringWeek`), so a league drafted mid-
- * season skips weeks that already kicked off. It makes sure the schedule exists, moves a
- * `drafting` league to `regular_season`, sets the week and the next lineup lock, and schedules
- * the week's lock warnings. Weeks before the first scoring week keep their `scheduled` matchups
- * and never count in the standings.
+ * Starts a drafted league's season (#85). `finishDraft` calls this once it has moved the league to
+ * `regular_season` with its first week (`max(startWeek, current NFL week)`); a league still in
+ * `drafting` (or without a week) gets the first unlocked week (`firstScoringWeek`). It makes sure
+ * the schedule exists, sets the week and the next lineup lock, and schedules the week's lock
+ * warnings. Weeks before the first week are void: their matchups stay `scheduled` without
+ * scores, never count in the standings, and get_matchup says so (WEEK_VOID).
  */
 export async function startLeagueSeason(
   deps: SeasonDeps & { nflState?: NflStateSource },
   league: League,
   now: Date
 ): Promise<League> {
-  const unlocked = await nextUnlockedWeek(deps.nflState ?? storedNflState(deps.reference), now, deps.log);
-  const week = firstScoringWeek(league, unlocked);
+  // The draft (league/draft.ts `finishDraft`) picks the first week itself; keep its choice.
+  const week =
+    league.phase === 'regular_season' && league.week !== null
+      ? league.week
+      : firstScoringWeek(
+          league,
+          await nextUnlockedWeek(deps.nflState ?? storedNflState(deps.reference), now, deps.log)
+        );
   const lastWeek = league.settings.schedule.regularSeasonEndWeek;
   if (week > lastWeek) {
     throw new ApiError(

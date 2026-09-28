@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_PICK_SECONDS,
   LeagueSettingsSchema,
   activeRosterSize,
   applySettingsPatch,
@@ -12,7 +13,7 @@ import {
   vetoVotesRequired,
   yahooDefaultSettings
 } from './settings.js';
-import { parseLeagueSettings } from './validate-settings.js';
+import { parseLeagueSettings, settingEditability } from './validate-settings.js';
 
 describe('yahooDefaultSettings', () => {
   const s = yahooDefaultSettings();
@@ -149,5 +150,27 @@ describe('applySettingsPatch', () => {
   it('does not mutate the base', () => {
     applySettingsPatch(base, { roster: { slots: { QB: 2 } } });
     expect(base.roster.slots.QB).toBe(1);
+  });
+});
+
+describe('draft settings', () => {
+  it('defaults the pick clock to 90 seconds, and reads settings stored without it as the default', () => {
+    const settings = yahooDefaultSettings(8);
+    expect(settings.draft).toEqual({ pickSeconds: DEFAULT_PICK_SECONDS });
+    const legacy: Record<string, unknown> = { ...settings };
+    delete legacy.draft;
+    const parsed = parseLeagueSettings(legacy);
+    expect(parsed.ok && parsed.settings.draft.pickSeconds).toBe(90);
+  });
+
+  it('bounds the pick clock and names the valid keys for a typo', () => {
+    const tooFast = parseLeagueSettings({ ...yahooDefaultSettings(8), draft: { pickSeconds: 5 } });
+    expect(tooFast.ok ? [] : tooFast.issues.map((i) => i.path)).toEqual(['draft.pickSeconds']);
+    const typo = parseLeagueSettings({ ...yahooDefaultSettings(8), draft: { pickSecs: 60 } });
+    expect(typo.ok ? '' : typo.issues[0]?.fix).toContain('pickSeconds');
+  });
+
+  it('locks the pick clock once the draft starts', () => {
+    expect(settingEditability('draft.pickSeconds')).toBe('pre_draft');
   });
 });

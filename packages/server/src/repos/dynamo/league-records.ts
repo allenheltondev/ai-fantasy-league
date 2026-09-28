@@ -1,6 +1,6 @@
-import { LeagueSettingsSchema, RosterSlotSchema } from '@fantasy/core';
+import { LeagueSettingsSchema, PositionSchema, RosterSlotSchema } from '@fantasy/core';
 import { z } from 'zod';
-import { LEAGUE_PHASES, SEAT_TYPES } from '../types.js';
+import { DRAFT_STATUSES, LEAGUE_PHASES, SEAT_TYPES } from '../types.js';
 import { weekKey } from './query.js';
 
 /** Item shapes in the league partition (`pk = LEAGUE#<leagueId>`), parsed on every read. */
@@ -34,6 +34,8 @@ export const lineupKey = (leagueId: string, week: number, teamId: string) => ({
   sk: `LINEUP#${weekKey(week)}#${teamId}`
 });
 
+export const draftKey = (leagueId: string) => ({ pk: leaguePk(leagueId), sk: 'DRAFT' });
+
 /** Items that share an `sk` prefix with others (`TEAM#<id>#AGENT`) are told apart by `entity`. */
 export const ENTITY = {
   league: 'league',
@@ -42,7 +44,8 @@ export const ENTITY = {
   invite: 'invite',
   matchup: 'matchup',
   standings: 'standings',
-  lineup: 'lineup'
+  lineup: 'lineup',
+  draft: 'draft'
 } as const;
 
 const iso = z.string();
@@ -149,4 +152,36 @@ export const LineupRecordSchema = z.object({
   entries: z.array(z.object({ playerId: z.string(), slot: RosterSlotSchema })),
   updatedAt: iso,
   updatedBy: z.string()
+});
+
+export const DraftRecordSchema = z.object({
+  leagueId: z.string(),
+  state: z.object({
+    teamIds: z.array(z.string()),
+    rounds: z.number(),
+    pickSeconds: z.number(),
+    positionLimits: z.partialRecord(PositionSchema, z.number()),
+    tradedPicks: z.array(
+      z.object({ round: z.number(), originalTeamId: z.string(), ownerTeamId: z.string() })
+    ),
+    picks: z.array(
+      z.object({
+        overall: z.number(),
+        round: z.number(),
+        pick: z.number(),
+        teamId: z.string(),
+        playerId: z.string(),
+        positions: z.array(PositionSchema),
+        madeAt: iso.nullable(),
+        auto: z.boolean()
+      })
+    )
+  }),
+  status: z.enum(DRAFT_STATUSES),
+  startedAt: iso,
+  deadline: iso.nullable(),
+  pausedRemainingSeconds: z.number().nullable(),
+  completedAt: iso.nullable(),
+  updatedAt: iso,
+  version: z.number()
 });

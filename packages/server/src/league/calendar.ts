@@ -105,3 +105,32 @@ export function firstScoringWeek(
   if (unlocked.season > league.season) return LAST_NFL_WEEK + 1;
   return Math.max(league.settings.schedule.startWeek, unlocked.week);
 }
+
+/**
+ * The NFL week in progress (or about to start): the NFL state's week during the regular season,
+ * week 1 before it, and the last week after it. Without NFL state, the latest week whose first game
+ * has kicked off by the clock (week 1 before the season). A league that finishes its draft now
+ * plays from `max(startWeek, currentNflWeek)`.
+ */
+export async function currentNflWeek(
+  source: NflStateSource | undefined,
+  now: Date,
+  log: Logger
+): Promise<{ season: number; week: number; source: 'nfl_state' | 'clock' }> {
+  if (source !== undefined) {
+    try {
+      const state = await source.getNflState(now);
+      const week =
+        state.seasonType === 'regular'
+          ? Math.min(Math.max(state.week, 1), LAST_NFL_WEEK)
+          : state.seasonType === 'post'
+            ? LAST_NFL_WEEK
+            : 1;
+      return { season: state.season, week, source: 'nfl_state' };
+    } catch (error) {
+      log.warn('NFL state unavailable; estimating the week from the clock', { error });
+    }
+  }
+  const season = nflSeasonAt(now);
+  return { season, week: Math.max(1, firstUnlockedWeek(season, 1, now) - 1), source: 'clock' };
+}

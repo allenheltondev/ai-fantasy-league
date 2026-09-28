@@ -169,6 +169,15 @@ export function picksUntilTurn(draft: DraftState, teamId: string): number | null
   return null;
 }
 
+/** Picks `teamId` still has to make, counting the one on the clock. */
+export function picksRemaining(draft: DraftState, teamId: string): number {
+  let n = 0;
+  for (let o = draft.picks.length + 1; o <= totalPicks(draft); o++) {
+    if (pickSlot(draft, o)?.teamId === teamId) n++;
+  }
+  return n;
+}
+
 export interface MakePickContext {
   /** The player's fantasy positions (primary first). Needed for position limits and autopick. */
   positions?: readonly Position[];

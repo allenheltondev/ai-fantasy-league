@@ -36,3 +36,6 @@ export {
   type AdvanceOutcome
 } from './season/cycle.js';
 export { recordStandings, updateMatchupScores } from './season/scoring.js';
+export { fixtureDraftPool, fixturePlayers } from './players/fixtures.js';
+export { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/handlers.js';
+export { handleDraftDeadline, type DeadlineOutcome } from './league/draft.js';

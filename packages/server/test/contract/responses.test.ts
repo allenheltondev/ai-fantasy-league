@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
+import { DRAFT_CASES, seedDraftContractLeague } from '../support/contract-draft.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 import { seedLeague } from '../support/leagues.js';
@@ -136,6 +137,7 @@ const CASES: Record<string, Case[]> = {
       status: 403
     }
   ],
+  ...DRAFT_CASES,
   configure_agent_seat: [
     {
       label: 'commissioner',
@@ -249,6 +251,7 @@ beforeAll(async () => {
     { repos: h.repos, reference: h.services.data.reference },
     { id: 'lg-cs', owners: [{ sub: 'user-123', name: 'Allen' }] }
   );
+  await seedDraftContractLeague(h.repos);
   await seedLeague(h.repos, { id: 'lg-1', owners: [{ sub: 'user-123', name: 'Allen' }], teamCount: 4 });
 });
 afterAll(() => h.close());

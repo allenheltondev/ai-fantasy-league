@@ -1,5 +1,15 @@
-import { leagueExists, staleInvite, staleLeague, staleTeam, teamExists } from './errors.js';
+import {
+  draftExists,
+  leagueExists,
+  staleDraft,
+  staleInvite,
+  staleLeague,
+  staleTeam,
+  teamExists
+} from './errors.js';
 import type {
+  DraftRecord,
+  DraftRepository,
   Invite,
   InviteRepository,
   League,
@@ -26,6 +36,7 @@ interface Partition {
   matchups: Map<string, Matchup>;
   standings: Map<number, StandingsSnapshot>;
   lineups: Map<string, Lineup>;
+  draft: DraftRecord | null;
 }
 
 export class InMemoryLeagueStore {
@@ -41,7 +52,8 @@ export class InMemoryLeagueStore {
         invites: new Map(),
         matchups: new Map(),
         standings: new Map(),
-        lineups: new Map()
+        lineups: new Map(),
+        draft: null
       };
       this.#partitions.set(leagueId, partition);
     }
@@ -264,6 +276,28 @@ export class InMemoryLineupRepository implements LineupRepository {
 }
 
 /** The league repositories over one shared store. */
+export class InMemoryDraftRepository implements DraftRepository {
+  constructor(private readonly store: InMemoryLeagueStore) {}
+
+  async get(leagueId: string): Promise<DraftRecord | null> {
+    const draft = this.store.partition(leagueId).draft;
+    return draft === null ? null : clone(draft);
+  }
+
+  async create(draft: DraftRecord): Promise<void> {
+    const partition = this.store.partition(draft.leagueId);
+    if (partition.draft !== null) throw draftExists(draft.leagueId);
+    partition.draft = clone(draft);
+  }
+
+  async update(draft: DraftRecord): Promise<DraftRecord> {
+    const partition = this.store.partition(draft.leagueId);
+    if (partition.draft?.version !== draft.version) throw staleDraft(draft.leagueId);
+    partition.draft = { ...clone(draft), version: draft.version + 1 };
+    return clone(partition.draft);
+  }
+}
+
 export function createInMemoryLeagueRepos() {
   const store = new InMemoryLeagueStore();
   return {
@@ -272,6 +306,7 @@ export function createInMemoryLeagueRepos() {
     members: new InMemoryMemberRepository(store),
     invites: new InMemoryInviteRepository(store),
     schedule: new InMemoryScheduleRepository(store),
-    lineups: new InMemoryLineupRepository(store)
+    lineups: new InMemoryLineupRepository(store),
+    drafts: new InMemoryDraftRepository(store)
   };
 }
