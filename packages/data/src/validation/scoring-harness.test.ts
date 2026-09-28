@@ -6,6 +6,7 @@ import {
   isEarlySleeperRecording,
   nflverseScoringCases,
   returnFumbleDifference,
+  sleeperRecordingSeason,
   sleeperScoringCases,
   validateNflverseStats,
   validateSleeperStats
@@ -50,16 +51,34 @@ describe('scoring validation against recorded totals', () => {
     }
     expect([...seen].sort()).toEqual(
       [
+        'def-forced-fumbles',
+        'def-special-teams-forced-fumbles',
         'def-special-teams-fumble-recoveries',
         'idp',
         'missed-kicks',
         'missing-keys',
-        'points-allowed-14-20'
+        'points-allowed-14-20',
+        'special-teams-fumble-recoveries'
       ].sort()
     );
-    // The committed weeks predate the recorder keeping ff, st_ff, and st_fum_rec.
+    // The 2025 weeks predate the recorder keeping ff, st_ff, and st_fum_rec; the 2026 weeks have them.
     for (const file of sleeperFiles)
-      expect(isEarlySleeperRecording(fixtureJson(file) as SleeperFile)).toBe(true);
+      expect(isEarlySleeperRecording(fixtureJson(file) as SleeperFile), file).toBe(
+        sleeperRecordingSeason(file) === 2025
+      );
+  });
+
+  it('applies the 14-20 points-allowed difference only through 2025', () => {
+    for (const file of sleeperFiles) {
+      const report = validateSleeperStats(fixtureJson(file) as SleeperFile, file);
+      const used = report.explained.some((m) => (m.explanation ?? '').includes('points-allowed-14-20'));
+      if (sleeperRecordingSeason(file) !== 2025) expect(used, file).toBe(false);
+    }
+  });
+
+  it('reads the season from a recording name', () => {
+    expect(sleeperRecordingSeason('sleeper/scoring/stats_regular_2026_3.json')).toBe(2026);
+    expect(sleeperRecordingSeason('week.json')).toBeUndefined();
   });
 
   it.each(nflverseFiles)("matches nflverse's fantasy_points in %s", (file) => {

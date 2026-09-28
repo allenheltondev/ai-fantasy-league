@@ -111,21 +111,23 @@ The harness (`packages/core/src/scoring/validate.ts`, fed by `packages/data/src/
 
 Sleeper lines go through the same normalization as the live provider first (a shutout gets `pts_allow: 0` back). Sleeper's team-total lines (`TEAM_KC`, a whole team's offense and defense summed) are skipped: no league rosters them.
 
-**Results.** Sleeper, 2025 weeks 1-3 (`fixtures/sleeper/scoring/`, recorded by the *Record fixtures* workflow): 1,307 player lines and 3,917 comparisons, 0 unexplained. nflverse: the full 2025 regular season (18,540 player-weeks, 55,620 comparisons) matches except for 36 player-weeks, all of them the return-fumble difference below; the checked-in sample is all 2,180 regular-season player-weeks of weeks 1-2 (`fixtures/nflverse/scoring_sample_2025.csv`). The curated `fixtures/sleeper/stats_regular_*.json` are hand-authored, so their totals are not Sleeper's and are not validated.
+**Results.** Sleeper, 2025 and 2026 weeks 1-3 (`fixtures/sleeper/scoring/`, recorded by the *Record fixtures* workflow): 2025 has 1,307 player lines and 3,917 comparisons, 2026 has 1,061 lines and 3,181 comparisons, 0 unexplained in either. nflverse: the full 2025 regular season (18,540 player-weeks, 55,620 comparisons) matches except for 36 player-weeks, all of them the return-fumble difference below; the checked-in sample is all 2,180 regular-season player-weeks of weeks 1-2 (`fixtures/nflverse/scoring_sample_2025.csv`). The curated `fixtures/sleeper/stats_regular_*.json` are hand-authored, so their totals are not Sleeper's and are not validated.
 
-**Intended differences from Sleeper's default scoring** (`SLEEPER_DEFAULT_DIFFERENCES`). Each is Sleeper's points minus ours for the line; a mismatch is explained only when it is exactly their sum.
+**Intended differences from Sleeper's default scoring** (`SLEEPER_DEFAULT_DIFFERENCES`). Each is Sleeper's points minus ours for the line; a mismatch is explained only when it is exactly their sum. The harness reads the season from the recording's name, and a class Sleeper has since changed (`throughSeason`) applies only through that season. Line counts are for 2025 weeks 1-3.
 
 | Class | Sleeper | Ours (Yahoo) | Lines in weeks 1-3 |
 |---|---|---|---|
 | `missed-kicks` | -1 per missed FG (`fgmiss`) and XP (`xpmiss`) | 0. A commissioner can add `fgmiss`/`xpmiss` weights. | 37 |
 | `idp` | Scores every individual defender: `idp_sack` 1, `idp_int` 2, `idp_fum_rec` 2, `idp_ff` 1, `idp_blk_kick` 2, `idp_def_td` 6, `idp_safe` 2 (tackles, QB hits, passes defended 0) | No IDP scoring by default; `withIdpScoring` adds the Yahoo IDP table | 225 |
-| `points-allowed-14-20` | 0 for allowing 14-20 points | 1 | 17 |
+| `points-allowed-14-20` | 0 for allowing 14-20 points through 2025. The 2026 recordings give 1, the same as Yahoo, so the class stops at 2025 (`throughSeason`). | 1 | 17 |
 | `def-forced-fumbles` | 1 per team forced fumble (`ff`) | 0 | 0 (see below) |
 | `def-special-teams-fumble-recoveries` | 1 per `def_st_fum_rec` | 2, like any fumble recovery | 3 |
+| `def-special-teams-forced-fumbles` | 1 per team special-teams forced fumble (`def_st_ff`) | 0 | 0 (first seen in 2026) |
+| `special-teams-fumble-recoveries` | 1 per player special-teams fumble recovery (`st_fum_rec`). A player's `st_ff` is also counted in `idp_ff`, so `idp` already scores it. | 0 | 0 (first seen in 2026) |
 
 The other points-allowed bands match (0: 10, 1-6: 7, 7-13: 4, 21-27: 0, 28-34: -1, 35+: -4), and Sleeper's default has no yards-allowed tiers.
 
-**Early recordings.** The first scoring sets (2025 weeks 1-3) were recorded with an allow-list of stat keys that dropped `ff`, `st_ff`, and `st_fum_rec`, which Sleeper scores 1 each. In a set with none of those keys (`isEarlySleeperRecording`), a remainder of whole points in Sleeper's favor is explained as `missing-keys`: any number for a team defense, at most 1 for a player. That covers 38 lines: 33 team defenses, whose shortfall equals the team's forced fumbles in nflverse's `def_fumbles_forced` for 32 of them, and 5 special-teams players. The recorder now keeps every key but known noise; re-record weeks 1-3 (Record fixtures, `scoring_weeks: 1,2,3`) to retire this class, and the harness then scores `ff` through `def-forced-fumbles`.
+**Early recordings.** The first scoring sets (2025 weeks 1-3) were recorded with an allow-list of stat keys that dropped `ff`, `st_ff`, and `st_fum_rec`, which Sleeper scores 1 each. In a set with none of those keys (`isEarlySleeperRecording`), a remainder of whole points in Sleeper's favor is explained as `missing-keys`: any number for a team defense, at most 1 for a player. That covers 38 lines: 33 team defenses, whose shortfall equals the team's forced fumbles in nflverse's `def_fumbles_forced` for 32 of them, and 5 special-teams players. The recorder now keeps every key but known noise, and the 2026 sets, recorded that way, need no `missing-keys` at all: every team defense and player there is matched or explained by the classes above. Re-recording 2025 (Record fixtures, `season: 2025`, `scoring_weeks: 1,2,3`) would retire the class for those weeks too.
 
 **nflverse differences:**
 

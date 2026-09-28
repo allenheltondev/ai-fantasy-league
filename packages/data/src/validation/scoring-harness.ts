@@ -54,9 +54,18 @@ export function isEarlySleeperRecording(file: SleeperStatsFile): boolean {
   );
 }
 
+/** The season in a recording's name (`stats_regular_2026_1.json`), when it has one. */
+export function sleeperRecordingSeason(label: string): number | undefined {
+  const match = /_(\d{4})_\d+\.json$/.exec(label);
+  return match ? Number(match[1]) : undefined;
+}
+
 export function validateSleeperStats(file: SleeperStatsFile, label: string): ScoringReport {
   return validateScoring(sleeperScoringCases(file, label), sleeperReferenceScoring, [
-    sleeperDefaultDifference({ missingKeys: isEarlySleeperRecording(file) })
+    sleeperDefaultDifference({
+      missingKeys: isEarlySleeperRecording(file),
+      season: sleeperRecordingSeason(label)
+    })
   ]);
 }
 

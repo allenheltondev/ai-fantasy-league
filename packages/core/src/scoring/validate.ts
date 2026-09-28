@@ -30,6 +30,8 @@ export interface SleeperDefaultDifference {
   id: string;
   reason: string;
   sleeperMinusOurs: (stats: StatLine) => number;
+  /** The last season Sleeper scored this way, when a later season's recordings show it changed. */
+  throughSeason?: number;
 }
 
 const stat = (stats: StatLine, key: string): number => {
@@ -64,7 +66,8 @@ export const SLEEPER_DEFAULT_DIFFERENCES: readonly SleeperDefaultDifference[] = 
   },
   {
     id: 'points-allowed-14-20',
-    reason: 'Sleeper gives a team defense 0 for allowing 14-20 points, Yahoo gives 1',
+    reason: 'Sleeper gave a team defense 0 for allowing 14-20 points through 2025, Yahoo gives 1',
+    throughSeason: 2025,
     sleeperMinusOurs: (s) => {
       const allowed = s.pts_allow;
       return typeof allowed === 'number' && allowed >= 14 && allowed <= 20 ? -1 : 0;
@@ -80,6 +83,17 @@ export const SLEEPER_DEFAULT_DIFFERENCES: readonly SleeperDefaultDifference[] = 
     reason:
       'Sleeper gives a team defense 1 per special-teams fumble recovery (def_st_fum_rec), we give 2 as for any fumble recovery',
     sleeperMinusOurs: (s) => -stat(s, 'def_st_fum_rec')
+  },
+  {
+    id: 'def-special-teams-forced-fumbles',
+    reason: 'Sleeper gives a team defense 1 per special-teams forced fumble (def_st_ff), Yahoo gives 0',
+    sleeperMinusOurs: (s) => stat(s, 'def_st_ff')
+  },
+  {
+    // A player's special-teams forced fumble (st_ff) is also in idp_ff, which the idp class scores.
+    id: 'special-teams-fumble-recoveries',
+    reason: 'Sleeper gives a player 1 per special-teams fumble recovery (st_fum_rec), Yahoo gives 0',
+    sleeperMinusOurs: (s) => stat(s, 'st_fum_rec')
   }
 ];
 
@@ -93,6 +107,8 @@ export interface SleeperDifferenceOptions {
    * a remainder of whole points in Sleeper's favor is those keys. Re-record the set to drop this.
    */
   missingKeys?: boolean;
+  /** The recorded season: a difference with `throughSeason` before it does not apply. */
+  season?: number;
   differences?: readonly SleeperDefaultDifference[];
 }
 
@@ -104,7 +120,10 @@ const isWhole = (n: number): boolean => Math.abs(n - Math.round(n)) < 1e-6;
  * else, including a partial match, stays unexplained.
  */
 export function sleeperDefaultDifference(options: SleeperDifferenceOptions = {}): KnownDifference {
-  const differences = options.differences ?? SLEEPER_DEFAULT_DIFFERENCES;
+  const season = options.season;
+  const differences = (options.differences ?? SLEEPER_DEFAULT_DIFFERENCES).filter(
+    (d) => d.throughSeason === undefined || season === undefined || season <= d.throughSeason
+  );
   return (c, _format, diff) => {
     const parts = differences
       .map((d) => ({ id: d.id, reason: d.reason, delta: d.sleeperMinusOurs(c.stats) }))
