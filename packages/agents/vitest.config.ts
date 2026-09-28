@@ -3,8 +3,11 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    // Tests run against core's TypeScript source, so no build step is needed first.
-    alias: { '@fantasy/core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)) }
+    // Tests run against core's and data's TypeScript source, so no build step is needed first.
+    alias: {
+      '@fantasy/core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)),
+      '@fantasy/data': fileURLToPath(new URL('../data/src/index.ts', import.meta.url))
+    }
   },
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
