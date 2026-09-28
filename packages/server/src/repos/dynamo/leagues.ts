@@ -12,6 +12,9 @@ export function leagueItem(league: League): Record<string, unknown> {
     entity: ENTITY.league,
     GSI1PK: `CREATOR#${league.createdBy}`,
     GSI1SK: `LEAGUE#${league.createdAt}#${league.id}`,
+    // Leagues by phase, so scheduled jobs (waiver processing) find the in-season leagues.
+    GSI2PK: `LEAGUEPHASE#${league.phase}`,
+    GSI2SK: `${league.createdAt}#${league.id}`,
     ...league
   };
 }
@@ -72,6 +75,17 @@ export class DynamoLeagueRepository implements LeagueRepository {
       KeyConditionExpression: '#pk = :pk',
       ExpressionAttributeNames: { '#pk': gsi1.pk },
       ExpressionAttributeValues: { ':pk': `CREATOR#${userId}` }
+    });
+    return items.map((item) => LeagueRecordSchema.parse(item));
+  }
+
+  async listByPhase(phase: League['phase']): Promise<League[]> {
+    const { gsi2 } = TABLE_KEYS;
+    const items = await queryAll(this.table, {
+      IndexName: gsi2.name,
+      KeyConditionExpression: '#pk = :pk',
+      ExpressionAttributeNames: { '#pk': gsi2.pk },
+      ExpressionAttributeValues: { ':pk': `LEAGUEPHASE#${phase}` }
     });
     return items.map((item) => LeagueRecordSchema.parse(item));
   }

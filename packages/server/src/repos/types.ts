@@ -1,6 +1,7 @@
 import type { LeagueSettings, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
 import type { AgentRepository } from './agents.js';
+import type { WaiverRepository } from './waivers.js';
 
 /**
  * Repository interfaces. Each has a DynamoDB implementation (single table, see
@@ -142,6 +143,8 @@ export interface LeagueRepository {
   update(league: League): Promise<League>;
   /** Every league this user created (GSI1 `CREATOR#<sub>`), oldest first. */
   listByCreator(userId: string): Promise<League[]>;
+  /** Every league in a phase (GSI2 `LEAGUEPHASE#<phase>`), for scheduled jobs such as waiver processing. */
+  listByPhase(phase: LeaguePhase): Promise<League[]>;
   /** Deletes the whole league partition: the league, its teams, members, invites, and schedule. */
   delete(leagueId: string): Promise<void>;
 }
@@ -272,4 +275,6 @@ export interface Repos {
   schedule: ScheduleRepository;
   /** Agent seats, notes, task records, and usage rollups (repos/agents.ts). */
   agents: AgentRepository;
+  /** Waiver claims, the waiver wire, transactions, processing runs, and ownership locks (repos/waivers.ts). */
+  waivers: WaiverRepository;
 }

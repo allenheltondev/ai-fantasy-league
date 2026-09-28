@@ -280,6 +280,13 @@ The result lists awarded and failed claims (each failure has a code, a message, 
 
 **Waiver period** (`waiverClearsAt`). A dropped player clears waivers `waiverPeriodDays` days after the drop. If his game had already kicked off when he was dropped, the period starts when locks lift (`locksReleaseAt`, the weekly rollover) instead. `isOnWaivers(player, now)` is true until that time.
 
+**In the league** (`packages/server/src/operations/waivers/`, `packages/server/src/waivers/`):
+
+- `claim_waiver` adds a **free agent** (not rostered, not on waivers) at once and at no cost. A player **on waivers** gets a pending claim instead, with a FAAB bid and the team's own `priority`.
+- `drop_player` (or a claim's drop) puts the player on waivers until `waiverClearsAt`.
+- Claims are processed once a day at `WAIVER_RUN_HOUR_UTC` (08:00 UTC, 3 AM US Central in daylight time). A claim is due at the first run after its player clears waivers, and all due claims go through `resolveWaivers` together. Each run is one window: it records the awards and failures, charges FAAB, updates the priority list, emits `Waivers Processed`, and opens the next window (`Waiver Window Opened`).
+- Claims and adds are accepted while `waiversOpen` (the regular season and playoffs).
+
 ## Trade lifecycle
 
 A trade (`packages/core/src/trades/`) is a structured object between two teams. `sides[0]` is the proposer and `sides[1]` the responder. Each side lists the players it sends and the players it drops to stay under the roster limit. The status moves through these states:

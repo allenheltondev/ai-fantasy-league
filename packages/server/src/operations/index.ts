@@ -8,6 +8,7 @@ import { configureAgentSeat, getAgentSeat, randomizeAgentSeatsOperation } from '
 import { getNews } from './research/get-news.js';
 import { getProjections } from './research/get-projections.js';
 import { getTrendingPlayers } from './research/get-trending-players.js';
+import { waiverOperations } from './waivers/index.js';
 
 /** Every operation the API serves. Add new operations here. */
 export const operations = [
@@ -26,7 +27,9 @@ export const operations = [
   randomizeAgentSeatsOperation,
   getAgentSeat,
   getAgentActivity,
-  getAgentCatalog
+  getAgentCatalog,
+  // Waivers and free agency (#55)
+  ...waiverOperations
 ];
 
 export const registry: Registry = createRegistry(operations);
