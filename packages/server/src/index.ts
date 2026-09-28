@@ -48,7 +48,7 @@ export {
   type SystemMessageOutcome
 } from './chat/system-messages.js';
 export * from './realtime/realtime.js';
-export { relayEvent, RELAYED_EVENTS } from './realtime/relay.js';
+export { relayEvent, RELAYED_EVENTS, TEAM_ONLY_EVENTS } from './realtime/relay.js';
 export type { BusEvent } from './events/bus.js';
 export { newsAlertDetail } from './jobs/ingest-news.js';
 export { statusChangedDetail } from './jobs/sync-players.js';

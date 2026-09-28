@@ -160,7 +160,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
       });
     });
 
-    it('vends a subscribe-only token for the league when realtime is on', async () => {
+    it("vends a subscribe-only token for the league and the caller's own team when realtime is on", async () => {
       const requests: unknown[] = [];
       const realtime: Realtime = {
         async issueSubscribeToken(request): Promise<RealtimeToken> {
@@ -169,7 +169,11 @@ for (const backend of ['memory', 'dynamo'] as const) {
             token: 'tok',
             endpoint: 'cell-1.example',
             cacheName: 'cache',
-            topics: { league: 'fantasy.league.lg-chat', global: 'fantasy.global' },
+            topics: {
+              league: 'fantasy.league.lg-chat',
+              global: 'fantasy.global',
+              team: 'fantasy.team.lg-chat.team-2'
+            },
             expiresAt: '2026-09-10T12:30:00.000Z'
           };
         },
@@ -181,11 +185,17 @@ for (const backend of ['memory', 'dynamo'] as const) {
         token: 'tok',
         endpoint: 'cell-1.example',
         cacheName: 'cache',
-        topics: { league: 'fantasy.league.lg-chat', global: 'fantasy.global' },
+        topics: {
+          league: 'fantasy.league.lg-chat',
+          global: 'fantasy.global',
+          team: 'fantasy.team.lg-chat.team-2'
+        },
         expiresAt: '2026-09-10T12:30:00.000Z',
         pollIntervalSeconds: 5
       });
-      expect(requests).toEqual([{ leagueId: 'lg-chat', subscriber: 'user#bob', ttlSeconds: 1800 }]);
+      expect(requests).toEqual([
+        { leagueId: 'lg-chat', teamId: 'team-2', subscriber: 'user#bob', ttlSeconds: 1800 }
+      ]);
       expect(registry.get('get_realtime_token')?.auth).toBe('user');
     });
   });
