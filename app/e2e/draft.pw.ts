@@ -143,6 +143,10 @@ function draftApi(page: Page, options: { pickSeconds?: number; startsAt?: number
     await route.fulfill({ json: envelope(queueView()) });
   });
   // The league header and the realtime token (off here, so the board polls).
+  // The header bell's summary (#165): nothing waiting.
+  void page.route('**/api/v1/notifications', (route) =>
+    route.fulfill({ json: envelope({ unreadCount: 0, leagues: [] }) })
+  );
   void page.route('**/api/v1/leagues/L1/state', (route) =>
     route.fulfill({
       json: envelope({
