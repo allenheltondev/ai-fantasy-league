@@ -1,5 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": ".", "noEmit": true },
-  "include": ["src", "test", "vitest.config.ts"]
+  "compilerOptions": { "rootDir": "..", "noEmit": true },
+  // src/dev.ts starts the server's local dev server, whose dynalite import needs the server's declaration.
+  "include": ["src", "test", "vitest.config.ts", "../server/src/types/*.d.ts"]
 }

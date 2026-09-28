@@ -60,10 +60,22 @@ export interface LeagueReplayReport {
   weeks: {
     week: number;
     kind: 'regular' | 'playoffs';
-    matchups: { homeTeamId: string; awayTeamId: string; homeScore: number | null; awayScore: number | null }[];
+    matchups: {
+      homeTeamId: string;
+      awayTeamId: string;
+      homeScore: number | null;
+      awayScore: number | null;
+    }[];
     invariants: ReplayCheck[];
   }[];
-  transactions: { type: string; week: number; teamId: string; add: string | null; drop: string | null; cost: number | null }[];
+  transactions: {
+    type: string;
+    week: number;
+    teamId: string;
+    add: string | null;
+    drop: string | null;
+    cost: number | null;
+  }[];
   agents: { totals: AgentTotals; byTeam: Record<string, AgentTotals>; byModel: Record<string, AgentTotals> };
   /** Every agent decision, oldest first: the trigger, what it did, and why. */
   decisions: {
@@ -157,7 +169,9 @@ export async function buildLeagueReport(input: {
 }): Promise<LeagueReplayReport> {
   const { repos } = input.services;
   const { league, settings } = input;
-  const teams = (await repos.teams.list(league.id)).sort((a, b) => a.draftSlot - b.draftSlot || a.id.localeCompare(b.id));
+  const teams = (await repos.teams.list(league.id)).sort(
+    (a, b) => a.draftSlot - b.draftSlot || a.id.localeCompare(b.id)
+  );
   const seats = new Map((await repos.agents.listSeats(league.id)).map((s) => [s.teamId, s.config]));
   const draft = await repos.drafts.get(league.id);
   const autoPicks: Record<string, number> = {};
@@ -224,7 +238,11 @@ export async function buildLeagueReport(input: {
         agent:
           config === undefined
             ? null
-            : { personalityId: config.personalityId, difficulty: config.difficulty, archetype: config.archetype },
+            : {
+                personalityId: config.personalityId,
+                difficulty: config.difficulty,
+                archetype: config.archetype
+              },
         finalFaab: t.faabRemaining
       };
     }),
@@ -337,7 +355,12 @@ export function renderLeagueReport(report: LeagueReplayReport): string {
     `Total wall time ${report.wallMs} ms, ${report.dataAccess.reads} archive reads.`
   ];
   if (report.violations.length > 0) {
-    lines.push('', '## Violations', '', ...report.violations.map((v) => `- week ${v.week} \`${v.name}\`: ${v.message}`));
+    lines.push(
+      '',
+      '## Violations',
+      '',
+      ...report.violations.map((v) => `- week ${v.week} \`${v.name}\`: ${v.message}`)
+    );
   }
   if (report.events.failures.length > 0) {
     lines.push(

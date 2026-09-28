@@ -19,7 +19,7 @@ import {
   JOBS,
   createInMemoryReferenceStore,
   createInMemoryRepos,
-  createLogger,
+  silentLogger,
   createServices,
   recurringJobs,
   serverSubscribers,
@@ -28,7 +28,6 @@ import {
   type JobDeps,
   type JobName,
   type League,
-  type LoopFailure,
   type Principal,
   type Services
 } from '@fantasy/server';
@@ -129,8 +128,8 @@ function seededIds(seed: string): { uuid(): string } {
 
 function teamKickoffs(archive: SimArchive): TeamKickoff {
   const kickoffs = new Map<string, number>();
+  // Postseason games are weeks 19+, so keying by week keeps them apart.
   for (const g of archive.schedule) {
-    if (g.seasonType !== 'regular') continue;
     kickoffs.set(`${g.week}:${g.homeTeam}`, Date.parse(g.kickoff));
     kickoffs.set(`${g.week}:${g.awayTeam}`, Date.parse(g.kickoff));
   }
@@ -144,7 +143,7 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   const season = archive.manifest.season;
   const archiveWeeks = archive.manifest.weeks;
   const startWeek = options.startWeek ?? (archiveWeeks[0] as number);
-  const lastArchived = Math.min(17, archiveWeeks[archiveWeeks.length - 1] ?? 0);
+  const lastArchived = Math.min(17, Math.max(...archiveWeeks));
   const lastWeek = options.weeks !== undefined ? startWeek + options.weeks - 1 : lastArchived;
   if (!archiveWeeks.includes(startWeek) || lastWeek > lastArchived) {
     throw new SimulationError(
@@ -157,32 +156,21 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   if (!weeks.ok) throw new SimulationError(weeks.issues.map((i) => i.message).join(' '));
   const playedWeeks = [...weeks.value.regularSeason, ...weeks.value.playoffs];
   const moments = weekMoments(archive.schedule);
-  const momentOf = (week: number) => {
-    const m = moments.get(week);
-    if (m === undefined) throw new SimulationError(`The schedule has no games in week ${week}.`);
-    return m;
-  };
+  // Every archived week has games (the archive builder derives its weeks from the schedule).
+  const momentOf = (week: number) => moments.get(week) as NonNullable<ReturnType<typeof moments.get>>;
 
   // The world: the simulated clock, the guarded archive, and the league's own services.
   const clock = new SimClock([], new Date(momentOf(startWeek).projectionsAt + MINUTE_MS));
-  const kickoffOf = archiveKickoffs(archive);
-  const futureReads: { at: string; message: string }[] = [];
-  const byMethod: Record<string, number> = {};
-  let reads = 0;
-  const onRead = (read: DataRead): void => {
-    reads++;
-    byMethod[read.method] = (byMethod[read.method] ?? 0) + 1;
-    for (const v of auditRead(read, archive, kickoffOf)) futureReads.push({ at: read.asOf, message: v.message });
-  };
+  const audit = readAudit(archive);
   const provider = new AsOfGuardedProvider(
     new HistoricalDataProvider(new InMemoryArchiveStore([toSeasonArchive(archive)])),
     clock,
-    { anonymizePlayers: options.anonymizePlayers ?? false, anonymizeSeed: seed, onRead }
+    { anonymizePlayers: options.anonymizePlayers ?? false, anonymizeSeed: seed, onRead: audit.onRead }
   );
   const repos = createInMemoryRepos();
   const reference = createInMemoryReferenceStore(repos.players);
   const events = new InMemoryEventPublisher();
-  const log = createLogger({ level: 'error', sink: () => undefined });
+  const log = silentLogger;
   const services: Services = createServices({
     clock,
     repos,
@@ -200,7 +188,8 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     events,
     directory: services.data.players,
     log,
-    news: { feeds: async () => [], fetchText: async () => '' }
+    // ingestNews is not among REPLAY_JOBS: the archive has no news.
+    news: NO_NEWS
   };
 
   // Who acts: the human stand-in, the agents, and the league's own handlers.
@@ -211,25 +200,17 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   const checks = new Map<number, ReplayCheck[]>();
   let league: League | null = null;
   const weekFinal = async (event: BusEvent): Promise<void> => {
-    const detail = event.detail as { leagueId?: string; week?: number };
-    if (league === null || detail.leagueId !== league.id || typeof detail.week !== 'number') return;
-    const week = detail.week;
+    // Only the replay's own league exists, and advanceLeague always sends its week.
+    const { week } = event.detail as { week: number };
+    const current = (await repos.leagues.get((league as League).id)) as League;
     finals.set(week, (finals.get(week) ?? 0) + 1);
-    const current = (await repos.leagues.get(league.id)) as League;
     checks.set(week, [
       ...(await checkRosters(repos, current, week)),
-      await checkWeekScored(repos, league.id, week, finals.get(week) as number),
-      await checkStandings(repos, league.id),
-      await checkNoFutureData(
-        reference,
-        season,
-        week,
-        teamKickoffs(archive),
-        futureReads.map((r) => `${r.at}: ${r.message}`)
-      )
+      await checkWeekScored(repos, current.id, week, finals.get(week) as number),
+      await checkStandings(repos, current.id),
+      await checkNoFutureData(reference, season, week, teamKickoffs(archive), audit.takeFuture())
     ]);
   };
-  const failures: LoopFailure[] = [];
   const loop = new EventLoop({
     publisher: events,
     clock,
@@ -240,9 +221,9 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
       { name: 'replay-audit', detailTypes: ['Week Provisionally Final'], handle: weekFinal }
     ],
     jobs: recurringJobs(jobDeps, clock, REPLAY_JOBS, options.jobCadences),
-    log,
-    onFailure: (failure) => failures.push(failure)
+    log
   });
+  const failures = loop.stats.failures;
 
   // A fresh deployment's first job runs, then the human creates the league.
   for (const name of BOOTSTRAP_JOBS) await JOBS[name](jobDeps, clock);
@@ -274,6 +255,7 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   dataOf(await run('start_draft', { leagueId: league.id, order }, HUMAN), 'start_draft');
   await loop.drain();
   const draft = await repos.drafts.get(league.id);
+  /* v8 ignore next 5 -- a stalled draft (a handler failing on its turn) is reported, not waited on */
   if (draft?.status !== 'complete') {
     throw new SimulationError(
       `The draft did not finish: ${draft?.state.picks.length ?? 0} picks made. Loop failures: ${failures.map((f) => `${f.handler}: ${String(f.error)}`).join('; ')}`
@@ -282,7 +264,12 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   league = (await repos.leagues.get(league.id)) as League;
   human.join(league);
   const timings: WeekTiming[] = [
-    { week: null, label: 'draft', wallMs: Math.round(performance.now() - draftStart), simTo: clock.now().toISOString() }
+    {
+      week: null,
+      label: 'draft',
+      wallMs: Math.round(performance.now() - draftStart),
+      simTo: clock.now().toISOString()
+    }
   ];
 
   // The season: every week runs until its stat corrections are in (the week is long final by then).
@@ -297,19 +284,16 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
       simTo: clock.now().toISOString(),
       events: totalDelivered(loop) - delivered
     });
-    const board = checks.get(week);
-    options.log?.(
-      `week ${week}: ${board === undefined ? 'not final' : board.every((c) => c.ok) ? 'final, invariants ok' : 'final, INVARIANT VIOLATIONS'} (${timings.at(-1)?.wallMs} ms)`
-    );
+    // A week that never went final fails `week_scored_once` (its other checks never ran).
+    const board = checks.get(week) ?? [
+      { name: 'week_scored_once' as const, ok: false, violations: [`week ${week} never went final`] }
+    ];
+    checks.set(week, board);
+    const bad = board.filter((c) => !c.ok).map((c) => c.name);
+    options.log?.(`week ${week}: invariants ${bad.join(', ') || 'ok'} (${timings.at(-1)?.wallMs} ms)`);
   }
 
   const final = (await repos.leagues.get(league.id)) as League;
-  const unscored = playedWeeks.filter((w) => !finals.has(w));
-  for (const week of unscored) {
-    checks.set(week, [
-      { name: 'week_scored_once', ok: false, violations: [`week ${week} never went final`] }
-    ]);
-  }
   const standings = (await repos.schedule.latestStandings(final.id))?.rows ?? [];
   return buildLeagueReport({
     seed,
@@ -327,10 +311,45 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     standings,
     champion: await championOf(services, final, standings, weeks.value.playoffs),
     timings,
-    dataAccess: { reads, byMethod, futureAccessAttempts: provider.blockedAttempts },
+    dataAccess: {
+      reads: audit.reads,
+      byMethod: audit.byMethod,
+      futureAccessAttempts: provider.blockedAttempts
+    },
     model: model.name,
     wallMs: Math.round(performance.now() - started)
   });
+}
+
+const NO_NEWS: JobDeps['news'] = {
+  /* v8 ignore next 2 -- never called: ingestNews does not run in a replay */
+  feeds: () => Promise.resolve([]),
+  fetchText: () => Promise.resolve('')
+};
+
+/**
+ * Counts every archive read and audits it against the archive (`auditRead`): stats, scores, or
+ * projections served before they existed. `takeFuture` returns the findings not yet reported.
+ */
+export function readAudit(archive: SimArchive) {
+  const kickoffOf = archiveKickoffs(archive);
+  const future: string[] = [];
+  let reported = 0;
+  const audit = {
+    reads: 0,
+    byMethod: {} as Record<string, number>,
+    onRead(read: DataRead): void {
+      audit.reads++;
+      audit.byMethod[read.method] = (audit.byMethod[read.method] ?? 0) + 1;
+      for (const v of auditRead(read, archive, kickoffOf)) future.push(`${read.asOf}: ${v.message}`);
+    },
+    takeFuture(): string[] {
+      const out = future.slice(reported);
+      reported = future.length;
+      return out;
+    }
+  };
+  return audit;
 }
 
 function totalDelivered(loop: EventLoop): number {
@@ -342,7 +361,7 @@ function totalDelivered(loop: EventLoop): number {
  * each playoff week's final games (core `buildBracket` / `advanceBracket`, as the season cycle pairs
  * them). Null when the league did not finish its playoffs.
  */
-async function championOf(
+export async function championOf(
   services: Services,
   league: League,
   standings: readonly StandingsRow[],

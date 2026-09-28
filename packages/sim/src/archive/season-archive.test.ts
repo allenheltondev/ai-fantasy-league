@@ -2,7 +2,7 @@ import { HistoricalDataProvider, InMemoryArchiveStore } from '@fantasy/data';
 import { describe, expect, it } from 'vitest';
 import { fixtureArchive, freshArchive } from '../../test/helpers.js';
 import { weekMoments } from '../clock/moments.js';
-import { toSeasonArchive } from './season-archive.js';
+import { projectionRanks, toSeasonArchive } from './season-archive.js';
 import { FIXTURE_TRIM, trimArchive } from './trim.js';
 
 describe('toSeasonArchive', () => {
@@ -56,6 +56,23 @@ describe('toSeasonArchive', () => {
     });
     const lines = await provider.getWeekStats(2025, 1, new Date(m.projectionsAt));
     expect(lines.find((l) => l.playerId === team)?.team).toBe(team);
+  });
+
+  it('ranks players by projections known when each player snapshot is captured (a search_rank stand-in)', async () => {
+    const archive = await fixtureArchive();
+    for (const week of archive.manifest.weeks) {
+      const w = archive.weeks[week]!;
+      // The rank uses projections through this week; they are captured no later than the snapshot.
+      expect(Date.parse(w.projections.capturedAt)).toBeLessThanOrEqual(Date.parse(w.playersCapturedAt));
+    }
+    const ranks = projectionRanks(archive, 1);
+    expect([...ranks.values()].sort((a, b) => a - b)).toEqual(
+      Array.from({ length: ranks.size }, (_, i) => i + 1)
+    );
+    const players = toSeasonArchive(archive).players[0]!.data;
+    const ranked = players.filter((p) => p.searchRank !== undefined);
+    expect(ranked.length).toBe(ranks.size);
+    expect(players.find((p) => p.searchRank === 1)?.id).toBe([...ranks].find(([, r]) => r === 1)?.[0]);
   });
 });
 

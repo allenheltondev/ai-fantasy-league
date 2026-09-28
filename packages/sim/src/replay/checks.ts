@@ -1,4 +1,9 @@
-import { normalizePlayerStatus, type LeagueSettings, type LineupEntry, type RosterPlayer } from '@fantasy/core';
+import {
+  normalizePlayerStatus,
+  type LeagueSettings,
+  type LineupEntry,
+  type RosterPlayer
+} from '@fantasy/core';
 import type { League, ReferenceStore, Repos, Team } from '@fantasy/server';
 import { GAME_DURATION_MS } from '../clock/moments.js';
 import type { TeamView, Transaction } from '../engine/types.js';
@@ -93,11 +98,7 @@ async function waiverAdds(repos: Repos, leagueId: string): Promise<Transaction[]
 }
 
 /** The roster invariants (valid rosters, no shared players, FAAB conserved) as the league stands now. */
-export async function checkRosters(
-  repos: Repos,
-  league: League,
-  week: number
-): Promise<ReplayCheck[]> {
+export async function checkRosters(repos: Repos, league: League, week: number): Promise<ReplayCheck[]> {
   const settings: LeagueSettings = league.settings;
   const teams = await repos.teams.list(league.id);
   const views = await teamViews(repos, league, week);
@@ -164,7 +165,9 @@ export async function checkStandings(repos: Repos, leagueId: string): Promise<Re
   for (const r of snapshot.rows) {
     const e = expected.get(r.teamId) ?? { w: 0, l: 0, t: 0, pf: 0, pa: 0 };
     if (r.wins !== e.w || r.losses !== e.l || r.ties !== e.t) {
-      violations.push(`${r.teamId}: standings ${r.wins}-${r.losses}-${r.ties}, matchups ${e.w}-${e.l}-${e.t}`);
+      violations.push(
+        `${r.teamId}: standings ${r.wins}-${r.losses}-${r.ties}, matchups ${e.w}-${e.l}-${e.t}`
+      );
     }
     if (round(r.pointsFor) !== round(e.pf) || round(r.pointsAgainst) !== round(e.pa)) {
       violations.push(
@@ -192,7 +195,9 @@ export async function checkNoFutureData(
   for (const line of await reference.stats.getWeek(season, week)) {
     const k = line.team === undefined ? null : kickoff(line.team, week);
     if (k === null || Date.parse(line.updatedAt) < k + GAME_DURATION_MS) {
-      violations.push(`${line.playerId} week ${week} stats stored at ${line.updatedAt} before his game ended`);
+      violations.push(
+        `${line.playerId} week ${week} stats stored at ${line.updatedAt} before his game ended`
+      );
     }
   }
   return check('no_future_data', violations);

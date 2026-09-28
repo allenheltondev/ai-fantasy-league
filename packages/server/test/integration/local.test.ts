@@ -1,5 +1,5 @@
 import { FixedClock } from '@fantasy/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { localClock, localVerifier, startLocalServer } from '../../src/local.js';
 import { silentLogger } from '../../src/log.js';
 
@@ -30,6 +30,36 @@ describe('local dev server', () => {
     try {
       const me = await fetch(`${local.url}/api/v1/me`, { headers: { authorization: 'Bearer dev' } });
       expect(me.status).toBe(401);
+    } finally {
+      await local.close();
+    }
+  });
+
+  it('delivers events in process when asked, to its own and extra subscribers', async () => {
+    const seen: string[] = [];
+    const local = await startLocalServer({
+      port: 0,
+      env: { FANTASY_LOCAL_AUTH: '1' },
+      clock: new FixedClock('2026-09-10T12:00:00Z'),
+      log: silentLogger,
+      eventLoop: {
+        pollMs: 10,
+        subscribers: () => [{ name: 'spy', handle: async (e) => void seen.push(e['detail-type']) }]
+      }
+    });
+    try {
+      expect(local.loop).not.toBeNull();
+      const created = await fetch(`${local.url}/api/v1/leagues`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer dev:alice',
+          'content-type': 'application/json',
+          'idempotency-key': 'local-loop-1'
+        },
+        body: JSON.stringify({ name: 'Loop League' })
+      });
+      expect(created.status).toBe(200);
+      await vi.waitFor(() => expect(seen).toContain('League Created'));
     } finally {
       await local.close();
     }

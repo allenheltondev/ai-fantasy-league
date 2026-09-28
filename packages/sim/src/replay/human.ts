@@ -43,7 +43,9 @@ export function operationRunner(services: Services): RunOperation {
 /** The data of a successful envelope; throws with the error's code and fix otherwise. */
 export function dataOf<T>(envelope: Envelope, what: string): T {
   if ('error' in envelope) {
-    throw new Error(`${what} failed: ${envelope.error.code} ${envelope.error.message} (${envelope.error.fix})`);
+    throw new Error(
+      `${what} failed: ${envelope.error.code} ${envelope.error.message} (${envelope.error.fix})`
+    );
   }
   return envelope.data as T;
 }
@@ -114,7 +116,10 @@ export class HumanStandIn {
     let made = await this.#call('make_draft_pick', { playerId: board.bestAvailable[0]?.player.id, pick });
     if ('error' in made && made.error.code === 'ROSTER_WOULD_BE_INVALID') {
       const need = board.yourNeeds[0] === 'W/R/T' ? 'WR' : board.yourNeeds[0];
-      const forNeed = dataOf<Board>(await this.#call('get_draft_board', { position: need }), 'get_draft_board');
+      const forNeed = dataOf<Board>(
+        await this.#call('get_draft_board', { position: need }),
+        'get_draft_board'
+      );
       made = await this.#call('make_draft_pick', { playerId: forNeed.bestAvailable[0]?.player.id, pick });
     }
     dataOf(made, 'make_draft_pick');
@@ -140,7 +145,12 @@ export class HumanStandIn {
     }
     const current = view.players.map((p) => ({ playerId: p.player.id, slot: p.slot }));
     const context: LineupContext = { games, now: this.services.clock.now(), previousLineup: current };
-    const best = optimizeLineup((this.#league as { settings: LeagueSettings }).settings, roster, projections, context);
+    const best = optimizeLineup(
+      (this.#league as { settings: LeagueSettings }).settings,
+      roster,
+      projections,
+      context
+    );
     const before = new Map(current.map((e) => [e.playerId, e.slot]));
     const moves = best.lineup.filter((e) => before.get(e.playerId) !== e.slot);
     if (moves.length === 0) return;

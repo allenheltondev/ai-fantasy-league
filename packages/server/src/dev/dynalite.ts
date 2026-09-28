@@ -1,4 +1,3 @@
-/// <reference path="../types/dynalite.d.ts" />
 import type { AddressInfo } from 'node:net';
 import { CreateTableCommand } from '@aws-sdk/client-dynamodb';
 import dynalite from 'dynalite';

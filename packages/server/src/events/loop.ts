@@ -271,7 +271,13 @@ export class EventLoop {
       this.#scheduled.delete(key);
       return;
     }
-    this.#scheduled.set(key, { key, at, seq: this.#seq++, detailType: event.detailType, detail: event.detail });
+    this.#scheduled.set(key, {
+      key,
+      at,
+      seq: this.#seq++,
+      detailType: event.detailType,
+      detail: event.detail
+    });
   }
 
   async #deliver(event: BusEvent): Promise<void> {
