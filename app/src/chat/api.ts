@@ -1,6 +1,38 @@
 import type { ApiFetch } from '../api/client';
 
-/** Shapes from the chat operations (get_chat, post_message, get_realtime_token) in openapi.json. */
+/**
+ * Shapes from the chat operations (get_chat, post_message, list_chat_rooms, mark_room_read,
+ * get_realtime_token) in openapi.json.
+ */
+
+/** The room people land in, and where messages from before rooms live. */
+export const DEFAULT_ROOM_ID = 'trash-talk';
+
+/** The DM room between two teams: the same id from either side (team ids sorted). */
+export function dmRoomId(teamA: string, teamB: string): string {
+  const [a, b] = [teamA, teamB].sort();
+  return `dm-${a}-${b}`;
+}
+
+export type RoomKind = 'fixed' | 'matchup' | 'dm';
+
+/** A chat room as list_chat_rooms returns it. */
+export interface ChatRoom {
+  roomId: string;
+  kind: RoomKind;
+  title: string;
+  /** Read-only: a matchup room whose week is official. */
+  archived: boolean;
+  week: number | null;
+  teamIds: string[];
+  lastMessageAt: string | null;
+  unreadCount: number;
+}
+
+export interface ChatRooms {
+  defaultRoomId: string;
+  rooms: ChatRoom[];
+}
 
 /** A player an announcement names (system messages). */
 export interface ChatPlayer {
@@ -48,8 +80,10 @@ export interface ChatTeam {
 }
 
 export interface ChatApi {
-  list(leagueId: string, options?: { limit?: number; after?: string }): Promise<ChatPage>;
-  post(leagueId: string, text: string): Promise<ChatMessage>;
+  list(leagueId: string, options?: { limit?: number; after?: string; roomId?: string }): Promise<ChatPage>;
+  post(leagueId: string, text: string, roomId?: string): Promise<ChatMessage>;
+  rooms(leagueId: string, options?: { pastWeek?: number }): Promise<ChatRooms>;
+  markRead(leagueId: string, roomId: string): Promise<void>;
   realtime(leagueId: string): Promise<RealtimeInfo>;
   teams(leagueId: string): Promise<ChatTeam[]>;
 }
@@ -60,16 +94,28 @@ export function createChatApi(apiFetch: ApiFetch): ChatApi {
   return {
     async list(leagueId, options = {}) {
       const res = await apiFetch<ChatPage>(`${league(leagueId)}/chat/messages`, {
-        query: { limit: options.limit, after: options.after }
+        query: { limit: options.limit, after: options.after, roomId: options.roomId }
       });
       return res.data;
     },
-    async post(leagueId, text) {
+    async post(leagueId, text, roomId) {
       const res = await apiFetch<{ message: ChatMessage }>(`${league(leagueId)}/chat/messages`, {
         method: 'POST',
-        body: { text }
+        body: roomId === undefined ? { text } : { text, roomId }
       });
       return res.data.message;
+    },
+    async rooms(leagueId, options = {}) {
+      const res = await apiFetch<ChatRooms>(`${league(leagueId)}/chat/rooms`, {
+        query: { pastWeek: options.pastWeek }
+      });
+      return res.data;
+    },
+    async markRead(leagueId, roomId) {
+      await apiFetch(`${league(leagueId)}/chat/rooms/${encodeURIComponent(roomId)}/read`, {
+        method: 'POST',
+        body: {}
+      });
     },
     async realtime(leagueId) {
       return (await apiFetch<RealtimeInfo>(`${league(leagueId)}/realtime`)).data;

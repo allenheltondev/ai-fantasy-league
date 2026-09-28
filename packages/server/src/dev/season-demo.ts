@@ -9,7 +9,8 @@ import type { League, Repos } from '../repos/types.js';
 /**
  * A playable in-season league for local dev and the e2e lineup flow, until the draft stream can
  * produce one: four teams (team-1 and team-2 with full rosters of fixture players), phase
- * `regular_season`, week 1 of 2026, the schedule generated, and NFL games stored for weeks 1-18.
+ * `regular_season`, week 1 of 2026, the schedule generated, NFL games stored for weeks 1-18, and the
+ * draft's closing announcement in the #draft chat room.
  * The season-loop tests use the same data (test/support/season.ts).
  */
 
@@ -191,5 +192,17 @@ export async function seedDemoSeason(
       updatedBy: 'system'
     }
   ]);
+  // The draft's closing announcement, in #draft where the draft's news goes (#144).
+  await deps.repos.chat.put({
+    id: `sys-demo-draft-${league.id}`,
+    leagueId: league.id,
+    roomId: 'draft',
+    kind: 'system',
+    author: { teamId: null, teamName: null, name: 'League' },
+    text: 'The draft is complete. Good luck this season!',
+    mentionedTeamIds: [],
+    event: { detailType: 'Draft Completed', eventId: `demo-draft-${league.id}` },
+    createdAt: at
+  });
   return league;
 }

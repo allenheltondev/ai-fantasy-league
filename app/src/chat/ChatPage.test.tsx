@@ -66,7 +66,9 @@ function fakeApi(
       if (options.realtime instanceof Error) throw options.realtime;
       return options.realtime ?? OFF;
     }),
-    teams: vi.fn(async () => TEAMS)
+    teams: vi.fn(async () => TEAMS),
+    rooms: vi.fn(async () => ({ defaultRoomId: 'trash-talk', rooms: [] })),
+    markRead: vi.fn(async () => undefined)
   };
   return { api, store };
 }
@@ -147,7 +149,7 @@ describe('ChatPage', () => {
     let handlers: Parameters<Connect>[1] | null = null;
     const unsubscribe = vi.fn();
     const connect: Connect = vi.fn(async (target, h) => {
-      expect(target).toEqual({ token: 'tok', cacheName: 'cache', topic: 'fantasy.league.L1' });
+      expect(target).toEqual({ token: 'tok', cacheName: 'cache', topics: ['fantasy.league.L1'] });
       handlers = h;
       return unsubscribe;
     });
@@ -297,7 +299,9 @@ describe('ChatPage', () => {
     await user.keyboard('{Shift>}{Enter}{/Shift}');
     expect(api.post).not.toHaveBeenCalled();
     await user.keyboard('{Enter}');
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('L1', 'nice one @Rocket Men and @Allen FC'));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('L1', 'nice one @Rocket Men and @Allen FC', 'trash-talk')
+    );
     expect(box).toHaveValue('');
     expect(await within(list()).findByText('@Rocket Men')).toBeInTheDocument();
   });
@@ -316,7 +320,7 @@ describe('ChatPage', () => {
     await user.pointer({ keys: '[MouseLeft>]', target: screen.getByText('Robo Ballers') });
     expect(box).toHaveValue('@Robo Ballers ');
     await user.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('L1', '@Robo Ballers'));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('L1', '@Robo Ballers', 'trash-talk'));
   });
 
   it('shows the fix when posting fails', async () => {
