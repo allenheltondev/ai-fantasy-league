@@ -39,10 +39,20 @@ export function OutlookView({ outlook }: { outlook: MatchupOutlook }) {
     <section aria-label="Outlook" className="rounded-lg border border-border p-4">
       <h3 className="font-semibold">Outlook</h3>
       {opponent !== null && you.winProbability !== null ? (
-        <p className="mt-1" data-testid="win-probability">
-          <span className="text-2xl font-semibold">{percent(you.winProbability)}</span> to win · projected{' '}
-          {pts(you.projectedPoints)} to {pts(opponent.projectedPoints)}
-        </p>
+        <>
+          <p className="mt-1" data-testid="win-probability">
+            <span className="text-2xl font-semibold">{percent(you.winProbability)}</span> to win · projected{' '}
+            {pts(you.projectedPoints)} to {pts(opponent.projectedPoints)}
+          </p>
+          {/* The bar eases to each new probability as live scores move it. */}
+          <div aria-hidden="true" className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              data-testid="win-probability-bar"
+              className="h-full rounded-full bg-primary-500 transition-[width] duration-700 ease-out"
+              style={{ width: percent(you.winProbability) }}
+            />
+          </div>
+        </>
       ) : (
         <p className="mt-1 text-muted-foreground">
           No opponent this week · projected {pts(you.projectedPoints)}

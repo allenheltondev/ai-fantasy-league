@@ -1,9 +1,9 @@
 import { useParams } from 'react-router';
-import { LoadingPage } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { PlayerRef, SeasonRecordsView, TradeValueRecord } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { LoadingSkeleton, stagger, Trophy } from '../../motion/decor';
 
 const points = (n: number) => n.toFixed(2);
 
@@ -79,7 +79,11 @@ export function HistoryPanel() {
   const api = useLeagueApi();
   const loaded = useLoad(() => api.getLeagueHistory(leagueId), leagueId);
   if (loaded.data === null) {
-    return loaded.error ? <ApiErrorAlert error={loaded.error} /> : <LoadingPage text="Loading history…" />;
+    return loaded.error ? (
+      <ApiErrorAlert error={loaded.error} />
+    ) : (
+      <LoadingSkeleton label="Loading history…" rows={6} />
+    );
   }
   const { seasons, current, achievements, trades, tradeRecords } = loaded.data;
   return (
@@ -92,9 +96,17 @@ export function HistoryPanel() {
           <p className="text-muted-foreground">No completed seasons yet.</p>
         ) : (
           <ul className="space-y-1">
-            {seasons.map((s) => (
-              <li key={s.season}>
-                {s.season}: <strong>{s.championName ?? 'No champion'}</strong>
+            {seasons.map((s, index) => (
+              // Each champion's trophy pops in, one after another.
+              <li key={s.season} className="flex items-center gap-2">
+                {s.championName !== null && (
+                  <span className="motion-trophy" style={stagger(index).style} data-testid="trophy">
+                    <Trophy />
+                  </span>
+                )}
+                <span>
+                  {s.season}: <strong>{s.championName ?? 'No champion'}</strong>
+                </span>
               </li>
             ))}
           </ul>

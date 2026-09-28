@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useParams } from 'react-router';
-import { Alert, EmptyState, LoadingPage, StatusBadge } from '@readysetcloud/ui';
+import { Alert, EmptyState, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { Roster, RosterEntry } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { LoadingSkeleton, stagger } from '../../motion/decor';
 import { isStarter, planMove, slotOptions, statusLabel } from './slots';
 import { TeamAchievements } from './TeamAchievements';
 
@@ -16,7 +17,11 @@ export function RosterPage() {
 
   let body;
   if (state.data === null) {
-    body = state.error ? <ApiErrorAlert error={state.error} /> : <LoadingPage text="Loading your team…" />;
+    body = state.error ? (
+      <ApiErrorAlert error={state.error} />
+    ) : (
+      <LoadingSkeleton label="Loading your team…" />
+    );
   } else if (state.data.yourTeam === null) {
     body = <EmptyState title="No team" description="You do not manage a team in this league." />;
   } else {
@@ -46,7 +51,7 @@ function LineupEditor({ leagueId, teamId }: { leagueId: string; teamId: string }
     return roster.error ? (
       <ApiErrorAlert error={roster.error} />
     ) : (
-      <LoadingPage text="Loading your lineup…" />
+      <LoadingSkeleton label="Loading your lineup…" rows={8} />
     );
   }
   const data = roster.data;
@@ -129,10 +134,16 @@ function LineupTable(props: {
         </tr>
       </thead>
       <tbody>
-        {props.rows.map((row) => {
+        {props.rows.map((row, index) => {
           const label = statusLabel(row);
+          const enter = stagger(index);
           return (
-            <tr key={row.player.id} data-testid={`roster-row-${row.player.id}`}>
+            <tr
+              key={row.player.id}
+              data-testid={`roster-row-${row.player.id}`}
+              className={`motion-row ${enter.className}`}
+              style={enter.style}
+            >
               <td className="font-mono">{row.slot}</td>
               <td>
                 {row.player.name}{' '}
