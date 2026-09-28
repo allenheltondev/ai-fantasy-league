@@ -49,3 +49,4 @@ export {
 export * from './realtime/realtime.js';
 export { relayEvent, RELAYED_EVENTS } from './realtime/relay.js';
 export type { BusEvent } from './events/bus.js';
+export * from './agents/kill-switch.js';

@@ -5,6 +5,7 @@ import { getPlayer, searchPlayers } from './players.js';
 import { getHealth, getMe } from './system.js';
 import { getAgentActivity } from './agents/activity.js';
 import { getAgentCatalog } from './agents/catalog.js';
+import { getModelLeaderboard } from './agents/leaderboard.js';
 import { chatOperations } from './chat/index.js';
 import { configureAgentSeat, getAgentSeat, randomizeAgentSeatsOperation } from './agents/seats.js';
 import { getNews } from './research/get-news.js';
@@ -35,6 +36,7 @@ export const operations = [
   getAgentSeat,
   getAgentActivity,
   getAgentCatalog,
+  getModelLeaderboard,
   // Waivers and free agency (#55)
   ...waiverOperations,
   // Group chat and realtime (#68, #69)

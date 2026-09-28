@@ -1,4 +1,5 @@
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { AgentLeagueMemorySchema, type AgentLeagueMemory } from '@fantasy/core';
 import { z } from 'zod';
 import {
   AgentSeatRecordSchema,
@@ -18,7 +19,7 @@ import { TABLE_KEYS, epochSeconds, isConditionalCheckFailure, type TableContext 
  * Key layout:
  * - Seat (current):   pk LEAGUE#<leagueId>  sk AGENTSEAT#<teamId>
  * - Seat history:     pk LEAGUE#<leagueId>  sk AGENTSEATV#<teamId>#<version, 6 digits>
- * - Agent notes:      pk LEAGUE#<leagueId>  sk AGENTMEM#<agentId>
+ * - Agent memory:     pk LEAGUE#<leagueId>  sk AGENTMEM#<agentId>  (notes, rivals, trades, decisions, chat; rev)
  * - Trigger state:    pk LEAGUE#<leagueId>  sk AGENTSTATE#<agentId>
  * - Task:             pk AGENTTASK#<taskId> sk STATUS
  *                     GSI1 AGENTTASKS#<leagueId> / <startedAt>#<taskId>     (once complete)
@@ -42,7 +43,7 @@ const stateKey = (leagueId: string, agentId: string) => ({
 const taskKey = (taskId: string) => ({ pk: `AGENTTASK#${taskId}`, sk: 'STATUS' });
 const usagePk = (leagueId: string, week: number) => `AGENTUSAGE#${leagueId}#W${week}`;
 
-const MemorySchema = z.object({ notes: z.array(z.string()), rev: z.number() });
+const MemorySchema = AgentLeagueMemorySchema.extend({ rev: z.number() });
 const TaskSlotSchema = z.object({
   state: z.enum(['running', 'complete']),
   lockUntil: z.number(),
@@ -90,26 +91,31 @@ export class DynamoAgentRepository implements AgentRepository {
     return items.map((item) => AgentSeatRecordSchema.parse(item));
   }
 
-  async getMemory(leagueId: string, agentId: string): Promise<string[]> {
+  async getMemory(leagueId: string, agentId: string): Promise<AgentLeagueMemory> {
     const item = await this.#get(memoryKey(leagueId, agentId));
-    return item === undefined ? [] : MemorySchema.parse(item).notes;
+    const { rev: _rev, ...memory } = MemorySchema.parse(item ?? { rev: 0 });
+    return memory;
   }
 
-  async appendMemory(leagueId: string, agentId: string, note: string, max: number): Promise<string[]> {
+  async updateMemory(
+    leagueId: string,
+    agentId: string,
+    update: (memory: AgentLeagueMemory) => AgentLeagueMemory
+  ): Promise<AgentLeagueMemory> {
     for (let attempt = 0; ; attempt++) {
       const item = await this.#get(memoryKey(leagueId, agentId));
-      const current = item === undefined ? { notes: [], rev: 0 } : MemorySchema.parse(item);
-      const notes = [...current.notes, note].slice(-max);
+      const { rev, ...current } = MemorySchema.parse(item ?? { rev: 0 });
+      const next = AgentLeagueMemorySchema.parse(update(current));
       try {
         await this.table.doc.send(
           new PutCommand({
             TableName: this.table.tableName,
-            Item: { ...memoryKey(leagueId, agentId), notes, rev: current.rev + 1 },
-            ConditionExpression: current.rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
-            ExpressionAttributeValues: current.rev === 0 ? undefined : { ':rev': current.rev }
+            Item: { ...memoryKey(leagueId, agentId), ...next, rev: rev + 1 },
+            ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
+            ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
           })
         );
-        return notes;
+        return next;
       } catch (error) {
         if (!isConditionalCheckFailure(error) || attempt >= 2) throw error;
       }

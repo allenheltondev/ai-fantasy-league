@@ -19,7 +19,8 @@ export const TeamNameSchema = z
   .trim()
   .min(1)
   .max(40)
-  .describe('Team name, 1-40 characters, unique in the league.');
+  .regex(/^[^\p{Cc}\p{Cf}]*$/u, 'Team names cannot contain line breaks or control characters.')
+  .describe('Team name, 1-40 characters on one line (no control characters), unique in the league.');
 
 export const PhaseSchema = z
   .enum(LEAGUE_PHASES)

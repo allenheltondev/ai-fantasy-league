@@ -1,10 +1,10 @@
-import { AgentSeatConfigSchema } from '@fantasy/core';
+import { AgentSeatConfigSchema, type AgentLeagueMemory } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
 
 /**
  * Agent platform persistence (issues #39, #41, #45, #93): seat configs with version history, the
- * per-agent notes store, task records (the idempotency claim and the observability record in one),
+ * per-agent league memory (notes, rivalries, trades, decisions, a chat snapshot), task records (the idempotency claim and the observability record in one),
  * weekly usage rollups, and per-agent trigger state for cooldowns. Everything lives in the league
  * table; the key layout is in the DynamoDB implementation (`dynamo/agents.ts`).
  */
@@ -101,10 +101,17 @@ export interface AgentRepository {
   /** Newest first. */
   seatHistory(leagueId: string, teamId: string, limit?: number): Promise<AgentSeatRecord[]>;
 
-  /** The agent's notes, oldest first. */
-  getMemory(leagueId: string, agentId: string): Promise<string[]>;
-  /** Appends a note, keeping only the newest `max`. Returns the notes after the append. */
-  appendMemory(leagueId: string, agentId: string, note: string, max: number): Promise<string[]>;
+  /** The agent's private league memory (empty when it has none). */
+  getMemory(leagueId: string, agentId: string): Promise<AgentLeagueMemory>;
+  /**
+   * Read-modify-write of the agent's memory, retried on a concurrent write. `update` must be pure
+   * (core `rememberEvent`). Returns the memory after the update.
+   */
+  updateMemory(
+    leagueId: string,
+    agentId: string,
+    update: (memory: AgentLeagueMemory) => AgentLeagueMemory
+  ): Promise<AgentLeagueMemory>;
 
   /** Claims a task id: once per trigger, with takeover after `lockUntil` if a run crashed. */
   claimTask(input: { taskId: string; now: Date; lockUntil: Date }): Promise<AgentTaskClaim>;

@@ -1,6 +1,6 @@
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import type { Clock } from '@fantasy/core';
-import type { Logger } from '@fantasy/server';
+import type { Logger } from '../log.js';
 
 /**
  * The global kill switch (issue #93): an SSM parameter that puts every agent into deterministic
@@ -61,4 +61,18 @@ export class ParameterKillSwitch implements KillSwitch {
     this.#cached = { value, at: now };
     return value;
   }
+}
+
+/** The kill switch named by `AGENT_KILL_SWITCH_PARAM`, or undefined when the deployment has none. */
+export function killSwitchFromParameter(
+  name: string | undefined,
+  options: { clock: Clock; log: Logger; reader?: ParameterReader }
+): KillSwitch | undefined {
+  if (name === undefined || name.trim().length === 0) return undefined;
+  return new ParameterKillSwitch({
+    name,
+    reader: options.reader ?? ssmParameterReader(),
+    clock: options.clock,
+    log: options.log
+  });
 }

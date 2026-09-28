@@ -1,3 +1,4 @@
+import { emptyMemory, rememberEvent } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
 import type { AgentSeatRecord, AgentTaskRecord } from '../../src/repos/agents.js';
@@ -81,14 +82,18 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     expect(await agents.seatHistory(leagueId, 't1', 1)).toHaveLength(1);
   });
 
-  it('keeps the newest notes', async () => {
+  it('keeps each agent its own league memory', async () => {
     const { agents } = make();
     const leagueId = unique('lg');
-    expect(await agents.getMemory(leagueId, 'a')).toEqual([]);
-    await agents.appendMemory(leagueId, 'a', 'one', 2);
-    await agents.appendMemory(leagueId, 'a', 'two', 2);
-    expect(await agents.appendMemory(leagueId, 'a', 'three', 2)).toEqual(['two', 'three']);
-    expect(await agents.getMemory(leagueId, 'a')).toEqual(['two', 'three']);
+    expect(await agents.getMemory(leagueId, 'a')).toEqual(emptyMemory());
+    await agents.updateMemory(leagueId, 'a', (m) => rememberEvent(m, { type: 'note', text: 'one' }));
+    const after = await agents.updateMemory(leagueId, 'a', (m) =>
+      rememberEvent(m, { type: 'trade', teamId: 't2', tradeId: 'x', outcome: 'vetoed', summary: 'Vetoed.', at: T0.toISOString() })
+    );
+    expect(after.notes).toEqual(['one']);
+    expect(after.rivals).toEqual([expect.objectContaining({ teamId: 't2', grudge: 2 })]);
+    expect(await agents.getMemory(leagueId, 'a')).toEqual(after);
+    expect(await agents.getMemory(leagueId, 'b')).toEqual(emptyMemory());
   });
 
   it('claims a task once, takes over crashed runs, and replays completed ones', async () => {

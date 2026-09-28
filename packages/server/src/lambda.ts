@@ -8,6 +8,7 @@
 import { systemClock } from '@fantasy/core';
 import type { Hono } from 'hono';
 import { handle, type APIGatewayProxyResult, type LambdaContext, type LambdaEvent } from 'hono/aws-lambda';
+import { killSwitchFromParameter } from './agents/kill-switch.js';
 import { createCognitoVerifier } from './auth/verifier.js';
 import { loadLambdaConfig } from './config.js';
 import { EventBridgePublisher } from './events/eventbridge.js';
@@ -38,7 +39,8 @@ export function createLambdaServices(env: Record<string, string | undefined> = p
     log,
     limits: limitsFromEnv(env),
     reference: createDynamoReferenceStore(table),
-    realtime: realtimeFromEnv(env, { clock: systemClock, log })
+    realtime: realtimeFromEnv(env, { clock: systemClock, log }),
+    agentKillSwitch: killSwitchFromParameter(env.AGENT_KILL_SWITCH_PARAM, { clock: systemClock, log })
   });
 }
 

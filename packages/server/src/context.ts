@@ -1,4 +1,5 @@
 import type { Clock } from '@fantasy/core';
+import type { KillSwitch } from './agents/kill-switch.js';
 import type { Principal } from './auth/principal.js';
 import type { EventPublisher } from './events/publisher.js';
 import type { NflStateSource } from './league/calendar.js';
@@ -54,6 +55,8 @@ export interface Ctx {
   limits: Limits;
   /** Momento Topics for live updates (a no-op when not configured). */
   realtime: Realtime;
+  /** The global agent kill switch (SSM), when this deployment has one; read-only here. */
+  agentKillSwitch?: KillSwitch;
   /** The registry running this operation (set by `executeOperation`), for allowed-action lists. */
   registry?: Registry;
 }
@@ -67,6 +70,7 @@ export interface Services {
   log: Logger;
   limits: Limits;
   realtime: Realtime;
+  agentKillSwitch?: KillSwitch;
 }
 
 export function createContext(services: Services, principal: Principal, log: Logger = services.log): Ctx {
@@ -78,6 +82,7 @@ export function createContext(services: Services, principal: Principal, log: Log
     data: services.data,
     log,
     limits: services.limits,
-    realtime: services.realtime
+    realtime: services.realtime,
+    ...(services.agentKillSwitch === undefined ? {} : { agentKillSwitch: services.agentKillSwitch })
   };
 }

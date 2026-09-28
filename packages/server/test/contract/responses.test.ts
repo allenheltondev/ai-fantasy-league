@@ -199,6 +199,16 @@ const CASES: Record<string, Case[]> = {
     { label: 'defaults', path: '/api/v1/settings/defaults?teamCount=10&preset=standard', status: 200 },
     { label: 'odd bounds', path: '/api/v1/settings/defaults?teamCount=2', status: 400 }
   ],
+  get_model_leaderboard: [
+    { label: 'in season', path: '/api/v1/leagues/lg-cs/model-leaderboard', status: 200 },
+    { label: 'with agent seats', path: '/api/v1/leagues/lg-1/model-leaderboard', status: 200 },
+    {
+      label: 'not a member',
+      path: '/api/v1/leagues/lg-1/model-leaderboard',
+      init: { token: OTHER_USER },
+      status: 403
+    }
+  ],
   get_agent_activity: [
     { label: 'commissioner', path: '/api/v1/leagues/lg-1/agent-activity?limit=5', status: 200 },
     {

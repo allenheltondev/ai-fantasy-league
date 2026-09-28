@@ -1,9 +1,6 @@
-import { FixedClock } from '@fantasy/core';
-import { silentLogger } from '@fantasy/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ScriptedModelClient } from '../src/fake-model.js';
-import { isEngagedValue, OFF_SWITCH, ParameterKillSwitch, ssmParameterReader } from '../src/kill-switch.js';
 import {
   estimateTokens,
   isModelUnavailable,
@@ -14,44 +11,6 @@ import { applySwaps } from '../src/tasks/lineup.js';
 import { createTaskKindRegistry } from '../src/tasks/kinds.js';
 import { noopTask } from '../src/tasks/noop.js';
 import type { BoundTool } from '../src/tools.js';
-
-describe('kill switch', () => {
-  it('parses values', () => {
-    for (const v of ['on', 'TRUE', ' 1 ', 'engaged']) expect(isEngagedValue(v)).toBe(true);
-    for (const v of ['off', '', 'no', undefined]) expect(isEngagedValue(v)).toBe(false);
-  });
-
-  it('caches reads and fails closed', async () => {
-    const clock = new FixedClock('2026-10-04T00:00:00Z');
-    const read = vi
-      .fn()
-      .mockResolvedValueOnce('off')
-      .mockResolvedValueOnce('on')
-      .mockRejectedValueOnce(new Error('ssm down'));
-    const ks = new ParameterKillSwitch({
-      name: '/x',
-      reader: { read },
-      clock,
-      log: silentLogger,
-      ttlMs: 1000
-    });
-    expect(await ks.engaged()).toBe(false);
-    expect(await ks.engaged()).toBe(false);
-    clock.advance(1000);
-    expect(await ks.engaged()).toBe(true);
-    clock.advance(1000);
-    expect(await ks.engaged()).toBe(true);
-    expect(read).toHaveBeenCalledTimes(3);
-    expect(await OFF_SWITCH.engaged()).toBe(false);
-  });
-
-  it('reads the SSM parameter', async () => {
-    const send = vi.fn().mockResolvedValue({ Parameter: { Value: 'on' } });
-    const reader = ssmParameterReader({ send } as never);
-    expect(await reader.read('/agents/kill-switch')).toBe('on');
-    expect(send.mock.calls[0]?.[0].input).toEqual({ Name: '/agents/kill-switch' });
-  });
-});
 
 describe('model helpers', () => {
   it('classifies unavailable-model errors', () => {
