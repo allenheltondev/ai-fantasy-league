@@ -1,5 +1,6 @@
 import type {
   ByeWeeks,
+  LiveGame,
   NflState,
   PlayerSeasonLines,
   ProjectionLine,
@@ -58,6 +59,25 @@ export interface NflScheduleRepository {
   /** One week's games, ordered by kickoff. */
   getWeek(season: number, week: number): Promise<ScheduledGame[]>;
   getSeason(season: number): Promise<StoredSeasonSchedule | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Live NFL games (ESPN's scoreboard: scores, status, possession, red zone)
+// ---------------------------------------------------------------------------
+
+/** The latest read of one week's games, written by live scoring (`refreshNflGames`). */
+export interface StoredNflWeek {
+  season: number;
+  week: number;
+  games: LiveGame[];
+  /** When the games were last read. Possession and the red zone are only trusted while fresh. */
+  updatedAt: string;
+}
+
+export interface NflGamesRepository {
+  get(season: number, week: number): Promise<StoredNflWeek | null>;
+  /** Replaces the week's games. */
+  put(week: StoredNflWeek): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +217,7 @@ export interface PlayerSyncRepository {
 export interface ReferenceStore {
   nflState: NflStateRepository;
   schedule: NflScheduleRepository;
+  nflGames: NflGamesRepository;
   stats: StatsRepository;
   projections: ProjectionRepository;
   seasons: SeasonLinesRepository;

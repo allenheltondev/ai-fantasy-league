@@ -14,6 +14,9 @@ import {
 } from '@readysetcloud/ui';
 import { ApiError, apiFetch, type ApiFetch } from '../api';
 import type { RealtimeInfo } from '../chat/api';
+import { Confetti } from '../motion/Confetti';
+import { useTitleBadge } from '../motion/decor';
+import { useArrivals } from '../motion/useArrivals';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
 import { BestAvailableTable } from './BestAvailableTable';
 import { DepthChart } from './DepthChart';
@@ -85,6 +88,8 @@ export function DraftPage({
   const [card, setCard] = useState<PlayerRef | null>(null);
   const [view, setView] = useState<'board' | 'depth'>('board');
   const [tick, setTick] = useState(now);
+  // Your own pick just went in: a burst of confetti and a line naming the player.
+  const [myPick, setMyPick] = useState<{ name: string; n: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -128,11 +133,21 @@ export function DraftPage({
     return () => clearInterval(id);
   }, [now]);
 
-  async function draft(playerId: string, overall: number) {
+  // New picks flip onto the board; the picks already made when the board first loads don't.
+  const arrived = useArrivals(board === null ? null : board.picks.map((p) => String(p.overall)));
+  const yourTurn =
+    board !== null &&
+    board.status === 'in_progress' &&
+    board.onTheClock !== null &&
+    board.onTheClock.teamId === board.yourTeamId;
+  useTitleBadge(yourTurn, 'Your pick!');
+
+  async function draft(playerId: string, overall: number, name: string) {
     setPicking(playerId);
     setPickError(null);
     try {
       await api(`/leagues/${leagueId}/draft/picks`, { method: 'POST', body: { playerId, pick: overall } });
+      setMyPick((d) => ({ name, n: (d?.n ?? 0) + 1 }));
       await load();
     } catch (error) {
       setPickError(toApiError(error));
@@ -153,7 +168,7 @@ export function DraftPage({
       );
   } else {
     const clock = board.onTheClock;
-    const mine = clock !== null && clock.teamId === board.yourTeamId && board.status === 'in_progress';
+    const mine = yourTurn;
     const current = clock === null ? 0 : clock.overall;
     const seconds =
       clock === null
@@ -186,7 +201,17 @@ export function DraftPage({
             </p>
           )}
         </div>
-        {mine && <Alert variant="info">You are on the clock! Pick a player below.</Alert>}
+        {mine && (
+          // A few pulses to catch your eye, then it settles.
+          <div className="motion-attention">
+            <Alert variant="info">You are on the clock! Pick a player below.</Alert>
+          </div>
+        )}
+        {myPick !== null && (
+          <p key={myPick.n} role="status" className="motion-pop font-semibold text-success-700">
+            You drafted {myPick.name}!
+          </p>
+        )}
         {!mine && board.yourNextPick !== null && (
           <p className="text-muted-foreground">
             Your next pick is #{board.yourNextPick.overall}, {board.yourNextPick.picksAway} pick(s) away.
@@ -259,9 +284,12 @@ export function DraftPage({
                                 ''
                               )
                             ) : (
-                              <>
+                              <span
+                                key={pick.player.id}
+                                className={arrived(String(overall)) ? 'motion-flip-in' : undefined}
+                              >
                                 {open(pick.player)} ({pick.player.position}){pick.auto ? ' · auto' : ''}
-                              </>
+                              </span>
                             )}
                           </td>
                         );
@@ -292,7 +320,7 @@ export function DraftPage({
                 onQueue={queue.add}
                 canDraft={mine}
                 picking={picking}
-                onDraft={(player) => void draft(player.id, current)}
+                onDraft={(player) => void draft(player.id, current, player.name)}
                 onOpen={setCard}
               />
             </CardBody>
@@ -337,7 +365,7 @@ export function DraftPage({
                           size="sm"
                           disabled={!mine || picking !== null}
                           loading={picking === player.id}
-                          onClick={() => void draft(player.id, current)}
+                          onClick={() => void draft(player.id, current, player.name)}
                           aria-label={`Draft ${player.name} from the queue`}
                         >
                           Pick
@@ -377,7 +405,7 @@ export function DraftPage({
             onQueue={queue.add}
             canDraft={mine && !drafted.has(card.id)}
             picking={picking === card.id}
-            onDraft={(player) => void draft(player.id, current).then(() => setCard(null))}
+            onDraft={(player) => void draft(player.id, current, player.name).then(() => setCard(null))}
           />
         )}
       </div>
@@ -387,6 +415,7 @@ export function DraftPage({
   return (
     <div data-testid="league-section-draft" className="space-y-4">
       <h2 className="text-xl font-semibold">Draft</h2>
+      {myPick !== null && <Confetti key={myPick.n} size="burst" />}
       {content}
     </div>
   );

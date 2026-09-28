@@ -3,7 +3,7 @@
  * shell only fixes the URLs so links and deep links are stable from day one.
  */
 
-import { Link, NavLink, Outlet, useParams } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
 import { useLoad } from '../lib/useLoad';
@@ -15,6 +15,9 @@ import { StandingsPage } from '../features/season/StandingsPage';
 import { PlayersPage } from '../features/players/PlayersPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { TradesPage } from '../trades/TradesPage';
+import { supportsViewTransitions, transitionClick } from '../motion/pageTransition';
+import { LeagueNotifications } from '../realtime/LeagueNotifications';
+import type { LeagueOutletContext } from './leagueContext';
 
 export const LEAGUE_SECTIONS = [
   { path: 'draft', label: 'Draft' },
@@ -38,8 +41,11 @@ export const CreateLeaguePage = CreateLeagueWizard;
 export function LeagueLayout() {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   // The name only; each section loads (and reports errors for) its own data.
   const state = useLoad(() => api.getLeagueState(leagueId), leagueId);
+  const yourTeamId = state.data?.yourTeam?.id ?? null;
   return (
     <section aria-labelledby="league-title" className="space-y-4">
       <h1 id="league-title" className="text-2xl font-semibold">
@@ -50,8 +56,9 @@ export function LeagueLayout() {
           <NavLink
             key={section.path}
             to={section.path}
+            onClick={transitionClick(() => navigate(section.path))}
             className={({ isActive }) =>
-              `rounded-md px-3 py-2 text-sm font-medium ${
+              `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                 isActive ? 'bg-primary-100 text-primary-800' : 'text-muted-foreground hover:text-foreground'
               }`
             }
@@ -60,7 +67,11 @@ export function LeagueLayout() {
           </NavLink>
         ))}
       </nav>
-      <Outlet />
+      <LeagueNotifications leagueId={leagueId} yourTeamId={yourTeamId} />
+      {/* Browsers with view transitions cross-fade on section clicks; the rest get a quick rise-in. */}
+      <div key={pathname} className={supportsViewTransitions() ? undefined : 'motion-page'}>
+        <Outlet context={{ yourTeamId } satisfies LeagueOutletContext} />
+      </div>
     </section>
   );
 }

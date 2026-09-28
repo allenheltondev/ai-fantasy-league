@@ -7,7 +7,7 @@ import { GLOBAL_TOPIC, leagueTopic, teamTopic, type Realtime, type RealtimeMessa
  * The realtime publisher (issue #68): league events from the bus, pushed to Momento Topics so open
  * browsers update without polling. The event detail passes through untouched, so the streams that
  * emit these events own their shape. Events about a league go to that league's topic; events with
- * no league (the live-stats job's `Scores Updated`) go to the global topic.
+ * no league (the live-stats job's `Scores Updated`, and `NFL Games Updated`) go to the global topic.
  *
  * Only trade events the whole league may see go to the league topic: an accepted trade (which the
  * league then reviews), and its processing or veto. Offers, counters, rejections, expiries, and
@@ -21,6 +21,7 @@ import { GLOBAL_TOPIC, leagueTopic, teamTopic, type Realtime, type RealtimeMessa
 export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Chat Message Posted',
   'Scores Updated',
+  'NFL Games Updated',
   'Draft Turn Started',
   'Draft Pick Made',
   'Draft Completed',
