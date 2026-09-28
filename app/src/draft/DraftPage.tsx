@@ -89,6 +89,10 @@ export function DraftPage({
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  // Going live only swaps the timer; it doesn't refetch the board.
+  useEffect(() => {
     const id = setInterval(() => void load(), interval);
     return () => clearInterval(id);
   }, [load, interval]);
