@@ -7,6 +7,14 @@
 //   node scripts/record-fixtures.mjs --sleeper       # only Sleeper
 //   node scripts/record-fixtures.mjs --nflverse      # only nflverse (works from the dev sandbox)
 //   node scripts/record-fixtures.mjs --season 2025 --weeks 1,2 --out /tmp/fixtures
+//   node scripts/record-fixtures.mjs --scoring --weeks 1,2     # scoring validation sets (below)
+//
+// --scoring records the scoring validation sets (#30) instead: every player's weekly stat line with
+// the source's own fantasy points, trimmed to the scoring stat keys.
+//   Sleeper:  fixtures/sleeper/scoring/stats_regular_{season}_{week}.json (pts_ppr/half/std)
+//   nflverse: fixtures/nflverse/scoring_sample_{season}.csv (fantasy_points, fantasy_points_ppr)
+// The data package's scoring harness test validates whatever sets are present; for a whole season,
+// run `npm run validate-scoring -w @fantasy/data -- <files>` instead of committing it.
 //
 // Responses are trimmed to the fixture player set below so the files stay small (< 2 MB total).
 // Synthetic players (ids starting with 900) in the existing players.json are preserved because
@@ -60,7 +68,8 @@ const { values } = parseArgs({
     weeks: { type: 'string', default: '1,2' },
     out: { type: 'string', default: 'packages/data/fixtures' },
     sleeper: { type: 'boolean', default: false },
-    nflverse: { type: 'boolean', default: false }
+    nflverse: { type: 'boolean', default: false },
+    scoring: { type: 'boolean', default: false }
   }
 });
 const season = Number(values.season);
@@ -200,5 +209,57 @@ async function recordNflverse() {
   );
 }
 
-if (doNflverse) await recordNflverse();
-if (doSleeper) await recordSleeper();
+/** Stat keys the scoring engine can weight, plus the precomputed totals and games played. */
+const SCORING_KEY =
+  /^(gp|pts_(ppr|half_ppr|std)|pass_|rush_|rec|fum|st_td|fg|xp|sack$|int$|safe$|blk_kick$|def_|pts_allow$|yds_allow$|idp_|kr_yd$|pr_yd$)/;
+
+/** nflverse columns the harness reads (identity, fumble breakdown, published points, mapped stats). */
+const NFLVERSE_SCORING_COLUMN =
+  /^(player_id|player_display_name|position|season|week|season_type|team|opponent_team|completions|attempts|passing_|sacks_suffered|sack_fumbles|carries|rushing_|receptions|targets|receiving_|special_teams_tds|fumbles_lost_total|fg_made|fg_att|fg_missed|pat_|fantasy_points)/;
+/** Advanced-metric and list columns no stat key reads. */
+const NFLVERSE_NOISE =
+  /_(epa|cpoe|list|distance|air_yards|yards_after_catch|first_downs|\d+)$|pacr|racr|wopr|share|pct$/;
+
+async function recordScoringSleeper() {
+  const dir = join(out, 'sleeper', 'scoring');
+  mkdirSync(dir, { recursive: true });
+  for (const week of weeks) {
+    const body = JSON.parse(await get(`${SLEEPER}/v1/stats/nfl/regular/${season}/${week}`));
+    const kept = {};
+    for (const [id, stats] of Object.entries(body)) {
+      if (typeof stats?.pts_ppr !== 'number' || !stats.gp) continue;
+      kept[id] = Object.fromEntries(Object.entries(stats).filter(([k, v]) => SCORING_KEY.test(k) && v !== 0));
+    }
+    writeFileSync(join(dir, `stats_regular_${season}_${week}.json`), JSON.stringify(kept) + '\n');
+    console.log(`sleeper scoring: week ${week}: ${Object.keys(kept).length} players`);
+  }
+}
+
+async function recordScoringNflverse() {
+  const dir = join(out, 'nflverse');
+  mkdirSync(dir, { recursive: true });
+  const rows = (await get(NFLVERSE.weeklyStats(season))).split('\n');
+  const header = splitCsvLine(rows[0]);
+  const cols = header
+    .map((h, i) => [h, i])
+    .filter(([h]) => NFLVERSE_SCORING_COLUMN.test(h) && !NFLVERSE_NOISE.test(h));
+  const [weekCol, typeCol] = ['week', 'season_type'].map((c) => header.indexOf(c));
+  const quote = (v) => (/[",\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
+  const kept = [cols.map(([h]) => h).join(',')];
+  for (const line of rows.slice(1)) {
+    if (!line) continue;
+    const c = splitCsvLine(line);
+    if (c[typeCol] !== 'REG' || !weeks.includes(Number(c[weekCol]))) continue;
+    kept.push(cols.map(([, i]) => quote(c[i] ?? '')).join(','));
+  }
+  writeFileSync(join(dir, `scoring_sample_${season}.csv`), kept.join('\n') + '\n');
+  console.log(`nflverse scoring: ${kept.length - 1} rows, ${cols.length} columns -> ${dir}`);
+}
+
+if (values.scoring) {
+  if (doNflverse) await recordScoringNflverse();
+  if (doSleeper) await recordScoringSleeper();
+} else {
+  if (doNflverse) await recordNflverse();
+  if (doSleeper) await recordSleeper();
+}

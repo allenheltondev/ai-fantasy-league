@@ -233,6 +233,34 @@ export interface MatchupData {
   lineups: { home: MatchupLineup; away: MatchupLineup } | null;
 }
 
+export interface OutlookSide {
+  teamId: string;
+  teamName: string;
+  currentPoints: number;
+  projectedPoints: number;
+  remainingPoints: number;
+  playersYetToPlay: number;
+  playersInProgress: number;
+  winProbability: number | null;
+}
+
+/** get_matchup_outlook (#36). */
+export interface MatchupOutlook {
+  week: number;
+  teamId: string;
+  status: 'scheduled' | 'in_progress' | 'final' | null;
+  you: OutlookSide;
+  opponent: OutlookSide | null;
+  insights: {
+    startersOut: { player: PlayerRef; slot: string; reason: 'bye' | 'out' }[];
+    emptySlots: { slot: string; missing: number }[];
+    benchUpgrades: { player: PlayerRef; replaces: PlayerRef | null; slot: string; gain: number }[];
+    lockedPlayers: PlayerRef[];
+    currentProjectedPoints: number;
+    optimalProjectedPoints: number;
+  };
+}
+
 export interface StandingsRow {
   rank: number;
   teamId: string;

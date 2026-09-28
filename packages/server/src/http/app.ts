@@ -12,6 +12,7 @@ import type { AnyOperation } from '../registry/operation.js';
 import type { Registry } from '../registry/registry.js';
 import { coerceParams } from './coerce.js';
 import { requireOriginSecret } from './origin.js';
+import { handleMcpRequest, mcpErrorResponse } from '../mcp/server.js';
 
 export interface AppOptions {
   registry: Registry;
@@ -38,6 +39,33 @@ export function createApp(options: AppOptions): Hono {
   if (options.originSecrets !== undefined) app.use('*', requireOriginSecret(options.originSecrets));
 
   app.get(`${API_PREFIX}/openapi.json`, (c) => c.json(openApi));
+
+  // The league MCP server (docs/mcp.md): stateless Streamable HTTP, POST only, same bearer token.
+  app.all(`${API_PREFIX}/mcp`, async (c) => {
+    if (c.req.method !== 'POST') {
+      return mcpErrorResponse(405, 'This MCP server is stateless: send JSON-RPC requests with POST.', {
+        allow: 'POST'
+      });
+    }
+    const log = services.log.child({ requestId: randomUUID(), operation: 'mcp' });
+    let principal: Principal;
+    try {
+      principal = await authenticate(verifier, c.req.header('authorization'));
+    } catch (error) {
+      const message = isApiError(error) ? `${error.message} ${error.fix}` : 'Authentication failed.';
+      return mcpErrorResponse(401, message, { 'www-authenticate': 'Bearer' });
+    }
+    if (principal.type !== 'user') {
+      return mcpErrorResponse(
+        401,
+        'Sign in: send `Authorization: Bearer <ID token>` with your Cognito ID token.',
+        {
+          'www-authenticate': 'Bearer'
+        }
+      );
+    }
+    return handleMcpRequest(c.req.raw, { registry, services, principal, log });
+  });
 
   for (const op of registry.operations) {
     const route = `${API_PREFIX}${op.path.replace(/\{([A-Za-z0-9]+)\}/g, ':$1')}`;

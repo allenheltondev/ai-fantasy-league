@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireMember } from '../../league/access.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
-import type { Team } from '../../repos/types.js';
+import type { Matchup, Team } from '../../repos/types.js';
 
 const StandingsRowSchema = z.object({
   rank: z.number().int(),
@@ -19,7 +19,19 @@ const StandingsRowSchema = z.object({
   tiebreakerOverNext: z
     .enum(['points_for', 'head_to_head', 'coin_flip'])
     .nullable()
-    .describe('The tiebreaker that placed this team above the next one, when their records were equal.')
+    .describe('The tiebreaker that placed this team above the next one, when their records were equal.'),
+  results: z
+    .array(
+      z.object({
+        week: z.number().int(),
+        opponentTeamId: z.string(),
+        result: z.enum(['W', 'L', 'T']),
+        pointsFor: z.number(),
+        pointsAgainst: z.number()
+      })
+    )
+    .optional()
+    .describe('Each final regular-season game, oldest first. Present when `detail` is true.')
 });
 
 export const getStandings = defineOperation({
@@ -29,11 +41,15 @@ export const getStandings = defineOperation({
   summary: 'League standings: records, points, streaks',
   description: [
     'Returns the regular-season standings as of the last final week: rank, record, points for and against, streak, and the tiebreaker that separated teams with equal records. Playoff games never change standings.',
-    'Before the season starts the list is empty and a SEASON_NOT_STARTED warning says when it fills in. Before the first week is final every team is 0-0. Only members can read it.'
+    'Before the season starts the list is empty and a SEASON_NOT_STARTED warning says when it fills in. Before the first week is final every team is 0-0. Only members can read it.',
+    '`detail: true` adds each team’s game-by-game results (opponent, result, and score) through `throughWeek`.'
   ].join(' '),
   tags: ['leagues', 'season'],
   mutation: false,
-  input: z.object({ leagueId: LeagueIdSchema }),
+  input: z.object({
+    leagueId: LeagueIdSchema,
+    detail: z.boolean().default(false).describe('Set true to add each team’s game-by-game results.')
+  }),
   output: z.object({
     throughWeek: z
       .number()
@@ -56,9 +72,37 @@ export const getStandings = defineOperation({
     const rows =
       snapshot?.rows ??
       computeStandings(league.settings, [], { teamIds: teams.map((t) => t.id), seed: league.scheduleSeed });
-    return { throughWeek: snapshot?.week ?? null, standings: rows.map((row) => standingsRow(row, teams)) };
+    const throughWeek = snapshot?.week ?? null;
+    const standings = rows.map((row) => standingsRow(row, teams));
+    if (!input.detail) return { throughWeek, standings };
+    const games = (await ctx.repos.schedule.listMatchups(league.id)).filter(
+      (m) => m.kind === 'regular' && m.status === 'final' && throughWeek !== null && m.week <= throughWeek
+    );
+    return {
+      throughWeek,
+      standings: standings.map((row) => ({ ...row, results: teamResults(row.teamId, games) }))
+    };
   }
 });
+
+function teamResults(teamId: string, games: readonly Matchup[]) {
+  return games
+    .filter((m) => m.homeTeamId === teamId || m.awayTeamId === teamId)
+    .sort((a, b) => a.week - b.week)
+    .map((m) => {
+      const home = m.homeTeamId === teamId;
+      const pointsFor = (home ? m.homeScore : m.awayScore) ?? 0;
+      const pointsAgainst = (home ? m.awayScore : m.homeScore) ?? 0;
+      const result = pointsFor > pointsAgainst ? 'W' : pointsFor < pointsAgainst ? 'L' : 'T';
+      return {
+        week: m.week,
+        opponentTeamId: home ? m.awayTeamId : m.homeTeamId,
+        result: result as 'W' | 'L' | 'T',
+        pointsFor,
+        pointsAgainst
+      };
+    });
+}
 
 function standingsRow(row: StandingsRow, teams: readonly Team[]): z.infer<typeof StandingsRowSchema> {
   return {

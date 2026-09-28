@@ -20,6 +20,11 @@ on:
         required: false
         type: string
         default: '1,2'
+      scoring_weeks:
+        description: Comma-separated weeks to record scoring validation sets for (every player)
+        required: false
+        type: string
+        default: '1,2'
 
 permissions:
   contents: read
@@ -47,6 +52,13 @@ jobs:
           mkdir -p recorded
           cp -R packages/data/fixtures recorded/fixtures
           node scripts/record-fixtures.mjs --sleeper --season "$SEASON" --weeks "$WEEKS" --out recorded/fixtures
+      - name: Record Sleeper scoring validation sets
+        # Every player's stat line with Sleeper's pts_ppr / pts_half_ppr / pts_std, written to
+        # fixtures/sleeper/scoring/ for the scoring harness (#30, docs/rules.md).
+        env:
+          SEASON: ${{ inputs.season }}
+          WEEKS: ${{ inputs.scoring_weeks }}
+        run: node scripts/record-fixtures.mjs --scoring --sleeper --season "$SEASON" --weeks "$WEEKS" --out recorded/fixtures
       - name: Check news feeds
         # A feed outage must not lose the recorded fixtures.
         continue-on-error: true
