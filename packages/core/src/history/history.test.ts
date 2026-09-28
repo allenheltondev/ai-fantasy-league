@@ -60,7 +60,12 @@ describe('headToHead', () => {
 describe('achievements', () => {
   it('awards the week top score (ties share it) and blowouts', () => {
     expect(weekAchievements(1, games)).toEqual([
-      { achievementId: 'weekly-high-score', teamId: 'a', week: 1, reason: '120.5 points, the most in week 1' },
+      {
+        achievementId: 'weekly-high-score',
+        teamId: 'a',
+        week: 1,
+        reason: '120.5 points, the most in week 1'
+      },
       { achievementId: 'blowout-win', teamId: 'a', week: 1, reason: 'Won by 60.5 in week 1' }
     ]);
     const tied = weekAchievements(4, [game(4, 'a', 'b', 100, 100), game(4, 'c', 'd', 1, 150)]);
@@ -83,7 +88,9 @@ describe('achievements', () => {
       ['consolation-champion', 'c'],
       ['season-high-score', 'd']
     ]);
-    expect(seasonAchievements({ championTeamId: null, consolationChampionTeamId: null, games: [] })).toEqual([]);
+    expect(seasonAchievements({ championTeamId: null, consolationChampionTeamId: null, games: [] })).toEqual(
+      []
+    );
   });
 
   it('defines every achievement with a stable badge action', () => {

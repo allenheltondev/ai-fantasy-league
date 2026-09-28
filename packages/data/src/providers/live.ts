@@ -1,5 +1,10 @@
 import type { NflverseClient } from '../nflverse/client.js';
-import { applyCrosswalk, buildCrosswalk, type CrosswalkReport, type IdCrosswalk } from '../nflverse/crosswalk.js';
+import {
+  applyCrosswalk,
+  buildCrosswalk,
+  type CrosswalkReport,
+  type IdCrosswalk
+} from '../nflverse/crosswalk.js';
 import { reconcileWithNflverse } from '../nflverse/reconcile.js';
 import { computeByeWeeks } from '../nflverse/schedule.js';
 import type { DataProvider, TrendingOptions } from '../provider.js';

@@ -39,5 +39,10 @@ export interface DataProvider {
    * archive already serves the corrected version once it is known). `crosswalk` maps nflverse GSIS
    * ids to Sleeper ids.
    */
-  getOfficialWeekStats?(season: number, week: number, asOf: Date, crosswalk?: IdCrosswalk): Promise<StatLine[]>;
+  getOfficialWeekStats?(
+    season: number,
+    week: number,
+    asOf: Date,
+    crosswalk?: IdCrosswalk
+  ): Promise<StatLine[]>;
 }

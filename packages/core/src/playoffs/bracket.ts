@@ -50,9 +50,7 @@ export type BracketKind = 'championship' | 'consolation';
  * bracket), or the teams left after the previous round, re-paired best against worst (reseeding).
  */
 export type BracketSource =
-  | { type: 'seed'; seed: number }
-  | { type: 'winner'; gameId: string }
-  | { type: 'reseed'; round: number };
+  { type: 'seed'; seed: number } | { type: 'winner'; gameId: string } | { type: 'reseed'; round: number };
 
 export interface BracketSide {
   source: BracketSource;
@@ -272,7 +270,12 @@ export function buildBracket(
     const cRounds = Math.min(Math.ceil(Math.log2(field.length)), weeks.length);
     // Keep only as many teams as fit in the available weeks; the rest sit out.
     consolationSeeds = field.slice(0, 2 ** cRounds);
-    const cGames = eliminationGames('consolation', consolationSeeds, weeks.slice(weeks.length - cRounds), reseed);
+    const cGames = eliminationGames(
+      'consolation',
+      consolationSeeds,
+      weeks.slice(weeks.length - cRounds),
+      reseed
+    );
     games.push(...cGames);
     consolationFinalGameId = (cGames[cGames.length - 1] as BracketGame).id;
   }

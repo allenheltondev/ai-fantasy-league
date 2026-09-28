@@ -71,9 +71,7 @@ function best<T extends { week: number }>(
   better: (a: T, b: T) => number,
   team: (t: T) => string
 ): T | null {
-  const sorted = [...items].sort(
-    (a, b) => better(a, b) || a.week - b.week || team(a).localeCompare(team(b))
-  );
+  const sorted = [...items].sort((a, b) => better(a, b) || a.week - b.week || team(a).localeCompare(team(b)));
   return sorted[0] ?? null;
 }
 
@@ -81,10 +79,26 @@ export function seasonRecords(games: readonly PlayedGame[]): SeasonRecords {
   const scores = teamScores(games);
   const wins = margins(games);
   return {
-    highestScore: best(scores, (a, b) => b.points - a.points, (s) => s.teamId),
-    lowestScore: best(scores, (a, b) => a.points - b.points, (s) => s.teamId),
-    biggestBlowout: best(wins, (a, b) => b.margin - a.margin, (m) => m.winnerTeamId),
-    closestGame: best(wins, (a, b) => a.margin - b.margin, (m) => m.winnerTeamId)
+    highestScore: best(
+      scores,
+      (a, b) => b.points - a.points,
+      (s) => s.teamId
+    ),
+    lowestScore: best(
+      scores,
+      (a, b) => a.points - b.points,
+      (s) => s.teamId
+    ),
+    biggestBlowout: best(
+      wins,
+      (a, b) => b.margin - a.margin,
+      (m) => m.winnerTeamId
+    ),
+    closestGame: best(
+      wins,
+      (a, b) => a.margin - b.margin,
+      (m) => m.winnerTeamId
+    )
   };
 }
 

@@ -11,7 +11,10 @@ import { NFLVERSE_TO_SLEEPER } from './stats.js';
  * `nflverse` lines must already use Sleeper ids (parse them with a crosswalk); lines still keyed by
  * a GSIS id match nothing and change nothing.
  */
-export function reconcileWithNflverse(primary: readonly StatLine[], nflverse: readonly StatLine[]): StatLine[] {
+export function reconcileWithNflverse(
+  primary: readonly StatLine[],
+  nflverse: readonly StatLine[]
+): StatLine[] {
   const official = new Map<string, StatLine>();
   for (const line of nflverse) official.set(`${line.playerId}:${line.week}`, line);
   return primary.map((line) => {

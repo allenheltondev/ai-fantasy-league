@@ -130,8 +130,24 @@ export function yahooDefaultRosterSlots(): Partial<Record<RosterSlot, number>> {
 /** Yahoo playoff defaults: 6 teams with 2 byes in weeks 15-17; 4 teams in weeks 16-17 for small leagues. */
 export function yahooDefaultPlayoffs(teamCount: number): PlayoffSettings {
   return teamCount <= 6
-    ? { teams: 4, byes: 0, startWeek: 16, endWeek: 17, tiebreaker: 'points_for', reseed: false, consolation: false }
-    : { teams: 6, byes: 2, startWeek: 15, endWeek: 17, tiebreaker: 'points_for', reseed: false, consolation: false };
+    ? {
+        teams: 4,
+        byes: 0,
+        startWeek: 16,
+        endWeek: 17,
+        tiebreaker: 'points_for',
+        reseed: false,
+        consolation: false
+      }
+    : {
+        teams: 6,
+        byes: 2,
+        startWeek: 15,
+        endWeek: 17,
+        tiebreaker: 'points_for',
+        reseed: false,
+        consolation: false
+      };
 }
 
 export interface DefaultSettingsOptions {
