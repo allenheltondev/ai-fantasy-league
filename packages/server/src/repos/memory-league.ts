@@ -10,6 +10,7 @@ import {
 import type {
   DraftQueueRecord,
   DraftRecord,
+  DraftReportCard,
   DraftRepository,
   Invite,
   InviteRepository,
@@ -40,6 +41,7 @@ interface Partition {
   draft: DraftRecord | null;
   draftQueues: Map<string, DraftQueueRecord>;
   lobby: Map<string, string>;
+  draftReport: DraftReportCard | null;
 }
 
 export class InMemoryLeagueStore {
@@ -58,7 +60,8 @@ export class InMemoryLeagueStore {
         lineups: new Map(),
         draft: null,
         draftQueues: new Map(),
-        lobby: new Map()
+        lobby: new Map(),
+        draftReport: null
       };
       this.#partitions.set(leagueId, partition);
     }
@@ -322,6 +325,24 @@ export class InMemoryDraftRepository implements DraftRepository {
 
   async lobby(leagueId: string): Promise<Record<string, string>> {
     return Object.fromEntries(this.store.partition(leagueId).lobby);
+  }
+
+  async getReport(leagueId: string): Promise<DraftReportCard | null> {
+    const report = this.store.partition(leagueId).draftReport;
+    return report === null ? null : clone(report);
+  }
+
+  async claimReport(report: DraftReportCard, now: string): Promise<boolean> {
+    const partition = this.store.partition(report.leagueId);
+    const current = partition.draftReport;
+    if (current !== null && !(current.status === 'grading' && (current.claimedUntil ?? '') < now))
+      return false;
+    partition.draftReport = clone(report);
+    return true;
+  }
+
+  async putReport(report: DraftReportCard): Promise<void> {
+    this.store.partition(report.leagueId).draftReport = clone(report);
   }
 }
 

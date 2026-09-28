@@ -84,6 +84,11 @@ export const DRAFT_CASES: Record<string, Case[]> = {
     { label: 'not started', path: '/api/v1/leagues/lg-c/draft/depth', status: 409 },
     { label: 'outsider', path: `${D}/depth`, init: { token: outsider }, status: 403 }
   ],
+  get_draft_report_card: [
+    { label: 'draft in progress', path: `${D}/report-card`, status: 200 },
+    { label: 'not started', path: '/api/v1/leagues/lg-c/draft/report-card', status: 409 },
+    { label: 'outsider', path: `${D}/report-card`, init: { token: outsider }, status: 403 }
+  ],
   make_draft_pick: [
     {
       label: 'picked',

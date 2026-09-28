@@ -1,4 +1,4 @@
-import { LeagueSettingsSchema, PositionSchema, RosterSlotSchema } from '@fantasy/core';
+import { REPORT_CARD_GRADES, LeagueSettingsSchema, PositionSchema, RosterSlotSchema } from '@fantasy/core';
 import { z } from 'zod';
 import { DRAFT_STATUSES, LEAGUE_PHASES, SEAT_TYPES } from '../types.js';
 import { weekKey } from './query.js';
@@ -39,6 +39,7 @@ export const draftLobbyKey = (leagueId: string, memberKey: string) => ({
   pk: leaguePk(leagueId),
   sk: `DRAFTLOBBY#${memberKey}`
 });
+export const draftReportKey = (leagueId: string) => ({ pk: leaguePk(leagueId), sk: 'DRAFTREPORT' });
 export const draftQueueKey = (leagueId: string, teamId: string) => ({
   pk: leaguePk(leagueId),
   sk: `DRAFTQUEUE#${teamId}`
@@ -55,7 +56,8 @@ export const ENTITY = {
   lineup: 'lineup',
   draft: 'draft',
   draftQueue: 'draftQueue',
-  draftLobby: 'draftLobby'
+  draftLobby: 'draftLobby',
+  draftReport: 'draftReport'
 } as const;
 
 const iso = z.string();
@@ -213,6 +215,33 @@ export const DraftRecordSchema = z.object({
   completedAt: iso.nullable(),
   updatedAt: iso,
   version: z.number()
+});
+
+export const DraftReportCardSchema = z.object({
+  leagueId: z.string(),
+  status: z.enum(['grading', 'ready']),
+  claimedUntil: iso.nullable(),
+  source: z.enum(['model', 'computed']).nullable(),
+  fallbackReason: z.string().nullable(),
+  modelKey: z.string().nullable(),
+  summary: z.string(),
+  teams: z.array(
+    z.object({
+      teamId: z.string(),
+      grade: z.enum(REPORT_CARD_GRADES),
+      headline: z.string(),
+      strengths: z.array(z.string()),
+      weaknesses: z.array(z.string()),
+      analysis: z.string(),
+      projectedWins: z.number().int(),
+      projectedLosses: z.number().int(),
+      projectedRank: z.number().int(),
+      projectedPoints: z.number(),
+      expectedWins: z.number()
+    })
+  ),
+  createdAt: iso,
+  updatedAt: iso
 });
 
 export const DraftQueueRecordSchema = z.object({

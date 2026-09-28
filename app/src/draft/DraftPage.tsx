@@ -23,6 +23,7 @@ import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realt
 import { BestAvailableTable } from './BestAvailableTable';
 import { BoardGrid, PickTicker } from './BoardViews';
 import { DepthChart } from './DepthChart';
+import { DraftResults } from './DraftResults';
 import { DraftTopBar } from './DraftTopBar';
 import { PlayerCard } from './PlayerCard';
 import { QueuePanel, RosterPanel } from './Panels';
@@ -164,9 +165,9 @@ export function spaceBelow(el: HTMLElement): number {
   return below;
 }
 
-type CenterView = 'players' | 'board' | 'depth';
+type CenterView = 'results' | 'players' | 'board' | 'depth';
 type SideTab = 'roster' | 'queue' | 'chat';
-type PhoneTab = 'players' | 'queue' | 'roster' | 'board' | 'chat';
+type PhoneTab = 'results' | 'players' | 'queue' | 'roster' | 'board' | 'chat';
 
 /** An accessible tab strip; `panelId` is the id of the panel the tabs control. */
 function Tabs<T extends string>({
@@ -376,8 +377,9 @@ export function DraftPage({
   }
 
   const done = board.status === 'complete';
-  const center = centerChoice ?? (done ? 'board' : 'players');
-  const phoneTab = phoneChoice ?? (done ? 'board' : 'players');
+  // Once the draft is over, the room opens on its results (the report card).
+  const center = centerChoice ?? (done ? 'results' : 'players');
+  const phoneTab = phoneChoice ?? (done ? 'results' : 'players');
   const clock = board.onTheClock;
   const current = clock === null ? 0 : clock.overall;
   const seconds =
@@ -421,7 +423,6 @@ export function DraftPage({
           {pickError.message} {pickError.fix}
         </Alert>
       )}
-      {board.recap != null && <DraftRecapCard recap={board.recap} />}
     </>
   );
 
@@ -469,6 +470,13 @@ export function DraftPage({
   );
   const grid = <BoardGrid board={board} arrived={arrived} onOpen={setCard} />;
   const depth = <DepthChart api={api} leagueId={leagueId} version={board.picks.length} onOpen={setCard} />;
+  // The results tab: the recap of steals and reaches, then the report card.
+  const results = done ? (
+    <div className="space-y-3">
+      {board.recap != null && <DraftRecapCard recap={board.recap} />}
+      <DraftResults api={api} leagueId={leagueId} />
+    </div>
+  ) : null;
   const ticker = <PickTicker board={board} arrived={arrived} onOpen={setCard} />;
   const roster = <RosterPanel board={board} onOpen={setCard} />;
   const queuePanel = (
@@ -518,13 +526,16 @@ export function DraftPage({
               className="border-b border-border"
               tabClassName={TAB}
               tabs={[
+                ...(done ? [{ value: 'results' as const, label: 'Results', name: 'Results' }] : []),
                 { value: 'players', label: 'Players', name: 'Players' },
                 { value: 'board', label: 'Board', name: 'Board' },
                 { value: 'depth', label: 'Depth', name: 'Depth' }
               ]}
             />
             <div id="draft-center" role="tabpanel" className="min-h-0 flex-1 overflow-hidden">
-              {center === 'players' ? (
+              {center === 'results' ? (
+                <div className="h-full overflow-auto">{results}</div>
+              ) : center === 'players' ? (
                 players
               ) : center === 'board' ? (
                 grid
@@ -559,6 +570,7 @@ export function DraftPage({
     );
   } else {
     const body: Record<PhoneTab, ReactNode> = {
+      results,
       players,
       queue: queuePanel,
       roster,
@@ -599,7 +611,10 @@ export function DraftPage({
           className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
           tabClassName="flex min-h-11 flex-1 items-center justify-center border-t-2 text-xs font-medium"
           tabs={[
-            { value: 'players', label: 'Players', name: 'Players' },
+            // After the draft, Results takes the Players tab's place.
+            done
+              ? { value: 'results', label: 'Results', name: 'Results' }
+              : { value: 'players', label: 'Players', name: 'Players' },
             { value: 'queue', label: queueLabel, name: 'Queue' },
             { value: 'roster', label: 'Roster', name: 'Roster' },
             { value: 'board', label: 'Board', name: 'Board' },

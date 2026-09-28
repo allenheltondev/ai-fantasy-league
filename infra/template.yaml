@@ -960,6 +960,19 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
+        # The draft report card grader (packages/agents/src/draft-report.ts) shares the model access.
+        DraftCompleted:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - fantasy
+              detail-type:
+                - Draft Completed
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
 
   # ===========================================================================
   # End of agent platform section
