@@ -48,6 +48,12 @@ const RecapEntrySchema = SlotSchema.omit({ pick: true }).extend({
   reason: z.string().nullable()
 });
 
+const ByeSchema = z
+  .number()
+  .int()
+  .nullable()
+  .describe("The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent).");
+
 export const DraftBoardSchema = z.object({
   status: z.enum(DRAFT_STATUSES).describe('`in_progress`, `paused` (clock frozen), or `complete`.'),
   rounds: z.number().int(),
@@ -74,7 +80,8 @@ export const DraftBoardSchema = z.object({
       auto: z.boolean().describe('True when autopick made it (clock expired).'),
       madeAt: z.string().nullable(),
       adp: z.number().nullable().describe("The player's consensus rank when he was picked."),
-      reason: z.string().nullable().describe('Why the team made the pick, in its own words.')
+      reason: z.string().nullable().describe('Why the team made the pick, in its own words.'),
+      bye: ByeSchema
     })
   ),
   recap: z
@@ -109,12 +116,11 @@ export const DraftBoardSchema = z.object({
           .nullable()
           .optional()
           .describe('Season projection; null when none is published yet.'),
-        bye: z.number().int().nullable().optional().describe('Bye week this season, or null when unknown.'),
+        bye: ByeSchema,
         injuryStatus: z
           .string()
           .nullable()
-          .optional()
-          .describe('Injury designation such as "Questionable" or "Out", or null when healthy.')
+          .describe('Injury designation such as "Questionable", "Out", or "IR"; null when healthy.')
       })
     )
     .describe(
@@ -159,6 +165,8 @@ export async function buildBoard(
     record: DraftRecord;
     teams: readonly Team[];
     settings: LeagueSettings;
+    /** NFL season year, for bye weeks. */
+    season: number;
     yourTeamId: string | null;
     query: BoardQuery;
   }
@@ -169,6 +177,11 @@ export async function buildBoard(
   const name = (id: string) => teams.find((t) => t.id === id)?.name ?? id;
   const pool = await draftPool(ctx);
   const players = new Map((await ctx.data.players.all()).map((p) => [p.id, p]));
+  const byes = (await ctx.data.reference.schedule.getSeason(input.season))?.byes ?? {};
+  const byeOf = (id: string) => {
+    const team = players.get(id)?.team ?? null;
+    return team === null ? null : (byes[team] ?? null);
+  };
   // A drafted player who has since left the player index still shows, by id.
   const ref = (id: string, positions: readonly string[]) => {
     const p = players.get(id);
@@ -185,7 +198,8 @@ export async function buildBoard(
     auto: p.auto,
     madeAt: p.madeAt,
     adp: p.adp ?? null,
-    reason: p.reason ?? null
+    reason: p.reason ?? null,
+    bye: byeOf(p.playerId)
   }));
   const slot = currentPick(state);
   const drafted = new Set(state.picks.map((p) => p.playerId));
@@ -203,7 +217,7 @@ export async function buildBoard(
   );
   const available = sortAvailable(matched, research, sort)
     .slice(0, limit)
-    .map((p) => availableEntry(p, research));
+    .map((p) => availableEntry(p, research, byeOf(p.id)));
 
   const away = yourTeamId === null ? null : picksUntilTurn(state, yourTeamId);
   const next = away === null ? null : pickSlot(state, state.picks.length + 1 + away);
@@ -273,7 +287,11 @@ export function sortAvailable(players: readonly Player[], research: Research, so
   return keyed.map((k) => k.player);
 }
 
-function availableEntry(player: Player, research: Research): DraftBoard['bestAvailable'][number] {
+function availableEntry(
+  player: Player,
+  research: Research,
+  bye: number | null
+): DraftBoard['bestAvailable'][number] {
   const last = research.lastSeason(player.id);
   const projection = research.projection(player.id);
   return {
@@ -281,7 +299,7 @@ function availableEntry(player: Player, research: Research): DraftBoard['bestAva
     rank: player.rank,
     lastSeason: last === null ? null : { points: last.points, ppg: last.ppg, games: last.games },
     projection: projection === null ? null : { points: projection.points },
-    bye: research.bye(player.team),
+    bye,
     injuryStatus: player.injuryStatus
   };
 }

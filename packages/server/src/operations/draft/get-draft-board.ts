@@ -28,6 +28,7 @@ export const getDraftBoard = defineOperation({
       record,
       teams: access.teams,
       settings: access.league.settings,
+      season: access.league.season,
       yourTeamId: actorTeam(access.actor)?.id ?? null,
       query: input
     });
