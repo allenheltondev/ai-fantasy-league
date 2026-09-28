@@ -120,6 +120,12 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   'Achievement Earned': {
     text: ['{team:teamId} earned {name}: {reason}.', '{team:teamId} earned {name}.']
   },
+  'Model Power Rankings': {
+    text: [
+      'Model power rankings after week {week}: {list:lines}.',
+      'Model power rankings after week {week}: {leaderModelName} leads.'
+    ]
+  },
   'Member Joined': {
     text: ['{name} joined the league and took over {team:teamId}.', '{team:teamId} has a new manager.']
   },

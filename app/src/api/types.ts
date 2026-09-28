@@ -147,7 +147,18 @@ export interface AgentSeatView {
     personality: Personality;
     difficulty: { id: string; displayName: string };
   };
-  commissioner: { current: { version: number; config: AgentSeatConfig } } | null;
+  commissioner: {
+    current: { version: number; config: AgentSeatConfig };
+    /** Every saved version, newest first (#77). */
+    history: AgentSeatRevision[];
+  } | null;
+}
+
+export interface AgentSeatRevision {
+  version: number;
+  updatedAt: string;
+  updatedBy: string;
+  config: AgentSeatConfig;
 }
 
 export interface DefaultSettings {
@@ -284,6 +295,15 @@ export interface ModelLeaderboardRecord {
   winRate: number | null;
   pointsFor: number;
   costUsd: number;
+  trades: number;
+  tradesWon: number;
+  tradesLost: number;
+  /** Player value won (+) or lost (-) in processed trades. */
+  tradeValue: number;
+  waiverClaims: number;
+  waiverHits: number;
+  waiverHitRate: number | null;
+  waiverNetPoints: number;
 }
 
 export interface ModelLeaderboardTeam extends ModelLeaderboardRecord {
@@ -461,4 +481,19 @@ export interface LeagueHistoryData {
     added: PlayerRef | null;
     dropped: PlayerRef | null;
   }[];
+  /** The best and worst trades by value delta (one entry per team side). */
+  tradeRecords: { best: TradeValueRecord[]; worst: TradeValueRecord[] };
+}
+
+export interface TradeValueRecord {
+  tradeId: string;
+  at: string;
+  week: number;
+  teamId: string;
+  teamName: string;
+  partnerTeamId: string;
+  partnerName: string;
+  received: PlayerRef[];
+  sent: PlayerRef[];
+  valueDelta: number;
 }

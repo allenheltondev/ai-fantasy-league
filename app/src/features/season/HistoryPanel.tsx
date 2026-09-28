@@ -1,7 +1,7 @@
 import { useParams } from 'react-router';
 import { LoadingPage } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
-import type { SeasonRecordsView } from '../../api/types';
+import type { PlayerRef, SeasonRecordsView, TradeValueRecord } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 
@@ -42,7 +42,38 @@ function Records({ records, label }: { records: SeasonRecordsView; label: string
   );
 }
 
-/** League history (#81): past seasons, records, head-to-head, achievements (#82), and trades. */
+const names = (players: PlayerRef[]) =>
+  players.length === 0 ? 'nothing' : players.map((p) => p.name).join(', ');
+
+/** One side of a trade by the value it won or lost: "Team t1 +32.0 (week 5): got X for Y from Team t2". */
+function TradeRecordList({ label, records }: { label: string; records: TradeValueRecord[] }) {
+  return (
+    <div className="space-y-1">
+      <h4 className="text-sm font-medium">{label}</h4>
+      {records.length === 0 ? (
+        <p className="text-sm text-muted-foreground">None yet.</p>
+      ) : (
+        <ol aria-label={label} className="space-y-1 text-sm">
+          {records.map((r) => (
+            <li key={`${r.tradeId}:${r.teamId}`}>
+              <strong>{r.teamName}</strong>{' '}
+              <span className="tabular-nums">
+                {r.valueDelta > 0 ? '+' : ''}
+                {r.valueDelta.toFixed(1)}
+              </span>{' '}
+              (week {r.week}): got {names(r.received)} for {names(r.sent)} from {r.partnerName}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/**
+ * League history (#81): past seasons, records, head-to-head, achievements (#82), the best and
+ * worst trades by value delta, and every trade.
+ */
 export function HistoryPanel() {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
@@ -50,7 +81,7 @@ export function HistoryPanel() {
   if (loaded.data === null) {
     return loaded.error ? <ApiErrorAlert error={loaded.error} /> : <LoadingPage text="Loading history…" />;
   }
-  const { seasons, current, achievements, trades } = loaded.data;
+  const { seasons, current, achievements, trades, tradeRecords } = loaded.data;
   return (
     <div className="space-y-6">
       <section aria-labelledby="history-seasons" className="space-y-2">
@@ -116,6 +147,20 @@ export function HistoryPanel() {
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="history-trade-records" className="space-y-2">
+        <h3 id="history-trade-records" className="font-semibold">
+          Best and worst trades
+        </h3>
+        {tradeRecords.best.length + tradeRecords.worst.length === 0 ? (
+          <p className="text-muted-foreground">No trade has changed a team's value yet.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TradeRecordList label="Best trades" records={tradeRecords.best} />
+            <TradeRecordList label="Worst trades" records={tradeRecords.worst} />
+          </div>
         )}
       </section>
 

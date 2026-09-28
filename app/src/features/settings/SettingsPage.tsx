@@ -10,6 +10,7 @@ import { AgentManagers } from './AgentManagers';
 import { AiActivityPanel } from './AiActivityPanel';
 import { InvitesPanel } from './InvitesPanel';
 import { RulesEditor } from './RulesEditor';
+import { SeatHistoryPanel } from './SeatHistoryPanel';
 import { inferPreset } from './rules';
 import { SeatManager } from './SeatManager';
 
@@ -95,9 +96,14 @@ export function SettingsPage() {
         />
       )}
       {state.youAreCommissioner && tab === 'ai' ? (
-        <Section id="ai-activity" title="AI activity">
-          <AiActivityPanel leagueId={league.id} teams={league.teams} />
-        </Section>
+        <>
+          <Section id="ai-activity" title="AI activity">
+            <AiActivityPanel leagueId={league.id} teams={league.teams} />
+          </Section>
+          <Section id="seat-history" title="Seat version history">
+            <SeatHistoryPanel leagueId={league.id} teams={league.teams} />
+          </Section>
+        </>
       ) : (
         <>
           <ApiErrorAlert error={error} />

@@ -6,6 +6,7 @@ import type { Roster, RosterEntry } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { isStarter, planMove, slotOptions, statusLabel } from './slots';
+import { TeamAchievements } from './TeamAchievements';
 
 /** The Roster section (#58): your players by slot, with lock and status badges, and slot moves. */
 export function RosterPage() {
@@ -19,7 +20,12 @@ export function RosterPage() {
   } else if (state.data.yourTeam === null) {
     body = <EmptyState title="No team" description="You do not manage a team in this league." />;
   } else {
-    body = <LineupEditor leagueId={leagueId} teamId={state.data.yourTeam.id} />;
+    body = (
+      <>
+        <TeamAchievements leagueId={leagueId} teamId={state.data.yourTeam.id} />
+        <LineupEditor leagueId={leagueId} teamId={state.data.yourTeam.id} />
+      </>
+    );
   }
   return (
     <div data-testid="league-section-roster" className="space-y-4">

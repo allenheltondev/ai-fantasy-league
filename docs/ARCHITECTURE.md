@@ -183,6 +183,7 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Stat Correction Applied` | A stat correction changes a matchup's score (`resultFlipped` when the winner changed) |
 | `Season Completed` | The last playoff week is final and the league is `complete` (`championTeamId`, `runnerUpTeamId`) |
 | `Achievement Earned` | A team earns a league achievement (`packages/core/src/history/achievements.ts`); the chat announces it |
+| `Model Power Rankings` | A league with at least one agent seat rolls over to its next week: the "which model wins the league?" standings by model (record, trade value, waiver hit rate, cost), with one chat line per model (`season/model-stats.ts`). The chat posts it. |
 | `Track Activity` | rsc-core badge chest activity for a human's achievement (`userId`, `action` such as `fantasy.championship.won`, `service: fantasy`). Only with `BADGE_CHEST_ENABLED=true` on the data jobs function (the template sets it; tests and local dev leave it off) |
 | `Agent Action Requested` | An agent is triggered to act |
 | `Member Joined` | A person takes a seat with an invite (`name`) |

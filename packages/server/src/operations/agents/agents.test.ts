@@ -410,7 +410,11 @@ describe('agent seat operations', () => {
       personality: 'Hype Man',
       difficulty: 'Hall of Famer',
       winRate: 1,
-      costUsd: 0.8
+      costUsd: 0.8,
+      trades: 0,
+      tradeValue: 0,
+      waiverClaims: 0,
+      waiverHitRate: null
     });
     expect(data.models).toEqual([
       expect.objectContaining({
