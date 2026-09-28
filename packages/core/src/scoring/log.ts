@@ -63,10 +63,14 @@ function clean(value: number): number {
 /** Every stat whose value differs between two lines (a missing stat counts as 0), sorted by key. */
 export function statChanges(before: StatLine | undefined, after: StatLine): StatChange[] {
   const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(after)]);
-  return [...keys]
-    .sort()
-    .map((stat) => ({ stat, delta: clean(num(after, stat) - num(before, stat)) }))
-    .filter((c) => c.delta !== 0);
+  return (
+    [...keys]
+      .sort()
+      .map((stat) => ({ stat, delta: clean(num(after, stat) - num(before, stat)) }))
+      // A stat appearing (or disappearing) at 0 is still news: a team defense's `pts_allow: 0` puts it
+      // in the shutout tier, so its first line scores points with no stat moving from 0.
+      .filter((c) => c.delta !== 0 || (before?.[c.stat] === undefined) !== (after[c.stat] === undefined))
+  );
 }
 
 /**
@@ -208,7 +212,11 @@ export function describeChanges(changes: readonly StatChange[]): string {
     (a, b) =>
       Number(isTouchdownStat(a.stat)) - Number(isTouchdownStat(b.stat)) || order(a.stat) - order(b.stat)
   );
-  return ordered.map((c) => `${formatAmount(c.delta)} ${label(c.stat, c.delta)}`).join(', ');
+  return ordered
+    .map((c) =>
+      c.delta === 0 ? `0 ${label(c.stat, 0)}` : `${formatAmount(c.delta)} ${label(c.stat, c.delta)}`
+    )
+    .join(', ');
 }
 
 const LABEL_ORDER = Object.keys(LOG_STAT_LABELS);
