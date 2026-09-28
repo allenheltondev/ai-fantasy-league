@@ -5,6 +5,7 @@ import { useLeagueApi } from '../../api/league';
 import type { Roster, RosterEntry } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { STACKED_BLOCK, STACKED_HEAD, STACKED_LABEL, STACKED_ROW } from '../../lib/stackedTable';
 import { LoadingSkeleton, stagger } from '../../motion/decor';
 import { isStarter, planMove, slotOptions, statusLabel } from './slots';
 import { TeamAchievements } from './TeamAchievements';
@@ -113,6 +114,9 @@ function LineupEditor({ leagueId, teamId }: { leagueId: string; teamId: string }
   );
 }
 
+/** A roster row as a card below `sm`: slot | player (two columns) | move, then status and numbers. */
+const ROW = `${STACKED_ROW} max-sm:grid-cols-[2.75rem_minmax(0,1fr)_minmax(0,1fr)_auto]`;
+
 function LineupTable(props: {
   title: string;
   rows: RosterEntry[];
@@ -121,9 +125,10 @@ function LineupTable(props: {
   onMove: (entry: RosterEntry, slot: string) => void;
 }) {
   return (
-    <table className="w-full text-sm" aria-label={props.title}>
-      <caption className="text-left font-semibold">{props.title}</caption>
-      <thead>
+    // Below `sm` each row stacks into a card: slot, player and move on top, the numbers under them.
+    <table className={`w-full text-sm ${STACKED_BLOCK}`} aria-label={props.title}>
+      <caption className="text-left font-semibold max-sm:block">{props.title}</caption>
+      <thead className={STACKED_HEAD}>
         <tr className="text-left text-muted-foreground">
           <th scope="col">Slot</th>
           <th scope="col">Player</th>
@@ -133,7 +138,7 @@ function LineupTable(props: {
           <th scope="col">Move</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody className={STACKED_BLOCK}>
         {props.rows.map((row, index) => {
           const label = statusLabel(row);
           const enter = stagger(index);
@@ -141,24 +146,28 @@ function LineupTable(props: {
             <tr
               key={row.player.id}
               data-testid={`roster-row-${row.player.id}`}
-              className={`motion-row ${enter.className}`}
+              className={`motion-row ${enter.className} ${ROW}`}
               style={enter.style}
             >
-              <td className="font-mono">{row.slot}</td>
-              <td>
+              <td className="font-mono max-sm:row-span-3">{row.slot}</td>
+              <td className="break-words max-sm:col-span-2">
                 {row.player.name}{' '}
                 <span className="text-muted-foreground">
                   {row.player.position} · {row.player.team ?? 'FA'}
                   {row.byeWeek !== null ? ` · bye ${row.byeWeek}` : ''}
                 </span>
               </td>
-              <td className="space-x-1">
+              <td className="space-x-1 max-sm:col-span-2 max-sm:col-start-2 max-sm:empty:hidden">
                 {row.locked && <StatusBadge tone="neutral">Locked</StatusBadge>}
                 {label && <StatusBadge tone={row.onBye ? 'warning' : 'error'}>{label}</StatusBadge>}
               </td>
-              <td>{row.projectedPoints ?? '–'}</td>
-              <td>{row.points ?? '–'}</td>
-              <td>
+              <td data-label="Proj" className={`max-sm:col-start-2 ${STACKED_LABEL}`}>
+                {row.projectedPoints ?? '–'}
+              </td>
+              <td data-label="Pts" className={`max-sm:col-start-3 ${STACKED_LABEL}`}>
+                {row.points ?? '–'}
+              </td>
+              <td className="max-sm:col-start-4 max-sm:row-span-3 max-sm:row-start-1">
                 <select
                   aria-label={`Move ${row.player.name}`}
                   disabled={row.locked || props.saving}
