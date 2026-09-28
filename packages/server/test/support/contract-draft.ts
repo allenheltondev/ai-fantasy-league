@@ -42,7 +42,14 @@ export const DRAFT_CASES: Record<string, Case[]> = {
   get_draft_board: [
     { label: 'on the clock', path: `${D}?position=RB&limit=5`, status: 200 },
     { label: 'not started', path: '/api/v1/leagues/lg-c/draft', status: 409 },
-    { label: 'outsider', path: D, init: { token: outsider }, status: 403 }
+    { label: 'outsider', path: D, init: { token: outsider }, status: 403 },
+    { label: 'sorted by last season', path: `${D}?sort=lastSeasonPoints&limit=5`, status: 200 },
+    { label: 'unknown sort', path: `${D}?sort=adp`, status: 400 }
+  ],
+  get_draft_depth: [
+    { label: 'depth', path: `${D}/depth`, status: 200 },
+    { label: 'not started', path: '/api/v1/leagues/lg-c/draft/depth', status: 409 },
+    { label: 'outsider', path: `${D}/depth`, init: { token: outsider }, status: 403 }
   ],
   make_draft_pick: [
     {

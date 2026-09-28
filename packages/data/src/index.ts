@@ -23,3 +23,4 @@ export * from './espn/normalize.js';
 export * from './providers/historical.js';
 export * from './providers/fixture.js';
 export * from './providers/live.js';
+export * from './season/lines.js';
