@@ -19,6 +19,7 @@ import { SettingsPage } from '../features/settings/SettingsPage';
 import { TradesPage } from '../trades/TradesPage';
 import { supportsViewTransitions, transitionClick } from '../motion/pageTransition';
 import { LeagueNotifications } from '../realtime/LeagueNotifications';
+import { TradesBadge } from '../notifications/TradesBadge';
 import type { LeagueOutletContext } from './leagueContext';
 
 export const LEAGUE_SECTIONS = [
@@ -79,6 +80,7 @@ export function LeagueLayout() {
             }
           >
             {section.label}
+            {section.path === 'trades' ? <TradesBadge leagueId={leagueId} /> : null}
           </NavLink>
         ))}
       </nav>

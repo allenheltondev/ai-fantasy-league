@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SYSTEM_MESSAGE_EVENTS } from '../src/chat/system-messages.js';
-import { RELAYED_EVENTS, TEAM_ONLY_EVENTS } from '../src/realtime/relay.js';
+import { NOTIFICATION_EVENT_TYPES } from '../src/notifications/consumer.js';
+import { RELAYED_EVENTS, TEAM_INBOX_EVENTS, TEAM_ONLY_EVENTS } from '../src/realtime/relay.js';
 
 /** infra/template.yaml must route exactly the events the chat and realtime handlers understand. */
 const template = readFileSync(
@@ -22,16 +23,20 @@ function detailTypes(block: string): string[] {
 }
 
 describe('chat and realtime infrastructure', () => {
-  it('sends every templated league event to the system-message handler', () => {
+  it('sends every templated or notifying league event to the chat events handler', () => {
     const chat = section('  ChatEventsFunction:', '  RealtimePublisherFunction:');
     expect(chat).toContain('Handler: chat-events.handler');
-    expect(detailTypes(chat).sort()).toEqual([...SYSTEM_MESSAGE_EVENTS].sort());
+    expect(detailTypes(chat).sort()).toEqual(
+      [...new Set([...SYSTEM_MESSAGE_EVENTS, ...NOTIFICATION_EVENT_TYPES])].sort()
+    );
   });
 
   it('sends every relayed and team-only event to the realtime publisher, which may read the Momento secret', () => {
     const realtime = section('  RealtimePublisherFunction:', 'End of group chat and realtime section');
     expect(realtime).toContain('Handler: realtime.handler');
-    expect(detailTypes(realtime).sort()).toEqual([...RELAYED_EVENTS, ...TEAM_ONLY_EVENTS].sort());
+    expect(detailTypes(realtime).sort()).toEqual(
+      [...RELAYED_EVENTS, ...TEAM_ONLY_EVENTS, ...TEAM_INBOX_EVENTS].sort()
+    );
     expect(realtime).toContain('Action: secretsmanager:GetSecretValue');
     expect(realtime).toContain('MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName');
     const api = section('  ApiFunction:', '  DataJobsFunction:');

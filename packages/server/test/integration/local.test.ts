@@ -96,6 +96,32 @@ describe('local dev server', () => {
     }
   });
 
+  it('seeds a two-person demo league with FANTASY_LOCAL_TRADE_DEMO', async () => {
+    const local = await startLocalServer({
+      port: 0,
+      env: { FANTASY_LOCAL_AUTH: '1', FANTASY_LOCAL_TRADE_DEMO: 'coach, rival' },
+      log: silentLogger
+    });
+    try {
+      const teams = await local.services.repos.teams.list('demo-trades');
+      expect(teams.map((t) => [t.id, t.seatType, t.ownerUserId])).toEqual([
+        ['team-1', 'human', 'local-coach'],
+        ['team-2', 'human', 'local-rival'],
+        ['team-3', 'agent', null],
+        ['team-4', 'agent', null]
+      ]);
+      expect(await local.services.repos.agents.getSeat('demo-trades', 'team-2')).toBeNull();
+      const res = await fetch(`${local.url}/api/v1/notifications`, {
+        headers: { authorization: 'Bearer dev:rival' }
+      });
+      expect(((await res.json()) as { data: unknown }).data).toMatchObject({
+        leagues: [{ leagueId: 'demo-trades', teamId: 'team-2', unreadCount: 0 }]
+      });
+    } finally {
+      await local.close();
+    }
+  });
+
   it('seeds an in-season demo league with FANTASY_LOCAL_SEASON_DEMO', async () => {
     const local = await startLocalServer({
       port: 0,

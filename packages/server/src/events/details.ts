@@ -1,6 +1,7 @@
 import { ACHIEVEMENT_IDS, NOTABLE_PICK_KINDS, TRADE_STATUSES } from '@fantasy/core';
 import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
+import { NotificationSchema } from '../notifications/model.js';
 import { PlayerRefSchema } from '../players/model.js';
 import { NflGameSchema, RedZoneTeamSchema } from '../season/nfl-games.js';
 import { ScoringLogEntrySchema } from '../season/scoring-log.js';
@@ -45,6 +46,16 @@ export const WaiverAwardSchema = z.object({
   cost: z.number().int().min(0)
 });
 export type WaiverAward = z.infer<typeof WaiverAwardSchema>;
+
+/** One waiver claim that failed in a run, and why (the claim's `failure`). */
+export const WaiverLossSchema = z.object({
+  teamId: id,
+  playerId: id,
+  player: PlayerRefSchema.nullable().describe('Null only when the player is missing from the player store.'),
+  code: z.string().describe('The failure code, e.g. PLAYER_NOT_AVAILABLE or INSUFFICIENT_FAAB.'),
+  reason: z.string().describe('Why the claim failed, for the team that made it.')
+});
+export type WaiverLoss = z.infer<typeof WaiverLossSchema>;
 
 /** The biggest winning margin of a week. */
 export const BlowoutSchema = z.object({
@@ -210,6 +221,12 @@ export const EVENT_DETAIL_SCHEMAS = {
     runId: z.string(),
     week,
     awarded: z.array(WaiverAwardSchema),
+    lost: z
+      .array(WaiverLossSchema)
+      .optional()
+      .describe(
+        'Claims that failed in this run, with why (#165). Private to each team: the relay keeps them off the league topic.'
+      ),
     failed: z.number().int().min(0),
     pending: z.number().int().min(0)
   }),
@@ -265,6 +282,11 @@ export const EVENT_DETAIL_SCHEMAS = {
         'A DM: the only two teams that may see it (the relay sends it to their team topics alone). Null for rooms the whole league reads.'
       ),
     message: ChatMessageSchema
+  }),
+  'Notification Created': z.object({
+    leagueId: id,
+    teamId: id.describe('The team whose inbox it is in: the relay sends it to that team topic alone.'),
+    notification: NotificationSchema
   }),
   'Scores Updated': z.union([
     z.object({

@@ -13,6 +13,7 @@ import { getPlayerCard } from './research/get-player-card.js';
 import { getProjections } from './research/get-projections.js';
 import { getTrendingPlayers } from './research/get-trending-players.js';
 import { seasonOperations } from './season/index.js';
+import { notificationOperations } from './notifications/index.js';
 import { tradeOperations } from './trades/index.js';
 import { waiverOperations } from './waivers/index.js';
 
@@ -45,7 +46,9 @@ export const operations = [
   // Group chat and realtime (#68, #69)
   ...chatOperations,
   // Trades (#63, #64, #65, #79)
-  ...tradeOperations
+  ...tradeOperations,
+  // Notification inbox (#165)
+  ...notificationOperations
 ];
 
 export const registry: Registry = createRegistry(operations);

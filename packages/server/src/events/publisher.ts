@@ -55,6 +55,8 @@ export type FantasyEventType =
   | 'Chat Mention'
   | 'Chat Moment'
   | 'Chat Message Posted'
+  /** A notification was added to a team's inbox (#165); relayed only to that team's private topic. */
+  | 'Notification Created'
   | 'Scores Updated'
   /** The week's NFL games changed (scores, status, possession, red zone); league-less, on the global topic. */
   | 'NFL Games Updated'

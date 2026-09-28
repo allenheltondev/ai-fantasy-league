@@ -5,6 +5,7 @@ import type { AgentRepository } from './agents.js';
 import type { HistoryRepository } from './history.js';
 import type { TradeRepository } from './trades.js';
 import type { WaiverRepository } from './waivers.js';
+import type { NotificationRepository } from '../notifications/model.js';
 
 /**
  * Repository interfaces. Each has a DynamoDB implementation (single table, see
@@ -391,4 +392,6 @@ export interface Repos {
   history: HistoryRepository;
   /** Trade offers and their state machine (repos/trades.ts). */
   trades: TradeRepository;
+  /** Per-team notification inboxes (notifications/model.ts). */
+  notifications: NotificationRepository;
 }

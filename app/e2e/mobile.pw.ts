@@ -130,6 +130,57 @@ const SCORING_LOG = (home: string, away: string) => {
   ];
 };
 
+/** A busy inbox (#165) for the bell and its panel: long titles, two leagues, read and unread. */
+const INBOX_SUMMARY = {
+  unreadCount: 12,
+  leagues: [
+    {
+      leagueId: 'demo-season',
+      name: 'Demo Season',
+      teamId: 'team-1',
+      unreadCount: 11,
+      tradeOffersWaiting: 2
+    },
+    {
+      leagueId: 'other',
+      name: 'The Extremely Long League Name Nobody Can Fit',
+      teamId: 'team-3',
+      unreadCount: 1,
+      tradeOffersWaiting: 0
+    }
+  ]
+};
+const notification = (i: number, extra: Record<string, unknown>) => ({
+  id: `n${i}`,
+  leagueId: 'demo-season',
+  teamId: 'team-1',
+  kind: 'trade_offer',
+  title: 'Trade offer from Wilhelmina "Double Time" Fitzgerald\'s Unstoppable Team',
+  body: "You'd get Amon-Ra St. Brown, Christian McCaffrey and Justin Jefferson for Patrick Mahomes.",
+  target: { section: 'trades', tradeId: `t${i}` },
+  event: { detailType: 'Trade Proposed', eventId: `e${i}` },
+  createdAt: `2026-09-10T11:${String(50 - i).padStart(2, '0')}:00.000Z`,
+  read: false,
+  readAt: null,
+  deliveredAt: null,
+  ...extra
+});
+const INBOX = [
+  notification(1, {}),
+  notification(2, {
+    kind: 'waiver_lost',
+    title: 'Waiver claim lost: Jaxon Smith-Njigba',
+    body: 'Another team bid more FAAB ($23) for Jaxon Smith-Njigba.',
+    target: { section: 'roster', tradeId: null }
+  }),
+  notification(3, {
+    kind: 'draft_on_clock',
+    title: "You're on the clock",
+    body: 'Pick 13 (round 2) is yours.',
+    read: true
+  })
+];
+
 interface Offender {
   element: string;
   x: number;
@@ -411,6 +462,18 @@ for (const viewport of VIEWPORTS) {
       const context = await phone(browser, viewport, SEASON_WHO);
       const page = await context.newPage();
 
+      // A busy inbox (#165), so the bell has a count and the panel has something to show.
+      const envelope = (data: unknown) => ({ json: { data, league: null, warnings: [] } });
+      await page.route(/\/api\/v1\/notifications$/, (route) => route.fulfill(envelope(INBOX_SUMMARY)));
+      await page.route(/\/api\/v1\/leagues\/[^/]+\/notifications(\?|$)/, (route) => {
+        const mine = route.request().url().includes('/leagues/demo-season/');
+        const notifications = mine ? INBOX : [];
+        return route.fulfill(envelope({ teamId: 'team-1', unreadCount: 2, notifications, nextCursor: null }));
+      });
+      await page.route(/\/api\/v1\/notifications\/read$/, (route) =>
+        route.fulfill(envelope({ leagueId: 'demo-season', unreadCount: 0 }))
+      );
+
       // League home is the dashboard (#166): the matchup strip, standings, and the move board.
       await page.goto('/leagues/demo-season');
       await expect(page).toHaveURL(/\/home$/);
@@ -426,6 +489,30 @@ for (const viewport of VIEWPORTS) {
       await page.goto('/leagues/demo-season/matchup');
       await expect(page.getByRole('region', { name: `${SEASON_WHO}'s Team` })).toBeVisible();
       await expectFits(page, 'matchup');
+
+      // The bell sits in the header beside the menu button, never folded into the menu, with its
+      // count in view; the Trades tab carries the offers waiting.
+      const bell = page.getByRole('button', { name: /^Notifications/ });
+      await expect(bell).toHaveAccessibleName('Notifications, 12 unread');
+      await expect(bell).toBeInViewport();
+      await expect(bell.getByTestId('notification-count')).toBeInViewport();
+      const bellBox = await bell.boundingBox();
+      expect(bellBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+      expect(bellBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+      const menu = await page.getByRole('button', { name: 'Toggle navigation' }).boundingBox();
+      expect((bellBox?.x ?? 0) + (bellBox?.width ?? 0)).toBeLessThanOrEqual(menu?.x ?? 0);
+      await expect(
+        page.getByRole('navigation', { name: 'League sections' }).getByTestId('trades-badge')
+      ).toHaveText('2');
+      // The panel: every item, long titles wrapped, then tap one to go to its trade.
+      await bell.tap();
+      const panel = page.getByRole('dialog', { name: 'Notifications' });
+      await expect(panel.getByRole('link')).toHaveCount(3);
+      await expect(panel.getByRole('button', { name: 'Mark all read' })).toBeVisible();
+      await expectFits(page, 'notifications panel');
+      await panel.getByRole('link').first().tap();
+      await expect(page).toHaveURL(/\/trades\?trade=t1$/);
+      await expect(panel).toBeHidden();
 
       await page.goto('/leagues/demo-season/roster');
       await expect(page.getByRole('table', { name: 'Starters' })).toBeVisible();

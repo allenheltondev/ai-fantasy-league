@@ -3,6 +3,7 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { ToastProvider } from '@readysetcloud/ui';
 import { describe, expect, it, vi } from 'vitest';
 import { LeagueApiContext } from '../api/league';
+import { NotificationsProvider } from '../notifications/NotificationsContext';
 import { fakeApi } from '../test/fakeApi';
 import { CHAT_EVENT, parseTopicItem, type EventConnect, type LeagueEvent } from './leagueEvents';
 import { LeagueNotifications } from './LeagueNotifications';
@@ -50,76 +51,68 @@ function Where() {
   return <p data-testid="where">{`${location.pathname}${location.search}`}</p>;
 }
 
+function inboxItem(overrides: Record<string, unknown> = {}) {
+  return {
+    leagueId: 'L1',
+    teamId: 'team-1',
+    notification: {
+      id: 'n1',
+      leagueId: 'L1',
+      teamId: 'team-1',
+      kind: 'trade_offer',
+      title: "Trade offer from Bob's Team",
+      body: "You'd get Rashee Rice for Tony Pollard.",
+      target: { section: 'trades', tradeId: 'tr1' },
+      event: { detailType: 'Trade Proposed', eventId: 'e1' },
+      createdAt: '2026-09-30T12:00:00Z',
+      read: false,
+      readAt: null,
+      deliveredAt: null,
+      ...overrides
+    }
+  };
+}
+
 describe('notificationFor', () => {
-  it('announces your waiver awards, with the FAAB paid', () => {
-    const detail = {
-      awarded: [
-        { teamId: 'team-1', player: player('Puka Nacua'), cost: 12 },
-        { teamId: 'team-3', player: player('Someone Else'), cost: 3 }
-      ]
-    };
-    expect(notificationFor(ev('Waivers Processed', detail), 'team-1')).toEqual({
-      message: 'Waiver claim won: Puka Nacua ($12).',
-      variant: 'success'
+  it('toasts your new inbox items, linking where they lead (#165)', () => {
+    expect(notificationFor(ev('Notification Created', inboxItem()), 'team-1')).toEqual({
+      message: "Trade offer from Bob's Team. You'd get Rashee Rice for Tony Pollard.",
+      variant: 'info',
+      inbox: { id: 'n1', leagueId: 'L1', href: '/leagues/L1/trades?trade=tr1' }
     });
-    const two = {
-      awarded: [
-        { teamId: 'team-1', player: player('Puka Nacua'), cost: 0 },
-        { teamId: 'team-1', player: null, cost: 0 }
-      ]
-    };
-    expect(notificationFor(ev('Waivers Processed', two), 'team-1')?.message).toBe(
-      'You won 2 waiver claims: Puka Nacua, a player.'
-    );
-    expect(notificationFor(ev('Waivers Processed', detail), 'team-9')).toBeNull();
-    expect(notificationFor(ev('Waivers Processed', {}), 'team-1')).toBeNull();
+    expect(
+      notificationFor(
+        ev(
+          'Notification Created',
+          inboxItem({ kind: 'waiver_won', target: { section: 'roster', tradeId: null } })
+        ),
+        'team-1'
+      )
+    ).toMatchObject({ variant: 'success', inbox: { href: '/leagues/L1/roster' } });
+    expect(
+      notificationFor(ev('Notification Created', inboxItem({ kind: 'waiver_lost' })), 'team-1')?.variant
+    ).toBe('warning');
+    // Someone else's item, or a malformed one, says nothing.
+    expect(notificationFor(ev('Notification Created', inboxItem()), 'team-2')).toBeNull();
+    expect(notificationFor(ev('Notification Created', {}), 'team-1')).toBeNull();
   });
 
-  it('tells you about offers and counters sent to you', () => {
-    expect(notificationFor(ev('Trade Proposed', tradeDetail()), 'team-1')).toEqual({
-      message: "New trade offer: you'd get Rashee Rice for Tony Pollard, Jake Ferguson.",
-      variant: 'info'
-    });
-    expect(notificationFor(ev('Trade Countered', tradeDetail()), 'team-1')?.message).toMatch(/^Counteroffer/);
-    // The team that sent it already knows.
-    expect(notificationFor(ev('Trade Proposed', tradeDetail()), 'team-2')).toBeNull();
-    expect(notificationFor(ev('Trade Countered', tradeDetail()), 'team-2')).toBeNull();
+  it('leaves trade news about your own team to your inbox', () => {
+    for (const type of ['Trade Accepted', 'Trade Vetoed']) {
+      expect(notificationFor(ev(type, tradeDetail()), 'team-1')).toBeNull();
+      expect(notificationFor(ev(type, tradeDetail()), 'team-2')).toBeNull();
+    }
+    for (const type of ['Trade Proposed', 'Waivers Processed', 'Trade Processed']) {
+      expect(notificationFor(ev(type, tradeDetail()), 'team-1')).toBeNull();
+    }
   });
 
-  it('celebrates your accepted and completed trades', () => {
-    expect(notificationFor(ev('Trade Accepted', tradeDetail()), 'team-2')).toEqual({
-      message: 'Trade accepted! You get Tony Pollard, Jake Ferguson for Rashee Rice.',
-      variant: 'success'
-    });
-    expect(notificationFor(ev('Trade Accepted', tradeDetail()), 'team-1')).toBeNull();
+  it('tells the rest of the league about trades up for review and vetoes', () => {
     expect(notificationFor(ev('Trade Accepted', tradeDetail()), 'team-5')).toBeNull();
     expect(notificationFor(ev('Trade Accepted', tradeDetail({ review: 'league_vote' })), 'team-5')).toEqual({
       message: 'A trade was accepted and is up for league review.',
       variant: 'info'
     });
-    expect(notificationFor(ev('Trade Processed', tradeDetail()), 'team-1')?.message).toBe(
-      'Trade complete: Rashee Rice joined your roster.'
-    );
-    expect(notificationFor(ev('Trade Processed', tradeDetail()), 'team-5')).toBeNull();
-    expect(
-      notificationFor(ev('Trade Processed', tradeDetail({ fromPlayers: 'bad' })), 'team-1')?.message
-    ).toBe('Trade complete: nothing joined your roster.');
-    expect(
-      notificationFor(
-        ev('Trade Processed', tradeDetail({ fromPlayers: [{ name: 7 }, player('Kyle Pitts')] })),
-        'team-1'
-      )?.message
-    ).toBe('Trade complete: Kyle Pitts joined your roster.');
-  });
-
-  it('warns about vetoes', () => {
-    expect(notificationFor(ev('Trade Vetoed', tradeDetail()), 'team-1')).toEqual({
-      message: 'Your trade was vetoed.',
-      variant: 'warning'
-    });
-    expect(notificationFor(ev('Trade Vetoed', tradeDetail({ voided: true })), 'team-2')?.message).toMatch(
-      /no longer works/
-    );
     expect(notificationFor(ev('Trade Vetoed', tradeDetail()), 'team-5')).toEqual({
       message: 'A trade was vetoed.',
       variant: 'info'
@@ -156,8 +149,8 @@ describe('notificationFor', () => {
   });
 
   it('says nothing without a team, a detail, or for other events', () => {
-    expect(notificationFor(ev('Trade Proposed', tradeDetail()), null)).toBeNull();
-    expect(notificationFor({ detailType: 'Trade Proposed', leagueId: 'L1' }, 'team-1')).toBeNull();
+    expect(notificationFor(ev('Notification Created', inboxItem()), null)).toBeNull();
+    expect(notificationFor({ detailType: 'Notification Created', leagueId: 'L1' }, 'team-1')).toBeNull();
     expect(notificationFor(ev('Draft Pick Made', {}), 'team-1')).toBeNull();
   });
 });
@@ -212,33 +205,47 @@ describe('LeagueNotifications', () => {
       <ToastProvider>
         <LeagueApiContext.Provider value={api}>
           <MemoryRouter initialEntries={[path]}>
-            <LeagueNotifications leagueId="L1" yourTeamId="team-1" connect={connect} />
-            <Where />
+            <NotificationsProvider>
+              <LeagueNotifications leagueId="L1" yourTeamId="team-1" connect={connect} />
+              <Where />
+            </NotificationsProvider>
           </MemoryRouter>
         </LeagueApiContext.Provider>
       </ToastProvider>
     );
     return {
+      api,
       connected: () => waitFor(() => expect(push).not.toBeNull()),
       push: (event: LeagueEvent) => act(() => push!(event))
     };
   }
 
-  it('toasts waiver awards and trade news as they arrive, once per event', async () => {
+  it('toasts inbox items and league news as they arrive, once per event, marking items delivered', async () => {
+    const { push, connected, api } = mount();
+    await connected();
+    // An item can arrive twice (a redelivery): one toast.
+    push(ev('Notification Created', inboxItem(), 'e1'));
+    push(ev('Notification Created', inboxItem(), 'e1'));
+    push(ev('Trade Vetoed', tradeDetail({ fromTeamId: 'team-3', toTeamId: 'team-4' }), 't2'));
+    expect(await screen.findAllByText(/Trade offer from Bob's Team/)).toHaveLength(1);
+    expect(screen.getByText('A trade was vetoed.')).toBeInTheDocument();
+    await waitFor(() => expect(api.markNotificationsDelivered).toHaveBeenCalledWith('L1', ['n1']));
+    expect(api.markNotificationsDelivered).toHaveBeenCalledTimes(1);
+    // The bell re-reads its count.
+    expect(api.getNotificationSummary).toHaveBeenCalled();
+
+    // Open goes to the trade and marks the item read.
+    const open = screen.getByRole('link', { name: 'Open' });
+    expect(open).toHaveAttribute('href', '/leagues/L1/trades?trade=tr1');
+    await act(async () => open.click());
+    expect(screen.getByTestId('where')).toHaveTextContent('/leagues/L1/trades?trade=tr1');
+    expect(api.markNotificationsRead).toHaveBeenCalledWith('L1', { notificationIds: ['n1'] });
+  });
+
+  it('links a chat toast to its room', async () => {
     const { push, connected } = mount();
     await connected();
-    const award = { awarded: [{ teamId: 'team-1', player: player('Puka Nacua'), cost: 7 }] };
-    // The award comes on the league topic and again on your team topic: one toast.
-    push(ev('Waivers Processed', award, 'w1'));
-    push(ev('Waivers Processed', award, 'w1'));
-    push(ev('Trade Proposed', tradeDetail(), 't1'));
-    push(ev('Trade Vetoed', tradeDetail(), 't2'));
-    push(ev('Trade Accepted', tradeDetail({ fromTeamId: 'team-1', toTeamId: 'team-2' }), 't3'));
-    expect(await screen.findAllByText('Waiver claim won: Puka Nacua ($7).')).toHaveLength(1);
-    expect(screen.getByText(/New trade offer/)).toBeInTheDocument();
-    expect(screen.getByText('Your trade was vetoed.')).toBeInTheDocument();
-    expect(screen.getByText(/Trade accepted!/)).toBeInTheDocument();
-    // An event without an id is shown too; a chat toast links to its room.
+    // An event without an id is shown too.
     push(ev(CHAT_EVENT, { message: { ...chat(['team-1']).message, roomId: 'trades' } }));
     expect(await screen.findByText(/mentioned you/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute(
@@ -251,8 +258,8 @@ describe('LeagueNotifications', () => {
     const { push, connected } = mount('/leagues/L1/chat');
     await connected();
     push(ev(CHAT_EVENT, chat(['team-1']), 'm1'));
-    push(ev('Trade Proposed', tradeDetail(), 't1'));
-    expect(await screen.findByText(/New trade offer/)).toBeInTheDocument();
+    push(ev('Notification Created', inboxItem(), 'e1'));
+    expect(await screen.findByText(/Trade offer from/)).toBeInTheDocument();
     expect(screen.queryByText(/mentioned you/)).not.toBeInTheDocument();
   });
 });
