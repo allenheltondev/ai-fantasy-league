@@ -51,6 +51,12 @@ export const CHAT_CASES: Record<string, Case[]> = {
       path: CHAT,
       init: { body: { roomId: 'general', text: 'hi' }, idempotencyKey: 'contract-chat-6' },
       status: 404
+    },
+    {
+      label: 'a reply to a message not in the room',
+      path: CHAT,
+      init: { body: { text: 'yes!', replyToId: 'nope' }, idempotencyKey: 'contract-chat-9' },
+      status: 400
     }
   ],
   list_chat_rooms: [
@@ -76,6 +82,21 @@ export const CHAT_CASES: Record<string, Case[]> = {
     { label: 'a room, compact', path: `${CHAT}?roomId=draft&detail=false`, status: 200 },
     { label: 'bad cursor', path: `${CHAT}?after=nope`, status: 400 },
     { label: 'outsider', path: CHAT, init: { token: outsider }, status: 403 }
+  ],
+  get_chat_context: [
+    { label: 'league room', path: `${ROOMS}/trash-talk/context?aboutTeamId=team-2`, status: 200 },
+    { label: 'draft room', path: `${ROOMS}/draft/context`, status: 200 },
+    { label: 'trades room', path: `${ROOMS}/trades/context`, status: 200 },
+    { label: 'waivers room', path: `${ROOMS}/waivers-news/context`, status: 200 },
+    { label: 'a DM', path: `${ROOMS}/dm-team-1-team-2/context`, status: 200 },
+    {
+      label: 'a matchup room, in season (lg-cs)',
+      path: '/api/v1/leagues/lg-cs/chat/rooms/m-2026-W01-W01-1/context',
+      status: 200
+    },
+    { label: 'someone else’s DM', path: `${ROOMS}/dm-team-2-team-3/context`, status: 403 },
+    { label: 'no such room', path: `${ROOMS}/general/context`, status: 404 },
+    { label: 'outsider', path: `${ROOMS}/league/context`, init: { token: outsider }, status: 403 }
   ],
   get_realtime_token: [
     { label: 'realtime off', path: '/api/v1/leagues/lg-1/realtime', status: 200 },

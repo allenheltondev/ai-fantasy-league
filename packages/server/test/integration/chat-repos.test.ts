@@ -139,13 +139,48 @@ for (const [name, make] of backends) {
       // A duplicate adds nothing.
       expect(await repos.chat.put(message(lg, { id: 'a', createdAt: at(1) }))).toBe(false);
       expect(await repos.chat.activity(lg, at(1))).toEqual([
-        { messageId: 'c', roomId: 'dm-team-1-team-3', kind: 'user', teamId: 'team-1', createdAt: at(3) },
-        { messageId: 'b', roomId: 'dm-team-1-team-2', kind: 'agent', teamId: 'team-2', createdAt: at(2) }
+        {
+          messageId: 'c',
+          roomId: 'dm-team-1-team-3',
+          kind: 'user',
+          teamId: 'team-1',
+          createdAt: at(3),
+          replyToAgentDepth: 0
+        },
+        {
+          messageId: 'b',
+          roomId: 'dm-team-1-team-2',
+          kind: 'agent',
+          teamId: 'team-2',
+          createdAt: at(2),
+          replyToAgentDepth: 0
+        }
       ]);
       expect(await repos.chat.activity(lg, at(0))).toHaveLength(3);
       expect(await repos.chat.dmRooms(lg, 'team-1')).toEqual(['dm-team-1-team-2', 'dm-team-1-team-3']);
       expect(await repos.chat.dmRooms(lg, 'team-3')).toEqual(['dm-team-1-team-3']);
       expect(await repos.chat.dmRooms(lg, 'team-4')).toEqual([]);
+    });
+
+    it('keeps a retort’s reply fields, and indexes its depth for the banter budget', async () => {
+      const repos = make();
+      const lg = unique();
+      const retort = message(lg, {
+        id: 'r',
+        kind: 'agent',
+        author: { teamId: 'team-3', teamName: 'C', name: 'C' },
+        replyToId: 'a',
+        replyToAgentDepth: 1,
+        createdAt: at(2)
+      });
+      await repos.chat.put(retort);
+      expect((await repos.chat.list(lg, retort.roomId, { limit: 5 })).messages[0]).toMatchObject({
+        replyToId: 'a',
+        replyToAgentDepth: 1
+      });
+      expect(await repos.chat.activity(lg, at(0))).toEqual([
+        expect.objectContaining({ messageId: 'r', replyToAgentDepth: 1 })
+      ]);
     });
   });
 }

@@ -93,7 +93,8 @@ export class InMemoryChatRepository implements ChatRepository {
         roomId: m.roomId,
         kind: m.kind,
         teamId: m.author.teamId,
-        createdAt: m.createdAt
+        createdAt: m.createdAt,
+        replyToAgentDepth: m.replyToAgentDepth ?? 0
       }));
   }
 

@@ -8,8 +8,11 @@ import { z } from 'zod';
  * - `rivals`: grudges by team, built from matchup results, trades, and chat.
  * - `trades`: the agent's trade history with each team.
  * - `decisions`: its own recent decisions (what it did and why).
- * - `chat`: a snapshot of the latest group-chat exchange it took part in (conversation context
- *   across sessions).
+ * - `chatRooms`: per room, a snapshot of the latest exchange it took part in there (conversation
+ *   context across sessions). A chat task sees only the snapshot of the room it talks in (#153).
+ * - `relationships`: a short line per other team about how the two get along ("rivalry with Big
+ *   Tuna after the week 3 trade"), written after a league-room exchange (never from a DM) and shown
+ *   only to chat tasks for the teams in the conversation.
  * - `seen`: ids of the league events already applied, so a redelivered event (EventBridge delivers
  *   at least once) never bumps a grudge twice.
  *
@@ -22,7 +25,14 @@ export const MEMORY_LIMITS = {
   rivals: 8,
   trades: 12,
   decisions: 10,
+  /** Messages kept in one room's chat snapshot. */
   chat: 8,
+  /** Rooms with a chat snapshot (the most recently used rooms win). */
+  chatRooms: 6,
+  /** Relationship notes, one per other team (the most recent win). */
+  relationships: 8,
+  /** Characters in a relationship note. */
+  relationshipText: 140,
   /** League event ids remembered for idempotency (a redelivery comes soon after the first). */
   seen: 64,
   /** Player names kept per side of a remembered trade. */
@@ -81,18 +91,38 @@ export type DecisionMemory = z.infer<typeof DecisionMemorySchema>;
 export const ChatMemorySchema = z.object({ author: z.string(), text: Text, at: z.string() });
 export type ChatMemory = z.infer<typeof ChatMemorySchema>;
 
+export const ChatRoomMemorySchema = z.object({
+  roomId: z.string(),
+  /** When the agent last talked there. */
+  at: z.string(),
+  messages: z.array(ChatMemorySchema).max(MEMORY_LIMITS.chat)
+});
+export type ChatRoomMemory = z.infer<typeof ChatRoomMemorySchema>;
+
+export const RelationshipSchema = z.object({
+  teamId: z.string(),
+  note: z.string().max(MEMORY_LIMITS.relationshipText),
+  at: z.string()
+});
+export type Relationship = z.infer<typeof RelationshipSchema>;
+
+/**
+ * Stored memory. Items written before rooms (#153) have a single `chat` snapshot with no room: it is
+ * dropped on read (unknown keys are stripped), since nobody can say which room it belongs to.
+ */
 export const AgentLeagueMemorySchema = z.object({
   notes: z.array(Text).default([]),
   rivals: z.array(RivalSchema).default([]),
   trades: z.array(TradeMemorySchema).default([]),
   decisions: z.array(DecisionMemorySchema).default([]),
-  chat: z.array(ChatMemorySchema).default([]),
+  chatRooms: z.array(ChatRoomMemorySchema).default([]),
+  relationships: z.array(RelationshipSchema).default([]),
   seen: z.array(z.string()).default([])
 });
 export type AgentLeagueMemory = z.infer<typeof AgentLeagueMemorySchema>;
 
 export function emptyMemory(): AgentLeagueMemory {
-  return { notes: [], rivals: [], trades: [], decisions: [], chat: [], seen: [] };
+  return { notes: [], rivals: [], trades: [], decisions: [], chatRooms: [], relationships: [], seen: [] };
 }
 
 export type MemoryEvent =
@@ -120,16 +150,18 @@ export type MemoryEvent =
       received?: readonly string[];
       value?: number;
     }
-  | { type: 'chat'; messages: readonly ChatMemory[] };
+  | { type: 'chat'; roomId: string; at: string; messages: readonly ChatMemory[] }
+  | { type: 'relationship'; teamId: string; note: string; at: string };
 
-/** One line, no fence markers (memory is quoted into prompts), at most `MEMORY_LIMITS.text` characters. */
-const clip = (text: string) => {
+/** One line, no fence markers (memory is quoted into prompts), at most `max` characters. */
+function clipTo(text: string, max: number): string {
   const flat = text
     .replace(/\s+/g, ' ')
     .replace(/<<<|>>>|```/g, "''")
     .trim();
-  return flat.length > MEMORY_LIMITS.text ? `${flat.slice(0, MEMORY_LIMITS.text - 1)}…` : flat;
-};
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+const clip = (text: string) => clipTo(text, MEMORY_LIMITS.text);
 
 /** Grudge points by trade outcome: a veto or rejection stings, a done deal leaves a little history. */
 const TRADE_GRUDGE: Readonly<Record<(typeof TRADE_MEMORY_OUTCOMES)[number], number>> = {
@@ -236,13 +268,32 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
         event.eventId
       );
     }
-    case 'chat':
-      return {
-        ...memory,
-        chat: event.messages
+    case 'chat': {
+      const room: ChatRoomMemory = {
+        roomId: event.roomId,
+        at: event.at,
+        messages: event.messages
           .slice(-MEMORY_LIMITS.chat)
           .map((m) => ({ author: clip(m.author), text: clip(m.text), at: m.at }))
       };
+      return {
+        ...memory,
+        chatRooms: [...memory.chatRooms.filter((r) => r.roomId !== event.roomId), room].slice(
+          -MEMORY_LIMITS.chatRooms
+        )
+      };
+    }
+    case 'relationship': {
+      const note = clipTo(event.note, MEMORY_LIMITS.relationshipText);
+      if (note.length === 0) return memory;
+      return {
+        ...memory,
+        relationships: [
+          ...memory.relationships.filter((r) => r.teamId !== event.teamId),
+          { teamId: event.teamId, note, at: event.at }
+        ].slice(-MEMORY_LIMITS.relationships)
+      };
+    }
   }
 }
 
@@ -268,7 +319,7 @@ export const MEMORY_TOKEN_BUDGET = 400;
 
 /**
  * The memory as prompt lines, most useful first (rivalries, trades, the agent's own notes, recent
- * decisions, the last chat exchange), cut off once `tokenBudget` is spent. Newest entries win within
+ * decisions, relationship notes, the last chat exchange), cut off once `tokenBudget` is spent. Newest entries win within
  * each group. `teamName` turns team ids into names the model can use in chat.
  */
 export function summarizeMemory(
@@ -284,9 +335,13 @@ export function summarizeMemory(
       .map((t) => `Trade with ${name(t.teamId)} (${t.outcome}): ${t.summary}${tradeDetail(t)}`),
     [...memory.notes].reverse().map((n) => `Your note: ${n}`),
     [...memory.decisions].reverse().map((d) => `You did ${d.kind} -> ${d.action}: ${d.summary}`),
-    memory.chat.length === 0
-      ? []
-      : [`Last chat you were in: ${memory.chat.map((c) => `${c.author}: ${c.text}`).join(' | ')}`]
+    [...memory.relationships].reverse().map((r) => `Between you and ${name(r.teamId)}: ${r.note}`),
+    [...memory.chatRooms]
+      .reverse()
+      .filter((r) => r.messages.length > 0)
+      .map(
+        (r) => `Last chat you were in here: ${r.messages.map((c) => `${c.author}: ${c.text}`).join(' | ')}`
+      )
   ];
   const lines: string[] = [];
   let used = 0;

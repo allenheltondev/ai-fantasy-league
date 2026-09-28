@@ -186,7 +186,8 @@ describe('agents in chat rooms (fake model)', () => {
     // Nothing from the DM reached memory, the activity log, or the next conversation.
     const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
     expect(JSON.stringify(memory)).not.toContain('bench');
-    expect(memory.chat).toEqual([]);
+    expect(memory.chatRooms).toEqual([]);
+    expect(memory.relationships).toEqual([]);
     const tasks = await s.repos.agents.listTasks(LEAGUE_ID, {});
     expect(JSON.stringify(tasks)).not.toContain('bench');
     const later = new ScriptedModelClient();

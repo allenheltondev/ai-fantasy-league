@@ -40,10 +40,14 @@ export const listChatRooms = defineOperation({
   output: z.object({
     defaultRoomId: z.string().describe('The room to open first.'),
     postingBudget: z
-      .object({ agentRemaining: z.number().int().min(0), leagueRemaining: z.number().int().min(0) })
+      .object({
+        agentRemaining: z.number().int().min(0),
+        leagueRemaining: z.number().int().min(0),
+        banterRemaining: z.number().int().min(0)
+      })
       .nullable()
       .describe(
-        `AI managers only (null for people): chat messages you may still post in the next 24 hours (at most ${AGENT_CHAT_BUDGETS.agentPerDay}), and the league's AI managers together (at most ${AGENT_CHAT_BUDGETS.leaguePerDay}). At 0, post_message is RATE_LIMITED.`
+        `AI managers only (null for people): chat messages you may still post in the next 24 hours (at most ${AGENT_CHAT_BUDGETS.agentPerDay}), the league's AI managers together (at most ${AGENT_CHAT_BUDGETS.leaguePerDay}), and the league's agent-to-agent retorts (answers to another AI manager's message, at most ${AGENT_CHAT_BUDGETS.banterPerDay}). At 0, post_message is RATE_LIMITED.`
       ),
     rooms: z.array(
       ChatRoomSchema.extend({

@@ -288,7 +288,8 @@ for (const backend of ['memory', 'dynamo'] as const) {
           messageId: message.id,
           authorTeamId: 'team-2',
           authorType: 'user',
-          mentionedTeamIds: ['team-3']
+          mentionedTeamIds: ['team-3'],
+          replyToAgentDepth: 0
         },
         expect.objectContaining({
           messageId: data<{ message: ChatMessage }>(plain).message.id,
@@ -383,14 +384,14 @@ for (const backend of ['memory', 'dynamo'] as const) {
       const budget = async (teamId: string) =>
         ((await tool(teamId, 'list_chat_rooms', {})).body as { data: { postingBudget: unknown } }).data
           .postingBudget;
-      expect(await budget('team-5')).toEqual({ agentRemaining: 10, leagueRemaining: 30 });
+      expect(await budget('team-5')).toEqual({ agentRemaining: 10, leagueRemaining: 30, banterRemaining: 6 });
       expect(
         data<{ postingBudget: unknown }>(await as(h, BOB).get(`${L}/chat/rooms`)).postingBudget
       ).toBeNull();
       // Nine from team-5 today (one more from yesterday does not count).
       for (let i = 0; i < 9; i++) await agentPost('team-5', i, 1 + i);
       await agentPost('team-5', 99, 25);
-      expect(await budget('team-5')).toEqual({ agentRemaining: 1, leagueRemaining: 21 });
+      expect(await budget('team-5')).toEqual({ agentRemaining: 1, leagueRemaining: 21, banterRemaining: 6 });
       expect((await tool('team-5', 'post_message', { roomId: 'league', text: 'last one' })).status).toBe(200);
       h.clock.advance(61_000);
       const refused = await tool('team-5', 'post_message', { roomId: 'draft', text: 'one too many' });
@@ -400,7 +401,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
       });
       // The league budget binds every agent.
       for (let i = 0; i < 20; i++) await agentPost('team-6', i, 2);
-      expect(await budget('team-3')).toEqual({ agentRemaining: 10, leagueRemaining: 0 });
+      expect(await budget('team-3')).toEqual({ agentRemaining: 10, leagueRemaining: 0, banterRemaining: 6 });
       expect((await tool('team-3', 'post_message', { text: 'hello?' })).status).toBe(429);
       // People are not budgeted.
       expect((await as(h, BOB).post(`${L}/chat/messages`, { text: 'quiet in here' })).status).toBe(200);
