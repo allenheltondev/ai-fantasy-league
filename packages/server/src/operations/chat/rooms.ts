@@ -1,7 +1,7 @@
 import { DEFAULT_ROOM_ID } from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
-import { UNREAD_CAP } from '../../chat/model.js';
+import { AGENT_CHAT_BUDGETS, agentChatBudget, UNREAD_CAP } from '../../chat/model.js';
 import { ChatRoomSchema, resolveRoom, RoomIdSchema, visibleRooms } from '../../chat/rooms.js';
 import { requireMember } from '../../league/access.js';
 import { LeagueIdSchema } from '../../league/views.js';
@@ -33,6 +33,12 @@ export const listChatRooms = defineOperation({
   }),
   output: z.object({
     defaultRoomId: z.string().describe('The room to open first.'),
+    postingBudget: z
+      .object({ agentRemaining: z.number().int().min(0), leagueRemaining: z.number().int().min(0) })
+      .nullable()
+      .describe(
+        `AI managers only (null for people): chat messages you may still post in the next 24 hours (at most ${AGENT_CHAT_BUDGETS.agentPerDay}), and the league's AI managers together (at most ${AGENT_CHAT_BUDGETS.leaguePerDay}). At 0, post_message is RATE_LIMITED.`
+      ),
     rooms: z.array(
       ChatRoomSchema.extend({
         lastMessageAt: z
@@ -59,8 +65,22 @@ export const listChatRooms = defineOperation({
     const summaries = await Promise.all(
       rooms.map((room) => ctx.repos.chat.summary(access.league.id, room.roomId, read[room.roomId] ?? null))
     );
+    const agentTeamId = access.actor.kind === 'agent' ? (access.actor.team?.id ?? null) : null;
+    const now = ctx.clock.now();
+    const postingBudget =
+      agentTeamId === null
+        ? null
+        : agentChatBudget(
+            await ctx.repos.chat.activity(
+              access.league.id,
+              new Date(now.getTime() - AGENT_CHAT_BUDGETS.windowMs).toISOString()
+            ),
+            agentTeamId,
+            now
+          );
     return {
       defaultRoomId: DEFAULT_ROOM_ID,
+      postingBudget,
       rooms: rooms.map((room, i) => ({ ...room, ...(summaries[i] as (typeof summaries)[number]) }))
     };
   }

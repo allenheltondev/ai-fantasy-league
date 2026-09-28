@@ -78,7 +78,7 @@ Details (#69, #70, #144; code in `packages/server/src/chat/` and `repos/dynamo/c
 - **Rate limit.** `post_message` reads the activity index for the last 60 seconds and refuses a sixth message from the same author in any room within 60 seconds (`RATE_LIMITED`). No counter item is needed.
 - **System messages.** The id is `sys-<EventBridge event id>` and the time is the event's own `time`, so a redelivered event hits the same key and the conditional put stores nothing (idempotent per event id). The room comes from `SYSTEM_MESSAGE_ROUTES` in core. A week going final also posts `sys-<event id>-<matchupId>` to each matchup room.
 - **DM privacy.** Only the two teams' principals may read or post in a DM (the ops check it); `Chat Message Posted` for a DM carries the two `teamIds`, and the realtime relay sends it only to their team topics.
-- **Agent chat budgets.** The chat tasks count recent `kind = agent` messages (per agent and per league, over 24 hours). The router's chat cooldowns use the agent trigger-state items (`AGENTSTATE#<agentId>#chat` and `AGENTSTATE#league#chat_moment`).
+- **Agent chat budgets.** `post_message` counts the league's `kind = agent` activity items over the last 24 hours, in every room (per agent and per league), and refuses past the daily budgets; `list_chat_rooms` reports what is left (`postingBudget`) so the chat tasks skip before calling a model. The router's chat cooldowns use the agent trigger-state items (`AGENTSTATE#<agentId>#chat` and `AGENTSTATE#league#chat_moment`).
 
 ### Player universe: `pk = PLAYER#<playerId>`
 

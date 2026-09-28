@@ -689,6 +689,10 @@ describe('event contract: chat', () => {
     const mention = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
     expect(mention.event.detail).toMatchObject({ roomId: 'dm-team-1-team-2', mentionedTeamIds: ['team-2'] });
     expect(decisions(mention)).toEqual([['team-2', 'chat_reply', 'requested']]);
+    expect(last(s.events.events, 'Agent Action Requested').detail).toMatchObject({
+      kind: 'chat_reply',
+      payload: { roomId: 'dm-team-1-team-2' }
+    });
     expect(mention.relay.topics).toEqual([]);
   });
 });

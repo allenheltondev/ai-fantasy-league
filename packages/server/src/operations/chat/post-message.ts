@@ -7,7 +7,14 @@ import {
 } from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
-import { authorKey, CHAT_LIMITS, ChatMessageSchema, type ChatMessage } from '../../chat/model.js';
+import {
+  AGENT_CHAT_BUDGETS,
+  agentChatBudget,
+  authorKey,
+  CHAT_LIMITS,
+  ChatMessageSchema,
+  type ChatMessage
+} from '../../chat/model.js';
 import { requireOpenRoom, resolveRoom, RoomIdSchema } from '../../chat/rooms.js';
 import { ApiError } from '../../errors.js';
 import { requireMember } from '../../league/access.js';
@@ -28,7 +35,7 @@ export const postMessage = defineOperation({
     'Mention a team with `@` plus its team name, its manager\'s name, or its team id (for example "@Big Tuna" or "@team-3"); mentioned teams are notified, and AI managers may reply. In a DM only the other team can be mentioned.',
     `Messages are 1-${CHAT_LIMITS.maxLength} characters. Keep trash talk friendly. Chat is for banter and negotiation only: nothing agreed in chat happens until someone uses the trade tools.`,
     'Every message, from a person or an AI manager, goes through the same moderation: control and invisible characters are removed, and harassment (telling someone to hurt themselves) is refused.',
-    `Errors: RATE_LIMITED after ${CHAT_LIMITS.burstMessages} messages in ${CHAT_LIMITS.burstWindowMs / 1000} seconds across all rooms (wait, then retry); FORBIDDEN if you are not in the league or the room is a DM between two other teams; ROOM_NOT_FOUND for a room this league does not have; ROOM_ARCHIVED for a past week's matchup room; INVALID_INPUT for an empty or too-long message; MESSAGE_BLOCKED when moderation refuses it (rewrite it as the fix says).`
+    `Errors: RATE_LIMITED after ${CHAT_LIMITS.burstMessages} messages in ${CHAT_LIMITS.burstWindowMs / 1000} seconds across all rooms (wait, then retry), or for AI managers once the daily chat budget is used (${AGENT_CHAT_BUDGETS.agentPerDay} messages per agent and ${AGENT_CHAT_BUDGETS.leaguePerDay} for the league's agents per 24 hours, see list_chat_rooms \`postingBudget\`); FORBIDDEN if you are not in the league or the room is a DM between two other teams; ROOM_NOT_FOUND for a room this league does not have; ROOM_ARCHIVED for a past week's matchup room; INVALID_INPUT for an empty or too-long message; MESSAGE_BLOCKED when moderation refuses it (rewrite it as the fix says).`
   ].join(' '),
   tags: ['chat'],
   mutation: true,
@@ -62,9 +69,24 @@ export const postMessage = defineOperation({
     }
     const text = moderated.text;
 
-    // Per author across every room: the league's activity index since the window started.
+    // Per author across every room: the league's activity index since the window started (the
+    // last day for AI managers, whose daily budgets count every room too).
     const windowStart = now.getTime() - CHAT_LIMITS.burstWindowMs;
-    const recent = await ctx.repos.chat.activity(access.league.id, new Date(windowStart).toISOString());
+    const recent = await ctx.repos.chat.activity(
+      access.league.id,
+      new Date(
+        author.kind === 'agent' ? now.getTime() - AGENT_CHAT_BUDGETS.windowMs : windowStart
+      ).toISOString()
+    );
+    if (author.kind === 'agent') {
+      const budget = agentChatBudget(recent, author.author.teamId as string, now);
+      if (budget.agentRemaining === 0 || budget.leagueRemaining === 0) {
+        throw new ApiError('RATE_LIMITED', 'The AI managers’ daily chat budget is used up.', {
+          fix: `Stay quiet for now. An AI manager may post ${AGENT_CHAT_BUDGETS.agentPerDay} chat messages a day, and the league's AI managers ${AGENT_CHAT_BUDGETS.leaguePerDay} together; the budget frees up as the day's messages age past 24 hours.`,
+          details: { ...budget }
+        });
+      }
+    }
     const mine = recent
       .filter((a) => authorKey({ kind: a.kind, author: { teamId: a.teamId } }) === authorKey(author))
       .map((a) => Date.parse(a.createdAt))

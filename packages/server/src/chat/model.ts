@@ -20,6 +20,40 @@ export const CHAT_LIMITS = {
   burstWindowMs: 60_000
 } as const;
 
+/**
+ * Daily chat budgets for AI managers (#72, #144), across every room: at most `agentPerDay`
+ * messages from one agent and `leaguePerDay` from all of a league's agents in any 24 hours.
+ */
+export const AGENT_CHAT_BUDGETS = {
+  agentPerDay: 10,
+  leaguePerDay: 30,
+  windowMs: 24 * 60 * 60 * 1000
+} as const;
+
+export interface AgentChatBudget {
+  /** Messages this agent may still post in the next 24 hours. */
+  agentRemaining: number;
+  /** Messages the league's agents together may still post. */
+  leagueRemaining: number;
+}
+
+/** What is left of the daily agent budgets, from the league's activity over the last day. */
+export function agentChatBudget(
+  activity: readonly Pick<ChatActivity, 'kind' | 'teamId' | 'createdAt'>[],
+  teamId: string,
+  now: Date
+): AgentChatBudget {
+  const since = new Date(now.getTime() - AGENT_CHAT_BUDGETS.windowMs).toISOString();
+  const agents = activity.filter((a) => a.kind === 'agent' && a.createdAt > since);
+  return {
+    agentRemaining: Math.max(
+      0,
+      AGENT_CHAT_BUDGETS.agentPerDay - agents.filter((a) => a.teamId === teamId).length
+    ),
+    leagueRemaining: Math.max(0, AGENT_CHAT_BUDGETS.leaguePerDay - agents.length)
+  };
+}
+
 export const ChatMessageSchema = z.object({
   id: z.string(),
   leagueId: z.string(),

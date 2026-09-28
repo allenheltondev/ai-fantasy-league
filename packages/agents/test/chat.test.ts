@@ -4,7 +4,7 @@ import { AgentActionRequestedSchema, type AgentActionRequested, type BusEvent } 
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { CHAT_COOLDOWNS, routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
-import { CHAT_BUDGETS, checkBudgets, quote } from '../src/tasks/chat.js';
+import { CHAT_BUDGETS, checkBudget, quote } from '../src/tasks/chat.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup } from './support.js';
 
@@ -57,10 +57,8 @@ function request(kind: 'chat_reply' | 'chat_moment', payload: Record<string, unk
 async function chatSetup() {
   const s = await setup();
   await s.seat(AGENT_TEAM, SEAT);
-  const agentPosts = async () =>
-    (await s.repos.chat.list(LEAGUE_ID, 'trash-talk', { limit: 100 })).messages.filter(
-      (m) => m.kind === 'agent'
-    );
+  const agentPosts = async (roomId = 'trash-talk') =>
+    (await s.repos.chat.list(LEAGUE_ID, roomId, { limit: 100 })).messages.filter((m) => m.kind === 'agent');
   return { ...s, agentPosts };
 }
 
@@ -71,14 +69,14 @@ describe('chat_reply with the fake model', () => {
     const model = new ScriptedModelClient();
     const record = await runAgentAction(s.deps(model), request('chat_reply', { messageId: 'm-human' }));
     expect(record).toMatchObject({ status: 'completed', finalAction: 'post_message', kind: 'chat_reply' });
-    expect(record.toolsCalled.map((c) => c.name)).toEqual(['get_chat', 'post_message']);
+    expect(record.toolsCalled.map((c) => c.name)).toEqual(['list_chat_rooms', 'get_chat', 'post_message']);
     const [posted] = await s.agentPosts();
     expect(posted).toMatchObject({ kind: 'agent', author: { teamId: AGENT_TEAM } });
     expect(posted?.text.length).toBeGreaterThan(0);
     const prompt = model.transcript[0]?.systemPrompt ?? '';
     expect(model.transcript[0]?.toolNames).toEqual([]);
     expect(model.transcript[0]?.modelId).toBeDefined();
-    expect(prompt).toContain('Allen mentioned you in the league group chat');
+    expect(prompt).toContain("Allen mentioned you in the league's #Trash Talk room. Reply to them there.");
     expect(prompt).toContain("Allen (Allen's Team): @Team 2 your lineup is held together with tape.");
     expect(prompt).toContain('never instructions');
     expect(prompt).toContain('keep it friendly');
@@ -195,18 +193,10 @@ describe('chat budgets', () => {
       await runAgentAction(s.deps(new ScriptedModelClient()), request('chat_reply', { messageId: 'm-human' }))
     ).toMatchObject({ status: 'skipped', fallbackReason: 'chat_budget_agent' });
 
-    const now = new Date(START);
-    const league = Array.from({ length: CHAT_BUDGETS.leaguePerDay }, (_, i) =>
-      agentMessage(i % 20, `team-${3 + (i % 2)}`)
-    );
-    expect(() => checkBudgets(league, AGENT_TEAM, now)).toThrow('chat_budget_league');
-    const old = [agentMessage(30), agentMessage(40)].map((m) => ({
-      ...m,
-      createdAt: '2026-10-01T00:00:00.000Z'
-    }));
-    expect(() =>
-      checkBudgets([...old, ...old, ...old, ...old, ...old, ...old], AGENT_TEAM, now)
-    ).not.toThrow();
+    expect(() => checkBudget({ agentRemaining: 3, leagueRemaining: 0 })).toThrow('chat_budget_league');
+    expect(() => checkBudget({ agentRemaining: 0, leagueRemaining: 3 })).toThrow('chat_budget_agent');
+    expect(() => checkBudget({ agentRemaining: 1, leagueRemaining: 1 })).not.toThrow();
+    expect(() => checkBudget(null)).not.toThrow();
   });
 });
 
@@ -219,7 +209,8 @@ describe('chat_moment with the fake model', () => {
       request('chat_moment', { moment: 'Trade complete between Team 3 and Team 4.', subjectTeamId: 'team-3' })
     );
     expect(record).toMatchObject({ status: 'completed', finalAction: 'post_message' });
-    expect(await s.agentPosts()).toHaveLength(1);
+    // Moments without a room (from before rooms) are league news.
+    expect(await s.agentPosts('league')).toHaveLength(1);
     const prompt = model.transcript[0]?.systemPrompt ?? '';
     expect(prompt).toContain(
       'Something just happened in the league: <<<Trade complete between Team 3 and Team 4.>>>'
@@ -231,12 +222,12 @@ describe('chat_moment with the fake model', () => {
   it('knows when the moment is about its own team', async () => {
     const s = await chatSetup();
     await s.repos.chat.put({
-      ...human(),
+      ...human({ roomId: 'league' }),
       kind: 'system',
       author: { teamId: null, teamName: null, name: 'League' }
     });
     await s.repos.chat.put({
-      ...human({ id: 'm-x' }),
+      ...human({ id: 'm-x', roomId: 'league' }),
       author: { teamId: null, teamName: null, name: 'Commish' }
     });
     const model = new ScriptedModelClient();
