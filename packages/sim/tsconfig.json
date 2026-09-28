@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true,
+    // The CLIs run through tsx, which follows these paths so core and data run from source (no build step).
+    "paths": {
+      "@fantasy/core": ["../core/src/index.ts"],
+      "@fantasy/data": ["../data/src/index.ts"]
+    }
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}
