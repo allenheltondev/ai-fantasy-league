@@ -1,6 +1,12 @@
 import { ruleError, type RuleIssue } from '../rules/issues.js';
-import { ROSTER_SLOTS, SLOT_ELIGIBILITY, isEligibleForSlot, isStarterSlot } from '../rules/positions.js';
-import type { Position, RosterSlot } from '../rules/positions.js';
+import {
+  ROSTER_SLOTS,
+  SLOT_ELIGIBILITY,
+  WILL_NOT_PLAY_STATUSES,
+  isEligibleForSlot,
+  isStarterSlot
+} from '../rules/positions.js';
+import type { PlayerStatus, Position, RosterSlot } from '../rules/positions.js';
 import type { LeagueSettings } from '../rules/settings.js';
 import { currentPick, picksRemaining, teamPicks, type DraftState } from './draft.js';
 
@@ -51,6 +57,24 @@ export function unfilledStarterSlots(
     if (idx >= 0) open.splice(idx, 1);
   }
   return open;
+}
+
+/** A rostered player as `rosterHoles` sees him. */
+export interface HealthCheckedPlayer {
+  positions: readonly Position[];
+  status: PlayerStatus;
+}
+
+/**
+ * Starting slots a roster cannot fill with players who will play (#175): an empty kicker or defense
+ * slot, or a starter out, on IR, or suspended (`WILL_NOT_PLAY_STATUSES`) with no healthy backup at
+ * his position. Same placement as `unfilledStarterSlots`.
+ */
+export function rosterHoles(needs: RosterNeeds, roster: readonly HealthCheckedPlayer[]): RosterSlot[] {
+  return unfilledStarterSlots(
+    needs,
+    roster.filter((p) => !WILL_NOT_PLAY_STATUSES.includes(p.status)).map((p) => p.positions)
+  );
 }
 
 /**
