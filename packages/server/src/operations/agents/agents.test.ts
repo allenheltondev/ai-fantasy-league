@@ -211,4 +211,31 @@ describe('agent seat operations', () => {
     expect(budgetWeek({ ...league5!, week: null })).toBe(0);
     expect((await leagueBudget(repos.agents, league5!)).week).toBe(5);
   });
+
+  it('lists the catalog and suggests varied seats from a seed', async () => {
+    const { run } = await setup();
+    const plain = await run('get_agent_catalog', {}, OTHER);
+    const catalog = (plain.body as { data: Record<string, unknown[]> }).data;
+    expect(catalog.personalities).toHaveLength(20);
+    expect(catalog.difficulties).toHaveLength(5);
+    expect(catalog.archetypes).toHaveLength(8);
+    expect(catalog.modelTiers).toEqual(['micro', 'lite', 'standard', 'advanced', 'frontier']);
+    expect(catalog.difficulties?.[0]).toMatchObject({ id: 'rookie', decisionModelTier: 'micro' });
+    expect(catalog.models).toContainEqual(expect.objectContaining({ key: 'nova-micro', tier: 'micro' }));
+    expect(catalog.models).toContainEqual(
+      expect.objectContaining({ key: 'claude-opus-5', tier: 'frontier' })
+    );
+    expect(catalog.suggestion).toBeNull();
+    const a = await run('get_agent_catalog', { suggest: 7, seed: 's1' });
+    const b = await run('get_agent_catalog', { suggest: 7, seed: 's1' });
+    const seats = (a.body as { data: { suggestion: { seed: string; seats: { personalityId: string }[] } } })
+      .data.suggestion;
+    expect(seats.seed).toBe('s1');
+    expect(new Set(seats.seats.map((x) => x.personalityId)).size).toBe(7);
+    expect(b.body).toEqual(a.body);
+    const fresh = await run('get_agent_catalog', { suggest: 2 });
+    expect(fresh.body).toMatchObject({ data: { suggestion: { seed: expect.any(String) } } });
+    const tooMany = await run('get_agent_catalog', { suggest: 21 });
+    expect(tooMany.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
+  });
 });

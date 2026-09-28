@@ -1,6 +1,6 @@
 import { FixedClock } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
-import { localVerifier, startLocalServer } from '../../src/local.js';
+import { localClock, localVerifier, startLocalServer } from '../../src/local.js';
 import { silentLogger } from '../../src/log.js';
 
 describe('local dev server', () => {
@@ -45,5 +45,24 @@ describe('local dev server', () => {
     expect(localVerifier({})).toBeNull();
     expect(localVerifier({ USER_POOL_ID: 'us-east-1_abc', USER_POOL_CLIENT_ID: 'c' })).not.toBeNull();
     expect(localVerifier({ FANTASY_LOCAL_AUTH: '1', AWS_LAMBDA_FUNCTION_NAME: 'x' })).toBeNull();
+  });
+
+  it('pins the clock with FANTASY_LOCAL_NOW', async () => {
+    expect(localClock({}).now()).toBeInstanceOf(Date);
+    expect(localClock({ FANTASY_LOCAL_NOW: '' })).toBe(localClock({}));
+    expect(localClock({ FANTASY_LOCAL_NOW: '2026-09-10T12:00:00Z' }).now().toISOString()).toBe(
+      '2026-09-10T12:00:00.000Z'
+    );
+    expect(() => localClock({ FANTASY_LOCAL_NOW: 'soon' })).toThrow(/not a date/);
+    const local = await startLocalServer({
+      port: 0,
+      env: { FANTASY_LOCAL_AUTH: '1', FANTASY_LOCAL_NOW: '2026-09-10T12:00:00Z' },
+      log: silentLogger
+    });
+    try {
+      expect(local.services.clock.now().toISOString()).toBe('2026-09-10T12:00:00.000Z');
+    } finally {
+      await local.close();
+    }
   });
 });

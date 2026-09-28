@@ -29,6 +29,550 @@
     }
   ],
   "paths": {
+    "/api/v1/agents/catalog": {
+      "get": {
+        "operationId": "get_agent_catalog",
+        "summary": "The agent presets: personalities, difficulties, strategies, and models",
+        "description": "Lists every choice configure_agent_seat accepts: the personality presets (with a bio and avatar seed), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name. Pass `suggest` (1-20) to also get that many varied seat configs (no repeated personality, difficulties and strategies spread evenly), the same mix randomize_agent_seats would write; the same `seed` gives the same mix. Reading the catalog changes nothing.",
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "suggest",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "description": "How many suggested seat configs to return (1-20)."
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Seed for a repeatable suggestion."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "personalities": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "enum": [
+                                  "stats-nerd",
+                                  "old-school-scout",
+                                  "the-homer",
+                                  "chaos-agent",
+                                  "smug-veteran",
+                                  "hype-man",
+                                  "zen-master",
+                                  "film-room-junkie",
+                                  "soap-opera-narrator",
+                                  "pirate-captain",
+                                  "cranky-grandpa",
+                                  "corporate-consultant",
+                                  "noir-detective",
+                                  "radio-caller",
+                                  "literal-robot",
+                                  "the-oracle",
+                                  "chill-surfer",
+                                  "chef-de-roster",
+                                  "lucky-charm",
+                                  "nature-narrator"
+                                ]
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "teamNameSuggestion": {
+                                "type": "string"
+                              },
+                              "bio": {
+                                "type": "string"
+                              },
+                              "avatarSeed": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "displayName",
+                              "teamNameSuggestion",
+                              "bio",
+                              "avatarSeed"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "difficulties": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "enum": [
+                                  "rookie",
+                                  "amateur",
+                                  "pro",
+                                  "all_pro",
+                                  "hall_of_famer"
+                                ]
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "decisionModelTier": {
+                                "type": "string",
+                                "enum": [
+                                  "micro",
+                                  "lite",
+                                  "standard",
+                                  "advanced",
+                                  "frontier"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "displayName",
+                              "description",
+                              "decisionModelTier"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "archetypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "enum": [
+                                  "balanced",
+                                  "zero_rb",
+                                  "contrarian",
+                                  "win_now",
+                                  "analytics_only",
+                                  "gut_feel_homer",
+                                  "trade_happy",
+                                  "waiver_hawk"
+                                ]
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "description": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "displayName",
+                              "description"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "modelTiers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "micro",
+                              "lite",
+                              "standard",
+                              "advanced",
+                              "frontier"
+                            ]
+                          },
+                          "description": "Weakest to strongest."
+                        },
+                        "models": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string",
+                                "description": "Use as advanced.modelOverride."
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "tier": {
+                                "type": "string",
+                                "enum": [
+                                  "micro",
+                                  "lite",
+                                  "standard",
+                                  "advanced",
+                                  "frontier"
+                                ],
+                                "description": "The weakest tier that lists this model."
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "displayName",
+                              "tier"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "seed": {
+                                  "type": "string"
+                                },
+                                "seats": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "personalityId": {
+                                        "type": "string",
+                                        "enum": [
+                                          "stats-nerd",
+                                          "old-school-scout",
+                                          "the-homer",
+                                          "chaos-agent",
+                                          "smug-veteran",
+                                          "hype-man",
+                                          "zen-master",
+                                          "film-room-junkie",
+                                          "soap-opera-narrator",
+                                          "pirate-captain",
+                                          "cranky-grandpa",
+                                          "corporate-consultant",
+                                          "noir-detective",
+                                          "radio-caller",
+                                          "literal-robot",
+                                          "the-oracle",
+                                          "chill-surfer",
+                                          "chef-de-roster",
+                                          "lucky-charm",
+                                          "nature-narrator"
+                                        ],
+                                        "description": "Personality preset id."
+                                      },
+                                      "difficulty": {
+                                        "type": "string",
+                                        "enum": [
+                                          "rookie",
+                                          "amateur",
+                                          "pro",
+                                          "all_pro",
+                                          "hall_of_famer"
+                                        ],
+                                        "description": "Difficulty tier."
+                                      },
+                                      "archetype": {
+                                        "type": "string",
+                                        "enum": [
+                                          "balanced",
+                                          "zero_rb",
+                                          "contrarian",
+                                          "win_now",
+                                          "analytics_only",
+                                          "gut_feel_homer",
+                                          "trade_happy",
+                                          "waiver_hawk"
+                                        ],
+                                        "description": "Strategy archetype."
+                                      },
+                                      "advanced": {
+                                        "description": "Advanced drawer settings.",
+                                        "type": "object",
+                                        "properties": {
+                                          "modelOverride": {
+                                            "description": "Catalog model key to use for decisions ahead of the tier default.",
+                                            "type": "string",
+                                            "enum": [
+                                              "nova-micro",
+                                              "nova-lite",
+                                              "nova-2-lite",
+                                              "nova-pro",
+                                              "kimi-k2-thinking",
+                                              "claude-haiku-4-5",
+                                              "claude-sonnet-5",
+                                              "claude-opus-5"
+                                            ]
+                                          },
+                                          "levers": {
+                                            "description": "Individual difficulty levers to override.",
+                                            "type": "object",
+                                            "properties": {
+                                              "decisionModelTier": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "micro",
+                                                  "lite",
+                                                  "standard",
+                                                  "advanced",
+                                                  "frontier"
+                                                ]
+                                              },
+                                              "chatModelTier": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "micro",
+                                                  "lite",
+                                                  "standard",
+                                                  "advanced",
+                                                  "frontier"
+                                                ]
+                                              },
+                                              "reasoningEffort": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "low",
+                                                  "medium",
+                                                  "high"
+                                                ]
+                                              },
+                                              "maxToolSteps": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 40
+                                              },
+                                              "actionsPerTrigger": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 10
+                                              },
+                                              "cooldownMinutes": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 1440
+                                              },
+                                              "negotiationRounds": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 10
+                                              },
+                                              "valuationNoise": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "maximum": 0.5
+                                              },
+                                              "research": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "projections": {
+                                                    "type": "boolean"
+                                                  },
+                                                  "news": {
+                                                    "type": "boolean"
+                                                  },
+                                                  "trending": {
+                                                    "type": "boolean"
+                                                  },
+                                                  "matchupOutlook": {
+                                                    "type": "boolean"
+                                                  }
+                                                },
+                                                "additionalProperties": false
+                                              }
+                                            },
+                                            "additionalProperties": false
+                                          },
+                                          "customFlavor": {
+                                            "description": "Extra personality flavor, up to 280 characters.",
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 280
+                                          }
+                                        },
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "required": [
+                                      "personalityId",
+                                      "difficulty",
+                                      "archetype"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "seed",
+                                "seats"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Suggested seat configs when `suggest` was given, else null."
+                        }
+                      },
+                      "required": [
+                        "personalities",
+                        "difficulties",
+                        "archetypes",
+                        "modelTiers",
+                        "models",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/health": {
       "get": {
         "operationId": "get_health",
@@ -1504,7 +2048,7 @@
       "get": {
         "operationId": "list_my_leagues",
         "summary": "List the leagues you belong to",
-        "description": "Returns every league where you hold a seat, newest season first and then by name, with its phase, current week, your team id, and whether you are the commissioner. Use a returned `id` as leagueId in the other league operations. An empty list means you have not created or joined a league yet: call create_league, or join_league with an invite token.",
+        "description": "Returns every league where you hold a seat, newest season first and then by name, with its phase, current week, your team id, your record once the season starts, and whether you are the commissioner. Use a returned `id` as leagueId in the other league operations. An empty list means you have not created or joined a league yet: call create_league, or join_league with an invite token.",
         "tags": [
           "leagues"
         ],
@@ -1580,6 +2124,13 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "record": {
+                                "description": "Your team's regular-season record, e.g. \"7-3\" or \"6-3-1\"; null before the season starts.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
@@ -1592,7 +2143,8 @@
                               "startWeek",
                               "commissionerName",
                               "youAreCommissioner",
-                              "yourTeamId"
+                              "yourTeamId",
+                              "record"
                             ],
                             "additionalProperties": false
                           }
@@ -10245,6 +10797,590 @@
                         "capturedAt",
                         "scoring",
                         "projections"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
+    "/api/v1/settings/defaults": {
+      "get": {
+        "operationId": "get_default_settings",
+        "summary": "Yahoo default league rules, and which rules can change after the draft",
+        "description": "Returns the Yahoo default settings for a league of `teamCount` teams with a scoring `preset`, the settings create_league starts from. Compare them with `settings` from get_league to see what a commissioner changed. `editability` maps dotted setting paths to `pre_draft` (locked once the draft starts) or `any_time`; the longest matching prefix governs a path, and unknown paths are locked. Also lists the stat labels, roster slots, and player statuses the settings use. Reading defaults changes nothing.",
+        "tags": [
+          "leagues"
+        ],
+        "parameters": [
+          {
+            "name": "teamCount",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 12
+            },
+            "description": "Number of teams (default 8)."
+          },
+          {
+            "name": "preset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "yahoo_standard",
+              "type": "string",
+              "enum": [
+                "yahoo_standard",
+                "full_ppr",
+                "standard"
+              ]
+            },
+            "description": "Scoring preset (default half-PPR)."
+          },
+          {
+            "name": "startWeek",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18
+            },
+            "description": "First NFL week the league plays (default 1)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "settings": {
+                          "type": "object",
+                          "properties": {
+                            "teamCount": {
+                              "type": "integer",
+                              "minimum": 4,
+                              "maximum": 12
+                            },
+                            "schedule": {
+                              "type": "object",
+                              "properties": {
+                                "startWeek": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 18
+                                },
+                                "regularSeasonEndWeek": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 18
+                                }
+                              },
+                              "required": [
+                                "startWeek",
+                                "regularSeasonEndWeek"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "roster": {
+                              "type": "object",
+                              "properties": {
+                                "slots": {
+                                  "type": "object",
+                                  "propertyNames": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "WR",
+                                      "RB",
+                                      "TE",
+                                      "W/R/T",
+                                      "Q/W/R/T",
+                                      "W/T",
+                                      "W/R",
+                                      "K",
+                                      "DEF",
+                                      "DL",
+                                      "LB",
+                                      "DB",
+                                      "IDP",
+                                      "BN",
+                                      "IR"
+                                    ]
+                                  },
+                                  "additionalProperties": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 15
+                                  }
+                                },
+                                "irEligibleStatuses": {
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "active",
+                                      "questionable",
+                                      "doubtful",
+                                      "out",
+                                      "ir",
+                                      "pup",
+                                      "nfi",
+                                      "suspended",
+                                      "covid",
+                                      "na"
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "slots",
+                                "irEligibleStatuses"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "scoring": {
+                              "type": "object",
+                              "properties": {
+                                "perStat": {
+                                  "type": "object",
+                                  "propertyNames": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9_]*$"
+                                  },
+                                  "additionalProperties": {
+                                    "type": "number"
+                                  }
+                                },
+                                "tiers": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "stat": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][a-z0-9_]*$"
+                                      },
+                                      "bands": {
+                                        "minItems": 1,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "min": {
+                                              "type": "number"
+                                            },
+                                            "max": {
+                                              "type": [
+                                                "number",
+                                                "null"
+                                              ]
+                                            },
+                                            "points": {
+                                              "type": "number"
+                                            }
+                                          },
+                                          "required": [
+                                            "min",
+                                            "max",
+                                            "points"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "stat",
+                                      "bands"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "perStat",
+                                "tiers"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "waivers": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": [
+                                    "faab",
+                                    "rolling"
+                                  ]
+                                },
+                                "faabBudget": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 1000
+                                },
+                                "allowZeroBids": {
+                                  "type": "boolean"
+                                },
+                                "waiverPeriodDays": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 7
+                                },
+                                "faabTiebreak": {
+                                  "type": "string",
+                                  "enum": [
+                                    "waiver_priority",
+                                    "reverse_standings",
+                                    "earliest_claim"
+                                  ]
+                                },
+                                "priorityOrder": {
+                                  "type": "string",
+                                  "enum": [
+                                    "reverse_draft_continual",
+                                    "reverse_standings_weekly"
+                                  ]
+                                },
+                                "postDraftPlayers": {
+                                  "type": "string",
+                                  "enum": [
+                                    "waivers",
+                                    "free_agents"
+                                  ]
+                                },
+                                "maxAcquisitionsPerWeek": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 50
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "faabBudget",
+                                "allowZeroBids",
+                                "waiverPeriodDays",
+                                "faabTiebreak",
+                                "priorityOrder",
+                                "postDraftPlayers",
+                                "maxAcquisitionsPerWeek"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "trades": {
+                              "type": "object",
+                              "properties": {
+                                "review": {
+                                  "type": "string",
+                                  "enum": [
+                                    "league_vote",
+                                    "commissioner",
+                                    "none"
+                                  ]
+                                },
+                                "reviewPeriodDays": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 7
+                                },
+                                "vetoVotes": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 12
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "deadlineWeek": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 18
+                                },
+                                "offerExpiryHours": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 336
+                                },
+                                "expireAtNextLineupLock": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "review",
+                                "reviewPeriodDays",
+                                "vetoVotes",
+                                "deadlineWeek",
+                                "offerExpiryHours",
+                                "expireAtNextLineupLock"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "playoffs": {
+                              "type": "object",
+                              "properties": {
+                                "teams": {
+                                  "type": "integer",
+                                  "minimum": 2,
+                                  "maximum": 8
+                                },
+                                "byes": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 6
+                                },
+                                "startWeek": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 18
+                                },
+                                "endWeek": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 18
+                                },
+                                "tiebreaker": {
+                                  "type": "string",
+                                  "enum": [
+                                    "points_for",
+                                    "head_to_head"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "teams",
+                                "byes",
+                                "startWeek",
+                                "endWeek",
+                                "tiebreaker"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "teamCount",
+                            "schedule",
+                            "roster",
+                            "scoring",
+                            "waivers",
+                            "trades",
+                            "playoffs"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "editability": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "string",
+                            "enum": [
+                              "pre_draft",
+                              "any_time"
+                            ]
+                          }
+                        },
+                        "statLabels": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "rosterSlots": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "QB",
+                              "WR",
+                              "RB",
+                              "TE",
+                              "W/R/T",
+                              "Q/W/R/T",
+                              "W/T",
+                              "W/R",
+                              "K",
+                              "DEF",
+                              "DL",
+                              "LB",
+                              "DB",
+                              "IDP",
+                              "BN",
+                              "IR"
+                            ]
+                          }
+                        },
+                        "playerStatuses": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "questionable",
+                              "doubtful",
+                              "out",
+                              "ir",
+                              "pup",
+                              "nfi",
+                              "suspended",
+                              "covid",
+                              "na"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "settings",
+                        "editability",
+                        "statLabels",
+                        "rosterSlots",
+                        "playerStatuses"
                       ],
                       "additionalProperties": false
                     },

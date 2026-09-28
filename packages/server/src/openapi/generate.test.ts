@@ -106,7 +106,9 @@ describe('generateMcpTools', () => {
         'configure_agent_seat',
         'randomize_agent_seats',
         'get_agent_seat',
-        'get_agent_activity'
+        'get_agent_activity',
+        'get_agent_catalog',
+        'get_default_settings'
       ])
     );
   });
