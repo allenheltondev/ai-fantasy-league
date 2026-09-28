@@ -69,6 +69,137 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(h.events.events.filter((e) => e.detailType === 'Chat Mention')).toHaveLength(1);
     });
 
+    it('filters by since and mentions of me, and returns compact messages on request', async () => {
+      const alice = as(h, ALICE);
+      const bob = as(h, BOB);
+      await alice.post(`${L}/chat/messages`, { text: '@Bob old news' });
+      h.clock.advance(60_000);
+      const since = h.clock.now().toISOString();
+      h.clock.advance(1000);
+      for (const text of ['@Bob one', 'nothing for bob', '@Bob two', '@Bob three']) {
+        await alice.post(`${L}/chat/messages`, { text });
+        h.clock.advance(1000);
+      }
+      const recent = data<Page>(await bob.get(`${L}/chat/messages?since=${encodeURIComponent(since)}`));
+      expect(recent.messages.map((m) => m.text)).toEqual([
+        '@Bob three',
+        '@Bob two',
+        'nothing for bob',
+        '@Bob one'
+      ]);
+      expect(recent.nextCursor).toBeNull();
+
+      const mine = data<Page>(await bob.get(`${L}/chat/messages?mentionsMe=true&limit=2`));
+      expect(mine.messages.map((m) => m.text)).toEqual(['@Bob three', '@Bob two']);
+      const rest = data<Page>(
+        await bob.get(`${L}/chat/messages?mentionsMe=true&after=${encodeURIComponent(mine.nextCursor ?? '')}`)
+      );
+      expect(rest).toEqual({
+        messages: [
+          expect.objectContaining({ text: '@Bob one' }),
+          expect.objectContaining({ text: '@Bob old news' })
+        ],
+        nextCursor: null
+      });
+      expect(data<Page>(await alice.get(`${L}/chat/messages?mentionsMe=true`)).messages).toEqual([]);
+
+      const compact = data<{ messages: unknown[] }>(await bob.get(`${L}/chat/messages?detail=false&limit=1`));
+      expect(compact.messages).toEqual([
+        {
+          id: expect.any(String),
+          kind: 'user',
+          author: 'Alice',
+          teamId: 'team-1',
+          text: '@Bob three',
+          mentionedTeamIds: ['team-2'],
+          createdAt: expect.any(String)
+        }
+      ]);
+    });
+
+    it('stops a filtered read after a bounded scan and hands back a cursor', async () => {
+      // 5 pages of 100 messages that do not mention Bob, then one that does.
+      const league = 'lg-chat';
+      const base = Date.parse(h.clock.now().toISOString());
+      await h.repos.chat.put({
+        id: 'm-old',
+        leagueId: league,
+        kind: 'user',
+        author: { teamId: 'team-1', teamName: "Alice's Team", name: 'Alice' },
+        text: '@Bob found me',
+        mentionedTeamIds: ['team-2'],
+        event: null,
+        createdAt: new Date(base).toISOString()
+      });
+      for (let i = 1; i <= 500; i++) {
+        await h.repos.chat.put({
+          id: `m-${i}`,
+          leagueId: league,
+          kind: 'user',
+          author: { teamId: 'team-1', teamName: "Alice's Team", name: 'Alice' },
+          text: `filler ${i}`,
+          mentionedTeamIds: [],
+          event: null,
+          createdAt: new Date(base + i * 1000).toISOString()
+        });
+      }
+      const first = data<Page>(await as(h, BOB).get(`${L}/chat/messages?mentionsMe=true`));
+      expect(first.messages).toEqual([]);
+      expect(first.nextCursor).not.toBeNull();
+      const next = data<Page>(
+        await as(h, BOB).get(
+          `${L}/chat/messages?mentionsMe=true&after=${encodeURIComponent(first.nextCursor ?? '')}`
+        )
+      );
+      expect(next.messages.map((m) => m.id)).toEqual(['m-old']);
+    });
+
+    it('moderates every message: strips control characters and refuses harassment', async () => {
+      const posted = await as(h, BOB).post(`${L}/chat/messages`, { text: 'nice\u0000 pick\u200B' });
+      expect(data<{ message: ChatMessage }>(posted).message.text).toBe('nice pick');
+      const blocked = await as(h, BOB).post(`${L}/chat/messages`, { text: 'just k1ll yourself' });
+      expect(blocked.status).toBe(400);
+      expect(blocked.body).toMatchObject({
+        error: { code: 'MESSAGE_BLOCKED', fix: expect.stringMatching(/Rewrite/) }
+      });
+      expect(errorCode(await as(h, BOB).post(`${L}/chat/messages`, { text: '\u200B\u0007' }))).toBe(
+        'INVALID_INPUT'
+      );
+      const principal = agentPrincipal({ agentId: 'lg-chat.team-3', teamId: 'team-3', leagueId: 'lg-chat' });
+      const agent = await invokeTool({
+        registry,
+        services: h.services,
+        principal,
+        name: 'post_message',
+        args: { leagueId: 'lg-chat', text: 'KYS @Bob', idempotencyKey: 'agent-chat-mod1' }
+      });
+      expect(agent.body).toMatchObject({ error: { code: 'MESSAGE_BLOCKED' } });
+    });
+
+    it('gives a commissioner without a seat no mentions and no team topic', async () => {
+      await seedLeague(h.repos, {
+        id: 'lg-seatless',
+        owners: [ALICE, BOB],
+        teamCount: 4,
+        overrides: { commissionerId: CAROL.sub, commissionerName: CAROL.name }
+      });
+      await as(h, ALICE).post('/leagues/lg-seatless/chat/messages', { text: '@team-3 hello' });
+      const carol = as(h, CAROL);
+      expect(
+        data<Page>(await carol.get('/leagues/lg-seatless/chat/messages?mentionsMe=true')).messages
+      ).toEqual([]);
+      const requests: { teamId: string | null }[] = [];
+      (h.services as { realtime: Realtime }).realtime = {
+        async issueSubscribeToken(request) {
+          requests.push(request);
+          return null;
+        },
+        publish: async () => undefined
+      };
+      await carol.get('/leagues/lg-seatless/realtime');
+      expect(requests[0]?.teamId).toBeNull();
+    });
+
     it('replays a repeated Idempotency-Key instead of posting twice', async () => {
       const alice = as(h, ALICE);
       const a = await alice.post(`${L}/chat/messages`, { text: 'once' }, 'chat-key-0001');
