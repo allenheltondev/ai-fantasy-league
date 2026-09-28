@@ -23,7 +23,7 @@ import {
 import type { Ctx } from '../context.js';
 import { ApiError, isApiError } from '../errors.js';
 import { scheduleName } from '../events/schedule-name.js';
-import { toPlayerRef, type Player } from '../players/model.js';
+import { rosterStatus, toPlayerRef, type Player } from '../players/model.js';
 import type { DraftRecord, League, Team } from '../repos/types.js';
 import { startLeagueSeason } from '../season/cycle.js';
 import { currentNflWeek } from './calendar.js';
@@ -59,7 +59,7 @@ export function requireDraft(record: DraftRecord | null): DraftRecord {
 export async function draftPool(deps: DraftDeps): Promise<Player[]> {
   const all = await deps.data.players.all();
   return all
-    .filter((p) => p.team !== null && p.status !== 'inactive')
+    .filter((p) => p.team !== null && rosterStatus(p) !== 'inactive')
     .sort(
       (a, b) =>
         (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) ||

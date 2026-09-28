@@ -207,6 +207,15 @@ export function dashboard(overrides: Partial<LeagueDashboardData> = {}): LeagueD
 export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
   const api: LeagueApi = {
     listMyLeagues: vi.fn(async () => []),
+    getNotificationSummary: vi.fn(async () => ({ unreadCount: 0, leagues: [] })),
+    listNotifications: vi.fn(async () => ({
+      teamId: null,
+      unreadCount: 0,
+      notifications: [],
+      nextCursor: null
+    })),
+    markNotificationsRead: vi.fn(async (leagueId: string) => ({ leagueId, unreadCount: 0 })),
+    markNotificationsDelivered: vi.fn(async (leagueId: string) => ({ leagueId })),
     createLeague: vi.fn(async () => league()),
     getLeague: vi.fn(async () => league()),
     getLeagueState: vi.fn(async () => state()),

@@ -108,11 +108,18 @@ export async function seedNflSchedule(reference: ReferenceStore): Promise<void> 
 
 /**
  * Seeds the demo league (`FANTASY_LOCAL_SEASON_DEMO=<handle>` in the local server), owned by the
- * dev user `local-<handle>` on team-1. Does nothing when the league already exists.
+ * dev user `local-<handle>` on team-1. With a `rival`, a second person holds team-2 instead of an
+ * AI manager (`FANTASY_LOCAL_TRADE_DEMO`, for the notification e2e: one person's trade offer lands
+ * in the other's inbox). Does nothing when the league already exists.
  */
 export async function seedDemoSeason(
   deps: { repos: Repos; reference: ReferenceStore },
-  options: { leagueId: string; owner: { sub: string; name: string }; now: Date }
+  options: {
+    leagueId: string;
+    owner: { sub: string; name: string };
+    rival?: { sub: string; name: string };
+    now: Date;
+  }
 ): Promise<League> {
   const existing = await deps.repos.leagues.get(options.leagueId);
   if (existing !== null) return existing;
@@ -135,32 +142,33 @@ export async function seedDemoSeason(
     version: 1
   };
   const rosters: Record<string, readonly string[]> = { 'team-1': TEAM1_ROSTER, 'team-2': TEAM2_ROSTER };
-  const teams = [1, 2, 3, 4].map((slot) => ({
-    ...newTeam({
-      leagueId: league.id,
-      id: `team-${slot}`,
-      draftSlot: slot,
-      settings,
-      now: options.now,
-      ...(slot === 1
-        ? {
-            owner: {
-              userId: options.owner.sub,
-              name: options.owner.name,
-              teamName: `${options.owner.name}'s Team`
-            }
-          }
-        : {})
-    }),
-    roster: [...(rosters[`team-${slot}`] ?? [])]
-  }));
-  await deps.repos.teams.create(teams);
-  await deps.repos.members.add({
-    leagueId: league.id,
-    userId: options.owner.sub,
-    teamId: 'team-1',
-    joinedAt: at
+  const people = [options.owner, options.rival ?? null];
+  const teams = [1, 2, 3, 4].map((slot) => {
+    const person = people[slot - 1] ?? null;
+    return {
+      ...newTeam({
+        leagueId: league.id,
+        id: `team-${slot}`,
+        draftSlot: slot,
+        settings,
+        now: options.now,
+        ...(person === null
+          ? {}
+          : { owner: { userId: person.sub, name: person.name, teamName: `${person.name}'s Team` } })
+      }),
+      roster: [...(rosters[`team-${slot}`] ?? [])]
+    };
   });
+  await deps.repos.teams.create(teams);
+  for (const [i, person] of people.entries()) {
+    if (person === null) continue;
+    await deps.repos.members.add({
+      leagueId: league.id,
+      userId: person.sub,
+      teamId: `team-${i + 1}`,
+      joinedAt: at
+    });
+  }
   await deps.repos.leagues.create(league);
   // Agents on the other seats, each on a different model family, so the model leaderboard and the
   // AI activity tab have something to show.
@@ -170,6 +178,7 @@ export async function seedDemoSeason(
     ['team-4', 'hype-man', 'rookie', 'waiver_hawk']
   ] as const;
   for (const [teamId, personalityId, difficulty, archetype] of agentSeats) {
+    if (teamId === 'team-2' && options.rival !== undefined) continue;
     await deps.repos.agents.putSeat({
       leagueId: league.id,
       teamId,

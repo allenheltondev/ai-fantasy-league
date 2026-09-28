@@ -19,8 +19,11 @@ import { GLOBAL_TOPIC, leagueTopic, teamTopic, type Realtime, type RealtimeMessa
  * its two teams' topics (`detail.teamIds`) and never to the league topic. A DM message without its
  * two teams is dropped rather than risk the league topic.
  *
- * Per-team results also go to the team's own topic: each team's waiver awards from
- * `Waivers Processed` (the league topic still gets the whole run, which everyone may see).
+ * Per-team results also go to the team's own topic: each team's waiver awards and failed claims
+ * from `Waivers Processed` (the league topic gets the run's awards, which everyone may see, but
+ * never the failed claims).
+ *
+ * A team's new inbox item (`Notification Created`, #165) goes only to that team's topic.
  */
 export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Chat Message Posted',
@@ -51,13 +54,17 @@ export const TEAM_ONLY_EVENTS: readonly FantasyEventType[] = [
   'Trade Withdrawn'
 ];
 
+/** Events for one team alone (`detail.teamId`): its new inbox items (#165). */
+export const TEAM_INBOX_EVENTS: readonly FantasyEventType[] = ['Notification Created'];
+
 export interface RelayResult {
   topics: string[];
 }
 
 export async function relayEvent(realtime: Realtime, log: Logger, event: BusEvent): Promise<RelayResult> {
   const detailType = event['detail-type'];
-  const teamOnly = TEAM_ONLY_EVENTS.includes(detailType as FantasyEventType);
+  const inbox = TEAM_INBOX_EVENTS.includes(detailType as FantasyEventType);
+  const teamOnly = inbox || TEAM_ONLY_EVENTS.includes(detailType as FantasyEventType);
   if (
     event.source !== EVENT_SOURCE ||
     (!teamOnly && !RELAYED_EVENTS.includes(detailType as FantasyEventType))
@@ -85,7 +92,9 @@ export async function relayEvent(realtime: Realtime, log: Logger, event: BusEven
     }
   } else if (teamOnly) {
     const base = { type: 'event' as const, detailType, eventId: event.id, time: event.time ?? null, detail };
-    const teams = new Set([detail.fromTeamId, detail.toTeamId].filter(isId));
+    const teams = new Set(
+      inbox ? [detail.teamId].filter(isId) : [detail.fromTeamId, detail.toTeamId].filter(isId)
+    );
     if (leagueIds.length === 1) {
       const leagueId = leagueIds[0] as string;
       for (const teamId of teams) {
@@ -94,13 +103,16 @@ export async function relayEvent(realtime: Realtime, log: Logger, event: BusEven
     }
   } else {
     const base = { type: 'event' as const, detailType, eventId: event.id, time: event.time ?? null, detail };
+    // Failed waiver claims are private to each team: the league topic never carries them.
+    const { lost, ...shared } = detail;
+    const everyone = detailType === 'Waivers Processed' ? { ...base, detail: shared } : base;
     if (leagueIds.length === 0)
-      deliveries.push({ topic: GLOBAL_TOPIC, message: { ...base, leagueId: null } });
+      deliveries.push({ topic: GLOBAL_TOPIC, message: { ...everyone, leagueId: null } });
     for (const leagueId of leagueIds) {
-      deliveries.push({ topic: leagueTopic(leagueId), message: { ...base, leagueId } });
+      deliveries.push({ topic: leagueTopic(leagueId), message: { ...everyone, leagueId } });
     }
     if (detailType === 'Waivers Processed' && leagueIds.length === 1) {
-      deliveries.push(...teamAwardDeliveries(leagueIds[0] as string, base));
+      deliveries.push(...teamWaiverDeliveries(leagueIds[0] as string, everyone, lost));
     }
   }
   for (const delivery of deliveries) await realtime.publish(delivery.topic, delivery.message);
@@ -111,20 +123,35 @@ export async function relayEvent(realtime: Realtime, log: Logger, event: BusEven
 
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
-/** Each team's own waiver awards, on its private topic. */
-function teamAwardDeliveries(
+/** Each team's own waiver awards and failed claims, on its private topic. */
+function teamWaiverDeliveries(
   leagueId: string,
-  base: Omit<Extract<RealtimeMessage, { type: 'event' }>, 'leagueId'>
+  base: Omit<Extract<RealtimeMessage, { type: 'event' }>, 'leagueId'>,
+  lost: unknown
 ): { topic: string; message: RealtimeMessage }[] {
-  const awarded = Array.isArray(base.detail.awarded) ? base.detail.awarded : [];
-  const byTeam = new Map<string, unknown[]>();
-  for (const award of awarded) {
-    const teamId = (award as { teamId?: unknown } | null)?.teamId;
-    if (!isId(teamId)) continue;
-    byTeam.set(teamId, [...(byTeam.get(teamId) ?? []), award]);
-  }
+  const byTeam = new Map<string, { awarded: unknown[]; lost: unknown[] }>();
+  const add = (items: unknown, key: 'awarded' | 'lost') => {
+    for (const item of Array.isArray(items) ? items : []) {
+      const teamId = (item as { teamId?: unknown } | null)?.teamId;
+      if (!isId(teamId)) continue;
+      const mine = byTeam.get(teamId) ?? { awarded: [], lost: [] };
+      mine[key].push(item);
+      byTeam.set(teamId, mine);
+    }
+  };
+  add(base.detail.awarded, 'awarded');
+  add(lost, 'lost');
   return [...byTeam].map(([teamId, mine]) => ({
     topic: teamTopic(leagueId, teamId),
-    message: { ...base, leagueId, detail: { ...base.detail, teamId, awarded: mine } }
+    message: {
+      ...base,
+      leagueId,
+      detail: {
+        ...base.detail,
+        teamId,
+        awarded: mine.awarded,
+        ...(lost === undefined ? {} : { lost: mine.lost })
+      }
+    }
   }));
 }

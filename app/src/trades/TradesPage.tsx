@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router';
 import { Alert, Button, Card, CardBody, Input, Select, StatusBadge } from '@readysetcloud/ui';
 import { apiFetch } from '../api';
 import { ApiErrorAlert } from '../components/ApiErrorAlert';
@@ -127,49 +127,57 @@ const ACTION_LABELS: Record<TradeAction, string> = {
 function TradeCard(props: {
   trade: TradeView;
   now: number;
+  /** The trade a notification opened (`?trade=<id>`, #165): scrolled to and ringed. */
+  focused: boolean;
   onAction: (trade: TradeView, action: TradeAction) => void;
 }) {
   const t = props.trade;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (props.focused) ref.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }, [props.focused]);
   return (
-    <Card>
-      <CardBody>
-        <div data-testid={`trade-${t.id}`} className="space-y-1 text-sm">
-          <p>
-            <strong>{t.fromTeam.name}</strong> sends {names(t.fromSends)} to <strong>{t.toTeam.name}</strong>{' '}
-            for {names(t.toSends)}.
-          </p>
-          <p className="flex flex-wrap items-center gap-2">
-            <StatusBadge
-              tone={t.status === 'processed' ? 'success' : t.status === 'proposed' ? 'warning' : 'neutral'}
-            >
-              {t.status.replace('_', ' ')}
-            </StatusBadge>
-            {t.status === 'proposed' && <span>Expires in {countdown(t.expiresAt, props.now)}</span>}
-            {t.status === 'in_review' && t.reviewEndsAt && (
-              <span>
-                Review ends {formatTime(t.reviewEndsAt)} · {t.vetoVotes}/{t.vetoVotesRequired} veto votes
-              </span>
-            )}
-            {t.round > 0 && <span>Counter #{t.round}</span>}
-          </p>
-          {t.message && <p className="italic">“{t.message}”</p>}
-          {t.reply && <p className="italic">Reply: “{t.reply}”</p>}
-          {t.voidReason && <p>Cancelled: {t.voidReason.message}</p>}
-          <div className="flex gap-2">
-            {t.yourActions.map((a) => (
-              <Button
-                key={a}
-                size="sm"
-                variant={a === 'accept' || a === 'approve' ? 'primary' : 'secondary'}
-                onClick={() => props.onAction(t, a)}
+    <div ref={ref} aria-current={props.focused ? 'true' : undefined}>
+      <Card className={props.focused ? 'motion-attention ring-2 ring-primary-500' : undefined}>
+        <CardBody>
+          <div data-testid={`trade-${t.id}`} className="space-y-1 text-sm">
+            <p>
+              <strong>{t.fromTeam.name}</strong> sends {names(t.fromSends)} to{' '}
+              <strong>{t.toTeam.name}</strong> for {names(t.toSends)}.
+            </p>
+            <p className="flex flex-wrap items-center gap-2">
+              <StatusBadge
+                tone={t.status === 'processed' ? 'success' : t.status === 'proposed' ? 'warning' : 'neutral'}
               >
-                {ACTION_LABELS[a]}
-              </Button>
-            ))}
+                {t.status.replace('_', ' ')}
+              </StatusBadge>
+              {t.status === 'proposed' && <span>Expires in {countdown(t.expiresAt, props.now)}</span>}
+              {t.status === 'in_review' && t.reviewEndsAt && (
+                <span>
+                  Review ends {formatTime(t.reviewEndsAt)} · {t.vetoVotes}/{t.vetoVotesRequired} veto votes
+                </span>
+              )}
+              {t.round > 0 && <span>Counter #{t.round}</span>}
+            </p>
+            {t.message && <p className="italic">“{t.message}”</p>}
+            {t.reply && <p className="italic">Reply: “{t.reply}”</p>}
+            {t.voidReason && <p>Cancelled: {t.voidReason.message}</p>}
+            <div className="flex gap-2">
+              {t.yourActions.map((a) => (
+                <Button
+                  key={a}
+                  size="sm"
+                  variant={a === 'accept' || a === 'approve' ? 'primary' : 'secondary'}
+                  onClick={() => props.onAction(t, a)}
+                >
+                  {ACTION_LABELS[a]}
+                </Button>
+              ))}
+            </div>
           </div>
-        </div>
-      </CardBody>
-    </Card>
+        </CardBody>
+      </Card>
+    </div>
   );
 }
 
@@ -178,6 +186,7 @@ function TradeList(props: {
   trades: TradeView[];
   empty: string;
   now: number;
+  focus: string | null;
   onAction: (trade: TradeView, action: TradeAction) => void;
 }) {
   return (
@@ -185,7 +194,13 @@ function TradeList(props: {
       <h3 className="text-lg font-semibold">{props.title}</h3>
       {props.trades.length === 0 && <p className="text-sm text-muted-foreground">{props.empty}</p>}
       {props.trades.map((t) => (
-        <TradeCard key={t.id} trade={t} now={props.now} onAction={props.onAction} />
+        <TradeCard
+          key={t.id}
+          trade={t}
+          now={props.now}
+          focused={t.id === props.focus}
+          onAction={props.onAction}
+        />
       ))}
     </section>
   );
@@ -208,6 +223,7 @@ export function TradesPage({
   connect?: EventConnect;
 }) {
   const { leagueId = '' } = useParams();
+  const [params] = useSearchParams();
   const setup = useLoad(() => api.setup(leagueId), leagueId);
   const live = useLiveEvents({
     leagueId,
@@ -312,7 +328,7 @@ export function TradesPage({
   const all = trades.data ?? [];
   const canTrade = setup.data?.allowedActions.includes('propose_trade') === true;
   const others = (setup.data?.teams ?? []).filter((t) => t.id !== myTeam?.id);
-  const listProps = { now: clock, onAction };
+  const listProps = { now: clock, focus: params.get('trade'), onAction };
 
   return (
     <div data-testid="league-section-trades" className="space-y-6">

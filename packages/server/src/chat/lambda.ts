@@ -1,6 +1,7 @@
 /**
- * Lambda entrypoint for system chat messages (EventBridge rule on league events, see
- * ChatEventsFunction in infra/template.yaml). Bundled by scripts/package-server.sh as
+ * Lambda entrypoint for system chat messages and notification inboxes (#165) (EventBridge rule on
+ * league events, see ChatEventsFunction in infra/template.yaml). Both consumers are idempotent per
+ * event id, so a retry after either fails repeats nothing. Bundled by scripts/package-server.sh as
  * `chat-events.mjs`, export `handler`.
  */
 import { systemClock } from '@fantasy/core';
@@ -12,6 +13,7 @@ import { createLogger, parseLogLevel } from '../log.js';
 import { createDynamoRepos } from '../repos/dynamo/index.js';
 import { createDocumentClient } from '../repos/dynamo/table.js';
 import { createServices } from '../services.js';
+import { writeNotifications, type NotificationOutcome } from '../notifications/consumer.js';
 import { postSystemMessage, type SystemMessageOutcome } from './system-messages.js';
 
 const EnvSchema = z.object({
@@ -37,7 +39,19 @@ export function createChatEventServices(env: Record<string, string | undefined>)
 
 let services: Services | null = null;
 
-export async function handler(event: BusEvent): Promise<SystemMessageOutcome> {
+export interface ChatEventsResult {
+  chat: SystemMessageOutcome;
+  notifications: NotificationOutcome;
+}
+
+export async function handleChatEvent(services: Services, event: BusEvent): Promise<ChatEventsResult> {
+  return {
+    chat: await postSystemMessage(services, event),
+    notifications: await writeNotifications(services, event)
+  };
+}
+
+export async function handler(event: BusEvent): Promise<ChatEventsResult> {
   services ??= createChatEventServices(process.env);
-  return postSystemMessage(services, event);
+  return handleChatEvent(services, event);
 }

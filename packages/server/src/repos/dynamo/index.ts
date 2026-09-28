@@ -9,6 +9,7 @@ import { DynamoInviteRepository } from './invites.js';
 import { DynamoLeagueRepository } from './leagues.js';
 import { DynamoLineupRepository } from './lineups.js';
 import { DynamoMemberRepository } from './members.js';
+import { DynamoNotificationRepository } from './notifications.js';
 import { DynamoPlayerRepository } from './players.js';
 import { DynamoScheduleRepository } from './schedule.js';
 import type { TableContext } from './table.js';
@@ -32,7 +33,8 @@ export function createDynamoRepos(table: TableContext): Repos {
     waivers: new DynamoWaiverRepository(table),
     chat: new DynamoChatRepository(table),
     history: new DynamoHistoryRepository(table),
-    trades: new DynamoTradeRepository(table)
+    trades: new DynamoTradeRepository(table),
+    notifications: new DynamoNotificationRepository(table)
   };
 }
 
@@ -47,6 +49,7 @@ export {
   DynamoLeagueRepository,
   DynamoLineupRepository,
   DynamoMemberRepository,
+  DynamoNotificationRepository,
   DynamoPlayerRepository,
   DynamoScheduleRepository,
   DynamoTeamRepository,

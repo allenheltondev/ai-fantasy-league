@@ -252,6 +252,16 @@ describe('waiver processing', () => {
     expect(eventsOf('Waivers Processed').at(-1)?.detail).toMatchObject({
       leagueId: 'lg-w',
       awarded: [{ teamId: 'team-2', playerId: 'fx-cmc', cost: 30 }],
+      // The losing claim, with why, for team-3's notification inbox (#165).
+      lost: [
+        {
+          teamId: 'team-3',
+          playerId: 'fx-cmc',
+          player: { id: 'fx-cmc', name: 'Christian McCaffrey' },
+          code: 'PLAYER_CLAIMED',
+          reason: expect.any(String)
+        }
+      ],
       failed: 1
     });
 

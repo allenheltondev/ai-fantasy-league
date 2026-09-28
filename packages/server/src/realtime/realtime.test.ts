@@ -517,6 +517,44 @@ describe('relayEvent', () => {
     ).toEqual(['fantasy.league.lg-1']);
   });
 
+  it('keeps failed waiver claims off the league topic and sends each team its own (#165)', async () => {
+    const realtime = new InMemoryRealtime();
+    const lost = [
+      { teamId: 'team-2', playerId: 'p9', reason: 'Outbid.' },
+      { teamId: 'team-3', playerId: 'p8', reason: 'Roster full.' }
+    ];
+    const result = await relayEvent(
+      realtime,
+      silentLogger,
+      event('Waivers Processed', { leagueId: 'lg-1', awarded: [{ teamId: 'team-1', playerId: 'p1' }], lost })
+    );
+    expect(result.topics).toEqual([
+      'fantasy.league.lg-1',
+      'fantasy.team.lg-1.team-1',
+      'fantasy.team.lg-1.team-2',
+      'fantasy.team.lg-1.team-3'
+    ]);
+    expect(realtime.published[0]?.message).toMatchObject({ detail: { awarded: [{ teamId: 'team-1' }] } });
+    expect(JSON.stringify(realtime.published[0]?.message)).not.toContain('p9');
+    expect(realtime.published[1]?.message).toMatchObject({ detail: { teamId: 'team-1', lost: [] } });
+    expect(realtime.published[2]?.message).toMatchObject({
+      detail: { teamId: 'team-2', awarded: [], lost: [lost[0]] }
+    });
+  });
+
+  it('sends a new notification to its team’s topic alone (#165)', async () => {
+    const realtime = new InMemoryRealtime();
+    const result = await relayEvent(
+      realtime,
+      silentLogger,
+      event('Notification Created', { leagueId: 'lg-1', teamId: 'team-2', notification: { id: 'n1' } })
+    );
+    expect(result.topics).toEqual(['fantasy.team.lg-1.team-2']);
+    expect(
+      (await relayEvent(realtime, silentLogger, event('Notification Created', { leagueId: 'lg-1' }))).topics
+    ).toEqual([]);
+  });
+
   it('ignores other events and other sources', async () => {
     const realtime = new InMemoryRealtime();
     expect(await relayEvent(realtime, silentLogger, event('League Created', { leagueId: 'x' }))).toEqual({

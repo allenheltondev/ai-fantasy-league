@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { RealtimeInfo } from '../chat/api';
 import type { ApiFetch, ApiRequest } from './client';
+import type { NotificationInbox, NotificationSummary } from '../notifications/types';
 import type {
   AgentActivity,
   AgentCatalog,
@@ -117,7 +118,23 @@ export function createLeagueApi(api: ApiFetch) {
     getLeagueHistory: (id: string) => call<LeagueHistoryData>(`${league(id)}/history`),
     /** get_league_dashboard (#166): this week's matchups, the standings, and the move board in one read. */
     getLeagueDashboard: (id: string, query: { moves?: number } = {}) =>
-      call<LeagueDashboardData>(`${league(id)}/dashboard`, { query })
+      call<LeagueDashboardData>(`${league(id)}/dashboard`, { query }),
+
+    // Notification inbox (#165)
+    getNotificationSummary: () => call<NotificationSummary>('/notifications'),
+    listNotifications: (id: string, query: { limit?: number; after?: string } = {}) =>
+      call<NotificationInbox>(`${league(id)}/notifications`, { query }),
+    /** mark_notifications_read: the given ids, or `all`. */
+    markNotificationsRead: (id: string, which: { notificationIds: string[] } | { all: true }) =>
+      call<{ leagueId: string; unreadCount: number }>('/notifications/read', {
+        method: 'POST',
+        body: { leagueId: id, ...which }
+      }),
+    markNotificationsDelivered: (id: string, notificationIds: string[]) =>
+      call<{ leagueId: string }>('/notifications/delivered', {
+        method: 'POST',
+        body: { leagueId: id, notificationIds }
+      })
   };
 }
 

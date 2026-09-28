@@ -86,6 +86,8 @@ function stubChatApi(page: Page) {
   return {
     add,
     async install() {
+      // The header bell's summary (#165): nothing waiting.
+      await page.route('**/api/v1/notifications', (route) => json(route, { unreadCount: 0, leagues: [] }));
       await page.route('**/api/v1/leagues/L1/realtime', (route) =>
         json(route, {
           enabled: false,

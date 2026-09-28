@@ -106,9 +106,14 @@ const LIVE: RealtimeInfo = {
 const fixedNow = () => NOW;
 const noConnect: EventConnect = async () => () => undefined;
 
-function renderPage(api: TradesApi, now: () => number = fixedNow, connect: EventConnect = noConnect) {
+function renderPage(
+  api: TradesApi,
+  now: () => number = fixedNow,
+  connect: EventConnect = noConnect,
+  path = '/leagues/L1/trades'
+) {
   return render(
-    <MemoryRouter initialEntries={['/leagues/L1/trades']}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route
           path="/leagues/:leagueId/trades"
@@ -331,5 +336,15 @@ describe('TradesPage', () => {
     expect(countdown('2026-10-01T12:35:00Z', NOW)).toBe('35m');
     expect(countdown('2026-10-01T15:05:00Z', NOW)).toBe('3h 5m');
     expect(countdown('2026-10-01T11:00:00Z', NOW)).toBe('expired');
+  });
+
+  it('rings the trade a notification opened (?trade=, #165)', async () => {
+    const api = fakeApi([trade(), trade({ id: 't3', direction: 'outgoing', yourActions: ['withdraw'] })]);
+    renderPage(api, fixedNow, noConnect, '/leagues/L1/trades?trade=t3');
+    const card = await screen.findByTestId('trade-t3');
+    const focused = card.closest('[aria-current="true"]');
+    expect(focused).not.toBeNull();
+    expect(focused?.querySelector('.motion-attention')).not.toBeNull();
+    expect(screen.getByTestId('trade-t1').closest('[aria-current="true"]')).toBeNull();
   });
 });

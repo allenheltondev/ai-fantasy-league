@@ -8,7 +8,7 @@ import {
   type WaiverTeamState
 } from '@fantasy/core';
 import { ApiError, isApiError } from '../errors.js';
-import type { WaiverAward } from '../events/details.js';
+import type { WaiverAward, WaiverLoss } from '../events/details.js';
 import type { EventPublisher } from '../events/publisher.js';
 import { toPlayerRef } from '../players/model.js';
 import type { Logger } from '../log.js';
@@ -133,6 +133,12 @@ async function processWindow(
   const toResolve: WaiverClaimRecord[] = [];
   const trading = await playersInProcessingTrades(repos, league.id);
   let failed = 0;
+  const losses: { claim: WaiverClaimRecord; failure: ClaimFailure }[] = [];
+  const fail = async (claim: WaiverClaimRecord, failure: ClaimFailure) => {
+    if (!(await markFailed(repos, claim, now, failure))) return;
+    failed += 1;
+    losses.push({ claim, failure });
+  };
   for (const claim of due) {
     const drop = claim.dropPlayerId === null ? undefined : records.get(claim.dropPlayerId);
     const tradeId = claim.dropPlayerId === null ? undefined : trading.get(claim.dropPlayerId);
@@ -140,12 +146,11 @@ async function processWindow(
       recovered.push(claim);
     } else if (drop !== undefined && locks.isLocked(drop)) {
       // A locked player cannot be dropped, so this claim cannot go through this week.
-      if (await markFailed(repos, claim, now, lockedFailure(drop.name))) failed += 1;
+      await fail(claim, lockedFailure(drop.name));
     } else if (claim.dropPlayerId !== null && tradeId !== undefined) {
       // The drop player is leaving in a trade that is processing right now.
       const error = inTradeError(claim.dropPlayerId, tradeId);
-      if (await markFailed(repos, claim, now, { code: error.code, message: error.message, fix: error.fix }))
-        failed += 1;
+      await fail(claim, { code: error.code, message: error.message, fix: error.fix });
     } else {
       toResolve.push(claim);
     }
@@ -199,8 +204,7 @@ async function processWindow(
       teams = teams.map((t) => (t.id === updated.id ? updated : t));
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
-      if (await markFailed(repos, claim, now, { code: error.code, message: error.message, fix: error.fix }))
-        failed += 1;
+      await fail(claim, { code: error.code, message: error.message, fix: error.fix });
       continue;
     }
     if (claim.dropPlayerId !== null) {
@@ -217,10 +221,7 @@ async function processWindow(
   }
   for (const f of resolution.failed) {
     const claim = byId.get(f.claim.claimId) as WaiverClaimRecord;
-    if (
-      await markFailed(repos, claim, now, { code: f.issue.code, message: f.issue.message, fix: f.issue.fix })
-    )
-      failed += 1;
+    await fail(claim, { code: f.issue.code, message: f.issue.message, fix: f.issue.fix });
   }
   await repos.waivers.addTransactions(transactions);
   // Offers that include a player who just changed rosters no longer work.
@@ -249,6 +250,7 @@ async function processWindow(
     runId,
     week,
     awarded: await waiverAwards(repos, transactions, due),
+    lost: await waiverLosses(repos, losses),
     failed,
     pending: stillPending
   });
@@ -291,6 +293,26 @@ async function waiverAwards(
       cost: t.cost as number
     };
   });
+}
+
+/** The failed claims as `Waivers Processed` carries them, for each team's inbox (#165). */
+async function waiverLosses(
+  repos: Pick<Repos, 'players'>,
+  losses: readonly { claim: WaiverClaimRecord; failure: ClaimFailure }[]
+): Promise<WaiverLoss[]> {
+  const players = new Map(
+    (await repos.players.getMany([...new Set(losses.map((l) => l.claim.addPlayerId))])).map((p) => [
+      p.id,
+      toPlayerRef(p)
+    ])
+  );
+  return losses.map(({ claim, failure }) => ({
+    teamId: claim.teamId,
+    playerId: claim.addPlayerId,
+    player: players.get(claim.addPlayerId) ?? null,
+    code: failure.code,
+    reason: failure.message
+  }));
 }
 
 function toCoreClaim(c: WaiverClaimRecord): WaiverClaim {
@@ -368,11 +390,17 @@ async function markAwarded(
 }
 
 /** Marks a claim failed; false when it was cancelled in the meantime and left alone. */
+interface ClaimFailure {
+  code: string;
+  message: string;
+  fix: string;
+}
+
 async function markFailed(
   repos: Repos,
   claim: WaiverClaimRecord,
   now: Date,
-  failure: { code: string; message: string; fix: string }
+  failure: ClaimFailure
 ): Promise<boolean> {
   return (
     (await updatePending(repos, claim, { status: 'failed', resolvedAt: now.toISOString(), failure })) !== null

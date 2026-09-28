@@ -58,7 +58,7 @@ export default defineConfig({
     },
     {
       // System messages, agent replies, and the season jobs, all in process (packages/agents/src/dev.ts).
-      // Only e2e/chat-rooms.pw.ts talks to it, by rerouting its API calls here.
+      // Only e2e/chat-rooms.pw.ts and e2e/notifications.pw.ts talk to it, by rerouting their API calls here.
       command: 'npm run dev --workspace=@fantasy/agents',
       cwd: '..',
       url: `http://127.0.0.1:${AGENT_API_PORT}/api/v1/health`,
@@ -66,7 +66,9 @@ export default defineConfig({
         PORT: String(AGENT_API_PORT),
         FANTASY_LOCAL_AUTH: '1',
         FANTASY_LOCAL_NOW: '2026-09-10T12:00:00Z',
-        FANTASY_LOCAL_SEASON_DEMO: 'rooms-e2e'
+        FANTASY_LOCAL_SEASON_DEMO: 'rooms-e2e',
+        // Two people in one league (`demo-trades`): e2e/notifications.pw.ts.
+        FANTASY_LOCAL_TRADE_DEMO: 'notify-e2e,rival-e2e'
       },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000
