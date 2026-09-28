@@ -43,12 +43,17 @@ export interface TradeAppetite {
   maxCounters: number;
 }
 
+/** The accept edge for a trade appetite: 5 for a cautious agent (0), down to -5 for a trade addict (1). */
+export function tradeAcceptEdge(tradeFrequency: number): number {
+  return Math.round((0.5 - clamp01(tradeFrequency)) * 100) / 10;
+}
+
 /** Trade behavior for a resolved agent config. The trade task kinds read it; this module decides nothing. */
 export function tradeAppetite(config: Pick<ResolvedAgentConfig, 'tradeFrequency' | 'levers'>): TradeAppetite {
   const frequency = clamp01(config.tradeFrequency);
   return {
     proposalsPerWeek: Math.round(frequency * 4),
-    acceptEdge: Math.round((0.5 - frequency) * 100) / 10,
+    acceptEdge: tradeAcceptEdge(frequency),
     maxCounters: config.levers.negotiationRounds
   };
 }

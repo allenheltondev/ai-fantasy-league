@@ -1,3 +1,4 @@
+import { ARCHETYPES, resolveAgentConfig, tradeAppetite } from '@fantasy/core';
 import { createContext, executeOperation, type UserPrincipal } from '@fantasy/server';
 import { describe, expect, it } from 'vitest';
 import type { AgentActionRequested } from '../src/events.js';
@@ -77,6 +78,11 @@ describe('trade response task', () => {
   it('shapes the bar by archetype and counts its own counters in the chain', () => {
     expect(acceptBar(0.9)).toBe(-4);
     expect(acceptBar(0.4)).toBe(1);
+    // The bar is the archetype's trade appetite from the core catalog.
+    for (const a of ARCHETYPES) {
+      const config = resolveAgentConfig({ personalityId: 'stats-nerd', difficulty: 'pro', archetype: a });
+      expect(acceptBar(config.tradeFrequency)).toBe(tradeAppetite(config).acceptEdge);
+    }
     expect([0, 1, 2, 3, 4].map(countersUsed)).toEqual([0, 0, 1, 1, 2]);
   });
 

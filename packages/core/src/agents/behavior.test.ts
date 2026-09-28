@@ -2,7 +2,13 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { PLAYER_STATUSES } from '../rules/positions.js';
 import { ARCHETYPES, STRATEGY_ARCHETYPES } from './archetypes.js';
-import { agentBehavior, lineupProjection, tradeAppetite, waiverMinGain } from './behavior.js';
+import {
+  agentBehavior,
+  lineupProjection,
+  tradeAcceptEdge,
+  tradeAppetite,
+  waiverMinGain
+} from './behavior.js';
 import { DIFFICULTIES, DIFFICULTY_TIERS } from './difficulty.js';
 import { resolveAgentConfig } from './seat-config.js';
 
@@ -35,6 +41,13 @@ describe('archetype behavior levers', () => {
     const quant = agentBehavior(resolved('analytics_only')).trade;
     expect(dealer.proposalsPerWeek).toBeGreaterThan(quant.proposalsPerWeek);
     expect(dealer.acceptEdge).toBeLessThan(quant.acceptEdge);
+  });
+
+  it('sets the trade accept edge from the appetite', () => {
+    expect(tradeAcceptEdge(0)).toBe(5);
+    expect(tradeAcceptEdge(1)).toBe(-5);
+    expect(tradeAcceptEdge(Number.NaN)).toBe(5);
+    expect(tradeAppetite(resolved('trade_happy')).acceptEdge).toBe(-4);
   });
 
   it('takes the counter-offer budget from the difficulty', () => {
