@@ -237,7 +237,21 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       }
     })),
     configureAgentSeat: vi.fn(async () => ({})),
-    randomizeAgentSeats: vi.fn(async () => ({ seats: [] }))
+    randomizeAgentSeats: vi.fn(async () => ({ seats: [] })),
+    getRoster: vi.fn(async () => ({
+      teamId: 'team-1',
+      teamName: "Alice's Team",
+      week: 1,
+      lineupSaved: false,
+      carriedFromWeek: null,
+      slots: [],
+      players: []
+    })),
+    setLineup: vi.fn(async () => {
+      throw new Error('setLineup is not faked in this test');
+    }),
+    getMatchup: vi.fn(async () => ({ week: 1, teamId: 'team-1', matchup: null, lineups: null })),
+    getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] }))
   };
   return { ...api, ...overrides };
 }

@@ -18,6 +18,7 @@ import type { Ctx } from '../context.js';
 import { ApiError, isApiError } from '../errors.js';
 import type { Player } from '../players/model.js';
 import type { DraftRecord, League, Team } from '../repos/types.js';
+import { startLeagueSeason } from '../season/cycle.js';
 import { currentNflWeek } from './calendar.js';
 import { transitionPhase } from './phase.js';
 
@@ -262,7 +263,16 @@ export async function finishDraft(deps: DraftDeps, leagueId: string, record: Dra
       LAST_NFL_WEEK
     );
     try {
-      await deps.repos.leagues.update({ ...transitionPhase(league, 'regular_season', now), week });
+      const started = await deps.repos.leagues.update({
+        ...transitionPhase(league, 'regular_season', now),
+        week
+      });
+      // The season loop takes over: the first week's lineup lock and its lock warnings.
+      await startLeagueSeason(
+        { repos: deps.repos, reference: deps.data.reference, events: deps.events, log: deps.log },
+        started,
+        now
+      );
       await deps.events.publish('Draft Completed', {
         leagueId,
         picks: record.state.picks.length,

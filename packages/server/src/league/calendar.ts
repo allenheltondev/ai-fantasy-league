@@ -92,6 +92,21 @@ export async function nextUnlockedWeek(
 }
 
 /**
+ * The first week a league scores (#85). A league whose draft completes during the season cannot
+ * score weeks that already kicked off, so it starts at the later of its `schedule.startWeek` and
+ * the next unlocked NFL week. An unlocked week in a later season means the league's season is
+ * over (`LAST_NFL_WEEK + 1`). Pure: pass the `nextUnlockedWeek` answer in.
+ */
+export function firstScoringWeek(
+  league: { season: number; settings: { schedule: { startWeek: number } } },
+  unlocked: Pick<StartWeek, 'season' | 'week'>
+): number {
+  if (unlocked.season < league.season) return league.settings.schedule.startWeek;
+  if (unlocked.season > league.season) return LAST_NFL_WEEK + 1;
+  return Math.max(league.settings.schedule.startWeek, unlocked.week);
+}
+
+/**
  * The NFL week in progress (or about to start): the NFL state's week during the regular season,
  * week 1 before it, and the last week after it. Without NFL state, the latest week whose first game
  * has kicked off by the clock (week 1 before the season). A league that finishes its draft now

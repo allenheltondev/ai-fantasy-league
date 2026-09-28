@@ -6,6 +6,7 @@ import { newTeam } from '../../src/league/seats.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { TABLE_KEYS } from '../../src/repos/dynamo/table.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
+import { listInSeason } from '../../src/season/lineups.js';
 import type { Invite, Matchup, Repos, StandingsSnapshot } from '../../src/repos/types.js';
 import { league, START } from '../support/harness.js';
 
@@ -205,6 +206,46 @@ describe.each(backends)('%s league repositories', (_name, make) => {
     expect(await repos.schedule.listMatchups(l.id)).toEqual([]);
     expect(await repos.leagues.listByCreator(l.createdBy)).toEqual([]);
   });
+
+  it('lists in-season leagues only while they are in season', async () => {
+    const repos = make();
+    const setup = league({ id: unique('lg'), createdBy: unique('creator') });
+    const live = league({ id: unique('lg'), createdBy: setup.createdBy, phase: 'regular_season', week: 3 });
+    const playoffs = league({ id: unique('lg'), createdBy: setup.createdBy, phase: 'playoffs', week: 15 });
+    for (const l of [setup, live, playoffs]) await repos.leagues.create(l);
+    const ours = async () =>
+      (await listInSeason(repos))
+        .map((l) => l.id)
+        .filter((id) => [setup.id, live.id, playoffs.id].includes(id));
+    expect(await ours()).toEqual([live.id, playoffs.id].sort());
+    await repos.leagues.update({ ...playoffs, phase: 'complete' });
+    expect(await ours()).toEqual([live.id]);
+  });
+
+  it('stores lineups per team and week and finds the latest earlier one', async () => {
+    const { lineups } = make();
+    const leagueId = unique('lg');
+    const lineup = (teamId: string, week: number, slot: 'QB' | 'BN') => ({
+      leagueId,
+      teamId,
+      week,
+      entries: [{ playerId: `${teamId}-qb`, slot }],
+      updatedAt: START,
+      updatedBy: 'user#u1'
+    });
+    expect(await lineups.get(leagueId, 'team-1', 1)).toBeNull();
+    expect(await lineups.latest(leagueId, 'team-1', 5)).toBeNull();
+    await lineups.put([lineup('team-1', 1, 'QB'), lineup('team-2', 1, 'BN'), lineup('team-2', 4, 'QB')]);
+    await lineups.put([lineup('team-1', 3, 'BN'), lineup('team-10', 3, 'QB')]);
+    expect(await lineups.get(leagueId, 'team-1', 3)).toEqual(lineup('team-1', 3, 'BN'));
+    expect((await lineups.latest(leagueId, 'team-1', 5))?.week).toBe(3);
+    expect((await lineups.latest(leagueId, 'team-1', 2))?.week).toBe(1);
+    expect((await lineups.latest(leagueId, 'team-2', 3))?.week).toBe(1);
+    expect(await lineups.latest(leagueId, 'team-3', 18)).toBeNull();
+    expect((await lineups.listWeek(leagueId, 3)).map((l) => l.teamId).sort()).toEqual(['team-1', 'team-10']);
+    await lineups.put([lineup('team-1', 3, 'QB')]);
+    expect(await lineups.get(leagueId, 'team-1', 3)).toEqual(lineup('team-1', 3, 'QB'));
+  });
 });
 
 describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
@@ -234,6 +275,27 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
       ])
     );
     expect(TABLE_KEYS.gsi1).toEqual({ name: 'GSI1', pk: 'GSI1PK', sk: 'GSI1SK' });
+  });
+
+  it('keys lineups by week and team, and indexes leagues by phase on GSI2', async () => {
+    const repos = createDynamoRepos(table);
+    const l = league({ id: unique('lg'), createdBy: 'keys-user', phase: 'regular_season', week: 5 });
+    await repos.leagues.create(l);
+    await repos.lineups.put([
+      { leagueId: l.id, teamId: 'team-2', week: 5, entries: [], updatedAt: START, updatedBy: 'system' }
+    ]);
+    const items = await table.doc.send(
+      new QueryCommand({
+        TableName: table.tableName,
+        KeyConditionExpression: 'pk = :pk',
+        ExpressionAttributeValues: { ':pk': `LEAGUE#${l.id}` }
+      })
+    );
+    const keys = (items.Items ?? []).map((i) => ({ sk: i.sk, GSI2PK: i.GSI2PK, GSI2SK: i.GSI2SK }));
+    expect(keys).toEqual([
+      { sk: 'LINEUP#W05#team-2', GSI2PK: undefined, GSI2SK: undefined },
+      { sk: 'META', GSI2PK: 'LEAGUEPHASE#regular_season', GSI2SK: `${l.createdAt}#${l.id}` }
+    ]);
   });
 
   it('ignores other items that share the TEAM# prefix', async () => {

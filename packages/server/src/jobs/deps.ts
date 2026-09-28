@@ -20,7 +20,7 @@ export interface NewsSource {
 export interface JobDeps {
   provider: DataProvider;
   reference: ReferenceStore;
-  /** League repositories, for league jobs such as waiver processing. */
+  /** League repositories, for league jobs: waiver processing, live scoring, the weekly cycle. */
   repos: Repos;
   events: EventPublisher;
   directory: PlayerDirectory;

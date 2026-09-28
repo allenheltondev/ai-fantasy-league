@@ -151,3 +151,86 @@ export interface SettingsIssue {
   message: string;
   fix: string;
 }
+
+// ---------------------------------------------------------------------------
+// Season loop: get_roster, set_lineup, get_matchup, get_standings
+// ---------------------------------------------------------------------------
+
+export interface PlayerRef {
+  id: string;
+  name: string;
+  team: string | null;
+  position: string;
+}
+
+export interface RosterEntry {
+  player: PlayerRef;
+  slot: string;
+  status: string;
+  injuryStatus: string | null;
+  byeWeek: number | null;
+  onBye: boolean;
+  kickoff: string | null;
+  locked: boolean;
+  projectedPoints: number | null;
+  points: number | null;
+}
+
+export interface SlotCount {
+  slot: string;
+  count: number;
+}
+
+export interface Roster {
+  teamId: string;
+  teamName: string;
+  week: number;
+  lineupSaved: boolean;
+  carriedFromWeek: number | null;
+  slots: SlotCount[];
+  players: RosterEntry[];
+}
+
+export interface LineupMove {
+  playerId: string;
+  slot: string;
+}
+
+export interface MatchupSide {
+  teamId: string;
+  teamName: string;
+  score: number | null;
+}
+
+export interface MatchupLineup {
+  teamId: string;
+  points: number;
+  players: RosterEntry[];
+}
+
+export interface MatchupData {
+  week: number;
+  teamId: string;
+  matchup: {
+    id: string;
+    status: 'scheduled' | 'in_progress' | 'final';
+    home: MatchupSide;
+    away: MatchupSide;
+  } | null;
+  lineups: { home: MatchupLineup; away: MatchupLineup } | null;
+}
+
+export interface StandingsRow {
+  rank: number;
+  teamId: string;
+  teamName: string;
+  record: string;
+  pointsFor: number;
+  pointsAgainst: number;
+  streak: string | null;
+}
+
+export interface StandingsData {
+  throughWeek: number | null;
+  standings: StandingsRow[];
+}

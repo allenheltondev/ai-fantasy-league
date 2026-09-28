@@ -5,8 +5,9 @@ import { defineConfig, devices } from '@playwright/test';
 // not auto-discover; pin it there when present. Elsewhere (CI, dev machines)
 // fall back to Playwright's own resolution (`npx playwright install chromium`).
 const PREINSTALLED_CHROMIUM = '/opt/pw-browsers/chromium';
-const PORT = 5173;
-const API_PORT = 8787;
+// Overridable so two checkouts can run their e2e suites side by side.
+const PORT = Number(process.env.E2E_PORT ?? 5173);
+const API_PORT = Number(process.env.E2E_API_PORT ?? 8787);
 
 /**
  * E2E for the SPA against the local API server (packages/server/src/local.ts):
@@ -45,7 +46,9 @@ export default defineConfig({
         PORT: String(API_PORT),
         FANTASY_LOCAL_AUTH: '1',
         FANTASY_FAKE_MODEL: '1',
-        FANTASY_LOCAL_NOW: '2026-09-10T12:00:00Z'
+        FANTASY_LOCAL_NOW: '2026-09-10T12:00:00Z',
+        // An in-season league for dev user local-season-e2e (e2e/lineup.pw.ts).
+        FANTASY_LOCAL_SEASON_DEMO: 'season-e2e'
       },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000

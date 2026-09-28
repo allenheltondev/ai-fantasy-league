@@ -1,4 +1,4 @@
-import { LeagueSettingsSchema, PositionSchema } from '@fantasy/core';
+import { LeagueSettingsSchema, PositionSchema, RosterSlotSchema } from '@fantasy/core';
 import { z } from 'zod';
 import { DRAFT_STATUSES, LEAGUE_PHASES, SEAT_TYPES } from '../types.js';
 import { weekKey } from './query.js';
@@ -29,6 +29,11 @@ export const standingsKey = (leagueId: string, week: number) => ({
   sk: `STANDINGS#${weekKey(week)}`
 });
 
+export const lineupKey = (leagueId: string, week: number, teamId: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `LINEUP#${weekKey(week)}#${teamId}`
+});
+
 export const draftKey = (leagueId: string) => ({ pk: leaguePk(leagueId), sk: 'DRAFT' });
 
 /** Items that share an `sk` prefix with others (`TEAM#<id>#AGENT`) are told apart by `entity`. */
@@ -39,6 +44,7 @@ export const ENTITY = {
   invite: 'invite',
   matchup: 'matchup',
   standings: 'standings',
+  lineup: 'lineup',
   draft: 'draft'
 } as const;
 
@@ -137,6 +143,15 @@ export const StandingsRecordSchema = z.object({
       tiebreakerOverNext: z.enum(['points_for', 'head_to_head', 'coin_flip']).nullable()
     })
   )
+});
+
+export const LineupRecordSchema = z.object({
+  leagueId: z.string(),
+  teamId: z.string(),
+  week: z.number(),
+  entries: z.array(z.object({ playerId: z.string(), slot: RosterSlotSchema })),
+  updatedAt: iso,
+  updatedBy: z.string()
 });
 
 export const DraftRecordSchema = z.object({

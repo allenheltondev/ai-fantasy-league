@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useParams } from 'react-router';
 import { Button } from '@readysetcloud/ui';
 import { ApiError, apiFetch } from '../api';
@@ -146,6 +146,15 @@ function Composer({ teams, onSend }: { teams: readonly ChatTeam[]; onSend(text: 
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  // Where the caret goes after a mention is inserted. Applied in a layout effect, right after React
+  // writes the new text and before the next keystroke, so fast typing continues after the mention.
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const at = pendingCaret.current;
+    if (at === null) return;
+    pendingCaret.current = null;
+    input.current?.setSelectionRange(at, at);
+  }, [text]);
 
   const mention = mentionQuery(text, caret);
   const suggestions = mention === null || dismissed ? [] : suggestTeams(teams, mention.query);
@@ -159,7 +168,7 @@ function Composer({ teams, onSend }: { teams: readonly ChatTeam[]; onSend(text: 
     setText(next);
     setCaret(nextCaret);
     setActive(0);
-    requestAnimationFrame(() => input.current?.setSelectionRange(nextCaret, nextCaret));
+    pendingCaret.current = nextCaret;
   };
 
   const send = async () => {

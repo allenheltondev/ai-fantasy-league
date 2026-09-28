@@ -6,6 +6,7 @@ import { DynamoChatRepository } from './chat.js';
 import { DynamoIdempotencyRepository } from './idempotency.js';
 import { DynamoInviteRepository } from './invites.js';
 import { DynamoLeagueRepository } from './leagues.js';
+import { DynamoLineupRepository } from './lineups.js';
 import { DynamoMemberRepository } from './members.js';
 import { DynamoPlayerRepository } from './players.js';
 import { DynamoScheduleRepository } from './schedule.js';
@@ -23,6 +24,7 @@ export function createDynamoRepos(table: TableContext): Repos {
     members: new DynamoMemberRepository(table),
     invites: new DynamoInviteRepository(table),
     schedule: new DynamoScheduleRepository(table),
+    lineups: new DynamoLineupRepository(table),
     drafts: new DynamoDraftRepository(table),
     agents: new DynamoAgentRepository(table),
     waivers: new DynamoWaiverRepository(table),
@@ -38,6 +40,7 @@ export {
   DynamoIdempotencyRepository,
   DynamoInviteRepository,
   DynamoLeagueRepository,
+  DynamoLineupRepository,
   DynamoMemberRepository,
   DynamoPlayerRepository,
   DynamoScheduleRepository,

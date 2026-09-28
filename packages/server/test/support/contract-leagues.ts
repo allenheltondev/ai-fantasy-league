@@ -223,6 +223,7 @@ export const LEAGUE_CASES: Record<string, Case[]> = {
   ],
   get_matchup: [
     { label: 'no schedule yet', path: `${L}/lg-c/matchup`, status: 200 },
+    { label: 'in season, with lineups', path: `${L}/lg-cs/matchup`, status: 200 },
     { label: 'week out of range', path: `${L}/lg-c/matchup?week=18`, status: 400 }
   ]
 };

@@ -10,9 +10,10 @@ import type { WaiverWireEntry } from '../repos/waivers.js';
  * same player can never both land. Team writes are version-checked and retried against the latest
  * team, so a roster change never overwrites another one.
  *
- * Rosters are plain player ids today; lineup slots arrive with the lineup stream. Until then every
- * rostered player counts toward the active limit (nobody is on IR), and a drop only leaves the
- * roster (there is no lineup slot to clear yet).
+ * Rosters are plain player ids. Every rostered player counts toward the active limit here (IR
+ * slots are not considered yet). A drop needs no lineup write: lineups are reconciled with the
+ * roster whenever they are read (`resolveLineup` in season/lineups.ts), so a dropped player leaves
+ * his slot and an added one starts on the bench.
  */
 
 export type PlayerStanding =

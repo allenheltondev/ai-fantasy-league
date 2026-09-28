@@ -6,6 +6,12 @@ import { keyPrefix, researchKindOf, ToolBox } from '../src/tools.js';
 import { AGENT_TEAM, LEAGUE_ID, league, setup } from './support.js';
 import { yahooDefaultSettings } from '@fantasy/core';
 
+/** A legal swap on the seeded roster: the better QB starts. */
+const SWAP = [
+  { playerId: 'qb1', slot: 'QB' },
+  { playerId: 'qb2', slot: 'BN' }
+];
+
 const principal = agentPrincipal({
   agentId: `${LEAGUE_ID}.${AGENT_TEAM}`,
   teamId: AGENT_TEAM,
@@ -53,17 +59,17 @@ describe('ToolBox (tool binding)', () => {
   it('refuses unbound tools, other teams, and actions past the budget', async () => {
     const { s, box } = await toolbox();
     expect(await box.call('get_news', {})).toMatchObject({ error: { code: 'FORBIDDEN' } });
-    expect(await box.call('set_lineup', { teamId: 'team-3', lineup: [] })).toMatchObject({
+    expect(await box.call('set_lineup', { teamId: 'team-3', moves: SWAP })).toMatchObject({
       error: { code: 'FORBIDDEN', fix: `Use teamId "${AGENT_TEAM}".` }
     });
     const tool = box.tools.find((t) => t.name === 'set_lineup')!;
     expect(
-      await tool.call({ teamId: AGENT_TEAM, lineup: [], idempotencyKey: 'model-chosen-key' })
+      await tool.call({ teamId: AGENT_TEAM, moves: SWAP, idempotencyKey: 'model-chosen-key' })
     ).toMatchObject({
-      data: { ok: true },
+      data: { teamId: AGENT_TEAM, week: 5 },
       league: { id: LEAGUE_ID }
     });
-    expect(await box.call('set_lineup', { teamId: AGENT_TEAM, lineup: [] })).toMatchObject({
+    expect(await box.call('set_lineup', { teamId: AGENT_TEAM, moves: SWAP })).toMatchObject({
       error: { code: 'FORBIDDEN', details: { actionsPerTrigger: 1 } }
     });
     expect(box.actionsTaken).toBe(1);
@@ -85,7 +91,8 @@ describe('ToolBox (tool binding)', () => {
 
   it('derives idempotency keys from the task, so a redelivered trigger replays', async () => {
     const { s, box } = await toolbox();
-    await box.call('set_lineup', { teamId: AGENT_TEAM, lineup: [] });
+    const moves = SWAP;
+    await box.call('set_lineup', { teamId: AGENT_TEAM, moves });
     const again = new ToolBox({
       registry: s.registry,
       services: s.services,
@@ -94,8 +101,10 @@ describe('ToolBox (tool binding)', () => {
       actionsPerTrigger: 1,
       idempotencyPrefix: 'task-0001'
     });
-    await again.call('set_lineup', { teamId: AGENT_TEAM, lineup: [] });
-    expect(s.state.lineups).toHaveLength(1);
+    await s.repos.lineups.put([]);
+    const replay = await again.call('set_lineup', { teamId: AGENT_TEAM, moves });
+    expect(replay).toMatchObject({ data: { changed: [expect.anything(), expect.anything()] } });
+    expect(await s.savedLineups()).toHaveLength(1);
     expect(keyPrefix('a/b c')).toBe('a_b_c___');
     expect(keyPrefix('x'.repeat(150))).toHaveLength(100);
   });
@@ -118,7 +127,7 @@ describe('ToolBox (tool binding)', () => {
     const otherTeam = await call('set_lineup', {
       leagueId: LEAGUE_ID,
       teamId: 'team-3',
-      lineup: [],
+      moves: SWAP,
       idempotencyKey: 'sneaky-key-2'
     });
     expect(otherTeam.body).toMatchObject({ error: { code: 'FORBIDDEN' } });

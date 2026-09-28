@@ -285,7 +285,7 @@ Resources:
     Metadata:
       SkipBuild: true
     Properties:
-      Description: Scheduled jobs (player sync, NFL state, schedule, stats, projections, trending, news, waivers)
+      Description: Scheduled jobs (player sync, NFL state, schedule, stats, projections, trending, news, waivers, live scoring, weekly cycle)
       CodeUri:
         Bucket: !Ref ArtifactBucket
         Key: !Ref ServerArtifactKey
@@ -310,6 +310,8 @@ Resources:
         - Version: '2012-10-17'
           Statement:
             # Reads and writes only; the jobs never delete, scan, or change the table.
+            # League writes (matchups, standings, lineups, the league item) are
+            # full puts, conditional on the league version where it matters.
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
@@ -321,7 +323,8 @@ Resources:
                 - !GetAtt FantasyTable.Arn
                 - !Sub ${FantasyTable.Arn}/index/*
             # Player Status Changed, Week Rolled Over, Scores Updated, Player News Alert,
-            # Waivers Processed, Waiver Window Opened.
+            # Waivers Processed, Waiver Window Opened, Week Provisionally Final, and
+            # Schedule Event (rsc-core deferred events for Lineup Lock Approaching).
             - Effect: Allow
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
@@ -387,6 +390,26 @@ Resources:
             Input: '{"job":"ingestNews"}'
             RetryPolicy:
               MaximumRetryAttempts: 0
+        # Season loop (docs/adr/002-weekly-cycle.md). Live scoring polls like
+        # ingestStats and returns after one query outside game windows.
+        ScoreLiveWeek:
+          Type: ScheduleV2
+          Properties:
+            Description: Recompute in-season matchup scores during game windows
+            ScheduleExpression: rate(2 minutes)
+            Input: '{"job":"scoreLiveWeek"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+        # The weekly cycle: provisional final after the last game, then the
+        # rollover (and the next week's Lineup Lock Approaching deferred events).
+        AdvanceSeason:
+          Type: ScheduleV2
+          Properties:
+            Description: Finalize finished weeks and roll leagues to the next week
+            ScheduleExpression: rate(15 minutes)
+            Input: '{"job":"advanceSeason"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 1
         # Daily at WAIVER_RUN_HOUR_UTC (packages/core/src/waivers/schedule.ts): 3 AM US Central
         # in daylight time. Idempotent per day, so a retry never processes a window twice.
         ProcessWaivers:

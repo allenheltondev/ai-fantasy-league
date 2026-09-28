@@ -4,6 +4,7 @@ import {
   RosterSlotSchema,
   optimizeLineup,
   validateLineup,
+  type LineupContext,
   type LineupEntry,
   type OptimizedLineup,
   type RosterPlayer
@@ -14,16 +15,14 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
 
 /**
  * Lineup task: the optimizer proposes, the model confirms or suggests swaps, and the optimizer's
- * lineup is the fallback. Triggered before lineup lock and when news or a status change hits a
- * rostered player.
+ * lineup is the fallback. Triggered by `Lineup Lock Approaching` (scheduled before each game
+ * window) and when news or a status change hits a rostered player.
  *
- * Tool contract this task expects from the lineup stream (parsed defensively; the task is skipped
- * with a clear reason until those operations exist):
- * - `get_roster({ leagueId, teamId, week? })` → `{ week, roster: [{ playerId, name?, positions,
- *   status, nflTeam, slot, projectedPoints? }] }`
- * - `get_projections({ leagueId, season, week, playerIds })` → `{ projections: [{ player: { id }, points }] }`
- *   (optional; falls back to `projectedPoints` on the roster)
- * - `set_lineup({ leagueId, teamId, week, lineup: [{ playerId, slot }] })`
+ * It works through the real season operations, with the agent's own principal:
+ * - `get_roster({ leagueId, teamId, week? })` gives the players, their slots, statuses, kickoffs,
+ *   locks, and projected points under league scoring;
+ * - `set_lineup({ leagueId, teamId, week, moves: [{ playerId, slot }] })` moves the players whose
+ *   slot changed. Locked players keep their slots (the optimizer honors the kickoffs).
  */
 
 export class TaskUnavailableError extends Error {
@@ -33,20 +32,20 @@ export class TaskUnavailableError extends Error {
   }
 }
 
+/** The part of `get_roster`'s response the lineup task reads. */
 const RosterEntrySchema = z.object({
-  playerId: z.string(),
-  name: z.string().optional(),
-  positions: z.array(PositionSchema),
-  status: PlayerStatusSchema,
-  nflTeam: z.string().nullable(),
+  player: z.object({
+    id: z.string(),
+    name: z.string(),
+    team: z.string().nullable(),
+    position: PositionSchema
+  }),
   slot: RosterSlotSchema,
-  projectedPoints: z.number().optional()
+  status: PlayerStatusSchema,
+  kickoff: z.string().nullable(),
+  projectedPoints: z.number().nullable()
 });
-const RosterDataSchema = z.object({ week: z.number().int().optional(), roster: z.array(RosterEntrySchema) });
-/** The part of `get_projections`' response the lineup task reads. */
-const ProjectionsDataSchema = z.object({
-  projections: z.array(z.object({ player: z.object({ id: z.string() }), points: z.number() }))
-});
+const RosterDataSchema = z.object({ week: z.number().int(), players: z.array(RosterEntrySchema) });
 
 const LineupPayloadSchema = z.object({
   week: z.number().int().min(1).max(18).optional(),
@@ -66,10 +65,12 @@ export const LineupDecisionSchema = BaseDecisionSchema.extend({
 type LineupDecision = z.infer<typeof LineupDecisionSchema>;
 
 interface LineupPrep {
-  week: number | undefined;
+  week: number;
   roster: RosterPlayer[];
   current: LineupEntry[];
   projections: Record<string, number>;
+  /** Lock and bye context for the core rules; empty when the week's games are not known. */
+  context: LineupContext;
   optimized: OptimizedLineup;
 }
 
@@ -123,11 +124,9 @@ async function setLineup(
   why: string
 ): Promise<TaskOutcome> {
   if (sameLineup(lineup, prep.current)) return { action: 'lineup_unchanged', summary: why };
-  const result = await ctx.tools.call('set_lineup', {
-    teamId: ctx.principal.teamId,
-    ...(prep.week === undefined ? {} : { week: prep.week }),
-    lineup
-  });
+  const before = new Map(prep.current.map((e) => [e.playerId, e.slot]));
+  const moves = lineup.filter((e) => before.get(e.playerId) !== e.slot);
+  const result = await ctx.tools.call('set_lineup', { teamId: ctx.principal.teamId, week: prep.week, moves });
   if ('error' in result) {
     return { action: 'set_lineup_failed', summary: `${why} set_lineup failed: ${result.error.message}` };
   }
@@ -159,31 +158,29 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
         'get_roster'
       )
     );
-    const week = payload.week ?? rosterData.week ?? ctx.league.week ?? undefined;
-    const roster: RosterPlayer[] = rosterData.roster.map((p) => ({
-      playerId: p.playerId,
-      ...(p.name === undefined ? {} : { name: p.name }),
-      positions: p.positions,
+    const roster: RosterPlayer[] = rosterData.players.map((p) => ({
+      playerId: p.player.id,
+      name: p.player.name,
+      positions: [p.player.position],
       status: p.status,
-      nflTeam: p.nflTeam
+      nflTeam: p.player.team
     }));
     const projections: Record<string, number> = {};
-    for (const p of rosterData.roster)
-      if (p.projectedPoints !== undefined) projections[p.playerId] = p.projectedPoints;
-    if (week !== undefined) {
-      const response = await ctx.tools.call('get_projections', {
-        season: ctx.league.season,
-        week,
-        playerIds: roster.map((p) => p.playerId)
-      });
-      if (!('error' in response)) {
-        const parsed = ProjectionsDataSchema.safeParse(response.data);
-        if (parsed.success) for (const p of parsed.data.projections) projections[p.player.id] = p.points;
-      }
+    for (const p of rosterData.players)
+      if (p.projectedPoints !== null) projections[p.player.id] = p.projectedPoints;
+    const current = rosterData.players.map((p) => ({ playerId: p.player.id, slot: p.slot }));
+    // Kickoffs by NFL team: players lock at kickoff and teams without a game are on bye. When the
+    // week's games are unknown (no kickoff anywhere), bye and lock checks are left out.
+    const games: Record<string, { kickoff: string }> = {};
+    for (const p of rosterData.players) {
+      if (p.kickoff !== null && p.player.team !== null) games[p.player.team] = { kickoff: p.kickoff };
     }
-    const current = rosterData.roster.map((p) => ({ playerId: p.playerId, slot: p.slot }));
-    const optimized = optimizeLineup(settingsFor(ctx), roster, projections, { previousLineup: current });
-    return { week, roster, current, projections, optimized };
+    const context: LineupContext =
+      Object.keys(games).length === 0
+        ? { previousLineup: current }
+        : { games, now: ctx.clock.now(), previousLineup: current };
+    const optimized = optimizeLineup(settingsFor(ctx), roster, projections, context);
+    return { week: rosterData.week, roster, current, projections, context, optimized };
   },
   instructions(_ctx, payload, prep) {
     const why =
@@ -202,7 +199,7 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
     let summary = decision.summary;
     if (!decision.confirm && decision.swaps !== undefined && decision.swaps.length > 0) {
       const swapped = applySwaps(lineup, decision.swaps);
-      const check = validateLineup(settingsFor(ctx), prep.roster, swapped, { previousLineup: prep.current });
+      const check = validateLineup(settingsFor(ctx), prep.roster, swapped, prep.context);
       if (check.valid) lineup = check.lineup;
       else summary = `${summary} (Suggested swaps were not legal; kept the optimizer lineup.)`;
     }

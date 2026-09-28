@@ -65,4 +65,31 @@ describe('local dev server', () => {
       await local.close();
     }
   });
+
+  it('seeds an in-season demo league with FANTASY_LOCAL_SEASON_DEMO', async () => {
+    const local = await startLocalServer({
+      port: 0,
+      env: { FANTASY_LOCAL_AUTH: '1', FANTASY_LOCAL_SEASON_DEMO: 'coach' },
+      log: silentLogger
+    });
+    try {
+      const res = await fetch(`${local.url}/api/v1/leagues/demo-season/teams/team-1/roster`, {
+        headers: { authorization: 'Bearer dev:coach' }
+      });
+      const body = (await res.json()) as { data: { lineupSaved: boolean; players: unknown[] } };
+      expect(body.data).toMatchObject({ lineupSaved: true });
+      expect(body.data.players).toHaveLength(13);
+      const league = await local.services.repos.leagues.get('demo-season');
+      expect(league).toMatchObject({ phase: 'regular_season', week: 1, commissionerId: 'local-coach' });
+      // Seeding again leaves the stored league alone.
+      const { seedDemoSeason } = await import('../../src/dev/season-demo.js');
+      const again = await seedDemoSeason(
+        { repos: local.services.repos, reference: local.services.data.reference },
+        { leagueId: 'demo-season', owner: { sub: 'someone', name: 'Someone' }, now: new Date() }
+      );
+      expect(again.commissionerId).toBe('local-coach');
+    } finally {
+      await local.close();
+    }
+  });
 });

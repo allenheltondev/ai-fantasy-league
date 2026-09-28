@@ -3,6 +3,7 @@ import { ingestNews } from './ingest-news.js';
 import { ingestProjections } from './ingest-projections.js';
 import { ingestStats } from './ingest-stats.js';
 import { ingestTrending } from './ingest-trending.js';
+import { advanceSeason, scoreLiveWeek } from './season.js';
 import { processWaivers } from './process-waivers.js';
 import { syncNflState } from './sync-nfl-state.js';
 import { syncPlayers } from './sync-players.js';
@@ -20,6 +21,8 @@ export const JOBS = {
   ingestProjections,
   ingestTrending,
   ingestNews,
+  scoreLiveWeek,
+  advanceSeason,
   processWaivers
 } as const satisfies Record<string, Job>;
 
@@ -32,10 +35,12 @@ export function isJobName(value: unknown): value is JobName {
 
 export type { Job, JobDeps, JobResult, NewsSource } from './deps.js';
 export {
+  advanceSeason,
   ingestNews,
   ingestProjections,
   ingestStats,
   ingestTrending,
+  scoreLiveWeek,
   processWaivers,
   syncNflState,
   syncPlayers,

@@ -9,6 +9,7 @@ import { seedContractWaivers, WAIVER_CASES } from '../support/contract-waivers.j
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 import { seedLeague } from '../support/leagues.js';
 import { RESEARCH_LEAGUE_ID, seedReferenceData } from '../support/reference-seed.js';
+import { seedNflSchedule, seedSeasonLeague } from '../support/season.js';
 import { signIdToken } from '../support/tokens.js';
 
 const OTHER_USER = signIdToken({ sub: 'someone-else' });
@@ -93,6 +94,51 @@ const CASES: Record<string, Case[]> = {
     { label: 'unknown player', path: '/api/v1/news?playerId=nope', status: 404 }
   ],
   ...LEAGUE_CASES,
+  get_roster: [
+    { label: 'own team', path: '/api/v1/leagues/lg-cs/teams/team-1/roster', status: 200 },
+    { label: 'no lineup yet', path: '/api/v1/leagues/lg-cs/teams/team-2/roster?week=2', status: 200 },
+    {
+      label: 'outsider',
+      path: '/api/v1/leagues/lg-cs/teams/team-1/roster',
+      init: { token: OTHER_USER },
+      status: 403
+    },
+    { label: 'week not played', path: '/api/v1/leagues/lg-cs/teams/team-1/roster?week=18', status: 400 }
+  ],
+  set_lineup: [
+    {
+      label: 'swap',
+      path: '/api/v1/leagues/lg-cs/teams/team-1/lineup',
+      init: {
+        body: {
+          moves: [
+            { playerId: 'fx-jallen', slot: 'BN' },
+            { playerId: 'fx-mahomes', slot: 'QB' }
+          ]
+        },
+        idempotencyKey: 'contract-lineup-1'
+      },
+      status: 200
+    },
+    {
+      label: 'illegal',
+      path: '/api/v1/leagues/lg-cs/teams/team-1/lineup',
+      init: {
+        body: { moves: [{ playerId: 'fx-kelce', slot: 'QB' }] },
+        idempotencyKey: 'contract-lineup-2'
+      },
+      status: 400
+    },
+    {
+      label: 'not your team',
+      path: '/api/v1/leagues/lg-cs/teams/team-2/lineup',
+      init: {
+        body: { moves: [{ playerId: 'fx-lamar', slot: 'QB' }] },
+        idempotencyKey: 'contract-lineup-3'
+      },
+      status: 403
+    }
+  ],
   ...DRAFT_CASES,
   ...WAIVER_CASES,
   ...CHAT_CASES,
@@ -204,6 +250,11 @@ beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
   await seedReferenceData(h.services, h.repos);
   await seedContractLeagues(h.repos);
+  await seedNflSchedule(h.services.data.reference);
+  await seedSeasonLeague(
+    { repos: h.repos, reference: h.services.data.reference },
+    { id: 'lg-cs', owners: [{ sub: 'user-123', name: 'Allen' }] }
+  );
   await seedDraftContractLeague(h.repos);
   await seedContractWaivers(h.repos);
   await seedLeague(h.repos, { id: 'lg-1', owners: [{ sub: 'user-123', name: 'Allen' }], teamCount: 4 });

@@ -43,7 +43,7 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 | Draft | `DRAFT` | none | The order, rounds, clock, every pick, the current deadline, status (`in_progress`, `paused`, `complete`), and `version`. `get_draft_board` is one GetItem. `make_draft_pick` rewrites the item with a `version` condition, so two racing picks cannot both land (a 16-round, 12-team draft is well under 100 KB). Team rosters are then set to the team's picks. |
 | Roster | `ROSTER#<teamId>` | none | `get_roster` is a GetItem. All rosters are one `begins_with(ROSTER#)` query (at most 12 items). |
 | Player ownership lock | `OWN#<playerId>` | none | Holds `teamId` (null once released; locks are never deleted). A roster add first takes the lock with a condition (free, already this team's, or held by a team whose roster no longer has the player), then writes the team with its `version`, and a drop frees it, so two adds of one player never both land. |
-| Lineup | `LINEUP#W05#<teamId>` | none | `set_lineup` puts one item. A week's lineups are one query. |
+| Lineup | `LINEUP#W05#<teamId>` | none | Every rostered player with his slot, plus who saved it. `set_lineup` puts one item. A week's lineups are one query. A week with no lineup uses the team's latest earlier one (a reverse range query filtered on the team), and the weekly rollover writes the carried-forward copies. |
 | Matchup | `MATCHUP#W05#<matchupId>` | none | `get_matchup` is a query on `MATCHUP#W05#`, then filtered to the team (at most 6 items). Matchup ids are `W05-<n>`. `startSeasonSchedule` writes the regular season with one batch write when the draft starts; scores and `status` are filled in as weeks are played. |
 | Standings snapshot | `STANDINGS#W05` | none | Written when a week goes final. `get_standings` reads the latest with a reverse `begins_with(STANDINGS#)` query, limit 1. |
 | Waiver claim | `WAIVER#<claimId>` | none | `claim_waiver`, `cancel_waiver_claim`, and the claim list come from one `begins_with(WAIVER#)` query (a season has at most a few hundred). The claim carries its status, bid, own priority, and `processesAt`; updates are version-checked. |
@@ -149,6 +149,7 @@ has a 90-day `ttl`.
 | Process trade | Transact both rosters, the `OWN#` locks, `TRADE#`, and `TXN#` |
 | Waiver processing job | GSI2 `LEAGUEPHASE#regular_season` and `#playoffs`, then per league: put `WAIVERRUN#<day>`, query `WAIVER#` and `WAIVERWIRE#`, write teams, claims, and `TXN#` |
 | Scoring job | Query `STATS#<season>#W05`, then the week's lineups and matchups |
+| Season jobs (live scoring, weekly cycle) | GSI2 queries `LEAGUEPHASE#regular_season` and `LEAGUEPHASE#playoffs` |
 | Idempotent replay | GetItem or conditional put on `IDEMP#…` |
 | Audit by league or actor | Query `AUDIT#LEAGUE#id`, or GSI2 `AUDIT#PRINCIPAL#…` |
 

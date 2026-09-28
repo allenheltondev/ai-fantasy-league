@@ -11,9 +11,13 @@ import type {
   LeagueDetail,
   LeagueSettings,
   LeagueState,
+  LineupMove,
+  MatchupData,
   MyLeague,
+  Roster,
   ScoringPreset,
   SeatType,
+  StandingsData,
   TeamDetail
 } from './types';
 
@@ -68,7 +72,20 @@ export function createLeagueApi(api: ApiFetch) {
       call<{ seats: { teamId: string; config: AgentSeatConfig }[] }>(`${league(id)}/agents/randomize`, {
         method: 'POST',
         body: { teamIds }
-      })
+      }),
+
+    // Season loop (#52, #58)
+    getRoster: (id: string, teamId: string) => call<Roster>(`${league(id)}/teams/${teamId}/roster`),
+    /** Returns the warnings too: starting a player on bye or ruled out is allowed but flagged. */
+    setLineup: async (id: string, teamId: string, week: number, moves: LineupMove[]) => {
+      const res = await api<Roster>(`${league(id)}/teams/${teamId}/lineup`, {
+        method: 'PUT',
+        body: { week, moves }
+      });
+      return { roster: res.data, warnings: res.warnings as { code: string; message: string }[] };
+    },
+    getMatchup: (id: string) => call<MatchupData>(`${league(id)}/matchup`),
+    getStandings: (id: string) => call<StandingsData>(`${league(id)}/standings`)
   };
 }
 

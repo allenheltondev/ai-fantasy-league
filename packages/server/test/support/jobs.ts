@@ -113,8 +113,8 @@ export function createTestJobDeps(
   const playerRepo = new InMemoryPlayerRepository();
   return {
     provider: options.provider ?? new StubProvider(),
+    repos: { ...createInMemoryRepos(), players: playerRepo },
     reference: createInMemoryReferenceStore(playerRepo),
-    repos: createInMemoryRepos(),
     events: new InMemoryEventPublisher(),
     directory: new PlayerDirectory({ repo: playerRepo, clock }),
     log: silentLogger,

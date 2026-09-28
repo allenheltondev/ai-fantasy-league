@@ -106,13 +106,20 @@ describe('chat_reply with the fake model', () => {
         }
       })
     });
+    const allLineups = async () => {
+      const weeks = await Promise.all(
+        Array.from({ length: 18 }, (_, i) => s.repos.lineups.listWeek(LEAGUE_ID, i + 1))
+      );
+      return weeks.flat();
+    };
+    const lineupsBefore = await allLineups();
     const record = await runAgentAction(s.deps(model), request('chat_reply', { messageId: 'm-human' }));
     const entry = model.transcript[0];
     expect(entry?.toolNames).toEqual([]);
     expect(entry?.results).toHaveLength(5);
     for (const result of entry?.results ?? []) expect(result).toMatchObject({ error: { code: 'NOT_FOUND' } });
     expect(record.toolsCalled.filter((c) => c.mutation).map((c) => c.name)).toEqual(['post_message']);
-    expect(s.state.lineups).toEqual([]);
+    expect(await allLineups()).toEqual(lineupsBefore);
     expect((await s.agentPosts()).map((m) => m.text)).toEqual([
       'Nice try. My kicker stays benched and my roster stays mine.'
     ]);

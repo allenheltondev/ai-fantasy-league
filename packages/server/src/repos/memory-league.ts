@@ -14,6 +14,8 @@ import type {
   InviteRepository,
   League,
   LeagueRepository,
+  Lineup,
+  LineupRepository,
   Matchup,
   Member,
   MemberRepository,
@@ -33,6 +35,7 @@ interface Partition {
   invites: Map<string, Invite>;
   matchups: Map<string, Matchup>;
   standings: Map<number, StandingsSnapshot>;
+  lineups: Map<string, Lineup>;
   draft: DraftRecord | null;
 }
 
@@ -49,6 +52,7 @@ export class InMemoryLeagueStore {
         invites: new Map(),
         matchups: new Map(),
         standings: new Map(),
+        lineups: new Map(),
         draft: null
       };
       this.#partitions.set(leagueId, partition);
@@ -240,6 +244,33 @@ export class InMemoryScheduleRepository implements ScheduleRepository {
   }
 }
 
+export class InMemoryLineupRepository implements LineupRepository {
+  constructor(private readonly store: InMemoryLeagueStore) {}
+
+  async get(leagueId: string, teamId: string, week: number): Promise<Lineup | null> {
+    const lineup = this.store.partition(leagueId).lineups.get(`${week}#${teamId}`);
+    return lineup === undefined ? null : clone(lineup);
+  }
+
+  async latest(leagueId: string, teamId: string, week: number): Promise<Lineup | null> {
+    const found = [...this.store.partition(leagueId).lineups.values()]
+      .filter((l) => l.teamId === teamId && l.week <= week)
+      .sort((a, b) => b.week - a.week)[0];
+    return found === undefined ? null : clone(found);
+  }
+
+  async put(lineups: readonly Lineup[]): Promise<void> {
+    for (const l of lineups) this.store.partition(l.leagueId).lineups.set(`${l.week}#${l.teamId}`, clone(l));
+  }
+
+  async listWeek(leagueId: string, week: number): Promise<Lineup[]> {
+    return [...this.store.partition(leagueId).lineups.values()]
+      .filter((l) => l.week === week)
+      .sort((a, b) => a.teamId.localeCompare(b.teamId))
+      .map(clone);
+  }
+}
+
 /** The league repositories over one shared store. */
 export class InMemoryDraftRepository implements DraftRepository {
   constructor(private readonly store: InMemoryLeagueStore) {}
@@ -271,6 +302,7 @@ export function createInMemoryLeagueRepos() {
     members: new InMemoryMemberRepository(store),
     invites: new InMemoryInviteRepository(store),
     schedule: new InMemoryScheduleRepository(store),
+    lineups: new InMemoryLineupRepository(store),
     drafts: new InMemoryDraftRepository(store)
   };
 }

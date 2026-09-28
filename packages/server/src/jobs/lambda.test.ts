@@ -48,6 +48,8 @@ describe('runJob', () => {
       'ingestProjections',
       'ingestTrending',
       'ingestNews',
+      'scoreLiveWeek',
+      'advanceSeason',
       'processWaivers'
     ]);
     expect(isJobName('syncPlayers')).toBe(true);
