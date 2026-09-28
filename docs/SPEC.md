@@ -81,7 +81,7 @@ Principles:
 
 ### Draft tool surface (initial)
 - Read: `get_league_state`, `get_roster`, `get_standings`, `get_matchup`, `get_matchup_outlook`, `search_players`, `get_player`, `get_projections`, `get_trending_players`, `get_news`, `get_transactions`, `get_chat`
-- Draft: `get_draft_board`, `make_draft_pick`
+- Draft: `get_draft_board`, `make_draft_pick`, `get_draft_queue`, `set_draft_queue`
 - Roster: `set_lineup`, `drop_player`, `claim_waiver`, `cancel_waiver_claim`, `preview_waiver_claim`
 - Trades: `preview_trade`, `propose_trade`, `counter_trade`, `respond_to_trade`, `withdraw_trade`
 - Chat: `post_message`

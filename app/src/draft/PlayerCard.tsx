@@ -91,9 +91,6 @@ export function PlayerCard(props: PlayerCardProps) {
       titleAs="h3"
       aria-label={`${player.name} player card`}
       onOpenChange={(open) => !open && props.onClose()}
-      // `.drawer[data-side]` (z 89) outranks `.drawer-modal` (z 91) in the kit's CSS, which leaves
-      // the scrim (z 90) over the panel; lift the modal drawer above its scrim.
-      style={{ zIndex: 91 }}
     >
       <div className="space-y-4" data-testid="player-card">
         <p className="text-muted-foreground">

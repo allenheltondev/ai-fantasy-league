@@ -121,6 +121,25 @@ function researchApi(page: Page) {
   void page.route('**/api/v1/leagues/L1/draft?*', (route) => route.fulfill({ json: envelope(board) }));
   void page.route('**/api/v1/leagues/L1/draft/depth', (route) => route.fulfill({ json: envelope(depth) }));
   void page.route('**/api/v1/players/card?*', (route) => route.fulfill({ json: envelope(card) }));
+  // The server-side draft queue (#134): starts empty; a PUT stores the order and echoes it back.
+  let queued: string[] = [];
+  const known = [CHASE, CMC];
+  void page.route('**/api/v1/leagues/L1/draft/queue', async (route) => {
+    if (route.request().method() === 'PUT') {
+      queued = (route.request().postDataJSON() as { playerIds: string[] }).playerIds;
+    }
+    await route.fulfill({
+      json: envelope({
+        teamId: 'team-1',
+        maxSize: 50,
+        updatedAt: null,
+        players: queued.flatMap((id) => {
+          const player = known.find((p) => p.id === id);
+          return player === undefined ? [] : [{ player, rank: null, available: true }];
+        })
+      })
+    });
+  });
   void page.route('**/api/v1/leagues/L1/state', (route) =>
     route.fulfill({
       json: envelope({
