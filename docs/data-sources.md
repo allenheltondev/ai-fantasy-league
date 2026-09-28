@@ -22,6 +22,7 @@ Each EventBridge Scheduler schedule invokes it with `{ "job": "<name>" }`. Run o
 | `ingestNews` | `rate(15 minutes)` | The RSS feeds below | `NEWS#<id>`/`ITEM` (GSI2 `NEWS`/`<publishedAt>#<id>`), copies at `PLAYER#<id>` and `TEAMNEWS#<team>` / `NEWS#<publishedAt>#<id>` (90-day TTL) | `Player News Alert` for each new item tagged to a player |
 | `scoreLiveWeek` | `rate(2 minutes)`, working only inside a game window of an in-season league's week | Stored stats (`STATS#<season>#W05`) and lineups | Matchup scores (`MATCHUP#W05#<id>`, status `in_progress`) | `Scores Updated` with `leagueId`, the week's score lines, and the changed matchups' recent scoring log entries (`scoringLog`) |
 | `scoreLiveWeek` (NFL games, #132) | Same runs, once per season and week; outside windows only until every started game is final (3h grace) | ESPN `site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=<season>&seasontype=2&week=<w>` (public, best effort: a failure logs a warning and never fails scoring) | `NFLGAMES#<season>`/`W05` (the week's games, 14-day `ttl`) | `NFL Games Updated` when a score, status, possession, or red zone changed |
+| `scoreLiveWeek` (scoring plays, #164) | Same runs, right after the scoreboard read and before the leagues are scored, for each game whose score changed since the stored scoreboard (or whose stored plays do not reach the score yet, when ESPN's summary trails its scoreboard) | ESPN `site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=<espn id>` (`scoringPlays`; public, best effort per game: a failed read logs a warning and is retried next poll) | `NFLPLAYS#<season>#W05`/`GAME#<espn id>` (the game's scoring plays, each with the time it was first seen; 14-day `ttl`) | none; the scoring log reads them |
 | `advanceSeason` | `rate(15 minutes)` | Stored schedule, stats, lineups, matchups | Final matchups, `STANDINGS#W05`, carried-forward `LINEUP#W06#<teamId>`, playoff matchups, the league's week and phase | `Week Provisionally Final`, `Week Rolled Over` (with `leagueId`), and `Schedule Event`s for `Lineup Lock Approaching` |
 | `officialFinal` | `cron(0 15 ? * THU,FRI *)` (Thursday, Friday as a retry) | Every league whose last finished week is 48h past its last game and not official; the week re-pulled through `getOfficialWeekStats` (Sleeper reconciled with nflverse's `stats_player_week` file, GSIS ids mapped with the stored crosswalk) | Changed `STATS#` lines (each a `correction` scoring log event), rescored matchups, `STANDINGS#`, `PLAYOFFS`, `HISTORY#<season>`, `OFFICIAL#W05`, `ACHIEVEMENT#…` | `Stat Correction Applied` (per changed matchup), `Week Official Final`, `Achievement Earned`, and `Track Activity` when `BADGE_CHEST_ENABLED=true` |
 | `syncSeasonResearch` | `cron(37 11 * * ? *)` (daily) | Sleeper `/v1/stats/nfl/regular/{lastSeason}/{1-18}` once per season (again only while the stored pull is missing weeks), and `/v1/projections/nfl/regular/{season}/{1-18}` daily in the preseason and offseason (once in-season if none are stored). Sleeper has no reliable season-total endpoint, so both are 18 weekly calls folded per player | `SEASON#<stats\|projections>#<season>`/`PLAYER#<id>` (weekly lines compacted to the scoring stat keys) and `/META` (weeks, content hash); a changed set replaces the partition, removing players who left it | none |
@@ -29,6 +30,24 @@ Each EventBridge Scheduler schedule invokes it with `{ "job": "<name>" }`. Run o
 
 Notes:
 
+- **Scoring play descriptions (#164).** A scoring log entry for a touchdown or a made field goal
+  shows ESPN's description of the play ("Travis Kelce 18 Yd pass from Patrick Mahomes (Harrison
+  Butker Kick)") when exactly one stored play fits it (core `matchScoringPlay`): the play is the
+  right kind for a stat that went up, the player has that role in it (the receiver before "pass
+  from", the passer after it, a rusher in a play without a pass, the kicker of a field goal, a
+  team defense on a defensive or return touchdown), the play's team is his team, his Sleeper name
+  (full, or first initial and last name; suffixes like "Jr." ignored) is in the description before
+  the extra point, and the play was first seen within 10 minutes of the entry. None or several
+  fitting plays means no description: it is never shown unless certain. `get_scoring_log` reads
+  the week's plays in one query, and only when an entry could use one.
+- **ESPN summary fixture.** `site.api.espn.com` is not reachable from the dev sandbox, so
+  `packages/data/fixtures/espn/summary_401772901.json` is hand-written from ESPN's documented
+  `scoringPlays` shape (`id`, `type.text`/`abbreviation`, `text`, `period.number`,
+  `clock.displayValue`, `team.id`/`abbreviation`, `scoringType.name`, `awayScore`/`homeScore`).
+  The schema only requires `id` and `text`. Record a live payload once games are reachable: run the
+  **Record fixtures** workflow with `espn_event` set to a game's ESPN id (or
+  `node scripts/record-fixtures.mjs --espn-summary <id>`), replace the hand-written file with it,
+  and update `packages/data/src/espn/summary.test.ts` to match.
 - **Game-window gating.** `ingestStats` reads the stored NFL state and that week's stored schedule
   (one GetItem and one Query) and returns `skipped: outside_game_window` without calling Sleeper
   outside a window. `syncSchedule` must have run once for a season before live stats start.

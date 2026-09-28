@@ -5,6 +5,7 @@ import type {
   PlayerSeasonLines,
   ProjectionLine,
   ScheduledGame,
+  ScoringPlay,
   SeasonLinesKind,
   Player as SourcePlayer,
   StatLine,
@@ -79,6 +80,37 @@ export interface NflGamesRepository {
   get(season: number, week: number): Promise<StoredNflWeek | null>;
   /** Replaces the week's games. */
   put(week: StoredNflWeek): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Scoring plays (#164): ESPN's play descriptions per game, for the scoring log
+// ---------------------------------------------------------------------------
+
+export interface StoredScoringPlay extends ScoringPlay {
+  /** When a read first had this play (kept across reads); the log matches entries against it. */
+  seenAt: string;
+}
+
+/** One game's scoring plays, read from ESPN's summary when its score moved (`refreshNflGames`). */
+export interface StoredGamePlays {
+  season: number;
+  week: number;
+  /** ESPN's event id (`LiveGame.espnId`). */
+  espnId: string;
+  gameKey: string | null;
+  /** The scoreboard's score when the plays were read. */
+  homeScore: number | null;
+  awayScore: number | null;
+  /** In game order. */
+  plays: StoredScoringPlay[];
+  updatedAt: string;
+}
+
+export interface NflPlaysRepository {
+  /** Every game's stored plays for a week (one query). */
+  listWeek(season: number, week: number): Promise<StoredGamePlays[]>;
+  /** Replaces one game's plays. */
+  put(game: StoredGamePlays): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +273,7 @@ export interface ReferenceStore {
   nflState: NflStateRepository;
   schedule: NflScheduleRepository;
   nflGames: NflGamesRepository;
+  nflPlays: NflPlaysRepository;
   stats: StatsRepository;
   scoringLog: ScoringLogRepository;
   projections: ProjectionRepository;

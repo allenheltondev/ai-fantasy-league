@@ -57,3 +57,33 @@ export type EspnEvent = z.infer<typeof espnEventSchema>;
  */
 export const espnScoreboardSchema = z.object({ events: z.array(z.unknown()) });
 export type EspnScoreboard = z.infer<typeof espnScoreboardSchema>;
+
+/**
+ * One scoring play of ESPN's game summary (`.../nfl/summary?event=<id>`, `scoringPlays`). Only the
+ * description is required; the rest (type, period, clock, team, scores) may be missing or null,
+ * and fields we do not read are ignored. A play is validated on its own, so one odd play does not
+ * hide the others.
+ */
+const scoreValue = z.union([z.number(), z.string()]).nullable().optional();
+export const espnScoringPlaySchema = z.object({
+  id: z.union([z.string(), z.number()]).transform(String),
+  type: z
+    .object({ id: optionalString, text: optionalString, abbreviation: optionalString })
+    .nullable()
+    .optional(),
+  text: z.string(),
+  awayScore: scoreValue,
+  homeScore: scoreValue,
+  period: z.object({ number: optionalNumber }).nullable().optional(),
+  clock: z.object({ displayValue: optionalString }).nullable().optional(),
+  team: z.object({ id: optionalString, abbreviation: optionalString }).nullable().optional(),
+  scoringType: z
+    .object({ name: optionalString, displayName: optionalString, abbreviation: optionalString })
+    .nullable()
+    .optional()
+});
+export type EspnScoringPlay = z.infer<typeof espnScoringPlaySchema>;
+
+/** The summary's envelope: before kickoff (and for some games) `scoringPlays` is left out. */
+export const espnSummarySchema = z.object({ scoringPlays: z.array(z.unknown()).nullable().optional() });
+export type EspnSummary = z.infer<typeof espnSummarySchema>;

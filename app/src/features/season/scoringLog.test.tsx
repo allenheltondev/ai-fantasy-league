@@ -6,7 +6,7 @@ import type { MatchupData, ScoringLogData, ScoringLogEntry } from '../../api/typ
 import type { EventConnect, LeagueEvent } from '../../realtime/leagueEvents';
 import { fakeApi } from '../../test/fakeApi';
 import { MatchupPage, pushedLog } from './MatchupPage';
-import { filterEntries, formatPoints, mergeEntries } from './ScoringLog';
+import { filterEntries, formatPoints, mergeEntries, playText } from './ScoringLog';
 
 const MATCHUP_ID = 'W04-M1';
 
@@ -131,6 +131,17 @@ describe('scoring log helpers', () => {
     ]);
   });
 
+  it('keeps the copy of an entry that has its play description (#164)', () => {
+    const described = { ...THEIRS, play: { text: 'Christian McCaffrey 18 Yd Run (Jake Moody Kick)' } };
+    expect(mergeEntries([{ ...THEIRS, play: null }], [described])).toEqual([described]);
+    expect(mergeEntries([described], [{ ...THEIRS, play: null }])).toEqual([described]);
+    expect(mergeEntries([THEIRS], [{ ...THEIRS, summary: 'later' }])).toEqual([THEIRS]);
+    expect(playText(described)).toBe('Christian McCaffrey 18 Yd Run (Jake Moody Kick)');
+    expect(playText({ ...THEIRS, play: { text: ' ' } })).toBeNull();
+    expect(playText({ ...THEIRS, play: { text: 7 } as unknown as { text: string } })).toBeNull();
+    expect(playText(THEIRS)).toBeNull();
+  });
+
   it('filters by team and bench', () => {
     const all = [THEIRS, MINE, BENCH];
     expect(filterEntries(all, 'both', 'team-1', false)).toEqual([THEIRS, MINE]);
@@ -187,6 +198,22 @@ describe('MatchupPage scoring log', () => {
     expect(within(rows[2]!).getByRole('img', { name: "Allen's Team" })).toHaveTextContent('A');
     // Nothing is new on the first load.
     expect(rows.some((r) => r.dataset.new)).toBe(false);
+  });
+
+  it("shows ESPN's play description under the stat summary, and nothing without one (#164)", async () => {
+    const text = 'Christian McCaffrey 18 Yd Run (Jake Moody Kick)';
+    renderMatchup(async () =>
+      page([
+        { ...THEIRS, play: { text } },
+        { ...MINE, play: null }
+      ])
+    );
+    const row = await screen.findByTestId('log-entry-cmc');
+    const play = within(row).getByTestId('log-play');
+    expect(play).toHaveTextContent(text);
+    // Right under the summary line.
+    expect(within(row).getByText('+18 rush yds, +1 rush TD').nextElementSibling).toBe(play);
+    expect(within(screen.getByTestId('log-entry-ajbrown')).queryByTestId('log-play')).toBeNull();
   });
 
   it('filters mine and theirs, and asks for the bench', async () => {

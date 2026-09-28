@@ -25,10 +25,12 @@ import {
   type SeasonLinesMeta,
   type SeasonLinesRepository,
   type NflGamesRepository,
+  type NflPlaysRepository,
   type NflScheduleRepository,
   type ScoringLogRepository,
   type StatsRepository,
   type StoredScoringEvent,
+  type StoredGamePlays,
   type StoredNflWeek,
   type StoredNflState,
   type StoredSeasonSchedule,
@@ -45,7 +47,7 @@ const DAY_MS = 86_400_000;
 /** News and trending snapshots expire; stats, projections, and the schedule are kept for replays. */
 export const NEWS_TTL_MS = 90 * DAY_MS;
 export const TRENDING_TTL_MS = 30 * DAY_MS;
-/** A week's live games are only read during and just after that week. */
+/** A week's live games (and their scoring plays) are only read during and just after that week. */
 export const NFL_GAMES_TTL_MS = 14 * DAY_MS;
 /** Scoring log events outlive their season (a week 1 event lasts past the Super Bowl), then expire. */
 export const SCORING_LOG_TTL_MS = 200 * DAY_MS;
@@ -101,6 +103,30 @@ const NflWeekSchema = z.object({
   season: z.number(),
   week: z.number(),
   games: z.array(LiveGameSchema),
+  updatedAt: z.string()
+});
+
+const GamePlaysSchema = z.object({
+  season: z.number(),
+  week: z.number(),
+  espnId: z.string(),
+  gameKey: nullableString,
+  homeScore: nullableNumber,
+  awayScore: nullableNumber,
+  plays: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.enum(['touchdown', 'field_goal', 'extra_point', 'two_point', 'safety', 'other']),
+      typeText: nullableString,
+      text: z.string(),
+      period: nullableNumber,
+      clock: nullableString,
+      team: nullableString,
+      awayScore: nullableNumber,
+      homeScore: nullableNumber,
+      seenAt: z.string()
+    })
+  ),
   updatedAt: z.string()
 });
 
@@ -327,6 +353,37 @@ export class DynamoNflGamesRepository implements NflGamesRepository {
           ...nflGamesKey(week.season, week.week),
           ...week,
           ttl: epochSeconds(new Date(Date.parse(week.updatedAt) + NFL_GAMES_TTL_MS))
+        }
+      })
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+/** `NFLPLAYS#2026#W05`/`GAME#<espn id>`: a week's scoring plays, one item per game (#164). */
+export const nflPlaysPk = (season: number, week: number) => `NFLPLAYS#${season}#${weekKey(week)}`;
+
+export class DynamoNflPlaysRepository implements NflPlaysRepository {
+  constructor(private readonly table: TableContext) {}
+
+  async listWeek(season: number, week: number): Promise<StoredGamePlays[]> {
+    const items = await queryAll(this.table, {
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: { ':pk': nflPlaysPk(season, week) }
+    });
+    return items.map((item) => GamePlaysSchema.parse(item));
+  }
+
+  async put(game: StoredGamePlays): Promise<void> {
+    await this.table.doc.send(
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: {
+          pk: nflPlaysPk(game.season, game.week),
+          sk: `GAME#${game.espnId}`,
+          ...game,
+          ttl: epochSeconds(new Date(Date.parse(game.updatedAt) + NFL_GAMES_TTL_MS))
         }
       })
     );
@@ -709,6 +766,7 @@ export function createDynamoReferenceStore(table: TableContext): ReferenceStore 
     nflState: new DynamoNflStateRepository(table),
     schedule: new DynamoNflScheduleRepository(table),
     nflGames: new DynamoNflGamesRepository(table),
+    nflPlays: new DynamoNflPlaysRepository(table),
     stats: new DynamoStatsRepository(table),
     scoringLog: new DynamoScoringLogRepository(table),
     projections: new DynamoProjectionRepository(table),

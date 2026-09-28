@@ -68,9 +68,10 @@ function gamesCache(deps: SeasonJobDeps) {
  * retries it (rescoring is idempotent) and the failure is emailed. A league that stays broken
  * therefore sends one failure email per two-minute run during game windows.
  *
- * Each run also refreshes the week's NFL games from ESPN (`refreshNflGames`: scores, possession,
- * the red zone), once per season and week, not per league. That is best effort: it logs a warning
- * on failure and never fails the job.
+ * Each run first refreshes the week's NFL games from ESPN (`refreshNflGames`: scores, possession,
+ * the red zone, and the scoring plays of games whose score moved), once per season and week, not
+ * per league, so the scoring log entries pushed with the scores already carry the play
+ * descriptions. That is best effort: it logs a warning on failure and never fails the job.
  */
 export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
@@ -79,6 +80,7 @@ export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<Jo
   const games = gamesCache(deps);
   const recent = recentPlayersCache(deps, now);
   const weeks = new Map<string, NflWeekTarget>();
+  const scoring: { league: League; week: number }[] = [];
   let live = 0;
   let updated = 0;
   let failed = 0;
@@ -94,18 +96,26 @@ export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<Jo
         games: weekGames,
         live: inWindow
       });
-      if (!inWindow) continue;
-      live++;
-      if (await scoreLeague(deps, league, week, now, recent)) updated++;
+      if (inWindow) scoring.push({ league, week });
     } catch (error) {
       failed++;
       deps.log.error('could not score league', { leagueId: league.id, week, error });
     }
   }
+  // The NFL games first: a scoring play read now is on the log entries pushed below (#164).
   const nflGames: Record<string, number> = {};
   for (const target of weeks.values()) {
     const outcome = await refreshNflGames(deps, target, now);
     nflGames[outcome] = (nflGames[outcome] ?? 0) + 1;
+  }
+  for (const { league, week } of scoring) {
+    live++;
+    try {
+      if (await scoreLeague(deps, league, week, now, recent)) updated++;
+    } catch (error) {
+      failed++;
+      deps.log.error('could not score league', { leagueId: league.id, week, error });
+    }
   }
   if (live === 0) {
     return settle(

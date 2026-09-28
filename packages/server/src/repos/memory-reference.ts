@@ -21,10 +21,12 @@ import {
   type SeasonLinesMeta,
   type SeasonLinesRepository,
   type NflGamesRepository,
+  type NflPlaysRepository,
   type NflScheduleRepository,
   type ScoringLogRepository,
   type StatsRepository,
   type StoredScoringEvent,
+  type StoredGamePlays,
   type StoredNflWeek,
   type StoredNflState,
   type StoredSeasonSchedule,
@@ -95,6 +97,21 @@ export class InMemoryNflGamesRepository implements NflGamesRepository {
 
   async put(week: StoredNflWeek): Promise<void> {
     this.#weeks.set(`${week.season}:${week.week}`, clone(week));
+  }
+}
+
+export class InMemoryNflPlaysRepository implements NflPlaysRepository {
+  readonly #games = new Map<string, StoredGamePlays>();
+
+  async listWeek(season: number, week: number): Promise<StoredGamePlays[]> {
+    return [...this.#games.values()]
+      .filter((g) => g.season === season && g.week === week)
+      .sort((a, b) => a.espnId.localeCompare(b.espnId))
+      .map(clone);
+  }
+
+  async put(game: StoredGamePlays): Promise<void> {
+    this.#games.set(`${game.season}:${game.week}:${game.espnId}`, clone(game));
   }
 }
 
@@ -268,6 +285,7 @@ export function createInMemoryReferenceStore(players: PlayerRepository): Referen
     nflState: new InMemoryNflStateRepository(),
     schedule: new InMemoryNflScheduleRepository(),
     nflGames: new InMemoryNflGamesRepository(),
+    nflPlays: new InMemoryNflPlaysRepository(),
     stats: new InMemoryStatsRepository(),
     scoringLog: new InMemoryScoringLogRepository(),
     projections: new InMemoryProjectionRepository(),

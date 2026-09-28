@@ -1,9 +1,10 @@
 import { HttpClient, type FetchLike, type RetryPolicy } from '../http/http-client.js';
 import type { Sleep } from '../http/rate-limiter.js';
 import { parseOrDrift } from '../validation.js';
-import { espnScoreboardSchema, type EspnScoreboard } from './schemas.js';
+import { espnScoreboardSchema, espnSummarySchema, type EspnScoreboard, type EspnSummary } from './schemas.js';
 
 export const ESPN_SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
+export const ESPN_SUMMARY_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary';
 
 export interface EspnClientOptions {
   fetch?: FetchLike;
@@ -15,6 +16,8 @@ export interface EspnClientOptions {
   random?: () => number;
   /** The scoreboard URL (tests and a proxy). */
   scoreboardUrl?: string;
+  /** The game summary URL (tests and a proxy). */
+  summaryUrl?: string;
 }
 
 /** ESPN's season type ids on the scoreboard's `seasontype` parameter. */
@@ -22,15 +25,17 @@ const SEASON_TYPE = { regular: 2, post: 3 } as const;
 
 /**
  * ESPN's public NFL scoreboard: the live situation of every game in a week (possession, down and
- * distance, red zone). Unauthenticated and undocumented, so it is best-effort: callers treat a
+ * distance, red zone), and a game's summary for its scoring plays (#164). Unauthenticated and undocumented, so it is best-effort: callers treat a
  * failure as "no situation", never as an error that stops their job.
  */
 export class EspnClient {
   readonly #http: HttpClient;
   readonly #url: string;
+  readonly #summaryUrl: string;
 
   constructor(options: EspnClientOptions = {}) {
     this.#url = options.scoreboardUrl ?? ESPN_SCOREBOARD_URL;
+    this.#summaryUrl = options.summaryUrl ?? ESPN_SUMMARY_URL;
     this.#http = new HttpClient({
       retry: { maxRetries: 1, baseDelayMs: 250, maxDelayMs: 1_000, ...options.retry },
       timeoutMs: options.timeoutMs ?? 5_000,
@@ -56,5 +61,13 @@ export class EspnClient {
     });
     const body = await this.#http.getJson(`${this.#url}?${params.toString()}`);
     return parseOrDrift(espnScoreboardSchema, body, 'espn /scoreboard');
+  }
+
+  /** One game's summary (`?event=<id>`), for its scoring plays (#164). */
+  async summary(eventId: string): Promise<EspnSummary> {
+    if (!/^\d{1,15}$/.test(eventId)) throw new RangeError(`Invalid ESPN event id: ${eventId}`);
+    const params = new URLSearchParams({ event: eventId });
+    const body = await this.#http.getJson(`${this.#summaryUrl}?${params.toString()}`);
+    return parseOrDrift(espnSummarySchema, body, 'espn /summary');
   }
 }
