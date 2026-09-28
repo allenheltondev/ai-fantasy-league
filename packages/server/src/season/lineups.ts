@@ -13,7 +13,7 @@ import type { ScheduledGame } from '@fantasy/data';
 import { ApiError } from '../errors.js';
 import type { EventPublisher } from '../events/publisher.js';
 import type { Logger } from '../log.js';
-import type { Player } from '../players/model.js';
+import { rosterStatus, type Player } from '../players/model.js';
 import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Repos, Team } from '../repos/types.js';
 import { STATS_GAME_DURATION_MS } from './window.js';
@@ -88,12 +88,8 @@ export function assertNotLocked(locks: WeekLocks, player: Pick<Player, 'id' | 'n
 
 /** The stored player's availability as core's normalized status. */
 export function playerStatus(player: Player): PlayerStatus {
-  const roster =
-    player.status === 'injured_reserve'
-      ? 'Injured Reserve'
-      : player.status === 'inactive'
-        ? 'Inactive'
-        : null;
+  const status = rosterStatus(player);
+  const roster = status === 'injured_reserve' ? 'Injured Reserve' : status === 'inactive' ? 'Inactive' : null;
   return normalizePlayerStatus(player.injuryStatus, roster);
 }
 

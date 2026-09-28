@@ -1,5 +1,7 @@
 import { weekEndsAt, type Clock } from '@fantasy/core';
 import { IdCrosswalk, isInGameWindow, type ScheduledGame } from '@fantasy/data';
+import { currentPick } from '@fantasy/core';
+import { handleDraftDeadline } from '../league/draft.js';
 import { resumeDraftStartup } from '../operations/draft/start-draft.js';
 import { createServices } from '../services.js';
 import type { StoredStatLine } from '../repos/reference.js';
@@ -195,6 +197,26 @@ async function liveLogEntries(
 }
 
 /**
+ * How long past its deadline a live draft's pick may sit before the weekly cycle treats the draft as
+ * stalled and runs the deadline itself (an autopick that found no legal player, a lost timer).
+ */
+export const STALLED_DRAFT_AFTER_MS = 2 * 60_000;
+
+/** Drafting leagues whose current pick is overdue by more than `STALLED_DRAFT_AFTER_MS`. */
+async function stalledDrafts(deps: SeasonJobDeps, drafting: readonly League[], now: Date) {
+  const stalled: { league: League; pick: number }[] = [];
+  for (const league of drafting) {
+    if (league.draftStartup) continue;
+    const record = await deps.repos.drafts.get(league.id);
+    const slot = record === null ? null : currentPick(record.state);
+    if (record?.status !== 'in_progress' || record.deadline === null || slot === null) continue;
+    if (now.getTime() - Date.parse(record.deadline) > STALLED_DRAFT_AFTER_MS)
+      stalled.push({ league, pick: slot.overall });
+  }
+  return stalled;
+}
+
+/**
  * The weekly cycle (every 15 minutes). Advances every in-season league whose week is over: final
  * scores, `Week Provisionally Final`, and the rollover (`advanceLeague`). One league failing is
  * logged and does not stop the others; once all are done the job fails (`settle`), so Lambda
@@ -214,9 +236,23 @@ export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<
       (l) => l.draftStartup && !(Date.parse(l.draftStartup.leaseUntil ?? '') > now.getTime())
     )
   ];
-  if (leagues.length === 0) return skipped('no_leagues_in_season');
+  const stalled = await stalledDrafts(deps, drafting, now);
+  if (leagues.length === 0 && stalled.length === 0) return skipped('no_leagues_in_season');
   const outcomes: Record<string, number> = {};
   let failed = 0;
+  // A stalled draft's clock is run again, so an autopick that failed once (or a lost timer) retries.
+  for (const { league, pick } of stalled) {
+    try {
+      const outcome = await handleDraftDeadline(createServices({ ...deps, clock }), {
+        leagueId: league.id,
+        pick
+      });
+      outcomes[`draft_${outcome}`] = (outcomes[`draft_${outcome}`] ?? 0) + 1;
+    } catch (error) {
+      failed++;
+      deps.log.error('could not unstick draft', { leagueId: league.id, pick, error });
+    }
+  }
   for (const league of leagues) {
     try {
       if (league.draftStartup) {
@@ -231,7 +267,13 @@ export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<
       deps.log.error('could not advance league', { leagueId: league.id, error });
     }
   }
-  return settle(deps.log, 'advanceSeason', { status: 'ok', leagues: leagues.length, ...outcomes, failed });
+  return settle(deps.log, 'advanceSeason', {
+    status: 'ok',
+    leagues: leagues.length,
+    stalledDrafts: stalled.length,
+    ...outcomes,
+    failed
+  });
 }
 
 /**

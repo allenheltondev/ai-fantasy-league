@@ -31,7 +31,8 @@ export function toProfile(source: SourcePlayer, updatedAt: string): Player | nul
     lastName: source.lastName,
     team,
     position: source.position,
-    status: toPlayerStatus(source.status),
+    // Sleeper leaves a team defense's status empty; one on an NFL team is always active.
+    status: source.position === 'DEF' && team !== null ? 'active' : toPlayerStatus(source.status),
     injuryStatus: source.injuryStatusRaw ?? source.injuryStatus,
     aliases: source.position === 'DEF' ? defenseAliases(source) : [],
     rank: source.searchRank ?? null,
