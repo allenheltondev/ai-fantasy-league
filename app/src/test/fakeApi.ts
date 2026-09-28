@@ -274,7 +274,10 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       topics: null,
       expiresAt: null,
       pollIntervalSeconds: 5
-    }))
+    })),
+    getMatchupOutlook: vi.fn(async () => {
+      throw new Error('getMatchupOutlook is not faked in this test');
+    })
   };
   return { ...api, ...overrides };
 }

@@ -88,7 +88,7 @@ These are all generated from the registry, so they can't drift apart:
 - **REST routes:** `/api/v1/...`
 - **OpenAPI document:** `GET /api/v1/openapi.json` and `packages/server/openapi.json`, which is committed and checked in CI
 - **The frontend's typed client**
-- **The MCP tool list**
+- **The MCP tool list**, served by the league MCP server at `/api/v1/mcp` for a person's own assistant (`docs/mcp.md`)
 - **The tool set agents receive**
 
 An agent's tool call runs the **same handler with the same authorization, validation, and phase checks** as a human's HTTP call. The only difference is that the principal is `{ type: 'agent', agentId, teamId, leagueId }` instead of a user (`{ type: 'user', sub, email, name }`, built only from a verified Cognito ID token sent as `Authorization: Bearer <token>`). Agent principals are created in-process by the agent runtime (`invokeTool`) and are never accepted over HTTP. There are no agent-only operations.

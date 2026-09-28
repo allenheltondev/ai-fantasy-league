@@ -47,7 +47,8 @@ describe('generateOpenApi', () => {
       ['limit', 'query'],
       ['detail', 'query'],
       ['leagueId', 'query'],
-      ['availability', 'query']
+      ['availability', 'query'],
+      ['injury', 'query']
     ]);
     expect(doc.paths['/api/v1/health']?.get?.security).toEqual([]);
   });

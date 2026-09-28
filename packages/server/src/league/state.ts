@@ -7,6 +7,7 @@ import {
   type ActionOperation
 } from './phase.js';
 import type { LeagueAccess } from './access.js';
+import { LeagueSettingsSchema } from '@fantasy/core';
 import {
   FlagsSchema,
   PhaseSchema,
@@ -38,13 +39,23 @@ export const LeagueStateSchema = z.object({
     nextLineupLockAt: z.string().nullable(),
     nextWaiverRunAt: z.string().nullable()
   }),
-  teams: z.array(TeamSummarySchema)
+  teams: z.array(
+    TeamSummarySchema.extend({
+      faabRemaining: z.number().optional().describe('FAAB left. Present when `detail` is true.'),
+      waiverPriority: z.number().int().optional().describe('Waiver priority. Present when `detail` is true.'),
+      rosterSize: z.number().int().optional().describe('Players rostered. Present when `detail` is true.')
+    })
+  ),
+  settings: LeagueSettingsSchema.optional().describe(
+    'The league’s rule settings. Present when `detail` is true.'
+  )
 });
 
 export function leagueState(
   access: LeagueAccess,
   operations: readonly ActionOperation[],
-  now: Date
+  now: Date,
+  detail = false
 ): z.infer<typeof LeagueStateSchema> {
   const { league, teams, actor } = access;
   const yourTeam = actorTeam(actor);
@@ -68,7 +79,17 @@ export function leagueState(
       nextLineupLockAt: nextLineupLock(league, now),
       nextWaiverRunAt: league.deadlines.nextWaiverRunAt
     },
-    teams: teams.map(teamSummary)
+    teams: teams.map((team) =>
+      detail
+        ? {
+            ...teamSummary(team),
+            faabRemaining: team.faabRemaining,
+            waiverPriority: team.waiverPriority,
+            rosterSize: team.roster.length
+          }
+        : teamSummary(team)
+    ),
+    ...(detail ? { settings: league.settings } : {})
   };
 }
 

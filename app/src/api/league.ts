@@ -15,6 +15,7 @@ import type {
   LeagueState,
   LineupMove,
   MatchupData,
+  MatchupOutlook,
   ModelLeaderboard,
   MyLeague,
   Roster,
@@ -88,6 +89,7 @@ export function createLeagueApi(api: ApiFetch) {
       return { roster: res.data, warnings: res.warnings as { code: string; message: string }[] };
     },
     getMatchup: (id: string) => call<MatchupData>(`${league(id)}/matchup`),
+    getMatchupOutlook: (id: string) => call<MatchupOutlook>(`${league(id)}/matchup/outlook`),
     getStandings: (id: string) => call<StandingsData>(`${league(id)}/standings`),
     /** get_model_leaderboard (#76). */
     getModelLeaderboard: (id: string) => call<ModelLeaderboard>(`${league(id)}/model-leaderboard`),
