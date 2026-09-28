@@ -1,12 +1,13 @@
 import { expect, test, type Route } from '@playwright/test';
+import { serveAuthConfig } from './support';
 
 /**
  * The players page end to end in a real browser: search, then claim a player on waivers with a drop
- * and a FAAB bid, and see it in My claims. The API is a stateful fake behind page.route that answers
- * with the documented envelopes, so the spec needs no backend.
+ * and a FAAB bid, and see it in My claims. A league only reaches the season (and waivers) after a
+ * draft, which the local API cannot run yet, so the league API here is a stateful fake behind
+ * page.route answering with the documented envelopes. Once the draft lands, drive this against the
+ * local server like league-setup.pw.ts.
  */
-
-const AUTH_CONFIG = { region: 'us-east-1', userPoolId: 'us-east-1_e2e', clientId: 'e2e-client' };
 
 function base64url(value: string): string {
   return Buffer.from(value).toString('base64url');
@@ -49,9 +50,7 @@ test('a manager claims a player on waivers with a drop and a FAAB bid', async ({
       body: JSON.stringify({ data, league: null, warnings: [] })
     });
 
-  await page.route('**/auth-config.json', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(AUTH_CONFIG) })
-  );
+  await serveAuthConfig(page);
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
