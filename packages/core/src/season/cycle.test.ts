@@ -9,6 +9,7 @@ import {
   firstKickoff,
   gameWindows,
   nextLeagueWeek,
+  playoffBracket,
   playoffMatchups,
   reconcileLineup,
   weekEndsAt
@@ -161,8 +162,8 @@ describe('playoffMatchups', () => {
     expect(round1).toEqual({
       ok: true,
       value: [
-        { homeTeamId: 't4', awayTeamId: 't5' },
-        { homeTeamId: 't3', awayTeamId: 't6' }
+        { gameId: 'championship-r1-g1', bracket: 'championship', homeTeamId: 't4', awayTeamId: 't5' },
+        { gameId: 'championship-r1-g2', bracket: 'championship', homeTeamId: 't3', awayTeamId: 't6' }
       ]
     });
     const round2 = playoffMatchups(
@@ -179,10 +180,55 @@ describe('playoffMatchups', () => {
       ],
       16
     );
-    expect(round2.ok && round2.value).toEqual([
-      { homeTeamId: 't1', awayTeamId: 't5' },
-      { homeTeamId: 't2', awayTeamId: 't3' }
+    expect(round2.ok && round2.value.map((g) => [g.homeTeamId, g.awayTeamId])).toEqual([
+      ['t1', 't5'],
+      ['t2', 't3']
     ]);
+  });
+
+  const upsetWeek15 = {
+    week: 15,
+    results: [
+      { homeTeamId: 't4', awayTeamId: 't5', homeScore: 80, awayScore: 99 },
+      { homeTeamId: 't3', awayTeamId: 't6', homeScore: 120, awayScore: 99 },
+      { homeTeamId: 't7', awayTeamId: 't8', homeScore: 50, awayScore: 60 }
+    ]
+  };
+
+  it('reseeds after each round when the settings say so: the top seed meets the lowest left', () => {
+    // 4 beats 5 and 6 upsets 3: a fixed bracket plays 1 v 4 and 2 v 6; reseeding plays 1 v 6.
+    const week15 = {
+      week: 15,
+      results: [
+        { homeTeamId: 't4', awayTeamId: 't5', homeScore: 99, awayScore: 80 },
+        { homeTeamId: 't3', awayTeamId: 't6', homeScore: 90, awayScore: 99 }
+      ]
+    };
+    const pairs = (r: ReturnType<typeof playoffMatchups>) =>
+      r.ok ? r.value.map((g) => [g.homeTeamId, g.awayTeamId]) : r.issues;
+    expect(pairs(playoffMatchups(settings, final, [week15], 16))).toEqual([
+      ['t1', 't4'],
+      ['t2', 't6']
+    ]);
+    const reseeded = { playoffs: { ...settings.playoffs, reseed: true } };
+    expect(pairs(playoffMatchups(reseeded, final, [week15], 16))).toEqual([
+      ['t1', 't6'],
+      ['t2', 't4']
+    ]);
+    expect(pairs(playoffMatchups(reseeded, final, [], 16))).toEqual([]);
+  });
+
+  it('adds consolation games only when the settings call for them', () => {
+    const plain = playoffMatchups(settings, final, [], 17);
+    expect(plain.ok && plain.value).toEqual([]);
+    const withConsolation = { playoffs: { ...settings.playoffs, consolation: true } };
+    // The two teams that missed the playoffs meet in the final week.
+    const week17 = playoffMatchups(withConsolation, final, [upsetWeek15], 17);
+    expect(week17.ok && week17.value).toEqual([
+      { gameId: 'consolation-r1-g1', bracket: 'consolation', homeTeamId: 't7', awayTeamId: 't8' }
+    ]);
+    const bracket = playoffBracket(withConsolation, final, []);
+    expect(bracket.ok && bracket.value.consolationSeeds.map((s) => s.teamId)).toEqual(['t7', 't8']);
   });
 
   it('fails when the standings cannot fill the bracket or a week is missing', () => {

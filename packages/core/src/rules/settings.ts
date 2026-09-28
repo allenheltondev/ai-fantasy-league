@@ -78,7 +78,11 @@ export const PlayoffSettingsSchema = z.strictObject({
   startWeek: week,
   endWeek: week,
   /** Seeding tiebreaker for equal records. */
-  tiebreaker: z.enum(['points_for', 'head_to_head'])
+  tiebreaker: z.enum(['points_for', 'head_to_head']),
+  /** Re-pair the teams left after each round, best seed against worst. Off: a fixed bracket (Yahoo). */
+  reseed: z.boolean().default(false),
+  /** Play a consolation bracket for the teams that miss the playoffs. Off by default (Yahoo). */
+  consolation: z.boolean().default(false)
 });
 export type PlayoffSettings = z.infer<typeof PlayoffSettingsSchema>;
 
@@ -126,8 +130,8 @@ export function yahooDefaultRosterSlots(): Partial<Record<RosterSlot, number>> {
 /** Yahoo playoff defaults: 6 teams with 2 byes in weeks 15-17; 4 teams in weeks 16-17 for small leagues. */
 export function yahooDefaultPlayoffs(teamCount: number): PlayoffSettings {
   return teamCount <= 6
-    ? { teams: 4, byes: 0, startWeek: 16, endWeek: 17, tiebreaker: 'points_for' }
-    : { teams: 6, byes: 2, startWeek: 15, endWeek: 17, tiebreaker: 'points_for' };
+    ? { teams: 4, byes: 0, startWeek: 16, endWeek: 17, tiebreaker: 'points_for', reseed: false, consolation: false }
+    : { teams: 6, byes: 2, startWeek: 15, endWeek: 17, tiebreaker: 'points_for', reseed: false, consolation: false };
 }
 
 export interface DefaultSettingsOptions {

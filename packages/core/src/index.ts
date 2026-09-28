@@ -12,6 +12,8 @@ export * from './schedule/schedule.js';
 export * from './schedule/weeks.js';
 export * from './standings/standings.js';
 export * from './playoffs/bracket.js';
+export * from './history/records.js';
+export * from './history/achievements.js';
 export * from './draft/draft.js';
 export * from './draft/autopick.js';
 export * from './time.js';

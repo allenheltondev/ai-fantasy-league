@@ -1,4 +1,11 @@
-import { advanceBracket, buildBracket, seedPlayoffs, type BracketWeekResults } from '../playoffs/bracket.js';
+import {
+  advanceBracket,
+  buildBracket,
+  seedPlayoffs,
+  type Bracket,
+  type BracketKind,
+  type BracketWeekResults
+} from '../playoffs/bracket.js';
 import type { Instant, LineupEntry } from '../rules/lineup.js';
 import type { RosterSlot } from '../rules/positions.js';
 import { ruleOk, type RuleResult } from '../rules/result.js';
@@ -134,29 +141,58 @@ export interface PairedMatchup {
   awayTeamId: string;
 }
 
+/** A playoff game ready to be played: its bracket game id and both teams. */
+export interface PairedPlayoffGame extends PairedMatchup {
+  gameId: string;
+  bracket: BracketKind;
+}
+
 /**
- * The championship-bracket games of a playoff `week`, rebuilt from the final regular-season
- * standings and the results of the playoff weeks already played. The bracket is fixed once seeded
- * (no reseeding), so rebuilding it is deterministic and only the standings and results need
- * storing. Games whose teams are not known yet are left out.
+ * The league's playoff bracket rebuilt from the final regular-season standings and the results of
+ * the playoff weeks already played. Seeding, byes, reseeding, and the consolation bracket all come
+ * from `settings.playoffs`, which lock at the draft, so rebuilding is deterministic and only the
+ * standings and results need storing.
+ */
+export function playoffBracket(
+  settings: Pick<LeagueSettings, 'playoffs'>,
+  finalStandings: readonly Pick<StandingsRow, 'teamId' | 'rank'>[],
+  played: readonly BracketWeekResults[]
+): RuleResult<Bracket> {
+  const seeding = seedPlayoffs(settings, finalStandings);
+  if (!seeding.ok) return seeding;
+  const consolation = settings.playoffs.consolation && seeding.value.nonPlayoff.length >= 2;
+  let bracket = buildBracket(settings, seeding.value.seeds, {
+    consolation,
+    nonPlayoff: seeding.value.nonPlayoff
+  });
+  for (const results of [...played].sort((a, b) => a.week - b.week)) {
+    if (!bracket.ok) break;
+    bracket = advanceBracket(bracket.value, results);
+  }
+  return bracket;
+}
+
+/**
+ * The bracket games of a playoff `week` (championship and, when the league plays one,
+ * consolation), from the final regular-season standings and the playoff weeks already played.
+ * Games whose teams are not known yet are left out.
  */
 export function playoffMatchups(
   settings: Pick<LeagueSettings, 'playoffs'>,
   finalStandings: readonly Pick<StandingsRow, 'teamId' | 'rank'>[],
   played: readonly BracketWeekResults[],
   week: number
-): RuleResult<PairedMatchup[]> {
-  const seeding = seedPlayoffs(settings, finalStandings);
-  if (!seeding.ok) return seeding;
-  let bracket = buildBracket(settings, seeding.value.seeds);
-  for (const results of [...played].sort((a, b) => a.week - b.week)) {
-    if (!bracket.ok) break;
-    bracket = advanceBracket(bracket.value, results);
-  }
+): RuleResult<PairedPlayoffGame[]> {
+  const bracket = playoffBracket(settings, finalStandings, played);
   if (!bracket.ok) return bracket;
   return ruleOk(
     bracket.value.games
       .filter((g) => g.week === week && g.home.teamId !== null && g.away.teamId !== null)
-      .map((g) => ({ homeTeamId: g.home.teamId as string, awayTeamId: g.away.teamId as string }))
+      .map((g) => ({
+        gameId: g.id,
+        bracket: g.bracket,
+        homeTeamId: g.home.teamId as string,
+        awayTeamId: g.away.teamId as string
+      }))
   );
 }

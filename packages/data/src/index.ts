@@ -12,6 +12,7 @@ export * from './sleeper/normalize.js';
 export * from './nflverse/csv.js';
 export * from './nflverse/crosswalk.js';
 export * from './nflverse/stats.js';
+export * from './nflverse/reconcile.js';
 export * from './nflverse/schedule.js';
 export * from './nflverse/client.js';
 export * from './sync/diff-players.js';
