@@ -43,7 +43,7 @@ export { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/han
 export { handleDraftDeadline, type DeadlineOutcome } from './league/draft.js';
 export * from './chat/model.js';
 export type { TradeRecord, TradeRepository } from './repos/trades.js';
-export { tradeEventDetail, type TradeEventDetail } from './trades/lifecycle.js';
+export { scheduleTradeDeadline, tradeEventDetail } from './trades/lifecycle.js';
 export { handleTradeTimer, TRADE_TIMER_EVENTS } from './trades/handlers.js';
 export {
   postSystemMessage,

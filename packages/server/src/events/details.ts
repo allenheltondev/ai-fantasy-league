@@ -1,3 +1,4 @@
+import { TRADE_STATUSES } from '@fantasy/core';
 import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
 import { PlayerRefSchema } from '../players/model.js';
@@ -10,8 +11,8 @@ import type { EventDetail, FantasyEventType } from './publisher.js';
  * router) read the same types. The cross-stream contract suite (`packages/agents/test/contract`)
  * runs the real emitters and checks their details parse here and render in every consumer.
  *
- * Event types without a schema yet (the trade events, `Week Official Final`, `Stat Correction
- * Applied`, `Agent Action Requested`) take any object; add a schema when the emitter lands.
+ * Event types without a schema yet (`Week Official Final`, `Stat Correction Applied`, `Agent
+ * Action Requested`) take any object; add a schema when the emitter lands.
  */
 
 const id = z.string().min(1);
@@ -47,6 +48,31 @@ export const BlowoutSchema = z.object({
   loserTeamId: id,
   margin: z.number()
 });
+
+/**
+ * Every `Trade *` state-machine event (`tradeEventDetail` in trades/lifecycle.ts). `fromTeamId`
+ * made the offer and `toTeamId` answers it; the player lists are what each side sends and drops.
+ */
+export const TradeEventDetailSchema = z.object({
+  leagueId: id,
+  tradeId: id,
+  status: z.enum(TRADE_STATUSES),
+  fromTeamId: id,
+  toTeamId: id,
+  teamIds: z.tuple([id, id]),
+  fromPlayers: z.array(PlayerRefSchema),
+  toPlayers: z.array(PlayerRefSchema),
+  fromDrops: z.array(PlayerRefSchema),
+  toDrops: z.array(PlayerRefSchema),
+  counterOf: z.string().nullable(),
+  expiresAt: iso,
+  reviewEndsAt: iso.nullable(),
+  review: z.enum(['league_vote', 'commissioner', 'none']),
+  voided: z.boolean().optional().describe('Trade Vetoed: cancelled because it no longer validated.'),
+  reason: z.string().optional(),
+  reasonCode: z.string().optional()
+});
+export type TradeEventDetail = z.infer<typeof TradeEventDetailSchema>;
 
 export const EVENT_DETAIL_SCHEMAS = {
   'League Created': z.object({
@@ -187,7 +213,17 @@ export const EVENT_DETAIL_SCHEMAS = {
     changedBy: z.string(),
     version: z.number().int(),
     phase: z.string()
-  })
+  }),
+  'Trade Proposed': TradeEventDetailSchema,
+  'Trade Countered': TradeEventDetailSchema,
+  'Trade Accepted': TradeEventDetailSchema,
+  'Trade Rejected': TradeEventDetailSchema,
+  'Trade Expired': TradeEventDetailSchema,
+  'Trade Processed': TradeEventDetailSchema,
+  'Trade Vetoed': TradeEventDetailSchema,
+  'Trade Offer Deadline': z.object({ leagueId: id, tradeId: id, expiresAt: iso }),
+  'Trade Review Ended': z.object({ leagueId: id, tradeId: id, reviewEndsAt: iso.nullable() }),
+  'Trade Deadline Passed': z.object({ leagueId: id, deadlineWeek: week, deadlineAt: iso })
 } as const satisfies Partial<Record<FantasyEventType, z.ZodType>>;
 
 export type EventDetailSchemas = typeof EVENT_DETAIL_SCHEMAS;

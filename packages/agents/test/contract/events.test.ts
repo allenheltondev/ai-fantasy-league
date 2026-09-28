@@ -7,11 +7,13 @@ import {
   eventDetailSchema,
   executeOperation,
   handleDraftDeadline,
+  handleTradeTimer,
   invokeTool,
   newsAlertDetail,
   postSystemMessage,
   registry,
   relayEvent,
+  scheduleTradeDeadline,
   scheduleLockWarnings,
   silentLogger,
   statusChangedDetail,
@@ -446,10 +448,186 @@ describe('event contract: league setup and the draft', () => {
   });
 });
 
+describe('event contract: trades', () => {
+  /** team-1 (Allen) holds rb3; team-2 (an agent) the rest of the support roster. */
+  async function tradeLeague(): Promise<Setup> {
+    const s = await inSeason();
+    const rosters: Record<string, string[]> = {
+      'team-1': ['rb3'],
+      'team-2': (await s.repos.teams.get(LEAGUE_ID, 'team-2'))?.roster.filter((id) => id !== 'rb3') ?? [],
+      'team-3': [],
+      'team-4': []
+    };
+    for (const [teamId, roster] of Object.entries(rosters)) {
+      const team = await s.repos.teams.get(LEAGUE_ID, teamId);
+      if (team === null) throw new Error(teamId);
+      await s.repos.teams.update({ ...team, roster });
+    }
+    return s;
+  }
+  const agent2 = agentPrincipal({ agentId: `${LEAGUE_ID}.team-2`, teamId: 'team-2', leagueId: LEAGUE_ID });
+  const teamTopics = (...teams: string[]) => teams.map((t) => `fantasy.team.${LEAGUE_ID}.${t}`);
+  const offerOf = (data: unknown) => (data as { trade: { id: string; reviewEndsAt: string | null } }).trade;
+
+  it('pending offers reach only the two teams; the team that must answer is triggered', async () => {
+    const s = await tradeLeague();
+    const offer = offerOf(
+      await run(
+        s,
+        'propose_trade',
+        { leagueId: LEAGUE_ID, withTeamId: 'team-2', send: ['rb3'], receive: ['rb4'] },
+        ALLEN_IN_SEASON
+      )
+    );
+    const proposed = await consume(s.services, delivered(last(s.events.events, 'Trade Proposed')));
+    expect(proposed.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+    expect(proposed.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(decisions(proposed)).toEqual([['team-2', 'trade_response', 'requested']]);
+
+    // The agent counters through its own tool; the person it goes back to is not an agent.
+    const countered = await invokeTool({
+      registry,
+      services: s.services,
+      principal: agent2,
+      name: 'counter_trade',
+      args: {
+        leagueId: LEAGUE_ID,
+        tradeId: offer.id,
+        send: ['rb4'],
+        receive: ['rb3'],
+        idempotencyKey: 'contract-counter-1'
+      }
+    });
+    const counter = offerOf((countered.body as { data: unknown }).data);
+    const counterEvent = await consume(s.services, delivered(last(s.events.events, 'Trade Countered')));
+    expect(counterEvent.relay.topics).toEqual(teamTopics('team-2', 'team-1'));
+    expect(counterEvent.routed).toEqual([]);
+
+    await run(
+      s,
+      'respond_to_trade',
+      { leagueId: LEAGUE_ID, tradeId: counter.id, response: 'reject' },
+      ALLEN_IN_SEASON
+    );
+    const rejected = await consume(s.services, delivered(last(s.events.events, 'Trade Rejected')));
+    expect(rejected.relay.topics).toEqual(teamTopics('team-2', 'team-1'));
+    expect(rejected.chat).toMatchObject({ status: 'skipped' });
+
+    const lapsing = offerOf(
+      await run(
+        s,
+        'propose_trade',
+        { leagueId: LEAGUE_ID, withTeamId: 'team-2', send: ['rb3'] },
+        ALLEN_IN_SEASON
+      )
+    );
+    const timer = last(s.events.events, 'Schedule Event').detail.event as {
+      detailType: string;
+      detail: EventDetail;
+    };
+    const deadline = await consume(s.services, delivered(timer));
+    expect(deadline.relay.topics).toEqual([]);
+    s.clock.set((timer.detail as { expiresAt: string }).expiresAt);
+    expect(await handleTradeTimer(s.services, timer.detailType, deadline.event.detail)).toBe('expired');
+    const expired = await consume(s.services, delivered(last(s.events.events, 'Trade Expired')));
+    expect((expired.event.detail as { tradeId: string }).tradeId).toBe(lapsing.id);
+    expect(expired.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+  });
+
+  it('accepted, vetoed, and processed trades are league news with chat lines', async () => {
+    const s = await tradeLeague();
+    const vetoed = offerOf(
+      await run(
+        s,
+        'propose_trade',
+        { leagueId: LEAGUE_ID, withTeamId: 'team-2', send: ['rb3'], receive: ['rb4'] },
+        ALLEN_IN_SEASON
+      )
+    );
+    const respond = (tradeId: string, key: string) =>
+      invokeTool({
+        registry,
+        services: s.services,
+        principal: agent2,
+        name: 'respond_to_trade',
+        args: { leagueId: LEAGUE_ID, tradeId, response: 'accept', idempotencyKey: key }
+      });
+    await respond(vetoed.id, 'contract-accept-1');
+    const accepted = await consume(s.services, delivered(last(s.events.events, 'Trade Accepted')));
+    expect(posted(accepted).text).toMatch(
+      /accepted a trade with Allen's Team: RB3 for RB4\. It is under review\.$/
+    );
+    expect(accepted.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    const review = last(s.events.events, 'Schedule Event').detail.event as {
+      detailType: string;
+      detail: EventDetail;
+    };
+    expect((await consume(s.services, delivered(review))).relay.topics).toEqual([]);
+
+    for (const teamId of ['team-3', 'team-4']) {
+      await invokeTool({
+        registry,
+        services: s.services,
+        principal: agentPrincipal({ agentId: `${LEAGUE_ID}.${teamId}`, teamId, leagueId: LEAGUE_ID }),
+        name: 'vote_trade',
+        args: { leagueId: LEAGUE_ID, tradeId: vetoed.id, idempotencyKey: `contract-veto-${teamId}` }
+      });
+    }
+    const veto = await consume(s.services, delivered(last(s.events.events, 'Trade Vetoed')));
+    expect(posted(veto).text).toMatch(/^The league vetoed the trade between Allen's Team and /);
+    expect(veto.chat).toMatchObject({ moment: true });
+    expect(veto.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+
+    const done = offerOf(
+      await run(
+        s,
+        'propose_trade',
+        { leagueId: LEAGUE_ID, withTeamId: 'team-2', send: ['rb3'], receive: ['rb4'] },
+        ALLEN_IN_SEASON
+      )
+    );
+    await respond(done.id, 'contract-accept-2');
+    const reviewEndsAt = (await s.repos.trades.get(LEAGUE_ID, done.id))?.trade.reviewEndsAt;
+    if (reviewEndsAt == null) throw new Error('not in review');
+    s.clock.set(reviewEndsAt);
+    // The week has rolled over, so the SF players' week-5 locks have released.
+    const league = await s.repos.leagues.get(LEAGUE_ID);
+    if (league === null) throw new Error('league');
+    await s.repos.leagues.update({ ...league, week: 6 });
+    expect(
+      await handleTradeTimer(s.services, 'Trade Review Ended', { leagueId: LEAGUE_ID, tradeId: done.id })
+    ).toBe('processed');
+    const processed = await consume(s.services, delivered(last(s.events.events, 'Trade Processed')));
+    expect(posted(processed).text).toMatch(/^Trade complete: Allen's Team sends RB3 to .* for RB4\.$/);
+    expect(processed.chat).toMatchObject({ moment: true });
+    expect(processed.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+  });
+
+  it('Trade Deadline Passed (a deferred event) posts a chat moment', async () => {
+    const s = await tradeLeague();
+    const league = await s.repos.leagues.get(LEAGUE_ID);
+    if (league === null) throw new Error('league');
+    await scheduleTradeDeadline(
+      { events: s.events },
+      { ...league, deadlines: { ...league.deadlines, tradeDeadlineAt: '2026-11-20T00:20:00.000Z' } }
+    );
+    const timer = last(s.events.events, 'Schedule Event').detail.event as {
+      detailType: string;
+      detail: EventDetail;
+    };
+    const passed = await consume(s.services, delivered(timer));
+    expect(posted(passed).text).toBe(
+      'The trade deadline has passed. Rosters change only through waivers from here on.'
+    );
+    expect(passed.chat).toMatchObject({ moment: true });
+    expect(passed.relay.topics).toEqual([]);
+  });
+});
+
 describe('event contract coverage', () => {
   it('every consumed event type has a schema', () => {
     const consumed = new Set([
-      ...Object.keys(TRIGGER_RULES).filter((t) => !t.startsWith('Trade ')),
+      ...Object.keys(TRIGGER_RULES),
       'Waivers Processed',
       'Draft Pick Made',
       'Draft Completed',
@@ -461,6 +639,17 @@ describe('event contract coverage', () => {
       'Scores Updated'
     ]);
     for (const type of consumed) expect(eventDetailSchema(type), type).toBeDefined();
-    expect(eventDetailSchema('Trade Proposed')).toBeUndefined();
+    for (const type of [
+      'Accepted',
+      'Rejected',
+      'Expired',
+      'Processed',
+      'Vetoed',
+      'Offer Deadline',
+      'Review Ended',
+      'Deadline Passed'
+    ])
+      expect(eventDetailSchema(`Trade ${type}`), type).toBeDefined();
+    expect(eventDetailSchema('Agent Action Requested')).toBeUndefined();
   });
 });

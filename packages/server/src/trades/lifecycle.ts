@@ -8,6 +8,7 @@ import {
   type TradeSide
 } from '@fantasy/core';
 import { ApiError, isApiError, type ErrorCode } from '../errors.js';
+import type { TradeEventDetail } from '../events/details.js';
 import type { FantasyEventType } from '../events/publisher.js';
 import { toPlayerRef, type PlayerRef } from '../players/model.js';
 import type { League, Repos } from '../repos/types.js';
@@ -88,33 +89,6 @@ export function tradePlayerIds(trade: Pick<Trade, 'sides'>): string[] {
   return trade.sides.flatMap((s) => [...s.sends, ...s.drops]);
 }
 
-/** The detail of every `Trade *` event (Proposed, Countered, Accepted, Rejected, Expired, Processed, Vetoed). */
-export interface TradeEventDetail {
-  leagueId: string;
-  tradeId: string;
-  status: Trade['status'];
-  /** The team that made this offer. */
-  fromTeamId: string;
-  /** The team that must answer it (the router's agent trigger target). */
-  toTeamId: string;
-  teamIds: [string, string];
-  /** Players `fromTeamId` sends, as refs. */
-  fromPlayers: PlayerRef[];
-  /** Players `toTeamId` sends, as refs. */
-  toPlayers: PlayerRef[];
-  fromDrops: PlayerRef[];
-  toDrops: PlayerRef[];
-  counterOf: string | null;
-  expiresAt: string;
-  reviewEndsAt: string | null;
-  review: League['settings']['trades']['review'];
-  /** `Trade Vetoed` only: true when the trade was cancelled because it no longer validated. */
-  voided?: boolean;
-  /** `Trade Vetoed` only, with `voided`: what went wrong and its rule code. */
-  reason?: string;
-  reasonCode?: string;
-}
-
 /** Builds a trade event's detail (pure; exported for the event contract tests). */
 export function tradeEventDetail(
   league: Pick<League, 'settings'>,
@@ -146,15 +120,23 @@ export function tradeEventDetail(
 }
 
 /** Publishes a trade event with `tradeEventDetail`. */
+export type { TradeEventDetail };
+
+/** The seven state-machine events. */
+export type TradeEventType = Extract<
+  FantasyEventType,
+  `Trade ${'Proposed' | 'Countered' | 'Accepted' | 'Rejected' | 'Expired' | 'Processed' | 'Vetoed'}`
+>;
+
 export async function publishTradeEvent(
   deps: Pick<TradeDeps, 'repos' | 'events'>,
-  type: FantasyEventType,
+  type: TradeEventType,
   league: League,
   record: TradeRecord,
   extra: Pick<TradeEventDetail, 'voided' | 'reason' | 'reasonCode'> = {}
 ): Promise<void> {
   const refs = await refsFor(deps.repos, tradePlayerIds(record.trade));
-  await deps.events.publish(type, { ...tradeEventDetail(league, record, refs, extra) });
+  await deps.events.publish(type, tradeEventDetail(league, record, refs, extra));
 }
 
 export const offerExpiryName = (leagueId: string, tradeId: string) => `trade-expiry-${leagueId}-${tradeId}`;

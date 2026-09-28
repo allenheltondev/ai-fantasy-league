@@ -29,7 +29,7 @@ export const renameLeague = defineOperation({
       name: input.name,
       updatedAt: ctx.clock.now().toISOString()
     });
-    await ctx.events.publish('Trade Proposed', { leagueId: updated.id });
+    await ctx.events.publish('Week Official Final', { leagueId: updated.id });
     return withWarnings({ id: updated.id, name: updated.name }, [
       { code: 'RENAMED', message: `League renamed to ${updated.name}.` }
     ]);
