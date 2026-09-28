@@ -11,6 +11,7 @@
     }
   },
   "scripts": {
+    "dev": "npm run build -w @fantasy/core -w @fantasy/data && FANTASY_LOCAL_AUTH=1 tsx src/dev.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -21,5 +22,8 @@
     "@fantasy/server": "0.0.0",
     "@readysetcloud/agent": "0.2.7",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
   }
 }

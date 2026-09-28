@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Season replay simulator: archives, the simulated clock, the as-of data guard, and the headless runner.",
+  "description": "Season replay simulator: archives, the simulated clock, the as-of data guard, the headless runner, and the replay through the real league.",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -13,13 +13,16 @@
   "scripts": {
     "sim:archive": "tsx --tsconfig tsconfig.json src/cli/archive.ts",
     "sim:run": "tsx --tsconfig tsconfig.json src/cli/run.ts",
+    "sim:replay": "tsx --tsconfig tsconfig.json src/cli/replay.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@fantasy/agents": "0.0.0",
     "@fantasy/core": "0.0.0",
     "@fantasy/data": "0.0.0",
+    "@fantasy/server": "0.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

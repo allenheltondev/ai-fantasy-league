@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import { LEAGUE_PRESETS, LAST_NFL_WEEK, MAX_TEAMS, MIN_TEAMS, type LeaguePreset } from '@fantasy/core';
 import { z } from 'zod';
-import type { Ctx } from '../../context.js';
+import { newId, type Ctx } from '../../context.js';
 import { ApiError, isApiError } from '../../errors.js';
 import { nextUnlockedWeek } from '../../league/calendar.js';
 import { newTeam } from '../../league/seats.js';
@@ -71,7 +70,7 @@ export const createLeague = defineOperation({
     }
 
     const at = now.toISOString();
-    const leagueId = randomUUID();
+    const leagueId = newId(ctx);
     const league: League = {
       id: leagueId,
       name: input.name,

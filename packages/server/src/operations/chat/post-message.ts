@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mentionedTeamIds, moderateChatText } from '@fantasy/core';
 import { z } from 'zod';
 import { authorKey, CHAT_LIMITS, ChatMessageSchema, type ChatMessage } from '../../chat/model.js';
@@ -8,6 +7,7 @@ import { assertAction } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 import { chatAuthor, mentionTargets } from './shared.js';
+import { newId } from '../../context.js';
 
 export const postMessage = defineOperation({
   name: 'post_message',
@@ -66,7 +66,7 @@ export const postMessage = defineOperation({
 
     const mentioned = mentionedTeamIds(text, mentionTargets(access.teams));
     const message: ChatMessage = {
-      id: randomUUID(),
+      id: newId(ctx),
       leagueId: access.league.id,
       ...author,
       text,

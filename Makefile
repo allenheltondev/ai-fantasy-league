@@ -70,7 +70,7 @@ dev:
 	@trap 'kill 0' EXIT INT TERM; \
 	if [ -f $(SERVER_DEV_ENTRY) ]; then \
 		if grep -q '"dev"' packages/server/package.json 2>/dev/null; then \
-			npm run dev --workspace=packages/server & \
+			npm run dev --workspace=packages/agents & \
 		else \
 			npx --yes tsx watch $(SERVER_DEV_ENTRY) & \
 		fi; \
@@ -83,7 +83,7 @@ dev:
 dev-server:
 	@if [ ! -f $(SERVER_DEV_ENTRY) ]; then echo "dev-server: $(SERVER_DEV_ENTRY) does not exist yet" >&2; exit 1; fi; \
 	if grep -q '"dev"' packages/server/package.json 2>/dev/null; then \
-		npm run dev --workspace=packages/server; \
+		npm run dev --workspace=packages/agents; \
 	else \
 		npx --yes tsx watch $(SERVER_DEV_ENTRY); \
 	fi

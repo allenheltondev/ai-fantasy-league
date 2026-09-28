@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
 import { ApiError } from '../../errors.js';
@@ -21,6 +20,7 @@ import {
   resolveDrop,
   TeamIdField
 } from './shared.js';
+import { newId } from '../../context.js';
 
 const ClaimInput = z.object({
   leagueId: LeagueIdSchema,
@@ -84,7 +84,7 @@ export const claimWaiver = defineOperation({
       }
       await ctx.repos.waivers.addTransactions([
         {
-          id: randomUUID(),
+          id: newId(ctx),
           leagueId: team.leagueId,
           at: now.toISOString(),
           week: access.league.week ?? access.league.settings.schedule.startWeek,
@@ -118,7 +118,7 @@ export const claimWaiver = defineOperation({
       (c) => c.teamId === team.id
     );
     const claim: WaiverClaimRecord = {
-      id: randomUUID(),
+      id: newId(ctx),
       leagueId: team.leagueId,
       teamId: team.id,
       addPlayerId: player.id,

@@ -1,8 +1,8 @@
 // Public surface of @fantasy/server for other workspace packages (agents, sim).
 export * from './auth/principal.js';
 export type { TokenVerifier } from './auth/verifier.js';
-export type { Ctx, DataServices, Services } from './context.js';
-export { createContext } from './context.js';
+export type { Ctx, DataServices, IdSource, Services } from './context.js';
+export { createContext, newId } from './context.js';
 export * from './errors.js';
 export * from './events/publisher.js';
 export * from './events/details.js';
@@ -34,6 +34,7 @@ export {
   advanceLeague,
   scheduleLockWarnings,
   startLeagueSeason,
+  storedNflState,
   type AdvanceOutcome
 } from './season/cycle.js';
 export { recordStandings, updateMatchupScores } from './season/scoring.js';
@@ -53,6 +54,10 @@ export {
 export * from './realtime/realtime.js';
 export { relayEvent, RELAYED_EVENTS, TEAM_ONLY_EVENTS } from './realtime/relay.js';
 export type { BusEvent } from './events/bus.js';
+export * from './events/loop.js';
+export { serverSubscribers } from './events/subscribers.js';
+export { JOB_SCHEDULE_EXPRESSIONS, nextRunFn, recurringJobs, seasonJobs } from './jobs/schedules.js';
+export type { JobName } from './jobs/index.js';
 export * from './agents/kill-switch.js';
 export { newsAlertDetail } from './jobs/ingest-news.js';
 export { statusChangedDetail } from './jobs/sync-players.js';

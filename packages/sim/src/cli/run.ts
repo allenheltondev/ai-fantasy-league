@@ -8,18 +8,12 @@
  * --seed S, --anonymize, --report <file.json>.
  */
 import { writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
-import { ARCHIVES_DIR, FIXTURE_ARCHIVE_DIR, readSimArchive } from '../archive/io.js';
+import { readSimArchive } from '../archive/io.js';
 import { scriptedPolicy } from '../policy/scripted.js';
 import { runSeason } from '../runner/run-season.js';
 import { formatSummary } from '../runner/summary.js';
+import { archiveDir } from './archive-dir.js';
 import { intArg, parseArgs, stringArg } from './args.js';
-
-function archiveDir(value: string): string {
-  if (value === 'fixtures') return FIXTURE_ARCHIVE_DIR;
-  if (/^\d{4}$/.test(value)) return join(ARCHIVES_DIR, value);
-  return isAbsolute(value) ? value : resolve(process.cwd(), value);
-}
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));

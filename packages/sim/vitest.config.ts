@@ -16,7 +16,13 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.ts'],
       // The CLIs are thin argument parsers over tested functions; `src/cli/args.ts` is tested.
-      exclude: ['src/**/*.test.ts', 'src/index.ts', 'src/cli/archive.ts', 'src/cli/run.ts'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/index.ts',
+        'src/cli/archive.ts',
+        'src/cli/run.ts',
+        'src/cli/replay.ts'
+      ],
       // Ratchet: set at the achieved level; never lower (docs/ARCHITECTURE.md).
       thresholds: { lines: 99, branches: 90, functions: 97, statements: 98 }
     }
