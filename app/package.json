@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@gomomento/sdk-web": "^1.118.1",
-    "@readysetcloud/ui": "^0.7.4",
+    "@readysetcloud/ui": "^0.7.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0"

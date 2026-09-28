@@ -38,6 +38,8 @@ export const setSeatType = defineOperation({
     const updated = await ctx.repos.teams.update({
       ...team,
       seatType: input.seatType,
+      // Whoever plays the seat next starts with none of its DMs.
+      occupiedSince: now.toISOString(),
       updatedAt: now.toISOString()
     });
     return { team: teamDetail(updated) };

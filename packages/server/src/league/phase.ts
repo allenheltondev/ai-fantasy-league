@@ -210,6 +210,11 @@ export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
   // Defaults for season operations other work streams add.
   make_draft_pick: { phases: ['drafting'], roles: PLAYERS, roleFix: PLAYER_FIX },
   set_draft_queue: { phases: ['setup', 'drafting'], roles: PLAYERS, roleFix: PLAYER_FIX },
+  check_in_draft_lobby: {
+    phases: ['setup', 'drafting'],
+    roles: ['member', 'commissioner'],
+    roleFix: 'Only the people in this league can open its draft room.'
+  },
   set_lineup: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
   drop_player: {
     phases: IN_SEASON,

@@ -99,14 +99,25 @@ export const DEFAULT_PICK_SECONDS = 90;
 export const MIN_PICK_SECONDS = 15;
 export const MAX_PICK_SECONDS = 24 * 60 * 60;
 
+/** How a scheduled draft sets its round-1 order: the seats' draft slots, or a shuffle. */
+export const DRAFT_ORDER_MODES = ['slots', 'random'] as const;
+export type DraftOrderMode = (typeof DRAFT_ORDER_MODES)[number];
+
 export const DraftSettingsSchema = z.strictObject({
   /** Seconds each team has to pick before autopick picks for it. */
-  pickSeconds: z.int().min(MIN_PICK_SECONDS).max(MAX_PICK_SECONDS)
+  pickSeconds: z.int().min(MIN_PICK_SECONDS).max(MAX_PICK_SECONDS),
+  /**
+   * When the draft starts by itself (an ISO instant, stored in UTC); null means the commissioner
+   * starts it by hand. See `checkDraftSchedule`.
+   */
+  scheduledAt: z.iso.datetime({ offset: true }).nullable().default(null),
+  /** The round-1 order a scheduled start uses. */
+  orderMode: z.enum(DRAFT_ORDER_MODES).default('slots')
 });
 export type DraftSettings = z.infer<typeof DraftSettingsSchema>;
 
 export function defaultDraftSettings(): DraftSettings {
-  return { pickSeconds: DEFAULT_PICK_SECONDS };
+  return { pickSeconds: DEFAULT_PICK_SECONDS, scheduledAt: null, orderMode: 'slots' };
 }
 
 export const LeagueSettingsSchema = z.strictObject({

@@ -13,7 +13,13 @@ import {
   vetoVotesRequired,
   yahooDefaultSettings
 } from './settings.js';
-import { parseLeagueSettings, settingEditability } from './validate-settings.js';
+import {
+  checkDraftSchedule,
+  checkSettingsChange,
+  MAX_DRAFT_SCHEDULE_DAYS,
+  parseLeagueSettings,
+  settingEditability
+} from './validate-settings.js';
 
 describe('yahooDefaultSettings', () => {
   const s = yahooDefaultSettings();
@@ -164,11 +170,22 @@ describe('applySettingsPatch', () => {
 describe('draft settings', () => {
   it('defaults the pick clock to 90 seconds, and reads settings stored without it as the default', () => {
     const settings = yahooDefaultSettings(8);
-    expect(settings.draft).toEqual({ pickSeconds: DEFAULT_PICK_SECONDS });
+    expect(settings.draft).toEqual({
+      pickSeconds: DEFAULT_PICK_SECONDS,
+      scheduledAt: null,
+      orderMode: 'slots'
+    });
     const legacy: Record<string, unknown> = { ...settings };
     delete legacy.draft;
     const parsed = parseLeagueSettings(legacy);
     expect(parsed.ok && parsed.settings.draft.pickSeconds).toBe(90);
+    // Settings stored before the draft could be scheduled read as a manual draft in slot order.
+    const older = parseLeagueSettings({ ...settings, draft: { pickSeconds: 60 } });
+    expect(older.ok && older.settings.draft).toEqual({
+      pickSeconds: 60,
+      scheduledAt: null,
+      orderMode: 'slots'
+    });
   });
 
   it('bounds the pick clock and names the valid keys for a typo', () => {
@@ -178,7 +195,57 @@ describe('draft settings', () => {
     expect(typo.ok ? '' : typo.issues[0]?.fix).toContain('pickSeconds');
   });
 
-  it('locks the pick clock once the draft starts', () => {
+  it('locks the pick clock and the draft time once the draft starts', () => {
     expect(settingEditability('draft.pickSeconds')).toBe('pre_draft');
+    expect(settingEditability('draft.scheduledAt')).toBe('pre_draft');
+    expect(settingEditability('draft.orderMode')).toBe('pre_draft');
+  });
+
+  it('takes a scheduled time with a zone and an order mode, and refuses anything else', () => {
+    const at = (draft: Record<string, unknown>) =>
+      parseLeagueSettings({ ...yahooDefaultSettings(8), draft: { pickSeconds: 90, ...draft } });
+    expect(at({ scheduledAt: '2026-09-05T00:00:00Z', orderMode: 'random' }).ok).toBe(true);
+    expect(at({ scheduledAt: '2026-09-04T20:00:00-04:00' }).ok).toBe(true);
+    for (const bad of [
+      { scheduledAt: 'saturday' },
+      { scheduledAt: '2026-09-05T00:00:00' },
+      { orderMode: 'snake' }
+    ]) {
+      expect(at(bad).ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+});
+
+describe('checkDraftSchedule', () => {
+  const now = new Date('2026-09-01T12:00:00.000Z');
+
+  it('allows no schedule, and a time after now within the horizon', () => {
+    expect(checkDraftSchedule(null, now)).toEqual([]);
+    expect(checkDraftSchedule('2026-09-01T12:00:01.000Z', now)).toEqual([]);
+    expect(checkDraftSchedule('2026-10-31T12:00:00.000Z', now)).toEqual([]);
+  });
+
+  it('refuses a time that has passed or is too far ahead, each with a fix', () => {
+    expect(checkDraftSchedule('2026-09-01T12:00:00.000Z', now)).toEqual([
+      expect.objectContaining({
+        code: 'DRAFT_TIME_IN_PAST',
+        path: 'draft.scheduledAt',
+        fix: expect.stringContaining('null')
+      })
+    ]);
+    const tooFar = checkDraftSchedule('2026-10-31T12:00:00.001Z', now);
+    expect(tooFar).toEqual([expect.objectContaining({ code: 'DRAFT_TIME_TOO_FAR' })]);
+    expect(tooFar[0]?.message).toContain(`${MAX_DRAFT_SCHEDULE_DAYS} days`);
+  });
+
+  it('checks a changed draft time in a settings change, only when a clock is given', () => {
+    const current = yahooDefaultSettings(8);
+    const past = { ...current, draft: { ...current.draft, scheduledAt: '2026-08-01T00:00:00.000Z' } };
+    const codes = (context: Parameters<typeof checkSettingsChange>[2]) =>
+      checkSettingsChange(current, past, context).map((i) => i.code);
+    expect(codes({ phase: 'pre_draft', now })).toEqual(['DRAFT_TIME_IN_PAST']);
+    expect(codes({ phase: 'pre_draft' })).toEqual([]);
+    // Unchanged, it is not checked again (a stored time that has since passed can stay).
+    expect(checkSettingsChange(past, past, { phase: 'pre_draft', now })).toEqual([]);
   });
 });

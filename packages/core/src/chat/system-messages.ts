@@ -63,6 +63,13 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   'Draft Paused': {
     text: ['The commissioner paused the draft at pick {pick}.', 'The commissioner paused the draft.']
   },
+  'Draft Starting Soon': {
+    text: ['The draft starts in {minutes} minutes. Set your queue in the draft room!']
+  },
+  // The chat is the commissioner's inbox: the whole league sees why the draft is waiting.
+  'Draft Start Blocked': {
+    text: ['The draft could not start at its scheduled time. {reason} Commissioner: {fix}']
+  },
   'Draft Resumed': {
     text: ['The draft is back on: pick {pick} is on the clock.', 'The draft is back on.']
   },

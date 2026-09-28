@@ -46,6 +46,7 @@ const KEY = 'key-00000001';
 const NO_FLAGS = { waiversOpen: false, preLock: false, tradeDeadlinePassed: false };
 /** The commissioner (without a seat, in this fixture) during setup. */
 const COMMISSIONER_SETUP_ACTIONS = [
+  'check_in_draft_lobby',
   'configure_agent_seat',
   'create_invite',
   'delete_league',

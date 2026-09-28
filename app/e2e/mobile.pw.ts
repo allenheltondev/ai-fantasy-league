@@ -290,6 +290,23 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByRole('list', { name: 'Leagues' })).toBeVisible();
       await expectFits(page, 'my leagues');
 
+      // The draft lobby before the draft (#134): a countdown to a scheduled start (ten days after the
+      // local API's pinned clock), the order, who's here, and your queue.
+      const scheduled = await context.request.patch(`/api/v1/leagues/${leagueId}/settings`, {
+        data: { changes: { draft: { scheduledAt: '2026-09-20T12:00:00.000Z' } } },
+        headers: {
+          authorization: `Bearer dev:${alice}`,
+          'idempotency-key': `mobile-${Date.now()}-${Math.random()}`
+        }
+      });
+      expect(scheduled.ok(), await scheduled.text()).toBe(true);
+      await page.goto(`/leagues/${leagueId}/draft`);
+      await expect(page.getByTestId('draft-countdown')).toHaveText(/^\d+d \d\d:\d\d:\d\d$/);
+      await expect(
+        page.getByRole('list', { name: 'Players to queue' }).getByRole('listitem').first()
+      ).toBeVisible();
+      await expectFits(page, 'draft lobby (countdown)');
+
       // The draft, in progress.
       await callApi(context, alice, `/leagues/${leagueId}/draft/start`);
       await page.goto(`/leagues/${leagueId}/draft`);

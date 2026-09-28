@@ -97,17 +97,22 @@ export class DynamoChatRepository implements ChatRepository {
     };
   }
 
-  async summary(leagueId: string, roomId: string, lastReadAt: string | null): Promise<RoomSummary> {
+  async summary(
+    leagueId: string,
+    roomId: string,
+    lastReadAt: string | null,
+    visibleFrom: string | null = null
+  ): Promise<RoomSummary> {
     const prefix = roomPrefix(roomId);
+    // Keys from `floor` on are the messages the reader may see at all (created at or after
+    // `visibleFrom`); from `from` on, the ones they have not read.
+    const floor = visibleFrom === null ? prefix : `${prefix}${visibleFrom}`;
+    const read = lastReadAt === null ? prefix : `${prefix}${lastReadAt}#${HIGH}`;
+    const from = read > floor ? read : floor;
     // Newest first, stopping at the reader's marker: every item returned is unread.
-    const unread = await this.#newest(
-      leagueId,
-      lastReadAt === null ? prefix : `${prefix}${lastReadAt}#${HIGH}`,
-      `${prefix}${HIGH}`,
-      UNREAD_CAP
-    );
+    const unread = await this.#newest(leagueId, from, `${prefix}${HIGH}`, UNREAD_CAP);
     if (unread.length > 0) return { lastMessageAt: unread[0] as string, unreadCount: unread.length };
-    const newest = lastReadAt === null ? [] : await this.#newest(leagueId, prefix, `${prefix}${HIGH}`, 1);
+    const newest = from === floor ? [] : await this.#newest(leagueId, floor, `${prefix}${HIGH}`, 1);
     return { lastMessageAt: newest[0] ?? null, unreadCount: 0 };
   }
 

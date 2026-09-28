@@ -136,8 +136,16 @@ export interface ChatRepository {
   put(message: ChatMessage, options?: ChatPutOptions): Promise<boolean>;
   /** One room, newest first, `limit` at a time, continuing after `cursor`. */
   list(leagueId: string, roomId: string, query: { limit: number; cursor?: string }): Promise<ChatPage>;
-  /** The room's newest message time and the messages after `lastReadAt` (null: never read). */
-  summary(leagueId: string, roomId: string, lastReadAt: string | null): Promise<RoomSummary>;
+  /**
+   * The room's newest message time and the messages after `lastReadAt` (null: never read),
+   * counting only messages created at or after `visibleFrom` when given (a DM seat's new occupant).
+   */
+  summary(
+    leagueId: string,
+    roomId: string,
+    lastReadAt: string | null,
+    visibleFrom?: string | null
+  ): Promise<RoomSummary>;
   /** Every message in any room of the league after `since`, newest first (at most the last day). */
   activity(leagueId: string, since: string): Promise<ChatActivity[]>;
   /** The DM rooms a team has messages in. */

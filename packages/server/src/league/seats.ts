@@ -40,6 +40,7 @@ export function newTeam(input: {
     faabRemaining: input.settings.waivers.faabBudget,
     waiverPriority: input.draftSlot,
     roster: [],
+    occupiedSince: at,
     createdAt: at,
     updatedAt: at,
     version: 1
@@ -71,6 +72,8 @@ export function claimSeat(
     ownerName: owner.name,
     agentConfigId: null,
     name: teamName,
+    // A new person plays the seat: the team's earlier DMs are not theirs.
+    occupiedSince: now.toISOString(),
     updatedAt: now.toISOString()
   };
 }
@@ -83,6 +86,8 @@ export function vacateSeat(team: Team, now: Date): Team {
     ownerUserId: null,
     ownerName: null,
     name: defaultTeamName(team.draftSlot),
+    // An agent takes over: the person's DMs stay with the person.
+    occupiedSince: now.toISOString(),
     updatedAt: now.toISOString()
   };
 }

@@ -54,6 +54,10 @@ function request(kind: 'chat_reply' | 'chat_moment', payload: Record<string, unk
 async function rooms() {
   const s = await setup();
   await s.seat(AGENT_TEAM, SEAT);
+  // Every seat has had its occupant since the league was set up, before these conversations.
+  for (const team of await s.repos.teams.list(LEAGUE_ID)) {
+    await s.repos.teams.update({ ...team, occupiedSince: '2026-09-01T00:00:00.000Z' });
+  }
   await s.repos.schedule.putMatchups([
     {
       id: 'W05-1',
@@ -119,6 +123,33 @@ describe('agents in chat rooms (fake model)', () => {
         )
       ).toMatchObject({ status: 'skipped', fallbackReason: 'room_unavailable' });
     }
+  });
+
+  it('an agent that takes over a seat reads only the DMs from its own time on it', async () => {
+    const s = await rooms();
+    const old = message({ roomId: DM, text: SECRET, createdAt: '2026-10-04T14:00:00.000Z' });
+    await s.repos.chat.put(old, { dmTeamIds: ['team-1', AGENT_TEAM] });
+    // The agent took team-2 over after that message (a person left the seat).
+    const team = await s.repos.teams.get(LEAGUE_ID, AGENT_TEAM);
+    await s.repos.teams.update({ ...team!, occupiedSince: '2026-10-04T14:30:00.000Z' });
+    const dm = message({ roomId: DM, text: 'Welcome aboard, robot.', createdAt: '2026-10-04T14:59:30.000Z' });
+    await s.repos.chat.put(dm, { dmTeamIds: ['team-1', AGENT_TEAM] });
+    const model = new ScriptedModelClient();
+    const record = await runAgentAction(
+      s.deps(model),
+      request('chat_reply', { messageId: dm.id, roomId: DM })
+    );
+    expect(record.finalAction).toBe('post_message');
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    expect(prompt).toContain('Welcome aboard, robot.');
+    expect(prompt).not.toContain('bench');
+    // Answering the old message is not possible: it is not the agent's to read.
+    expect(
+      await runAgentAction(
+        s.deps(new ScriptedModelClient()),
+        request('chat_reply', { messageId: old.id, roomId: DM })
+      )
+    ).toMatchObject({ status: 'skipped', fallbackReason: 'message_not_found' });
   });
 
   it('answers a person’s DM in the DM and keeps its words there', async () => {

@@ -24,6 +24,7 @@ import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
 import type { League, Team } from '../../repos/types.js';
 import { scheduleTradeDeadline } from '../../trades/lifecycle.js';
+import { syncDraftSchedule, utcDraftTime } from '../../league/draft-schedule.js';
 import { tradeDeadlineAt } from '../../trades/world.js';
 
 export const updateLeagueSettings = defineOperation({
@@ -34,6 +35,7 @@ export const updateLeagueSettings = defineOperation({
   description: [
     'Changes league settings. Send only what changes in `changes`, shaped like `settings` from get_league: nested objects merge ({"scoring": {"perStat": {"rec": 1}}} switches to full PPR), arrays replace.',
     'Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed; in season, a new `trades.deadlineWeek` moves the deadline to that week’s first kickoff.',
+    'Schedule the draft with `draft.scheduledAt` (ISO 8601 with a time zone, in the future, at most 60 days ahead; null to start it by hand) and `draft.orderMode` (`slots` or `random`): at that time the draft starts by itself, and a reminder goes out 10 minutes before. If a human seat is still open then, the draft waits and chat says why.',
     'Pass `expectedVersion` (the `version` from get_league) so you never overwrite a change you have not seen; a mismatch returns CONFLICT. Only the commissioner can call this.'
   ].join(' '),
   tags: ['leagues'],
@@ -72,9 +74,10 @@ export const updateLeagueSettings = defineOperation({
     const merged = applySettingsPatch(league.settings, input.changes as LeagueSettingsPatch);
     const parsed = parseLeagueSettings(merged);
     if (!parsed.ok) throw settingsError(parsed.issues);
-    const next = parsed.settings;
+    const next = utcDraftTime(parsed.settings);
     const issues = checkSettingsChange(league.settings, next, {
       phase: settingsPhase(league.phase),
+      now: ctx.clock.now(),
       ...(league.week === null ? {} : { currentWeek: league.week })
     });
     if (hasErrors(issues)) throw settingsError(issues);
@@ -102,6 +105,8 @@ export const updateLeagueSettings = defineOperation({
     });
     // Same schedule name, so the old deadline event is replaced rather than joined.
     if (deadlineMoved) await scheduleTradeDeadline({ events: ctx.events }, updated);
+    // A new draft time moves the scheduled start (same schedule name); clearing it cancels it.
+    if (changedPaths.includes('draft.scheduledAt')) await syncDraftSchedule(ctx, updated);
     await syncSeats(ctx, updated, access.teams, removals, league.settings, now);
     await ctx.events.publish('Settings Changed', {
       leagueId: league.id,
