@@ -11,7 +11,8 @@ import {
   nextLeagueWeek,
   playoffMatchups,
   reconcileLineup,
-  weekEndsAt
+  weekEndsAt,
+  weekHighlights
 } from './cycle.js';
 
 const game = (kickoff: string, homeTeam: string, awayTeam: string) => ({ kickoff, homeTeam, awayTeam });
@@ -188,5 +189,54 @@ describe('playoffMatchups', () => {
   it('fails when the standings cannot fill the bracket or a week is missing', () => {
     expect(playoffMatchups(settings, final.slice(0, 3), [], 15).ok).toBe(false);
     expect(playoffMatchups(settings, final, [{ week: 15, results: [] }], 16).ok).toBe(false);
+  });
+});
+
+describe('weekHighlights', () => {
+  const game = (home: string, away: string, homeScore: number | null, awayScore: number | null) => ({
+    homeTeamId: home,
+    awayTeamId: away,
+    homeScore,
+    awayScore
+  });
+
+  it('finds the top score and the biggest blowout', () => {
+    expect(
+      weekHighlights([game('t1', 't2', 101.456, 99), game('t3', 't4', 70, 130.2), game('t5', 't6', 88, 88)])
+    ).toEqual({
+      topTeamId: 't4',
+      topScore: 130.2,
+      blowout: { winnerTeamId: 't4', loserTeamId: 't3', margin: 60.2 }
+    });
+  });
+
+  it('breaks ties deterministically and ignores unscored games', () => {
+    expect(weekHighlights([game('t2', 't1', 90, 90), game('t3', 't4', null, 95)])).toEqual({
+      topTeamId: 't4',
+      topScore: 95,
+      blowout: null
+    });
+    expect(weekHighlights([game('t2', 't1', 90, 80), game('t3', 't4', 90, 80)])).toEqual({
+      topTeamId: 't2',
+      topScore: 90,
+      blowout: { winnerTeamId: 't2', loserTeamId: 't1', margin: 10 }
+    });
+    expect(weekHighlights([])).toEqual({ topTeamId: null, topScore: null, blowout: null });
+  });
+
+  it('property: the top score is at least every scored side, and the blowout margin is the largest', () => {
+    const score = fc.option(fc.integer({ min: 0, max: 20000 }).map((n) => n / 100), { nil: null });
+    fc.assert(
+      fc.property(fc.array(fc.tuple(score, score), { maxLength: 8 }), (pairs) => {
+        const games = pairs.map(([h, a], i) => game(`h${i}`, `a${i}`, h, a));
+        const result = weekHighlights(games);
+        const scores = pairs.flat().filter((s): s is number => s !== null);
+        expect(result.topScore).toBe(scores.length === 0 ? null : Math.max(...scores));
+        const margins = pairs
+          .filter(([h, a]) => h !== null && a !== null && h !== a)
+          .map(([h, a]) => Math.round(Math.abs((h as number) - (a as number)) * 100) / 100);
+        expect(result.blowout?.margin ?? null).toBe(margins.length === 0 ? null : Math.max(...margins));
+      })
+    );
   });
 });

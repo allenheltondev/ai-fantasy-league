@@ -16,7 +16,7 @@ import {
 } from '@fantasy/core';
 import type { Ctx } from '../context.js';
 import { ApiError, isApiError } from '../errors.js';
-import type { Player } from '../players/model.js';
+import { toPlayerRef, type Player } from '../players/model.js';
 import type { DraftRecord, League, Team } from '../repos/types.js';
 import { startLeagueSeason } from '../season/cycle.js';
 import { currentNflWeek } from './calendar.js';
@@ -174,8 +174,7 @@ export async function recordPick(
     leagueId: league.id,
     teamId,
     playerId: player.id,
-    playerName: player.name,
-    position: player.position,
+    player: toPlayerRef(player),
     overall: pick.overall,
     round: pick.round,
     pick: pick.pick,

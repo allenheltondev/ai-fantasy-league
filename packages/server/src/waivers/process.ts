@@ -7,7 +7,9 @@ import {
   type WaiverTeamState
 } from '@fantasy/core';
 import { ApiError } from '../errors.js';
+import type { WaiverAward } from '../events/details.js';
 import type { EventPublisher } from '../events/publisher.js';
+import { toPlayerRef } from '../players/model.js';
 import type { Logger } from '../log.js';
 import type { League, Repos, Team } from '../repos/types.js';
 import type { TransactionRecord, WaiverClaimRecord } from '../repos/waivers.js';
@@ -159,12 +161,7 @@ export async function processLeagueWaivers(
     leagueId: league.id,
     runId,
     week,
-    awarded: transactions.map((t) => ({
-      teamId: t.teamId,
-      playerId: t.addPlayerId,
-      dropPlayerId: t.dropPlayerId,
-      cost: t.cost
-    })),
+    awarded: await waiverAwards(repos, transactions, due),
     failed,
     pending: stillPending
   });
@@ -176,6 +173,36 @@ export async function processLeagueWaivers(
   });
   deps.log.info('waivers processed', { leagueId: league.id, runId, awarded, failed, pending: stillPending });
   return { leagueId: league.id, runId, status: 'processed', awarded, failed, pending: stillPending };
+}
+
+/**
+ * The awards as `Waivers Processed` carries them: player refs (so the chat announcement can name
+ * them), the bid, and the FAAB paid.
+ */
+async function waiverAwards(
+  repos: Pick<Repos, 'players'>,
+  transactions: readonly TransactionRecord[],
+  claims: readonly WaiverClaimRecord[]
+): Promise<WaiverAward[]> {
+  const ids = transactions.flatMap((t) => [t.addPlayerId, t.dropPlayerId]);
+  const players = new Map(
+    (await repos.players.getMany([...new Set(ids.filter((pid): pid is string => pid !== null))])).map(
+      (p) => [p.id, toPlayerRef(p)]
+    )
+  );
+  const bids = new Map(claims.map((c) => [c.id, c.bid]));
+  return transactions.map((t) => {
+    const playerId = t.addPlayerId as string;
+    return {
+      teamId: t.teamId,
+      playerId,
+      player: players.get(playerId) ?? null,
+      dropPlayerId: t.dropPlayerId,
+      dropPlayer: t.dropPlayerId === null ? null : (players.get(t.dropPlayerId) ?? null),
+      bid: bids.get(t.claimId as string) as number,
+      cost: t.cost as number
+    };
+  });
 }
 
 function toCoreClaim(c: WaiverClaimRecord): WaiverClaim {
