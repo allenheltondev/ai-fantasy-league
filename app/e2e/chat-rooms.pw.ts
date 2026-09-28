@@ -80,6 +80,44 @@ test('rooms: trash talk, the #Draft announcement, and a DM an AI manager answers
   await context.close();
 });
 
+test('mentions: press @, pick an AI manager, and the server resolves the mention (#177)', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await signIn(context);
+  const page = await context.newPage();
+  await page.goto(CHAT);
+  const box = page.getByRole('combobox');
+  await expect(box).toHaveAttribute('placeholder', 'Message Trash Talk. Type @ to talk to an AI manager.');
+  await expect(page.getByTestId('chat-members')).toContainText('AI');
+
+  // The @ button opens the list, AI managers first, each with its team and personality.
+  await page.getByRole('button', { name: 'Mention someone' }).click();
+  const first = page.getByRole('listbox', { name: 'Mention a team' }).getByRole('option').first();
+  const label = (await first.getAttribute('aria-label')) ?? '';
+  expect(label).toMatch(/, AI manager/);
+  const manager = label.split(', ')[0] as string;
+  await first.click();
+  await expect(box).toHaveValue(`@${manager} `);
+  const tag = Date.now().toString(36);
+  await box.pressSequentially(`your bench is thin ${tag}`);
+  const posted = page.waitForResponse(
+    (r) => r.url().includes('/chat/messages') && r.request().method() === 'POST'
+  );
+  await box.press('Enter');
+  const { data } = (await (await posted).json()) as { data: { message: { mentionedTeamIds: string[] } } };
+  expect(data.message.mentionedTeamIds).toHaveLength(1);
+
+  const mine = messages(page).locator('[data-kind="user"]', { hasText: tag });
+  const mark = mine.locator('strong');
+  await expect(mark).toHaveText(`@${manager}`);
+  await expect(mark).toHaveAttribute('data-team-id', data.message.mentionedTeamIds[0] as string);
+  await mark.hover();
+  await expect(page.getByRole('tooltip')).toContainText(manager);
+  await expect(page.getByRole('tooltip')).toContainText('AI');
+  await context.close();
+});
+
 test('rooms fit a 360px phone, with the room sheet', async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 360, height: 740 },

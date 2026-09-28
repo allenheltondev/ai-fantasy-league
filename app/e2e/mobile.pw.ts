@@ -450,6 +450,7 @@ for (const viewport of VIEWPORTS) {
       await expectFits(page, 'draft: board');
       await roomTabs.getByRole('tab', { name: 'Chat' }).tap();
       await expect(page.getByRole('list', { name: 'Chat messages' })).toBeVisible();
+      await expect(page.getByTestId('chat-members')).toBeVisible();
       await expectFits(page, 'draft: chat');
       // The clock stays in view while the panel scrolls.
       await page.mouse.wheel(0, 600);
@@ -565,7 +566,14 @@ for (const viewport of VIEWPORTS) {
 
       await page.goto('/leagues/demo-season/chat');
       await expect(page.getByLabel('Chat messages')).toBeVisible();
+      await expect(page.getByTestId('chat-members')).toBeVisible();
       await expectFits(page, 'chat');
+      // Who you can talk to (#177): the @ button opens the mention list.
+      await page.getByRole('button', { name: 'Mention someone' }).tap();
+      await expect(page.getByRole('listbox', { name: 'Mention a team' })).toBeVisible();
+      await expectFits(page, 'chat: mention list');
+      await page.getByRole('combobox').press('Escape');
+      await page.getByRole('combobox').fill('');
       // Chat rooms (#144): the room sheet, a room with an announcement, and a new DM.
       await page.getByRole('button', { name: /Chat room: Trash Talk/ }).tap();
       const sheet = page.getByRole('dialog');

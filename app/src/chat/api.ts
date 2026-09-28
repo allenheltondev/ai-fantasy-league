@@ -82,6 +82,10 @@ export interface ChatTeam {
   ownerName: string | null;
   /** An AI manager's avatar seed; absent for people. */
   avatarSeed?: string;
+  /** An AI manager plays the team (#177); absent on older lists, where `avatarSeed` says so. */
+  ai?: boolean;
+  /** The personality the AI manager plays, e.g. "The Spreadsheet". */
+  personality?: string | null;
 }
 
 export interface ChatApi {
@@ -131,7 +135,8 @@ export function createChatApi(apiFetch: ApiFetch): ChatApi {
         id: t.id,
         name: t.name,
         ownerName: t.ownerName ?? t.manager?.name ?? null,
-        ...(t.manager ? { avatarSeed: t.manager.avatarSeed } : {})
+        ai: t.seatType === 'agent' || Boolean(t.manager),
+        ...(t.manager ? { avatarSeed: t.manager.avatarSeed, personality: t.manager.personality } : {})
       }));
     }
   };

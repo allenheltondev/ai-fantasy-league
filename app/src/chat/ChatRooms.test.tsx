@@ -248,6 +248,10 @@ describe('chat rooms', () => {
     const { api } = fakeApi();
     renderChat(api);
     await within(messages()).findByText('welcome to trash talk');
+    // No AI managers in this league: the hint is about teams.
+    await waitFor(() =>
+      expect(screen.getByRole('combobox').getAttribute('placeholder')).toMatch(/Type @ to mention a team\.$/)
+    );
     await user.click(sidebar().getByRole('button', { name: '+ New message' }));
     const picker = sidebar().getByRole('list', { name: 'Message a team' });
     expect(within(picker).queryByText('Allen FC')).not.toBeInTheDocument();
@@ -257,8 +261,14 @@ describe('chat rooms', () => {
     expect(await screen.findByText(/Only your two teams can read this conversation/)).toBeInTheDocument();
     const box = screen.getByRole('combobox');
     expect(box).toHaveAttribute('placeholder', 'Message Robo Ballers privately.');
-    await user.type(box, '@R');
-    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['Robo Ballers']);
+    // Only the other team is in the room: not your own (#177).
+    const members = within(screen.getByTestId('chat-members')).getAllByRole('button');
+    expect(members.map((b) => b.getAttribute('aria-label'))).toEqual(['Mention Robo Ballers']);
+    await user.type(box, '@');
+    expect((await screen.findAllByRole('option')).map((o) => o.getAttribute('aria-label'))).toEqual([
+      'Robo Ballers'
+    ]);
+    await user.type(box, 'R');
     await user.keyboard('{Escape}');
     await user.type(box, 'obo want my kicker?{Enter}');
     await waitFor(() =>
