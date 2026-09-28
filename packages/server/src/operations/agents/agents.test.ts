@@ -298,6 +298,8 @@ describe('agent seat operations', () => {
     await trade('t-open', 'proposed');
     await trade('t-review', 'in_review');
     await trade('t-done', 'processed');
+    await trade('t-withdrawn', 'withdrawn');
+    await trade('t-odd', 'some_future_status');
     await claim('c-pending', 'pending');
     await claim('c-awarded', 'awarded');
     const put = (taskId: string, sealed: Record<string, unknown> | undefined) =>
@@ -323,6 +325,9 @@ describe('agent seat operations', () => {
     await put('vote-open', { trades: [{ tradeId: 't-review', until: 'final' }] });
     await put('vote-final', { trades: [{ tradeId: 't-done', until: 'final' }] });
     await put('offer-missing', { trades: [{ tradeId: 't-gone', until: 'public' }] });
+    // Withdrawn offers stay private, and a status this code does not know stays sealed.
+    await put('offer-withdrawn', { trades: [{ tradeId: 't-withdrawn', until: 'public' }] });
+    await put('offer-odd', { trades: [{ tradeId: 't-odd', until: 'final' }] });
     const result = await run('get_agent_activity', { leagueId: 'lg-1', limit: 100 });
     const tasks = (
       result.body as { data: { tasks: { kind: string; reasoningSummary: string; redacted: boolean }[] } }
@@ -337,7 +342,9 @@ describe('agent seat operations', () => {
       'offer-public': ['secret offer-public', false],
       'vote-open': ['sealed vote-open', true],
       'vote-final': ['secret vote-final', false],
-      'offer-missing': ['sealed offer-missing', true]
+      'offer-missing': ['sealed offer-missing', true],
+      'offer-withdrawn': ['sealed offer-withdrawn', true],
+      'offer-odd': ['sealed offer-odd', true]
     });
     expect(JSON.stringify(result.body)).not.toContain('c-pending');
   });
