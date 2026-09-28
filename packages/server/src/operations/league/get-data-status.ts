@@ -25,7 +25,12 @@ const JobRunSchema = z.object({
   finishedAt: z.string(),
   status: z.enum(['ok', 'skipped', 'failed']),
   reason: z.string().nullable().describe('Why the run skipped, or the error of a failed run.'),
-  summary: z.string().nullable().describe("The rest of the job's result as JSON (weeks stored, counts)."),
+  summary: z
+    .string()
+    .nullable()
+    .describe(
+      "The rest of the job's result as JSON (weeks stored, counts, and for projections the Sleeper endpoint that served each week: v1 or app)."
+    ),
   durationMs: z.number()
 });
 
@@ -57,7 +62,17 @@ export const DataStatusSchema = z.object({
         season: z.number().int(),
         week: z.number().int(),
         projections: z
-          .object({ capturedAt: z.string(), count: z.number().int(), hash: z.string() })
+          .object({
+            capturedAt: z.string(),
+            count: z.number().int(),
+            hash: z.string(),
+            source: z
+              .enum(['v1', 'app'])
+              .nullable()
+              .describe(
+                'Which Sleeper endpoint served the snapshot: v1 (api.sleeper.app/v1/projections) or app (api.sleeper.com/projections, the fallback when v1 has no projected stats); null for a snapshot stored before this was recorded.'
+              )
+          })
           .nullable()
           .describe('The latest weekly projection snapshot (what rosters and matchups show); null if none.'),
         statLines: z.number().int().describe('Stored stat lines for the week.')
@@ -98,7 +113,7 @@ export const getDataStatus = defineOperation({
   path: '/leagues/{leagueId}/data-status',
   summary: 'Check the NFL data behind projections and research',
   description: [
-    'Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with.',
+    'Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with.',
     'Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause.',
     'Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.'
   ].join(' '),
@@ -128,7 +143,12 @@ export const getDataStatus = defineOperation({
             projections:
               snapshot === null
                 ? null
-                : { capturedAt: snapshot.capturedAt, count: snapshot.count, hash: snapshot.hash },
+                : {
+                    capturedAt: snapshot.capturedAt,
+                    count: snapshot.count,
+                    hash: snapshot.hash,
+                    source: snapshot.source ?? null
+                  },
             statLines: lines.length
           };
         })

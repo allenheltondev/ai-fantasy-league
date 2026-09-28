@@ -132,7 +132,15 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
       stats: { rec }
     });
     const first = { season, week: 5, capturedAt: '2025-10-01T12:00:00.000Z', hash: 'a', count: 2 };
-    const second = { season, week: 5, capturedAt: '2025-10-01T13:00:00.000Z', hash: 'b', count: 2 };
+    // The second pull came from Sleeper's app endpoint (#184); the first predates the source field.
+    const second = {
+      season,
+      week: 5,
+      capturedAt: '2025-10-01T13:00:00.000Z',
+      hash: 'b',
+      count: 2,
+      source: 'app' as const
+    };
     await reference.projections.putSnapshot(first, [line('x', 1), line('y', 2)]);
     await reference.projections.putSnapshot(second, [line('x', 5), line('y', 6)]);
 

@@ -17,7 +17,7 @@ Each EventBridge Scheduler schedule invokes it with `{ "job": "<name>" }`. Run o
 | `syncNflState` | `rate(15 minutes)` | Sleeper `/v1/state/nfl` | `NFLSTATE`/`CURRENT` (conditional on the state it read) | `Week Rolled Over` exactly once per rollover |
 | `syncSchedule` | `cron(7 10 * * ? *)` (daily) | nflverse `games.csv` | `NFLSCHED#<season>#W05`/`GAME#<kickoff>#<gameId>`, `NFLSCHED#<season>`/`SEASON` (bye weeks) | none |
 | `ingestStats` | `rate(2 minutes)`, working only inside a game window (kickoff to +4.5h) | Sleeper `/v1/stats/nfl/regular/{season}/{week}` | `STATS#<season>#W05`/`PLAYER#<id>` for changed lines only (GSI2 `PLAYERSTATS#<id>`), and a scoring log event per change (`SCORELOG#<season>#W05`/`PLAYER#<id>#<at>`, #162) | `Scores Updated` with the changed player ids |
-| `ingestProjections` | `rate(1 hour)` | Sleeper `/v1/projections/nfl/regular/{season}/{week}` for the NFL state's week and the next one (a league drafted mid-week already plays the next week, #181; week 1 in the preseason) | `PROJ#<season>#W05#<capturedAt>`/`PLAYER#<id>`, then the pointer `PROJ#<season>#W05`/`ASOF#<capturedAt>`; skipped when the content hash is unchanged | none |
+| `ingestProjections` | `rate(1 hour)` | Sleeper `/v1/projections/nfl/regular/{season}/{week}`, or its app endpoint when v1 has no projected stats (see [Sleeper projections](#sleeper-projections-two-endpoints)), for the NFL state's week and the next one (a league drafted mid-week already plays the next week, #181; week 1 in the preseason) | `PROJ#<season>#W05#<capturedAt>`/`PLAYER#<id>`, then the pointer `PROJ#<season>#W05`/`ASOF#<capturedAt>` (with the `source` that served it); skipped when the content hash is unchanged | none |
 | `ingestTrending` | `rate(1 hour)` | Sleeper `/v1/players/nfl/trending/{add,drop}` for 24h, 72h, and 168h lookbacks (top 50) | `TRENDING#<add\|drop>`/`ASOF#<capturedAt>` (30-day TTL) | none |
 | `ingestNews` | `rate(15 minutes)` | The RSS feeds below | `NEWS#<id>`/`ITEM` (GSI2 `NEWS`/`<publishedAt>#<id>`), copies at `PLAYER#<id>` and `TEAMNEWS#<team>` / `NEWS#<publishedAt>#<id>` (90-day TTL) | `Player News Alert` for each new item tagged to a player |
 | `scoreLiveWeek` | `rate(2 minutes)`, working only inside a game window of an in-season league's week | Stored stats (`STATS#<season>#W05`) and lineups | Matchup scores (`MATCHUP#W05#<id>`, status `in_progress`) | `Scores Updated` with `leagueId`, the week's score lines, and the changed matchups' recent scoring log entries (`scoringLog`) |
@@ -25,7 +25,7 @@ Each EventBridge Scheduler schedule invokes it with `{ "job": "<name>" }`. Run o
 | `scoreLiveWeek` (scoring plays, #164) | Same runs, right after the scoreboard read and before the leagues are scored, for each game whose score changed since the stored scoreboard (or whose stored plays do not reach the score yet, when ESPN's summary trails its scoreboard) | ESPN `site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=<espn id>` (`scoringPlays`; public, best effort per game: a failed read logs a warning and is retried next poll) | `NFLPLAYS#<season>#W05`/`GAME#<espn id>` (the game's scoring plays, each with the time it was first seen; 14-day `ttl`) | none; the scoring log reads them |
 | `advanceSeason` | `rate(15 minutes)` | Stored schedule, stats, lineups, matchups | Final matchups, `STANDINGS#W05`, carried-forward `LINEUP#W06#<teamId>`, playoff matchups, the league's week and phase | `Week Provisionally Final`, `Week Rolled Over` (with `leagueId`), and `Schedule Event`s for `Lineup Lock Approaching` |
 | `officialFinal` | `cron(0 15 ? * THU,FRI *)` (Thursday, Friday as a retry) | Every league whose last finished week is 48h past its last game and not official; the week re-pulled through `getOfficialWeekStats` (Sleeper reconciled with nflverse's `stats_player_week` file, GSIS ids mapped with the stored crosswalk) | Changed `STATS#` lines (each a `correction` scoring log event), rescored matchups, `STANDINGS#`, `PLAYOFFS`, `HISTORY#<season>`, `OFFICIAL#W05`, `ACHIEVEMENT#…` | `Stat Correction Applied` (per changed matchup), `Week Official Final`, `Achievement Earned`, and `Track Activity` when `BADGE_CHEST_ENABLED=true` |
-| `syncSeasonResearch` | `rate(1 hour)`, pulling only a missing set or one not checked for 20 hours (#181) | Sleeper `/v1/stats/nfl/regular/{lastSeason}/{1-18}` once per season (again, daily, only while the stored pull is missing weeks), and `/v1/projections/nfl/regular/{season}/{1-18}` daily in the preseason and offseason (in-season only while none are stored or weeks are missing). Sleeper has no reliable season-total endpoint, so both are 18 weekly calls folded per player | `SEASON#<stats\|projections>#<season>`/`PLAYER#<id>` (weekly lines compacted to the scoring stat keys) and `/META` (weeks, content hash, `checkedAt`); a changed set replaces the partition, removing players who left it | none |
+| `syncSeasonResearch` | `rate(1 hour)`, pulling only a missing set or one not checked for 20 hours (#181) | Sleeper `/v1/stats/nfl/regular/{lastSeason}/{1-18}` once per season (again, daily, only while the stored pull is missing weeks), and `/v1/projections/nfl/regular/{season}/{1-18}` (each week falling back to the app endpoint like `ingestProjections`) daily in the preseason and offseason (in-season only while none are stored or weeks are missing). Sleeper has no reliable season-total endpoint, so both are 18 weekly calls folded per player | `SEASON#<stats\|projections>#<season>`/`PLAYER#<id>` (weekly lines compacted to the scoring stat keys) and `/META` (weeks, content hash, `checkedAt`); a changed set replaces the partition, removing players who left it | none |
 | `processWaivers` | `cron(0 8 * * ? *)` (daily, 3 AM US Central in daylight time; `WAIVER_RUN_HOUR_UTC`) | The league table only: every league in `regular_season` or `playoffs` (GSI2 `LEAGUEPHASE#<phase>`) | Claims (`WAIVER#<claimId>`), team rosters and FAAB, `TXN#…`, `OWN#<playerId>`, and `WAIVERRUN#<YYYY-MM-DD>` (one run per league per day, so a retry is a no-op) | `Waivers Processed` and `Waiver Window Opened` per league |
 
 Every run also records its outcome as `JOBRUN#<job>`/`LATEST` (and `JOBRUN#<job>`/`OK` for the
@@ -130,9 +130,56 @@ reachable instead:
    the text (or a team feed) names exactly one of their teams.
 4. **Store and alert.** No LLM is called; summaries come later.
 
+## Sleeper projections: two endpoints
+
+Sleeper serves weekly projections from two hosts. **Neither is documented at docs.sleeper.com**
+(its public docs cover `/v1` players, state, and trending, not projections), so both are read
+defensively and either may change without notice.
+
+| Source | Endpoint | Shape |
+|---|---|---|
+| `v1` | `https://api.sleeper.app/v1/projections/nfl/regular/{season}/{week}` | Map of player id → stat map, like `/v1/stats`; `null` for a week with nothing yet |
+| `app` | `https://api.sleeper.com/projections/nfl/{season}/{week}?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF` (the endpoint Sleeper's own app reads) | Array of rows: `{ player_id, week, season, season_type, team, opponent, game_id, date, company, category: "proj", stats: {...}, player: {...} }`; a bye week or a player without a team has `stats: { adp_dd_ppr: 1000 }` and a null `game_id` |
+
+`SleeperClient.weekProjections` reads `v1` first. When the request fails, or the week has entries
+but none projects anything (every entry empty, or only ADP and rank keys, as in
+`{"6462":{}, ...}`), it reads `app` and normalizes the rows into the same player id → stat map
+(`parseSleeperAppProjections`), so every consumer is unchanged. The fallback's parser takes stats
+nested under `stats` or flat on the row, skips malformed rows and rows for another week, and raises
+`SchemaDriftError` only when nothing parses. A failure of the fallback fails the job run.
+
+Which endpoint served each week is recorded: `ingestProjections`'s result (and its `JOBRUN#` record)
+gives each week's `source`, each snapshot stores it (`get_data_status` → `weeks[].projections.source`,
+shown under Settings → Data status), and `syncSeasonResearch`'s result lists the weeks each source
+served (`sources: { v1: [...], app: [...] }`).
+
+The job Lambdas have no VPC configuration, so they have open outbound access to both hosts; the
+template needs no change for the fallback. The shared Sleeper rate limiter covers both.
+
+References:
+
+- [BSFFL-enhanced PR #8](https://github.com/mb20389/BSFFL-enhanced/pull/8) (2026-09-26) reports
+  that v1 returns empty entries and switches to the `app` endpoint with `position[]` parameters.
+- [joeyagreco/sleeper discussion #11](https://github.com/joeyagreco/sleeper/discussions/11) lists
+  the `api.sleeper.com/projections/nfl/{season}/{week}` endpoint and its `position[]` filter.
+- [cameron-eth/sleeper-sdk PR #59](https://github.com/cameron-eth/sleeper-sdk/pull/59) reads the
+  `app` endpoint and captured rows for 2026 week 1, including bye-week rows with only
+  `adp_dd_ppr`. `fixtures/sleeper/projection-sources/hand-authored/app_2026_1.json` is written in
+  that shape with our fixture players and illustrative numbers.
+- [Dave356w/-nfl-top25-rankings](https://github.com/Dave356w/-nfl-top25-rankings/blob/main/pipeline/sleeper.py)
+  accepts both the v1 map and a `[{ player_id, stats }]` list from the projections endpoint.
+
+Our Record fixtures run of 2026-09-28 got real `v1` data for 2026 weeks 1-3, so `v1` may be empty
+only for upcoming weeks. To capture both real shapes, run the **Record fixtures** workflow with
+`app_projections` set to a season and week (for example `2026 5`). It runs
+`node scripts/record-fixtures.mjs --sleeper-app-projections <season> <week>`, which writes
+`fixtures/sleeper/projection-sources/{v1,app}_<season>_<week>.json` (trimmed to the fixture
+players) and `summary_<season>_<week>.json` (each endpoint's HTTP status, shape, row counts, rows
+with projected stats, and keys) and adds the summary to the run's page.
+
 ## Sleeper reachability
 
-`api.sleeper.app` is blocked in the development sandbox. Tests use the recorded fixtures in
+`api.sleeper.app` and `api.sleeper.com` are blocked in the development sandbox. Tests use the recorded fixtures in
 `packages/data/fixtures/` through `FixtureDataProvider` and stub providers. To refresh the Sleeper
 fixtures, run the **Record fixtures** workflow (GitHub Actions, `workflow_dispatch`); it runs
 `node scripts/record-fixtures.mjs --scoring --sleeper` (the scoring validation sets in

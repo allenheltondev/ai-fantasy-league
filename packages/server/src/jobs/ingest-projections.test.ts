@@ -1,5 +1,5 @@
 import { FixedClock } from '@fantasy/core';
-import { FixtureDataProvider } from '@fantasy/data';
+import { FixtureDataProvider, LiveDataProvider, NflverseClient, SleeperClient } from '@fantasy/data';
 import { describe, expect, it } from 'vitest';
 import { createTestJobDeps, game, nflState, sourcePlayer, StubProvider } from '../../test/support/jobs.js';
 import { ingestProjections, projectionHash } from './ingest-projections.js';
@@ -115,6 +115,66 @@ describe('ingestProjections', () => {
     await syncPlayers(deps, deps.clock);
     provider.projections[1] = [line('1', 1, { rec: 5 }), line('IDP', 1, { idp_tkl_solo: 4 })];
     expect(await ingestProjections(deps, deps.clock)).toMatchObject({ weeks: [{ count: 1 }, { week: 2 }] });
+  });
+
+  it('records which Sleeper endpoint served each week (#184)', async () => {
+    const { provider, deps } = await setup('2025-09-03T12:00:00.000Z');
+    provider.projections[1] = [line('1', 1, { rec: 5 })];
+    provider.projectionSources = { 1: 'app', 2: 'v1' };
+    expect(await ingestProjections(deps, deps.clock)).toMatchObject({
+      weeks: [
+        { week: 1, stored: true, count: 1, source: 'app' },
+        { week: 2, stored: false, reason: 'no_projections', source: 'v1' }
+      ]
+    });
+    expect(await deps.reference.projections.latestSnapshot(2025, 1, deps.clock.now())).toMatchObject({
+      source: 'app'
+    });
+    deps.clock.advance(3_600_000);
+    expect(await ingestProjections(deps, deps.clock)).toMatchObject({
+      weeks: [{ week: 1, reason: 'unchanged', source: 'app' }, { week: 2 }]
+    });
+  });
+
+  it('stores a snapshot from the app endpoint when Sleeper v1 has only empty entries (#184)', async () => {
+    const calls: string[] = [];
+    const fetch = async (url: string) => {
+      calls.push(url);
+      const body = url.startsWith('https://api.sleeper.com/projections/nfl/2025/1?')
+        ? [
+            {
+              player_id: '4046',
+              week: 1,
+              team: 'KC',
+              stats: { pass_yd: 262.3, pass_td: 1.86, adp_dd_ppr: 24 }
+            },
+            { player_id: '96', week: 1, team: null, stats: { adp_dd_ppr: 1000 } }
+          ]
+        : url.startsWith('https://api.sleeper.com/')
+          ? []
+          : { '4046': {}, '96': {} };
+      return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    };
+    const clock = new FixedClock('2025-09-03T12:00:00.000Z');
+    const live = new LiveDataProvider({
+      sleeper: new SleeperClient({ clock, fetch, limiter: { acquire: async () => undefined } }),
+      nflverse: new NflverseClient({ fetch })
+    });
+    const deps = createTestJobDeps({ provider: live, clock });
+    await deps.reference.nflState.put({ ...nflState(), updatedAt: 'x' }, null);
+
+    const result = await ingestProjections(deps, deps.clock);
+    expect(result).toMatchObject({
+      weeks: [
+        { week: 1, stored: true, count: 2, source: 'app' },
+        { week: 2, stored: false, reason: 'no_projections', source: 'app' }
+      ]
+    });
+    expect(calls.filter((c) => c.startsWith('https://api.sleeper.app/v1/projections/'))).toHaveLength(2);
+    const snapshot = await deps.reference.projections.latestSnapshot(2025, 1, deps.clock.now());
+    expect(snapshot).toMatchObject({ count: 2, source: 'app' });
+    const [mahomes] = await deps.reference.projections.getLines(snapshot!, ['4046']);
+    expect(mahomes?.stats).toEqual({ pass_yd: 262.3, pass_td: 1.86, adp_dd_ppr: 24 });
   });
 
   it('reads the recorded fixture projections', async () => {

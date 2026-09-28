@@ -70,5 +70,20 @@ describe('fetchSeasonLines (recorded Sleeper fixtures)', () => {
     expect(calls.filter((c) => c.includes('/v1/projections/nfl/regular/2025/'))).toHaveLength(18);
     expect(season.weeks).toEqual([1, 2]);
     expect(season.lines.find((l) => l.playerId === '96')?.weeks[0]?.stats.pass_yd).toBe(231.8);
+    // Weeks 3-18 have no v1 projections, so each fell back to the (empty) app endpoint (#184).
+    expect(season.sources).toEqual({ v1: [1, 2], app: Array.from({ length: 16 }, (_, i) => i + 3) });
+    expect(calls.filter((c) => c.startsWith('https://api.sleeper.com/projections/nfl/2025/'))).toHaveLength(
+      16
+    );
+  });
+
+  it('reports no sources for stats or a provider that does not track them', async () => {
+    const { provider } = live();
+    expect((await fetchSeasonLines(provider, 'stats', 2025, asOf)).sources).toBeUndefined();
+    const plain = {
+      getWeekStats: provider.getWeekStats.bind(provider),
+      getWeekProjections: provider.getWeekProjections.bind(provider)
+    };
+    expect((await fetchSeasonLines(plain, 'projections', 2025, asOf)).sources).toBeUndefined();
   });
 });

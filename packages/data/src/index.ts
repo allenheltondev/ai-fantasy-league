@@ -8,6 +8,7 @@ export * from './http/rate-limiter.js';
 export * from './http/http-client.js';
 export * from './sleeper/schemas.js';
 export * from './sleeper/client.js';
+export * from './sleeper/app-projections.js';
 export * from './sleeper/normalize.js';
 export * from './nflverse/csv.js';
 export * from './nflverse/crosswalk.js';

@@ -9659,7 +9659,7 @@
       "get": {
         "operationId": "get_data_status",
         "summary": "Check the NFL data behind projections and research",
-        "description": "Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with. Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
+        "description": "Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with. Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
         "tags": [
           "leagues"
         ],
@@ -9838,12 +9838,28 @@
                                       },
                                       "hash": {
                                         "type": "string"
+                                      },
+                                      "source": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "v1",
+                                              "app"
+                                            ]
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Which Sleeper endpoint served the snapshot: v1 (api.sleeper.app/v1/projections) or app (api.sleeper.com/projections, the fallback when v1 has no projected stats); null for a snapshot stored before this was recorded."
                                       }
                                     },
                                     "required": [
                                       "capturedAt",
                                       "count",
-                                      "hash"
+                                      "hash",
+                                      "source"
                                     ],
                                     "additionalProperties": false
                                   },
@@ -10014,7 +10030,7 @@
                                         ]
                                       },
                                       "summary": {
-                                        "description": "The rest of the job's result as JSON (weeks stored, counts).",
+                                        "description": "The rest of the job's result as JSON (weeks stored, counts, and for projections the Sleeper endpoint that served each week: v1 or app).",
                                         "type": [
                                           "string",
                                           "null"
@@ -10063,7 +10079,7 @@
                                         ]
                                       },
                                       "summary": {
-                                        "description": "The rest of the job's result as JSON (weeks stored, counts).",
+                                        "description": "The rest of the job's result as JSON (weeks stored, counts, and for projections the Sleeper endpoint that served each week: v1 or app).",
                                         "type": [
                                           "string",
                                           "null"

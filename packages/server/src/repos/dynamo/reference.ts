@@ -171,7 +171,8 @@ const ProjectionSnapshotSchema = z.object({
   week: z.number(),
   capturedAt: z.string(),
   hash: z.string(),
-  count: z.number()
+  count: z.number(),
+  source: z.enum(['v1', 'app']).optional()
 });
 
 const SeasonLinesSchema = z.object({

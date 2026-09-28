@@ -4,6 +4,7 @@ import type {
   NflState,
   PlayerSeasonLines,
   ProjectionLine,
+  ProjectionSource,
   ScheduledGame,
   ScoringPlay,
   SeasonLinesKind,
@@ -165,6 +166,8 @@ export interface ProjectionSnapshot {
   /** Content hash, so an unchanged hourly pull does not write a new snapshot. */
   hash: string;
   count: number;
+  /** Which Sleeper endpoint served the pull (#184); absent on snapshots stored before it. */
+  source?: ProjectionSource;
 }
 
 export interface ProjectionRepository {

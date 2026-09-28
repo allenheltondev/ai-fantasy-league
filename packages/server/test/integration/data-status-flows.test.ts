@@ -28,7 +28,7 @@ interface Status {
   players: { total: number; byPosition: Record<string, number> };
   weeks: {
     week: number;
-    projections: { capturedAt: string; count: number } | null;
+    projections: { capturedAt: string; count: number; source: 'v1' | 'app' | null } | null;
     statLines: number;
   }[];
   research: { stats: unknown; projections: { season: number; players: number } | null };
@@ -86,19 +86,24 @@ describe('get_data_status (#181)', () => {
     await runJob({ job: 'syncNflState' }, deps, h.clock);
     provider.projections[1] = [{ playerId: 'fx-cmc', season: 2026, week: 1, stats: { rush_yd: 80 } }];
     provider.projections[2] = [{ playerId: 'fx-cmc', season: 2026, week: 2, stats: { rush_yd: 100 } }];
+    provider.projectionSources = { 1: 'v1', 2: 'app' };
     await runJob({ job: 'ingestProjections' }, deps, h.clock);
 
     const s = await status();
     expect(s.nflState).toMatchObject({ season: 2026, seasonType: 'regular', week: 1 });
     expect(s.weeks[0]).toMatchObject({
       week: 2,
-      projections: { count: 1, capturedAt: h.clock.now().toISOString() }
+      // Sleeper's v1 had nothing for week 2, so the app endpoint served it (#184).
+      projections: { count: 1, capturedAt: h.clock.now().toISOString(), source: 'app' }
     });
     const run = job(s, 'ingestProjections')?.latest;
     expect(run).toMatchObject({ status: 'ok', reason: null });
     expect(JSON.parse(run?.summary ?? '')).toMatchObject({
       season: 2026,
-      weeks: [{ week: 1 }, { week: 2, stored: true }]
+      weeks: [
+        { week: 1, source: 'v1' },
+        { week: 2, stored: true, source: 'app' }
+      ]
     });
 
     const roster = data<{

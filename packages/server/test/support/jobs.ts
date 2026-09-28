@@ -5,6 +5,7 @@ import type {
   NflState,
   Player as SourcePlayer,
   ProjectionLine,
+  ProjectionSource,
   ScheduledGame,
   StatLine,
   TrendingEntry,
@@ -28,6 +29,8 @@ export class StubProvider implements DataProvider {
   state: NflState | null = null;
   stats: StatLine[] | null = null;
   projections: Record<number, ProjectionLine[]> = {};
+  /** Week → the Sleeper endpoint the week's projections "came from" (#184); unset weeks report none. */
+  projectionSources: Record<number, ProjectionSource> = {};
   trending: Partial<Record<TrendingType, TrendingEntry[]>> = {};
   schedule: ScheduledGame[] | null = null;
   byes: ByeWeeks = {};
@@ -52,6 +55,10 @@ export class StubProvider implements DataProvider {
   async getWeekProjections(season: number, week: number): Promise<ProjectionLine[]> {
     this.calls.push(`getWeekProjections:${season}:${week}`);
     return structuredClone(this.projections[week] ?? []);
+  }
+
+  projectionSource(_season: number, week: number): ProjectionSource | undefined {
+    return this.projectionSources[week];
   }
 
   async getTrending(

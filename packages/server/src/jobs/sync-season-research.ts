@@ -63,18 +63,27 @@ export async function syncSeasonResearch(
       throw error;
     }
     const lines = inUniverse(fetched.lines, ids);
-    if (lines.length === 0) return { kind, season: year, stored: false, reason: 'no_data' };
+    // The weeks each Sleeper endpoint served (v1, or the app fallback, #184), for the data status.
+    const from = fetched.sources === undefined ? {} : { sources: fetched.sources };
+    if (lines.length === 0) return { kind, season: year, stored: false, reason: 'no_data', ...from };
     const hash = seasonLinesHash(lines);
     const at = now.toISOString();
     if (stored?.hash === hash) {
       await seasons.putMeta({ ...stored, checkedAt: at });
-      return { kind, season: year, stored: false, reason: 'unchanged' };
+      return { kind, season: year, stored: false, reason: 'unchanged', ...from };
     }
     await seasons.put(
       { kind, season: year, updatedAt: at, checkedAt: at, players: lines.length, weeks: fetched.weeks, hash },
       lines
     );
-    return { kind, season: year, stored: true, players: lines.length, weeks: fetched.weeks.length };
+    return {
+      kind,
+      season: year,
+      stored: true,
+      players: lines.length,
+      weeks: fetched.weeks.length,
+      ...from
+    };
   };
 
   const [statsMeta, projectionMeta] = await Promise.all([
