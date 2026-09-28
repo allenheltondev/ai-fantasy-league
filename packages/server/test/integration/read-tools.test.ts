@@ -61,7 +61,7 @@ beforeAll(async () => {
       playerId,
       season: SEASON,
       week: 1,
-      stats: playerId === 'fx-jallen' ? { pass_yd: yards } : { rush_yd: yards }
+      stats: { [playerId === 'fx-jallen' ? 'pass_yd' : 'rush_yd']: yards }
     }))
   );
   await h.repos.waivers.addTransactions([
