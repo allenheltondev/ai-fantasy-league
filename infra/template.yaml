@@ -141,10 +141,6 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-      SSESpecification:
-        SSEEnabled: true
 
   # Deployable zips (server/<sha>.zip). Versioned; superseded versions expire.
   ArtifactBucket:
