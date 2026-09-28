@@ -14,6 +14,27 @@ vi.mock('@readysetcloud/agent', () => ({
   tool: (def: ToolDef) => def,
   runAgent
 }));
+// The extended-thinking path builds the Strands agent itself.
+const strands = vi.hoisted(() => ({
+  models: [] as Record<string, unknown>[],
+  agents: [] as Record<string, unknown>[],
+  invoke: vi.fn()
+}));
+vi.mock('@strands-agents/sdk', () => ({
+  BedrockModel: class {
+    constructor(config: Record<string, unknown>) {
+      strands.models.push(config);
+    }
+  },
+  Agent: class {
+    constructor(config: Record<string, unknown>) {
+      strands.agents.push(config);
+    }
+    invoke(input: string, options: unknown) {
+      return strands.invoke(input, options);
+    }
+  }
+}));
 
 const { StrandsModelClient } = await import('../src/strands-model.js');
 
@@ -114,5 +135,39 @@ describe('StrandsModelClient', () => {
     });
     const result = await new StrandsModelClient().run(request());
     expect(result.usage.outputTokens).toBe(0);
+  });
+
+  it('sends a thinking budget as a Bedrock request field, without a temperature', async () => {
+    strands.invoke.mockResolvedValueOnce({
+      structuredOutput: { summary: 'thought' },
+      stopReason: 'endTurn',
+      toString: () => '{"summary":"thought"}'
+    });
+    const run = {
+      ...request(),
+      modelId: 'us.anthropic.claude-opus-5-v1',
+      maxTokens: 8192,
+      thinkingBudgetTokens: 4096
+    };
+    const result = await new StrandsModelClient('us-east-1').run(run);
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(strands.models.at(-1)).toEqual({
+      region: 'us-east-1',
+      modelId: 'us.anthropic.claude-opus-5-v1',
+      maxTokens: 8192,
+      additionalRequestFields: { thinking: { type: 'enabled', budget_tokens: 4096 } }
+    });
+    expect(strands.agents.at(-1)).toMatchObject({ systemPrompt: 'system prompt' });
+    const [input, options] = strands.invoke.mock.calls[0] as [string, Record<string, unknown>];
+    expect(input).toBe('input');
+    expect(options).toMatchObject({ limits: { turns: 7 }, invocationState: { agentId: 'a' } });
+    expect(result.decision).toEqual({ summary: 'thought' });
+
+    strands.invoke.mockResolvedValueOnce({
+      structuredOutput: undefined,
+      stopReason: 'endTurn',
+      toString: () => ''
+    });
+    await expect(new StrandsModelClient().run(run)).rejects.toThrow('no structured answer');
   });
 });

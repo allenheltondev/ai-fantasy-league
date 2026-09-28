@@ -224,6 +224,12 @@ describe('renderSystemMessage', () => {
       })?.text
     ).toMatch(/^The commissioner changed .+'s AI manager\.$/);
     expect(render('Draft Completed', {})?.moment).toBe(true);
+    expect(render('Agent Budget Exceeded', { week: 5, spentUsd: 2.5, ceilingUsd: 2.25 })?.text).toBe(
+      'The AI managers have used this week’s model budget ($2.5 of $2.25). Until next week they play on autopilot: optimizer lineups, autopicks, no waiver claims, and they turn down trade offers.'
+    );
+    expect(render('Agent Budget Exceeded', { week: 5 })?.text).toBe(
+      'The AI managers have used this week’s model budget. Until next week they play on autopilot.'
+    );
   });
 
   it('ignores event types without a template', () => {

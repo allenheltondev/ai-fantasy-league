@@ -791,7 +791,10 @@ Resources:
                 - Lineup Lock Approaching
                 - Chat Mention
                 - Chat Moment
-                # Agent memory (#44): results and trade steps the agents remember.
+                # Agents shop for trades once a league week (#66).
+                - Week Rolled Over
+                # Agent memory (#44): results and trade steps the agents remember;
+                # Trade Accepted also sends agents to vote in league-vote review (#122).
                 - Week Provisionally Final
                 - Trade Accepted
                 - Trade Rejected
@@ -964,6 +967,7 @@ Resources:
                 - Member Left
                 - Settings Changed
                 - Agent Seat Changed
+                - Agent Budget Exceeded
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600

@@ -50,6 +50,8 @@ export type FantasyEventType =
   | 'Settings Changed'
   /** The commissioner changed an agent seat after the draft (announced in chat). */
   | 'Agent Seat Changed'
+  /** The league's agents passed their weekly model budget for the first time this week (announced in chat). */
+  | 'Agent Budget Exceeded'
   /** The last playoff week is over and the league is complete (champion and runner-up). */
   | 'Season Completed'
   /** A team earned a league achievement (history/achievements in core). */

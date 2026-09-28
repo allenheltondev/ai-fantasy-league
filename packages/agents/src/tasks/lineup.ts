@@ -10,7 +10,7 @@ import {
   type OptimizedLineup,
   type RosterPlayer
 } from '@fantasy/core';
-import type { Envelope } from '@fantasy/server';
+import type { AgentTaskSeal, Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
 
@@ -28,8 +28,15 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  *   slot changed. Locked players keep their slots (the optimizer honors the kickoffs).
  */
 
+/**
+ * Thrown from `prepare` when there is nothing to decide: the runner records the task as skipped
+ * with the message as its reason (sealed like a decision when `sealed` is given).
+ */
 export class TaskUnavailableError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly sealed?: AgentTaskSeal
+  ) {
     super(message);
     this.name = 'TaskUnavailableError';
   }
@@ -108,15 +115,19 @@ export function applySwaps(
   return lineup.map((e) => ({ playerId: e.playerId, slot: slots.get(e.playerId) ?? e.slot }));
 }
 
+/** The starters; projected points only when the agent's research includes projections (#122). */
 function describe(
   lineup: readonly LineupEntry[],
   roster: readonly RosterPlayer[],
-  pts: Record<string, number>
+  pts: Record<string, number> | null
 ) {
   const names = new Map(roster.map((p) => [p.playerId, p.name ?? p.playerId]));
   return lineup
     .filter((e) => e.slot !== 'BN' && e.slot !== 'IR')
-    .map((e) => `${e.slot}: ${names.get(e.playerId)} (${e.playerId}, ${pts[e.playerId] ?? 0} pts)`)
+    .map(
+      (e) =>
+        `${e.slot}: ${names.get(e.playerId)} (${e.playerId}${pts === null ? '' : `, ${pts[e.playerId] ?? 0} pts`})`
+    )
     .join('\n');
 }
 
@@ -191,14 +202,15 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
     const optimized = optimizeLineup(settingsFor(ctx), roster, adjusted, context);
     return { week: rosterData.week, roster, current, projections, context, optimized };
   },
-  instructions(_ctx, payload, prep) {
+  instructions(ctx, payload, prep) {
     const why =
       payload.reason === 'lock'
         ? 'Lineups lock soon.'
         : `News or a status change just hit ${payload.playerId ?? 'one of your players'}.`;
+    const projections = ctx.config.levers.research.projections;
     return [
-      `${why} The lineup optimizer proposes this lineup (${prep.optimized.projectedPoints} projected points):`,
-      describe(prep.optimized.lineup, prep.roster, prep.projections),
+      `${why} The lineup optimizer proposes this lineup${projections ? ` (${prep.optimized.projectedPoints} projected points)` : ''}:`,
+      describe(prep.optimized.lineup, prep.roster, projections ? prep.projections : null),
       'Check anything you are unsure about with your research tools, then answer with `confirm: true` to start it, or `confirm: false` with up to 5 `swaps` of (bench player id, starter player id).',
       'Never start a player who is out, on IR, or on bye.'
     ].join('\n');

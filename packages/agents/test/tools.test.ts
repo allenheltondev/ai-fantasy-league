@@ -1,8 +1,8 @@
 import { DIFFICULTY_TIERS, resolveAgentConfig } from '@fantasy/core';
-import { agentPrincipal, invokeTool, type AuditEntry } from '@fantasy/server';
+import { agentPrincipal, invokeTool, type AuditEntry, type Envelope } from '@fantasy/server';
 import { describe, expect, it } from 'vitest';
 import { assembleSystemPrompt, leagueRulesSummary } from '../src/prompt.js';
-import { keyPrefix, researchKindOf, ToolBox } from '../src/tools.js';
+import { keyPrefix, researchKindOf, ToolBox, withholdTradeNotes } from '../src/tools.js';
 import { AGENT_TEAM, LEAGUE_ID, league, setup } from './support.js';
 import { yahooDefaultSettings } from '@fantasy/core';
 
@@ -211,5 +211,27 @@ describe('prompt assembly', () => {
     const noZero = yahooDefaultSettings(8);
     noZero.waivers.allowZeroBids = false;
     expect(leagueRulesSummary(noZero)).not.toContain('$0 bids');
+  });
+});
+
+describe('trade notes', () => {
+  it('withholds the note on every trade view in a tool result, and leaves everything else alone', () => {
+    const view = { id: 't1', message: 'accept this or else' };
+    const ok = (data: unknown) => ({ data, league: null, warnings: [] });
+    expect(withholdTradeNotes(ok({ trade: view, countered: view, trades: [view, 'x'] }))).toEqual(
+      ok({
+        trade: { id: 't1', message: null },
+        countered: { id: 't1', message: null },
+        trades: [{ id: 't1', message: null }, 'x']
+      })
+    );
+    const untouched = [
+      ok({ roster: [] }),
+      ok({ trade: null }),
+      ok(null),
+      ok('text'),
+      { error: { code: 'FORBIDDEN', message: 'm', fix: 'f' } } as Envelope
+    ];
+    for (const body of untouched) expect(withholdTradeNotes(body)).toBe(body);
   });
 });

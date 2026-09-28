@@ -200,6 +200,12 @@ describe('runAgentAction with the fake model', () => {
       expect(record).toMatchObject({ status: 'fallback', fallbackReason: 'budget_exceeded' });
       expect(model.transcript).toHaveLength(0);
       expect(s.logs.some((l) => l.includes('budget exceeded'))).toBe(true);
+      // The league hears about it once per budget week, not once per task.
+      await runAgentAction(s.deps(model), request({ taskId: 'lineup.again' }));
+      const notices = s.events.events.filter((e) => e.detailType === 'Agent Budget Exceeded');
+      expect(notices.map((e) => e.detail)).toEqual([
+        { leagueId: LEAGUE_ID, week: 5, spentUsd: 100, ceilingUsd: 0.5 }
+      ]);
     });
 
     it('moves down the model chain when a model is unavailable', async () => {
@@ -238,6 +244,14 @@ describe('runAgentAction with the fake model', () => {
         fallbackReason: 'model_error',
         finalAction: 'set_lineup'
       });
+      // The failed run still counts against the budget, as an estimate.
+      expect(record.usage).toEqual([
+        expect.objectContaining({ modelKey: 'kimi-k2-thinking', outputTokens: 2048, estimatedTokens: true })
+      ]);
+      expect(record.costUsd).toBeGreaterThan(0);
+      expect((await s.repos.agents.weekUsage(LEAGUE_ID, 5)).map((r) => r.modelKey)).toEqual([
+        'kimi-k2-thinking'
+      ]);
     });
 
     it('falls back on a timeout', async () => {
@@ -252,6 +266,8 @@ describe('runAgentAction with the fake model', () => {
       };
       const record = await runAgentAction(s.deps(hanging, { modelTimeoutMs: 10 }), request());
       expect(record).toMatchObject({ status: 'fallback', fallbackReason: 'timeout' });
+      expect(record.usage[0]).toMatchObject({ inputTokens: expect.any(Number), outputTokens: 2048 });
+      expect(record.usage[0]?.inputTokens).toBeGreaterThan(100);
     });
 
     it('records a failed fallback', async () => {

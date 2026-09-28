@@ -69,12 +69,23 @@ describe('replayLeague: the real league on the simulated clock', () => {
     // The weekly waiver look comes after the new week's projections, so agents find pickups.
     expect(report.transactions.length).toBeGreaterThan(0);
     expect(report.agents.totals.costUsd).toBeGreaterThan(0);
-    // The human offers a trade before the deadline, and the agent answers it through its task.
+    // The human offers a trade before the deadline, and agents shop for trades on their own at the
+    // rollover; every offer to an agent is answered through its task.
     expect(report.human.actions.propose_trade).toBeGreaterThan(0);
-    expect(report.agents.totals.byKind.trade_response).toBe(report.events.delivered['Trade Proposed']);
+    expect(report.agents.totals.byKind.trade_proposal).toBeGreaterThan(0);
+    expect(report.trades.offers.byAgents).toBeGreaterThan(0);
+    // Agent-to-agent deals get accepted and go to league review, where the other agents vote.
+    expect(report.agents.totals.byKind.trade_vote).toBeGreaterThan(0);
+    expect(report.decisions.some((d) => d.kind === 'trade_response' && d.action === 'accept_trade')).toBe(
+      true
+    );
+    expect(report.agents.totals.byKind.trade_response).toBe(report.trades.offers.toAgents);
     expect(Object.keys(report.agents.byModel).length).toBeGreaterThan(0);
     expect(report.decisions).toHaveLength(report.agents.totals.tasks);
-    expect(model.transcript.length).toBe(report.agents.totals.tasks);
+    // Tasks with nothing to decide (no trade worth offering, a vote to let a trade pass) skip the model.
+    expect(model.transcript.length).toBe(
+      report.agents.totals.tasks - (report.agents.totals.byStatus.skipped ?? 0)
+    );
 
     // The jobs ran on their cadences, and deferred events (pick deadlines, lock warnings) fired.
     expect(report.events.jobRuns.advanceSeason).toBeGreaterThan(100);

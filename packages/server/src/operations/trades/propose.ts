@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import { counterTrade, proposeTrade } from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
+import { newId } from '../../context.js';
 import { requireMember, requireTeam } from '../../league/access.js';
 import { assertAction } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
@@ -65,7 +65,7 @@ export const proposeTradeOperation = defineOperation({
     const sides = await buildSides(ctx, world, me, other, input);
     const result = proposeTrade(
       league.settings,
-      { tradeId: randomUUID(), sides, nextLockTime: await nextLockAt(ctx.data.reference, league, now) },
+      { tradeId: newId(ctx), sides, nextLockTime: await nextLockAt(ctx.data.reference, league, now) },
       world.context
     );
     if (!result.ok) throw tradeError(result.issues);
@@ -124,7 +124,7 @@ export const counterTradeOperation = defineOperation({
       league.settings,
       record.trade,
       {
-        tradeId: randomUUID(),
+        tradeId: newId(ctx),
         byTeamId: me.id,
         sides,
         nextLockTime: await nextLockAt(ctx.data.reference, league, now)

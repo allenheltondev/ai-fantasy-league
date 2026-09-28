@@ -96,6 +96,40 @@ describe('league memory writes', () => {
     expect(MEMORY_EVENTS).toContain('Trade Processed');
   });
 
+  it('applies a redelivered event once, and remembers who got whom in a processed trade', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, SEAT);
+    const final = event('Week Provisionally Final', {
+      leagueId: LEAGUE_ID,
+      week: 4,
+      matchups: [{ homeTeamId: 'team-1', awayTeamId: 'team-2', homeScore: 130, awayScore: 90 }]
+    });
+    await recordLeagueMemory(s.services, final);
+    await recordLeagueMemory(s.services, final);
+    const ref = (name: string) => ({ id: name.toLowerCase(), name, team: 'SF', position: 'RB' });
+    const processed = event('Trade Processed', {
+      leagueId: LEAGUE_ID,
+      tradeId: 'tr-9',
+      fromTeamId: 'team-1',
+      toTeamId: AGENT_TEAM,
+      fromPlayers: [ref('Star Back')],
+      toPlayers: [ref('Bench Guy'), ref('Other Guy')]
+    });
+    await recordLeagueMemory(s.services, processed);
+    await recordLeagueMemory(s.services, processed);
+    const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
+    // 3 for the blowout loss plus 1 for the processed trade, each counted once.
+    expect(memory.rivals).toEqual([expect.objectContaining({ teamId: 'team-1', grudge: 4 })]);
+    expect(memory.trades).toEqual([
+      expect.objectContaining({
+        tradeId: 'tr-9',
+        outcome: 'processed',
+        sent: ['Bench Guy', 'Other Guy'],
+        received: ['Star Back']
+      })
+    ]);
+  });
+
   it('keeps each agent to its own memory', async () => {
     const s = await setup();
     const store = tableMemoryStore(s.repos.agents);

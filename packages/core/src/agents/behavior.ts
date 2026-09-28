@@ -1,4 +1,5 @@
 import type { PlayerStatus } from '../rules/positions.js';
+import { DEFAULT_LOPSIDED_THRESHOLD } from '../valuation/trade-value.js';
 import { riskMultiplier } from '../valuation/value.js';
 import type { ResolvedAgentConfig } from './seat-config.js';
 
@@ -13,6 +14,8 @@ import type { ResolvedAgentConfig } from './seat-config.js';
  * - Lineup risk: how much an injury designation discounts a starter (`lineupProjection`).
  * - Trade appetite: how often to propose, how much edge to demand, and how many counters to make
  *   (`tradeAppetite`, for the trade task kinds).
+ * - Trade votes: how one-sided another pair's trade must be before the agent votes to veto it
+ *   (`tradeVetoVote`, for the trade_vote task kind).
  */
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0));
@@ -56,6 +59,41 @@ export function tradeAppetite(config: Pick<ResolvedAgentConfig, 'tradeFrequency'
     acceptEdge: tradeAcceptEdge(frequency),
     maxCounters: config.levers.negotiationRounds
   };
+}
+
+/** The fairness numbers of a trade (preview_trade `fairness`, core `tradeValue`). */
+export interface TradeFairness {
+  lineupGap: number;
+  valueGap: number;
+  lopsided: boolean;
+}
+
+/**
+ * The share of the lopsided threshold at which the agent vetoes another pair's trade: 0.7 for a
+ * cautious archetype (it vetoes trades that are nearly lopsided too), up to 1 for a trade addict (it
+ * vetoes only what the trade value math calls lopsided).
+ */
+export function tradeVetoRatio(tradeFrequency: number): number {
+  return round2(0.7 + 0.3 * clamp01(tradeFrequency));
+}
+
+/**
+ * The agent's vote on a trade other teams made (league-vote review): veto when the trade value math
+ * calls it lopsided, and, depending on the archetype, when it comes close. Deterministic: the model
+ * may explain the vote but never changes it.
+ */
+export function tradeVetoVote(
+  fairness: TradeFairness,
+  config: Pick<ResolvedAgentConfig, 'tradeFrequency'>
+): { veto: boolean; ratio: number; severity: number } {
+  const ratio = tradeVetoRatio(config.tradeFrequency);
+  const severity = round2(
+    Math.max(
+      Math.abs(fairness.lineupGap) / DEFAULT_LOPSIDED_THRESHOLD.lineupPoints,
+      Math.abs(fairness.valueGap) / DEFAULT_LOPSIDED_THRESHOLD.value
+    )
+  );
+  return { veto: fairness.lopsided || severity >= ratio, ratio, severity };
 }
 
 /** The archetype-level behavior numbers for one agent, as the activity views and prompts show them. */

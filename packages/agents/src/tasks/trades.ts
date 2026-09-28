@@ -15,10 +15,21 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  * negotiation rounds left (the difficulty's `negotiationRounds`, counted over the negotiation's
  * counter chain), and otherwise rejects. The model sees that suggestion and decides; only
  * respond_to_trade and counter_trade execute anything. Without a model the agent rejects.
+ *
+ * Guards (issue #122): the model's "accept" is honored only when the score is within
+ * `ACCEPT_FLOOR_MARGIN` of the bar, so no argument (or injected note) can talk it into a bad deal;
+ * the offer's note never reaches the model (`withholdTradeNotes`), the model's memory note is not
+ * kept, and the memory records a deterministic line with the players and the value instead. The
+ * activity log seals the summary while the offer is private.
  */
 
 /** How far below the bar an offer can be and still be worth a counter. */
 export const COUNTER_WINDOW = 40;
+/** How far below the bar the model's own judgment may accept (the hard floor under "accept"). */
+export const ACCEPT_FLOOR_MARGIN = 5;
+
+/** The summary the commissioner's activity log shows while the offer is private. */
+export const SEALED_RESPONSE = 'Answered a trade offer; the terms stay private between the two teams.';
 
 const PayloadSchema = z.object({ tradeId: z.string(), fromTeamId: z.string().optional() });
 type Payload = z.infer<typeof PayloadSchema>;
@@ -150,16 +161,61 @@ async function respond(
   });
 }
 
-function outcome(action: string, summary: string, result: Envelope): TaskOutcome {
-  return 'error' in result
-    ? { action: `${action}_failed`, summary: `${summary} Refused: ${result.error.code}.` }
-    : { action, summary };
+/** True when an accept clears the hard floor: the trade value math must be within reach of the bar. */
+export function acceptAllowed(prep: Pick<TradePrep, 'preview' | 'suggestion'>): boolean {
+  return prep.preview !== null && prep.suggestion.score >= prep.suggestion.bar - ACCEPT_FLOOR_MARGIN;
+}
+
+const VERB = { accept_trade: 'Accepted', reject_trade: 'Rejected', counter_trade: 'Countered' } as const;
+
+/**
+ * The result of answering an offer: the model's summary for the activity log (sealed while the
+ * offer is private), and for memory a deterministic line with the players and the value, never the
+ * model's words (they were written after reading the other team's offer).
+ */
+function outcome(
+  ctx: TaskContext,
+  action: keyof typeof VERB,
+  summary: string,
+  result: Envelope,
+  prep: TradePrep
+): TaskOutcome {
+  const trade = prep.trade as NonNullable<TradePrep['trade']>;
+  const failed = 'error' in result;
+  const sent = trade.toSends.map((p) => p.name);
+  const received = trade.fromSends.map((p) => p.name);
+  const value = prep.preview === null ? undefined : prep.suggestion.score;
+  const line = `${VERB[action]} ${trade.fromTeam.id}'s offer: ${names(trade.fromSends)} for your ${names(trade.toSends)}${value === undefined ? '' : ` (value for you ${value}, bar ${prep.suggestion.bar})`}.`;
+  return {
+    action: failed ? `${action}_failed` : action,
+    summary: failed ? `${summary} Refused: ${result.error.code}.` : summary,
+    memorySummary: failed ? `${line} Refused: ${result.error.code}.` : line,
+    sealed: { summary: SEALED_RESPONSE, trades: [{ tradeId: trade.id, until: 'public' }], waiverClaims: [] },
+    ...(failed || action !== 'accept_trade'
+      ? {}
+      : {
+          memory: [
+            {
+              type: 'trade',
+              teamId: trade.fromTeam.id,
+              tradeId: trade.id,
+              outcome: 'accepted',
+              summary: line,
+              at: ctx.clock.now().toISOString(),
+              sent,
+              received,
+              ...(value === undefined ? {} : { value })
+            }
+          ]
+        })
+  };
 }
 
 export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePrep>({
   kind: 'trade_response',
   title: 'Answer a trade offer',
   modelRole: 'decision',
+  modelNotes: false,
   payload: PayloadSchema,
   decision: TradeDecisionSchema,
   tools: [
@@ -197,7 +253,7 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
   async apply(ctx, _payload, prep, decision) {
     if (!prep.open || prep.trade === null) return { action: 'none', summary: decision.summary };
     const id = prep.trade.id;
-    if (decision.action === 'accept') {
+    if (decision.action === 'accept' && acceptAllowed(prep)) {
       const result = await respond(
         ctx,
         id,
@@ -205,7 +261,11 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
         decision.drops ?? prep.suggestion.drops,
         decision.message
       );
-      return outcome('accept_trade', decision.summary, result);
+      return outcome(ctx, 'accept_trade', decision.summary, result, prep);
+    }
+    if (decision.action === 'accept') {
+      const why = `${decision.summary} The trade value math rules it out (score ${prep.suggestion.score}, floor ${prep.suggestion.bar - ACCEPT_FLOOR_MARGIN}), so rejecting.`;
+      return outcome(ctx, 'reject_trade', why, await respond(ctx, id, 'reject'), prep);
     }
     if (
       decision.action === 'counter' &&
@@ -218,20 +278,22 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
         receive: decision.receive ?? [],
         ...(decision.message === undefined ? {} : { message: decision.message })
       });
-      return outcome('counter_trade', decision.summary, result);
+      return outcome(ctx, 'counter_trade', decision.summary, result, prep);
     }
     const out =
       decision.action === 'counter'
         ? `${decision.summary} No counters left, so rejecting.`
         : decision.summary;
-    return outcome('reject_trade', out, await respond(ctx, id, 'reject', [], decision.message));
+    return outcome(ctx, 'reject_trade', out, await respond(ctx, id, 'reject', [], decision.message), prep);
   },
   async fallback(ctx, _payload, prep) {
     if (!prep.open || prep.trade === null) return { action: 'none', summary: 'The offer is no longer open.' };
     return outcome(
+      ctx,
       'reject_trade',
       'Rejected the offer without a model decision.',
-      await respond(ctx, prep.trade.id, 'reject')
+      await respond(ctx, prep.trade.id, 'reject'),
+      prep
     );
   },
   fakeScript: (_ctx, _payload, prep) => ({

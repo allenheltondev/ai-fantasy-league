@@ -20,6 +20,8 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Draft Turn Started                           | draft_pick     | `detail.teamId` (on the clock)          | yes    |
  * | Waiver Window Opened (once per league week)  | waivers        | every agent team in the league          | no     |
  * | Trade Proposed / Trade Countered             | trade_response | `detail.toTeamId` (the team to answer)  | yes    |
+ * | Trade Accepted (league-vote review)          | trade_vote     | agent teams not in the trade            | yes    |
+ * | Week Rolled Over (once per league week)      | trade_proposal | every agent team in the league          | no     |
  * | Player News Alert                            | lineup         | teams rostering any `detail.playerIds`  | no     |
  * | Player Status Changed                        | lineup         | teams rostering `detail.playerId`       | no     |
  * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    |
@@ -115,6 +117,27 @@ export const TRIGGER_RULES: RuleMap = {
   },
   'Trade Proposed': tradeRule,
   'Trade Countered': tradeRule,
+  // Every agent team outside the trade reviews it while league voting is open (the vote itself is
+  // deterministic; see tasks/trade-vote.ts). Urgent: the review period is short and votes must
+  // not wait behind a cooldown.
+  'Trade Accepted': {
+    kind: 'trade_vote',
+    urgent: true,
+    teams: (d, agents) =>
+      d.review === 'league_vote' && d.status === 'in_review'
+        ? agents.filter((t) => !strs(d.teamIds).includes(t))
+        : [],
+    payload: (d) => ({ tradeId: d.tradeId })
+  },
+  // Agents shop for trades once a league week, paced by their archetype's trade appetite (the
+  // task decides how many offers, if any). The NFL-wide rollover has no leagueId and routes nowhere.
+  'Week Rolled Over': {
+    kind: 'trade_proposal',
+    urgent: false,
+    oncePer: (d) => (typeof d.week === 'number' ? `week-${d.week}` : undefined),
+    teams: (_d, agents) => [...agents],
+    payload: (d) => ({ week: d.week })
+  },
   'Player News Alert': {
     kind: 'lineup',
     urgent: false,

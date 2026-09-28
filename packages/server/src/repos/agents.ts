@@ -43,6 +43,25 @@ export type AgentModelUsage = z.infer<typeof AgentModelUsageSchema>;
 
 export const AGENT_TASK_STATUSES = ['completed', 'fallback', 'failed', 'skipped'] as const;
 
+/**
+ * Sealed information in a task's summary (issue #122): waiver bids and pending trade terms that no
+ * one but the agent's own team may see yet. The activity log shows `summary` instead of the real
+ * reasoning until every sealed move has resolved (`sealedSummary` in operations/agents/activity.ts).
+ */
+export const AgentTaskSealSchema = z.object({
+  /** The summary to show while sealed: what kind of move, without bids, players, or terms. */
+  summary: z.string(),
+  /**
+   * Trades the summary describes. `public`: sealed until other teams can see the trade (accepted,
+   * in review, processed, or vetoed); a rejected or expired offer stays private. `final`: sealed
+   * until the trade is processed or vetoed (a veto vote, while the review is still open).
+   */
+  trades: z.array(z.object({ tradeId: z.string(), until: z.enum(['public', 'final']) })).default([]),
+  /** Waiver claims (ids) the summary describes: sealed while any of them is pending. */
+  waiverClaims: z.array(z.string()).default([])
+});
+export type AgentTaskSeal = z.infer<typeof AgentTaskSealSchema>;
+
 export const AgentTaskRecordSchema = z.object({
   taskId: z.string(),
   leagueId: z.string(),
@@ -62,7 +81,9 @@ export const AgentTaskRecordSchema = z.object({
   usage: z.array(AgentModelUsageSchema),
   costUsd: z.number().min(0),
   startedAt: z.string(),
-  finishedAt: z.string()
+  finishedAt: z.string(),
+  /** Set when `reasoningSummary` holds sealed information; never shown to the commissioner. */
+  sealed: AgentTaskSealSchema.optional()
 });
 export type AgentTaskRecord = z.infer<typeof AgentTaskRecordSchema>;
 

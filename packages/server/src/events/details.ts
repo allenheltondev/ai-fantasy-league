@@ -274,6 +274,12 @@ export const EVENT_DETAIL_SCHEMAS = {
       )
       .min(1)
   }),
+  'Agent Budget Exceeded': z.object({
+    leagueId: id,
+    week: z.number().int().min(0).describe('The budget week (the league week, 0 before the season).'),
+    spentUsd: z.number().min(0).describe('Estimated model spend this week.'),
+    ceilingUsd: z.number().min(0).describe('The league’s weekly ceiling.')
+  }),
   'Settings Changed': z.object({
     leagueId: id,
     changedPaths: z.array(z.string()),

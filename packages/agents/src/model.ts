@@ -16,7 +16,13 @@ export interface ModelRunRequest<T> {
   tools: readonly BoundTool[];
   /** Upper bound on model/tool loop iterations. */
   maxIterations: number;
+  /** Response token limit, including any thinking budget. */
   maxTokens: number;
+  /**
+   * Extended-thinking budget (tokens), set only for catalog models that take one
+   * (`thinkingBudget`) at medium or high reasoning effort.
+   */
+  thinkingBudgetTokens?: number;
   temperature: number;
   /** The structured decision the run must end with. */
   outputSchema: z.ZodType<T>;

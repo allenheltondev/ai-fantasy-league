@@ -274,6 +274,74 @@ describe('agent seat operations', () => {
     expect((await leagueBudget(repos.agents, league5!)).week).toBe(5);
   });
 
+  it('withholds sealed summaries (pending bids, private offers, open votes) until they resolve', async () => {
+    const { run, repos } = await setup('regular_season');
+    const base = {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      agentId: 'lg-1.team-2',
+      week: 5,
+      trigger: { detailType: 'Waiver Window Opened', eventId: 'e1' },
+      status: 'completed' as const,
+      fallbackReason: null,
+      toolsCalled: [],
+      latencyMs: 1,
+      usage: [],
+      costUsd: 0,
+      startedAt: START,
+      finishedAt: START
+    };
+    const trade = (tradeId: string, status: string) =>
+      repos.trades.create({ leagueId: 'lg-1', trade: { tradeId, status, proposedAt: START } } as never);
+    const claim = (id: string, status: string) =>
+      repos.waivers.createClaim({ id, leagueId: 'lg-1', status } as never);
+    await trade('t-open', 'proposed');
+    await trade('t-review', 'in_review');
+    await trade('t-done', 'processed');
+    await claim('c-pending', 'pending');
+    await claim('c-awarded', 'awarded');
+    const put = (taskId: string, sealed: Record<string, unknown> | undefined) =>
+      repos.agents.completeTask(
+        {
+          ...base,
+          taskId,
+          kind: taskId,
+          finalAction: 'x',
+          reasoningSummary: `secret ${taskId}`,
+          ...(sealed === undefined
+            ? {}
+            : { sealed: { summary: `sealed ${taskId}`, trades: [], waiverClaims: [], ...sealed } })
+        } as never,
+        new Date('2027-01-01T00:00:00.000Z')
+      );
+    await put('plain', undefined);
+    await put('bids-pending', { waiverClaims: ['c-awarded', 'c-pending'] });
+    await put('bids-resolved', { waiverClaims: ['c-awarded'] });
+    await put('bid-missing', { waiverClaims: ['c-gone'] });
+    await put('offer-private', { trades: [{ tradeId: 't-open', until: 'public' }] });
+    await put('offer-public', { trades: [{ tradeId: 't-review', until: 'public' }] });
+    await put('vote-open', { trades: [{ tradeId: 't-review', until: 'final' }] });
+    await put('vote-final', { trades: [{ tradeId: 't-done', until: 'final' }] });
+    await put('offer-missing', { trades: [{ tradeId: 't-gone', until: 'public' }] });
+    const result = await run('get_agent_activity', { leagueId: 'lg-1', limit: 100 });
+    const tasks = (
+      result.body as { data: { tasks: { kind: string; reasoningSummary: string; redacted: boolean }[] } }
+    ).data.tasks;
+    const shown = Object.fromEntries(tasks.map((t) => [t.kind, [t.reasoningSummary, t.redacted]]));
+    expect(shown).toEqual({
+      plain: ['secret plain', false],
+      'bids-pending': ['sealed bids-pending', true],
+      'bids-resolved': ['secret bids-resolved', false],
+      'bid-missing': ['sealed bid-missing', true],
+      'offer-private': ['sealed offer-private', true],
+      'offer-public': ['secret offer-public', false],
+      'vote-open': ['sealed vote-open', true],
+      'vote-final': ['secret vote-final', false],
+      'offer-missing': ['sealed offer-missing', true]
+    });
+    expect(JSON.stringify(result.body)).not.toContain('c-pending');
+  });
+
   it('ranks models by win rate with standings and season cost (members only)', async () => {
     const { run, repos } = await setup('regular_season');
     const put = (teamId: string, difficulty: 'hall_of_famer' | 'rookie') =>

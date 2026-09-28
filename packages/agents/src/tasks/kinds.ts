@@ -1,5 +1,5 @@
 import type { Clock, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
-import type { AgentPrincipal, AgentSeatRecord, League, Logger } from '@fantasy/server';
+import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
 import type { FakeScript } from '../fake-model.js';
 import { MEMORY_NOTE_MAX } from '../prompt.js';
@@ -62,6 +62,17 @@ export interface TaskOutcome {
   summary: string;
   /** Extra events for the agent's memory (the runner already remembers the decision itself). */
   memory?: MemoryEvent[];
+  /**
+   * The decision as the agent's memory keeps it, when `summary` should not be kept: a kind whose
+   * model reads other people's text (a trade note, say) remembers a deterministic line instead of
+   * model-written words.
+   */
+  memorySummary?: string;
+  /**
+   * Set when `summary` holds sealed information (waiver bids, private trade terms, a veto vote):
+   * the commissioner's activity log shows `sealed.summary` until those moves resolve.
+   */
+  sealed?: AgentTaskSeal;
 }
 
 export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
@@ -73,6 +84,11 @@ export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
   decision: z.ZodType<D>;
   /** Tools the model may call for this kind; undefined means every tool the agent may use. */
   tools?: readonly string[];
+  /**
+   * False for kinds whose model reads text other people wrote (trade kinds): the model's
+   * `memoryNote` is not persisted, so nothing it was talked into survives into later prompts.
+   */
+  modelNotes?: boolean;
   prepare(ctx: TaskContext, payload: P): Promise<Prep>;
   instructions(ctx: TaskContext, payload: P, prep: Prep): string;
   apply(ctx: TaskContext, payload: P, prep: Prep, decision: D): Promise<TaskOutcome>;
@@ -94,6 +110,7 @@ export interface TaskKind {
   title: string;
   modelRole: 'decision' | 'chat';
   tools?: readonly string[];
+  modelNotes?: boolean;
   prepare(ctx: TaskContext, payload: unknown): Promise<PreparedTask>;
 }
 
@@ -103,6 +120,7 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
     title: spec.title,
     modelRole: spec.modelRole,
     ...(spec.tools === undefined ? {} : { tools: spec.tools }),
+    ...(spec.modelNotes === undefined ? {} : { modelNotes: spec.modelNotes }),
     async prepare(ctx, rawPayload) {
       const payload = spec.payload.parse(rawPayload);
       const prep = await spec.prepare(ctx, payload);

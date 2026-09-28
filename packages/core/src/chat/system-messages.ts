@@ -140,6 +140,14 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
       "The commissioner changed {team:teamId}'s AI manager."
     ]
   },
+  // The first time in a week the league's AI spend passes its ceiling (#93): agents play on with
+  // their deterministic fallbacks until the next week.
+  'Agent Budget Exceeded': {
+    text: [
+      'The AI managers have used this week’s model budget (${points:spentUsd} of ${points:ceilingUsd}). Until next week they play on autopilot: optimizer lineups, autopicks, no waiver claims, and they turn down trade offers.',
+      'The AI managers have used this week’s model budget. Until next week they play on autopilot.'
+    ]
+  },
   'Settings Changed': {
     text: [
       'The commissioner changed league settings: {list:changedPaths}.',

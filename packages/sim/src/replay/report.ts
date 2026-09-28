@@ -89,6 +89,15 @@ export interface LeagueReplayReport {
     costUsd: number;
   }[];
   human: { teamId: string; actions: Record<string, number>; refused: { operation: string; code: string }[] };
+  /**
+   * Trade offers by who made them (agents on their own, through trade_proposal, or the human
+   * stand-in; counters included), every offer's final status, and the veto votes cast.
+   */
+  trades: {
+    offers: { byAgents: number; byHuman: number; toAgents: number };
+    byStatus: Record<string, number>;
+    vetoVotes: number;
+  };
   chat: { messages: number; byKind: Record<string, number> };
   events: {
     delivered: Record<string, number>;
@@ -206,6 +215,10 @@ export async function buildLeagueReport(input: {
   const violations = weeks.flatMap((w) =>
     w.invariants.flatMap((c) => c.violations.map((message) => ({ week: w.week, name: c.name, message })))
   );
+  const offers = await repos.trades.list(league.id);
+  const byStatus: Record<string, number> = {};
+  for (const o of offers) byStatus[o.trade.status] = (byStatus[o.trade.status] ?? 0) + 1;
+  const byAgents = offers.filter((o) => seats.has(o.trade.sides[0].teamId)).length;
   const transactions = (await repos.waivers.listTransactionsSince(league.id, '')).map((t) => ({
     type: t.type,
     week: t.week,
@@ -271,6 +284,15 @@ export async function buildLeagueReport(input: {
       actions: sorted(input.human.actions),
       refused: input.human.refused
     },
+    trades: {
+      offers: {
+        byAgents,
+        byHuman: offers.length - byAgents,
+        toAgents: offers.filter((o) => seats.has(o.trade.sides[1].teamId)).length
+      },
+      byStatus: sorted(byStatus),
+      vetoVotes: offers.reduce((n, o) => n + o.trade.vetoVotes.length, 0)
+    },
     chat: await chatCounts(input.services, league.id),
     events: {
       delivered: sorted(input.loopStats.delivered),
@@ -288,7 +310,7 @@ export async function buildLeagueReport(input: {
     wallMs: input.wallMs,
     violations,
     notes: [
-      'Trades: the human stand-in offers one bench swap a week before the deadline and agents answer through trade_response; agents do not propose trades on their own (no trigger for it yet).',
+      'Trades: agents shop for trades once a week at the rollover (trade_proposal, paced by their archetype) and answer offers through trade_response; in league-vote review, agents outside a trade vote on it (trade_vote). The human stand-in offers one bench swap a week before the deadline and never answers offers, so offers to it expire.',
       'The champion is the one the league stored with its playoff bracket; the replay checks it against the stored playoff games replayed through core `advanceBracket`.'
     ]
   };
@@ -345,7 +367,13 @@ export function renderLeagueReport(report: LeagueReplayReport): string {
       .map(([type, n]) => `${type} ${n}`)
       .join(
         ', '
-      )}). Trades proposed ${report.events.delivered['Trade Proposed'] ?? 0}, processed ${report.events.delivered['Trade Processed'] ?? 0}. Chat messages: ${report.chat.messages} (${Object.entries(
+      )}). Trade offers: ${report.trades.offers.byAgents} by agents, ${report.trades.offers.byHuman} by the human (${Object.entries(
+      report.trades.byStatus
+    )
+      .map(([status, n]) => `${status} ${n}`)
+      .join(
+        ', '
+      )}); veto votes ${report.trades.vetoVotes}. Chat messages: ${report.chat.messages} (${Object.entries(
       report.chat.byKind
     )
       .map(([k, n]) => `${k} ${n}`)

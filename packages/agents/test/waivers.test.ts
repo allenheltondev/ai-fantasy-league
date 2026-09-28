@@ -1,13 +1,16 @@
 import { suggestFaabBid, yahooDefaultSettings } from '@fantasy/core';
+import { createContext, executeOperation, type UserPrincipal } from '@fantasy/server';
 import { describe, expect, it } from 'vitest';
 import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
+import { claimsToApply } from '../src/tasks/waivers.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { AGENT_TEAM, LEAGUE_ID, setup, START } from './support.js';
 
 const AGENT_ID = `${LEAGUE_ID}.${AGENT_TEAM}`;
+const COMMISSIONER: UserPrincipal = { type: 'user', sub: 'user-123', email: null, name: 'Allen' };
 const HAWK = { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'waiver_hawk' } as const;
 const PATIENT = { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'balanced' } as const;
 
@@ -212,5 +215,73 @@ describe('waiver task', () => {
       }
     );
     expect(decisions).toMatchObject([{ teamId: AGENT_TEAM, decision: 'requested', kind: 'waivers' }]);
+  });
+
+  it('applies no more claims than the difficulty allows per trigger, whatever the model returns', async () => {
+    const s = await waiverLeague(HAWK);
+    await s.seat(AGENT_TEAM, { ...HAWK, advanced: { levers: { actionsPerTrigger: 1 } } });
+    const greedy = new ScriptedModelClient({
+      script: () => ({
+        steps: [],
+        decision: {
+          summary: 'Everyone!',
+          claims: [
+            { playerId: 'rb3', dropPlayerId: 'te2', bid: 10 },
+            { playerId: 'wr5', dropPlayerId: 'qb2', bid: 1 },
+            { playerId: 'rb1', dropPlayerId: 'rb2', bid: 1 }
+          ]
+        }
+      })
+    });
+    const record = await runAgentAction(s.deps(greedy), request());
+    expect(record.toolsCalled.filter((c) => c.name === 'claim_waiver')).toHaveLength(1);
+    expect(record.reasoningSummary).toBe(
+      'Everyone! Claimed: rb3 ($10). Ignored 2 more claim(s) over the action limit.'
+    );
+    expect(greedy.transcript[0]?.systemPrompt).toContain(
+      'most wanted first, at most 1; any more are ignored'
+    );
+    expect(claimsToApply([1, 2, 3], 2)).toEqual([1, 2]);
+  });
+
+  it('shows the model only what its research access could find', async () => {
+    const s = await waiverLeague(HAWK);
+    await s.seat(AGENT_TEAM, {
+      ...HAWK,
+      advanced: { levers: { research: { projections: false, trending: false } } }
+    });
+    const model = new ScriptedModelClient();
+    await runAgentAction(s.deps(model), request());
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    expect(prompt).toMatch(/- RB3 \(rb3, RB\): on waivers, bid \$\d+, drop RB2 \(rb2\)\.\n/);
+    expect(prompt).not.toContain('projected pts');
+    expect(prompt).not.toContain('Trending adds');
+  });
+
+  it('seals the bids in the commissioner activity log until waivers are processed', async () => {
+    const s = await waiverLeague(HAWK);
+    const record = await runAgentAction(s.deps(new ScriptedModelClient()), request());
+    const [claim] = await s.repos.waivers.listClaims(LEAGUE_ID, 'pending');
+    expect(record.sealed).toMatchObject({ waiverClaims: [claim?.id], trades: [] });
+    const activity = async () => {
+      const op = s.registry.get('get_agent_activity');
+      const res = await executeOperation({
+        registry: s.registry,
+        operation: op!,
+        ctx: createContext(s.services, COMMISSIONER),
+        input: { leagueId: LEAGUE_ID },
+        idempotencyKey: null
+      });
+      return (res.body as { data: { tasks: { reasoningSummary: string; redacted: boolean }[] } }).data
+        .tasks[0];
+    };
+    const sealed = await activity();
+    expect(sealed).toMatchObject({ redacted: true, finalAction: 'sealed', toolsCalled: [] });
+    expect(sealed?.reasoningSummary).toBe(
+      'Made 1 waiver claim(s); players and bids are hidden until waivers are processed.'
+    );
+    expect(JSON.stringify(sealed)).not.toContain(`$${claim?.bid}`);
+    await s.repos.waivers.updateClaim({ ...claim!, status: 'awarded', resolvedAt: START, cost: claim!.bid });
+    expect(await activity()).toMatchObject({ redacted: false, reasoningSummary: record.reasoningSummary });
   });
 });
