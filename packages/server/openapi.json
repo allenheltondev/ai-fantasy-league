@@ -9014,6 +9014,566 @@
         }
       }
     },
+    "/api/v1/leagues/{leagueId}/draft/queue": {
+      "get": {
+        "operationId": "get_draft_queue",
+        "summary": "See your draft queue: the players you want next, in order",
+        "description": "Returns your team’s draft queue, most wanted first, with each player’s rank and whether he is still `available`. When your pick clock runs out, autopick takes the first queued player who is still available and keeps your roster valid; only if none fits does it choose for you. Change the queue with set_draft_queue. Works before and during the draft. Only the team’s owner (or the agent that plays it) can read its queue.",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Your team id. Defaults to the team you manage; a queue is private to its team."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "teamId": {
+                          "type": "string"
+                        },
+                        "maxSize": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "The most players a queue holds."
+                        },
+                        "updatedAt": {
+                          "description": "When the queue last changed; null if it was never set.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "players": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "rank": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Consensus overall rank (ADP stand-in); lower is better."
+                              },
+                              "available": {
+                                "type": "boolean",
+                                "description": "False once the player has been drafted."
+                              }
+                            },
+                            "required": [
+                              "player",
+                              "rank",
+                              "available"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Queued players, most wanted first."
+                        }
+                      },
+                      "required": [
+                        "teamId",
+                        "maxSize",
+                        "updatedAt",
+                        "players"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      },
+      "put": {
+        "operationId": "set_draft_queue",
+        "summary": "Replace your draft queue with a new ordered list of players",
+        "description": "Replaces your team’s whole draft queue with `playerIds`, most wanted first (at most 50; an empty list clears it). Sending the same list again changes nothing. When your pick clock runs out, autopick takes the first queued player who is still available and keeps your roster valid. Queueing does not draft anyone: on the clock, pick with make_draft_pick. Get ids from get_draft_board (`bestAvailable`) or search_players. An unknown id returns PLAYER_NOT_FOUND; a repeated id is kept once. Allowed before and during the draft, for your own team only.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "teamId": {
+                          "type": "string"
+                        },
+                        "maxSize": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "The most players a queue holds."
+                        },
+                        "updatedAt": {
+                          "description": "When the queue last changed; null if it was never set.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "players": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "rank": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Consensus overall rank (ADP stand-in); lower is better."
+                              },
+                              "available": {
+                                "type": "boolean",
+                                "description": "False once the player has been drafted."
+                              }
+                            },
+                            "required": [
+                              "player",
+                              "rank",
+                              "available"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Queued players, most wanted first."
+                        }
+                      },
+                      "required": [
+                        "teamId",
+                        "maxSize",
+                        "updatedAt",
+                        "players"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "teamId": {
+                    "description": "Your team id. Defaults to the team you manage; a queue is private to its team.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "playerIds": {
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "description": "Player ids, most wanted first. Replaces the whole queue."
+                  }
+                },
+                "required": [
+                  "playerIds"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/leagues/{leagueId}/draft/resume": {
       "post": {
         "operationId": "resume_draft",
