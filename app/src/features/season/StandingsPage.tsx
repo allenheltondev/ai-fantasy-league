@@ -1,8 +1,9 @@
 import { useParams, useSearchParams } from 'react-router';
-import { EmptyState, LoadingPage } from '@readysetcloud/ui';
+import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { LoadingSkeleton, stagger } from '../../motion/decor';
 import { HistoryPanel } from './HistoryPanel';
 import { ModelLeaderboardPanel } from './ModelLeaderboardPanel';
 import { PlayoffsPanel } from './PlayoffsPanel';
@@ -29,7 +30,7 @@ export function StandingsPage() {
             type="button"
             role="tab"
             aria-selected={view === v.id}
-            className={`rounded-md px-3 py-1 text-sm font-medium ${
+            className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
               view === v.id
                 ? 'bg-primary-100 text-primary-800'
                 : 'text-muted-foreground hover:text-foreground'
@@ -54,7 +55,11 @@ function StandingsTable() {
 
   let body;
   if (loaded.data === null) {
-    body = loaded.error ? <ApiErrorAlert error={loaded.error} /> : <LoadingPage text="Loading standings…" />;
+    body = loaded.error ? (
+      <ApiErrorAlert error={loaded.error} />
+    ) : (
+      <LoadingSkeleton label="Loading standings…" rows={6} />
+    );
   } else if (loaded.data.standings.length === 0) {
     body = <EmptyState title="No standings yet" description="Standings start once the season does." />;
   } else {
@@ -76,8 +81,12 @@ function StandingsTable() {
           </tr>
         </thead>
         <tbody>
-          {loaded.data.standings.map((row) => (
-            <tr key={row.teamId}>
+          {loaded.data.standings.map((row, index) => (
+            <tr
+              key={row.teamId}
+              className={`motion-row ${stagger(index).className}`}
+              style={stagger(index).style}
+            >
               <td>{row.rank}</td>
               <td>{row.teamName}</td>
               <td>{row.record}</td>
