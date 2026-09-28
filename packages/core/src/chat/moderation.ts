@@ -12,10 +12,9 @@
 
 // C0 controls except \t and \n, DEL, C1 controls, zero-width characters, line/paragraph
 // separators, and bidi overrides.
-const INVISIBLE = new RegExp(
-  '[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]',
-  'g'
-);
+const INVISIBLE =
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+  /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
 
 /** Phrases (already normalized: lowercase letters and single spaces) that block a message. */
 export const CHAT_BLOCKLIST: readonly string[] = [
@@ -29,8 +28,7 @@ export const CHAT_BLOCKLIST: readonly string[] = [
 ];
 
 export type ModerationResult =
-  | { ok: true; text: string }
-  | { ok: false; reason: 'empty' | 'blocked'; message: string; fix: string };
+  { ok: true; text: string } | { ok: false; reason: 'empty' | 'blocked'; message: string; fix: string };
 
 const LEET: Readonly<Record<string, string>> = {
   '0': 'o',

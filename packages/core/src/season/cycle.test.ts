@@ -225,7 +225,10 @@ describe('weekHighlights', () => {
   });
 
   it('property: the top score is at least every scored side, and the blowout margin is the largest', () => {
-    const score = fc.option(fc.integer({ min: 0, max: 20000 }).map((n) => n / 100), { nil: null });
+    const score = fc.option(
+      fc.integer({ min: 0, max: 20000 }).map((n) => n / 100),
+      { nil: null }
+    );
     fc.assert(
       fc.property(fc.array(fc.tuple(score, score), { maxLength: 8 }), (pairs) => {
         const games = pairs.map(([h, a], i) => game(`h${i}`, `a${i}`, h, a));

@@ -429,7 +429,7 @@ describe('relayEvent', () => {
     expect(realtime.published[4]?.message).toMatchObject({ time: null, detail: {}, leagueId: null });
   });
 
-  it("sends each team its own waiver awards on its private topic", async () => {
+  it('sends each team its own waiver awards on its private topic', async () => {
     const realtime = new InMemoryRealtime();
     const awarded = [
       { teamId: 'team-1', playerId: 'p1' },
@@ -453,8 +453,13 @@ describe('relayEvent', () => {
       detail: { teamId: 'team-1', week: 5, awarded: [awarded[0], awarded[2]] }
     });
     expect(
-      (await relayEvent(realtime, silentLogger, event('Waivers Processed', { leagueId: 'lg-1', awarded: 'x' })))
-        .topics
+      (
+        await relayEvent(
+          realtime,
+          silentLogger,
+          event('Waivers Processed', { leagueId: 'lg-1', awarded: 'x' })
+        )
+      ).topics
     ).toEqual(['fantasy.league.lg-1']);
   });
 

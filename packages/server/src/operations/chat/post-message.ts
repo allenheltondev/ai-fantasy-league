@@ -40,9 +40,13 @@ export const postMessage = defineOperation({
     const author = chatAuthor(access.actor);
     const moderated = moderateChatText(input.text);
     if (!moderated.ok) {
-      throw new ApiError(moderated.reason === 'empty' ? 'INVALID_INPUT' : 'MESSAGE_BLOCKED', moderated.message, {
-        fix: moderated.fix
-      });
+      throw new ApiError(
+        moderated.reason === 'empty' ? 'INVALID_INPUT' : 'MESSAGE_BLOCKED',
+        moderated.message,
+        {
+          fix: moderated.fix
+        }
+      );
     }
     const text = moderated.text;
 

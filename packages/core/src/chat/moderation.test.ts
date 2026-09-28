@@ -2,7 +2,8 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { CHAT_BLOCKLIST, moderateChatText, normalizeForBlocklist } from './moderation.js';
 
-const CONTROL = new RegExp('[\\u0000-\\u0008\\u000B-\\u001F\\u007F]');
+// eslint-disable-next-line no-control-regex -- the test looks for control characters
+const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F]/;
 
 describe('moderateChatText', () => {
   it('strips control, zero-width, and bidi characters but keeps newlines and tabs', () => {
@@ -21,7 +22,11 @@ describe('moderateChatText', () => {
       expect(moderateChatText(text)).toMatchObject({ ok: false, reason: 'blocked' });
     }
     expect((moderateChatText('kys') as { fix: string }).fix).toMatch(/Rewrite/);
-    for (const text of ['Your team is going to die out there', 'skys the limit', 'I will crush you in week 5']) {
+    for (const text of [
+      'Your team is going to die out there',
+      'skys the limit',
+      'I will crush you in week 5'
+    ]) {
       expect(moderateChatText(text)).toMatchObject({ ok: true });
     }
     expect(moderateChatText('custom bad word', ['bad word'])).toMatchObject({ ok: false });

@@ -186,9 +186,10 @@ async function waiverAwards(
 ): Promise<WaiverAward[]> {
   const ids = transactions.flatMap((t) => [t.addPlayerId, t.dropPlayerId]);
   const players = new Map(
-    (await repos.players.getMany([...new Set(ids.filter((pid): pid is string => pid !== null))])).map(
-      (p) => [p.id, toPlayerRef(p)]
-    )
+    (await repos.players.getMany([...new Set(ids.filter((pid): pid is string => pid !== null))])).map((p) => [
+      p.id,
+      toPlayerRef(p)
+    ])
   );
   const bids = new Map(claims.map((c) => [c.id, c.bid]));
   return transactions.map((t) => {

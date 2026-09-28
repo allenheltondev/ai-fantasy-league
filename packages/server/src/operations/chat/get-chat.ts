@@ -71,7 +71,9 @@ export const getChat = defineOperation({
     detail: z
       .boolean()
       .default(true)
-      .describe('Full messages (default). Set false for compact ones: author name, team id, text, mentions, time.')
+      .describe(
+        'Full messages (default). Set false for compact ones: author name, team id, text, mentions, time.'
+      )
   }),
   output: z.object({
     messages: z
