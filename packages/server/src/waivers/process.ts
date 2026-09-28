@@ -24,7 +24,8 @@ import { acquisitionsThisWeek, changeRoster, leaguePlayers, putOnWaivers } from 
  *
  * - One run per window: the window is the UTC day (`waiverRunId`). A run record makes the job
  *   idempotent: a second invocation the same day does nothing, and a run that crashed part-way is
- *   picked up again once it is stale.
+ *   picked up again once it is stale. A run that failed with an error is released (`failed`), so
+ *   the job's retry picks it up at once.
  * - Only claims whose player has cleared waivers are due. They go through core's `resolveWaivers`
  *   (highest FAAB bid, ties by waiver priority, each team's own claim order; docs/rules.md).
  * - Each award takes the player's ownership lock, writes the team (roster and FAAB, version-checked),
@@ -76,7 +77,39 @@ export async function processLeagueWaivers(
   );
   if (!began)
     return { leagueId: league.id, runId, status: 'already_processed', awarded: 0, failed: 0, pending: 0 };
+  try {
+    return await processWindow(deps, league, now, runId);
+  } catch (error) {
+    await releaseRun(deps, league.id, runId, startedAt);
+    throw error;
+  }
+}
 
+/**
+ * Marks a run that failed part-way `failed` so the job's retry can take the window over at once
+ * rather than waiting `STALE_RUN_MS`. Re-running a window part-way through is safe (see above: a
+ * stamped claim already applied is only marked, transactions keep their keys). A run that already
+ * completed is left alone: its awards are done, and a retry must not process the window twice.
+ */
+async function releaseRun(deps: ProcessDeps, leagueId: string, runId: string, startedAt: string) {
+  try {
+    const run = await deps.repos.waivers.getRun(leagueId, runId);
+    if (run?.status !== 'running' || run.startedAt !== startedAt) return;
+    await deps.repos.waivers.completeRun({ ...run, status: 'failed' });
+  } catch (error) {
+    // The run stays `running` and is taken over once it is stale.
+    deps.log.warn('could not release the waiver run', { leagueId, runId, error });
+  }
+}
+
+async function processWindow(
+  deps: ProcessDeps,
+  league: League,
+  now: Date,
+  runId: string
+): Promise<ProcessResult> {
+  const { repos } = deps;
+  const startedAt = now.toISOString();
   // Transactions from one run share a time, so a re-run writes the same keys.
   const at = waiverRunAtOrAfter(`${runId}T00:00:00.000Z`);
   const week = league.week ?? league.settings.schedule.startWeek;

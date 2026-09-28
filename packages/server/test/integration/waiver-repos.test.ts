@@ -109,7 +109,7 @@ describe.each(backends)('waiver repository (%s)', (_name, make) => {
     ).toEqual(['t2', 't3']);
   });
 
-  it('starts each run once, allowing a stale takeover', async () => {
+  it('starts each run once, allowing a stale or failed run to be taken over', async () => {
     const repos = make();
     const leagueId = unique('lg');
     const run = {
@@ -129,6 +129,11 @@ describe.each(backends)('waiver repository (%s)', (_name, make) => {
         '2026-09-13T08:05:00.000Z'
       )
     ).toBe(true);
+    // A run that failed with an error is released: the retry takes it over at once.
+    await repos.waivers.completeRun({ ...run, status: 'failed' });
+    expect(await repos.waivers.getRun(leagueId, run.runId)).toMatchObject({ status: 'failed' });
+    expect(await repos.waivers.beginRun(run, '2026-09-13T07:50:00.000Z')).toBe(true);
+    expect(await repos.waivers.beginRun(run, '2026-09-13T07:50:00.000Z')).toBe(false);
     await repos.waivers.completeRun({ ...run, status: 'complete', completedAt: '2026-09-13T08:21:00.000Z' });
     expect(await repos.waivers.beginRun(run, '2026-09-14T00:00:00.000Z')).toBe(false);
     expect(await repos.waivers.getRun(leagueId, run.runId)).toMatchObject({ status: 'complete' });

@@ -122,6 +122,18 @@ Parameters:
       the distribution, and CloudFront takes minutes to roll out).
 
   # --------------------------------------------------------------------------
+  # Operations (#130)
+  # --------------------------------------------------------------------------
+  AlarmEmail:
+    Type: String
+    Default: allenheltondev@gmail.com
+    AllowedPattern: ^[^\s@]+@[^\s@]+$
+    Description: >
+      Where failure emails go. FailureNotifierFunction sends them through
+      rsc-core's `Send Email` event (its SendEmailFunction on the default bus);
+      the default matches rsc-core's AdminEmail.
+
+  # --------------------------------------------------------------------------
   # Custom domain (Production only)
   # --------------------------------------------------------------------------
   AppDomainName:
@@ -245,7 +257,8 @@ Resources:
       Tracing: Active
       MemorySize: !Ref ServerMemorySize
       # CloudFront waits at most 60s (OriginReadTimeout); long work belongs in
-      # event handlers and Step Functions, not in a request.
+      # event handlers and the scheduled jobs (the weekly cycle is jobs plus
+      # deferred events, docs/adr/002-weekly-cycle.md), not in a request.
       Timeout: 30
       Environment:
         Variables:
@@ -268,6 +281,15 @@ Resources:
           ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
           ORIGIN_VERIFY_SECRET_PREVIOUS: !Ref OriginVerifySecretPrevious
           NODE_OPTIONS: --enable-source-maps
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         # Get/Put/Update/Delete/Query/Scan/Batch*/ConditionCheck on the table
@@ -367,6 +389,15 @@ Resources:
           # fantasy.* badges (rsc-core #244). Set to 'false' to stop reporting them.
           BADGE_CHEST_ENABLED: 'true'
           NODE_OPTIONS: --enable-source-maps
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -473,7 +504,8 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 1
         # Daily at WAIVER_RUN_HOUR_UTC (packages/core/src/waivers/schedule.ts): 3 AM US Central
-        # in daylight time. Idempotent per day, so a retry never processes a window twice.
+        # in daylight time. Idempotent per day, so a retry never processes a window twice. When
+        # any league fails the job fails (after the others finish), so Lambda's retry picks it up.
         ProcessWaivers:
           Type: ScheduleV2
           Properties:
@@ -756,6 +788,15 @@ Resources:
           TABLE_NAME: !Ref FantasyTable
           EVENT_BUS_NAME: default
           NODE_OPTIONS: --enable-source-maps
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -832,6 +873,15 @@ Resources:
           AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter
           AGENT_MODEL_TIMEOUT_MS: '90000'
           NODE_OPTIONS: --enable-source-maps
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -927,6 +977,15 @@ Resources:
           TABLE_NAME: !Ref FantasyTable
           EVENT_BUS_NAME: default
           NODE_OPTIONS: --enable-source-maps
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -1001,6 +1060,15 @@ Resources:
           SECRET_ID: !Ref SecretsArn
           MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
           NODE_OPTIONS: --enable-source-maps
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -1049,6 +1117,88 @@ Resources:
 
   # ===========================================================================
   # End of group chat and realtime section
+  # ===========================================================================
+
+  # ===========================================================================
+  # Operations (#130): failure emails.
+  #
+  # Every asynchronously invoked function above (the EventBridge rule handlers
+  # and the data jobs) has an EventInvokeConfig whose OnFailure destination is
+  # the default bus. When an invocation still fails after Lambda's two retries
+  # (or ages out), Lambda puts "Lambda Function Invocation Result - Failure"
+  # (source lambda) on the bus with the failed event, and this function emails
+  # AlarmEmail through rsc-core's `Send Email` event. The jobs throw when any
+  # league failed (after finishing the others), so partial failures email too.
+  #
+  # Only Lambda, IAM roles, and EventBridge rules: the deploy role cannot
+  # create CloudWatch alarms (PutMetricAlarm denied) or SNS topics. Alarms,
+  # error-log metric filters, and SQS dead-letter queues are deferred (#129).
+  # ===========================================================================
+
+  # Emails this stack's failed asynchronous invocations
+  # (packages/server/src/failures/notify.ts). It has no failure destination of
+  # its own, and its rule matches only the functions above, so it never
+  # notifies about itself.
+  FailureNotifierFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      SkipBuild: true
+    Properties:
+      Description: Emails this stack's failed async Lambda invocations through rsc-core's Send Email event
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: failure-notifier.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          ALARM_EMAIL: !Ref AlarmEmail
+          STACK_NAME: !Ref AWS::StackName
+          EVENT_BUS_NAME: default
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            # Send Email only.
+            - Effect: Allow
+              Action: events:PutEvents
+              Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
+      Events:
+        InvocationFailed:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - lambda
+              detail-type:
+                - Lambda Function Invocation Result - Failure
+              # functionArn carries the qualifier (<function ARN>:$LATEST), so
+              # each function's ARN plus ':' matches it exactly. Generated
+              # function names can truncate the stack name, so a stack-name
+              # prefix would not be reliable.
+              detail:
+                requestContext:
+                  functionArn:
+                    - prefix: !Sub '${ApiFunction.Arn}:'
+                    - prefix: !Sub '${DataJobsFunction.Arn}:'
+                    - prefix: !Sub '${AgentRouterFunction.Arn}:'
+                    - prefix: !Sub '${AgentTaskFunction.Arn}:'
+                    - prefix: !Sub '${ChatEventsFunction.Arn}:'
+                    - prefix: !Sub '${RealtimePublisherFunction.Arn}:'
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+
+  # ===========================================================================
+  # End of operations section
   # ===========================================================================
 
 Outputs:

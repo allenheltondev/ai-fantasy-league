@@ -205,20 +205,44 @@ describe('processLeagueWaivers recovery', () => {
 });
 
 describe('processWaivers job', () => {
-  it('processes every in-season league and survives one failing', async () => {
+  it('processes every in-season league, then fails so the retry picks up the failed one', async () => {
     await repos.leagues.create(league({ id: 'lg-playoffs', phase: 'playoffs' }));
     await repos.leagues.create(league({ id: 'lg-setup', phase: 'setup' }));
-    const log = { ...silentLogger, error: vi.fn() };
+    const log = { ...silentLogger, error: vi.fn(), info: vi.fn() };
     const original = repos.teams.list.bind(repos.teams);
-    vi.spyOn(repos.teams, 'list').mockImplementation(async (id) => {
+    const list = vi.spyOn(repos.teams, 'list').mockImplementation(async (id) => {
       if (id === 'lg-playoffs') throw new Error('table down');
       return original(id);
     });
     const events = new InMemoryEventPublisher();
-    const result = await processWaivers({ repos, reference, events, log }, new FixedClock(NOW));
-    expect(result).toMatchObject({ status: 'ok', leagues: 2, processed: 1, failedLeagues: ['lg-playoffs'] });
+    await expect(processWaivers({ repos, reference, events, log }, new FixedClock(NOW))).rejects.toThrow(
+      'Waiver processing failed for 1 of 2 leagues: lg-playoffs'
+    );
     expect(log.error).toHaveBeenCalledOnce();
-    expect(events.events.map((e) => e.detailType)).toEqual(['Waivers Processed', 'Waiver Window Opened']);
+    expect(log.info).toHaveBeenCalledWith(
+      'waiver processing partly done',
+      expect.objectContaining({ leagues: 2, processed: 1, failedLeagues: ['lg-playoffs'] })
+    );
+    // The healthy league finished its window; the failed one released its run for the retry.
+    expect(events.events.map((e) => e.detail)).toMatchObject([{ leagueId: 'lg' }, { leagueId: 'lg' }]);
+    expect(await repos.waivers.getRun('lg', '2026-10-07')).toMatchObject({ status: 'complete' });
+    expect(await repos.waivers.getRun('lg-playoffs', '2026-10-07')).toMatchObject({ status: 'failed' });
+
+    // The retry a minute later: the healthy league is not processed twice.
+    list.mockRestore();
+    const retry = new InMemoryEventPublisher();
+    const later = new FixedClock(new Date(NOW.getTime() + 60_000));
+    expect(await processWaivers({ repos, reference, events: retry, log }, later)).toMatchObject({
+      status: 'ok',
+      leagues: 2,
+      processed: 1,
+      failedLeagues: []
+    });
+    expect(retry.events.map((e) => [e.detailType, e.detail.leagueId])).toEqual([
+      ['Waivers Processed', 'lg-playoffs'],
+      ['Waiver Window Opened', 'lg-playoffs']
+    ]);
+    expect(await repos.waivers.getRun('lg-playoffs', '2026-10-07')).toMatchObject({ status: 'complete' });
   });
 
   it('fails loudly when every league fails', async () => {
@@ -226,6 +250,54 @@ describe('processWaivers job', () => {
     const log = { ...silentLogger, error: vi.fn() };
     await expect(
       processWaivers({ repos, reference, events: new InMemoryEventPublisher(), log }, new FixedClock(NOW))
-    ).rejects.toThrow('every league');
+    ).rejects.toThrow('failed for 1 of 1 leagues');
+  });
+});
+
+describe('processLeagueWaivers failures', () => {
+  const deps = (events = new InMemoryEventPublisher(), log = silentLogger) => ({
+    repos,
+    reference,
+    events,
+    log
+  });
+
+  it('keeps a completed run complete when announcing it fails, so a retry never processes it twice', async () => {
+    const events = new InMemoryEventPublisher();
+    vi.spyOn(events, 'publish').mockRejectedValueOnce(new Error('bus down'));
+    await expect(processLeagueWaivers(deps(events), league(), NOW)).rejects.toThrow('bus down');
+    expect(await repos.waivers.getRun('lg', '2026-10-07')).toMatchObject({ status: 'complete' });
+    expect(await processLeagueWaivers(deps(), league(), NOW)).toMatchObject({ status: 'already_processed' });
+  });
+
+  it('leaves the run to go stale when it cannot be released', async () => {
+    vi.spyOn(repos.teams, 'list').mockRejectedValue(new Error('table down'));
+    vi.spyOn(repos.waivers, 'getRun').mockRejectedValue(new Error('table down'));
+    const log = { ...silentLogger, warn: vi.fn() };
+    await expect(processLeagueWaivers(deps(undefined, log), league(), NOW)).rejects.toThrow('table down');
+    expect(log.warn).toHaveBeenCalledWith('could not release the waiver run', expect.anything());
+    vi.mocked(repos.waivers.getRun).mockRestore();
+    expect(await repos.waivers.getRun('lg', '2026-10-07')).toMatchObject({ status: 'running' });
+  });
+
+  it('does not release a run another worker has taken over', async () => {
+    vi.spyOn(repos.teams, 'list').mockImplementation(async () => {
+      // A stale takeover restarted the window while this run was still going.
+      await repos.waivers.completeRun({
+        leagueId: 'lg',
+        runId: '2026-10-07',
+        status: 'running',
+        startedAt: '2026-10-07T08:20:00.000Z',
+        completedAt: null,
+        awarded: 0,
+        failed: 0
+      });
+      throw new Error('table down');
+    });
+    await expect(processLeagueWaivers(deps(), league(), NOW)).rejects.toThrow('table down');
+    expect(await repos.waivers.getRun('lg', '2026-10-07')).toMatchObject({
+      status: 'running',
+      startedAt: '2026-10-07T08:20:00.000Z'
+    });
   });
 });

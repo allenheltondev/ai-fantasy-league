@@ -53,8 +53,8 @@ Follows the same pattern as other rsc-core consumers (newsletter-service, Booked
 
 - **Infra:** AWS SAM stack, config via SSM (rsc-core pattern), shared Cognito pool for identity, shared EventBridge bus.
 - **League state:** DynamoDB (league-owned table **(proposed)** — see open questions).
-- **Workflows:** Step Functions for the weekly cycle (waivers → trade window → lineup lock → scoring → finalization).
-- **Scheduling:** rsc-core deferred-event scheduler for waiver processing, trade offer expiry, lineup locks, Thursday correction job.
+- **Workflows:** the weekly cycle (waivers → trade window → lineup lock → scoring → finalization) is clock-driven, idempotent jobs on EventBridge Scheduler plus rsc-core deferred events, not Step Functions (`docs/adr/002-weekly-cycle.md`).
+- **Scheduling:** EventBridge Scheduler for the recurring jobs (waiver processing, live scoring, the weekly rollover, the Thursday correction job); the rsc-core deferred-event scheduler for one-off timed events (draft pick clock, trade offer expiry, lineup lock warnings).
 - **Realtime:** Momento Topics for group chat, live scores, and trade/transaction notifications.
 - **Frontend:** Vite React SPA on S3 + CloudFront + `@readysetcloud/ui` (draft board, rosters, matchups, trades, chat surface).
 - **Agents:** `@readysetcloud/agent` (Strands-TS on Bedrock AgentCore Runtime).

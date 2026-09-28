@@ -7,7 +7,7 @@ import { finalizeOfficialWeek } from '../season/official.js';
 import { listInSeason, weekGames } from '../season/lineups.js';
 import { scoreLine, updateMatchupScores } from '../season/scoring.js';
 import type { JobDeps, JobResult } from './deps.js';
-import { skipped } from './deps.js';
+import { settle, skipped } from './deps.js';
 import { inUniverse, sameLine, universeIds } from './ingest-stats.js';
 import { STATS_GAME_DURATION_MS } from '../season/window.js';
 
@@ -31,7 +31,10 @@ function gamesCache(deps: SeasonJobDeps) {
  * Live scoring (every 2 minutes, working only inside a game window, like `ingestStats`). For each
  * in-season league whose current week has a game in progress it recomputes the week's matchups
  * from the stored stat lines and, when a score changed, emits `Scores Updated` with the league's
- * score lines. The realtime push to browsers subscribes to that event.
+ * score lines. The realtime push to browsers subscribes to that event. One league failing is
+ * logged and does not stop the others; once all are done the job fails (`settle`), so Lambda
+ * retries it (rescoring is idempotent) and the failure is emailed. A league that stays broken
+ * therefore sends one failure email per two-minute run during game windows.
  */
 export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
@@ -40,32 +43,49 @@ export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<
   const games = gamesCache(deps);
   let live = 0;
   let updated = 0;
+  let failed = 0;
   for (const league of leagues) {
     if (league.week === null) continue;
     const week = league.week;
-    if (!isInGameWindow(now, await games(league.season, week), { gameDurationMs: STATS_GAME_DURATION_MS })) {
-      continue;
+    try {
+      const weekGames = await games(league.season, week);
+      if (!isInGameWindow(now, weekGames, { gameDurationMs: STATS_GAME_DURATION_MS })) continue;
+      live++;
+      if (await scoreLeague(deps, league, week, now)) updated++;
+    } catch (error) {
+      failed++;
+      deps.log.error('could not score league', { leagueId: league.id, week, error });
     }
-    live++;
-    const scored = await updateMatchupScores(deps, league, week, 'in_progress', now);
-    if (scored.changed.length === 0) continue;
-    updated++;
-    await deps.events.publish('Scores Updated', {
-      leagueId: league.id,
-      season: league.season,
-      week,
-      matchups: scored.matchups.map(scoreLine),
-      updatedAt: now.toISOString()
-    });
   }
-  if (live === 0) return skipped('outside_game_window', { leagues: leagues.length });
-  return { status: 'ok', leagues: leagues.length, live, updated };
+  if (live === 0) {
+    return settle(
+      deps.log,
+      'scoreLiveWeek',
+      skipped('outside_game_window', { leagues: leagues.length, ...(failed > 0 ? { failed } : {}) })
+    );
+  }
+  return settle(deps.log, 'scoreLiveWeek', { status: 'ok', leagues: leagues.length, live, updated, failed });
+}
+
+/** Rescores one league's week; emits `Scores Updated` and returns true when a score changed. */
+async function scoreLeague(deps: SeasonJobDeps, league: League, week: number, now: Date): Promise<boolean> {
+  const scored = await updateMatchupScores(deps, league, week, 'in_progress', now);
+  if (scored.changed.length === 0) return false;
+  await deps.events.publish('Scores Updated', {
+    leagueId: league.id,
+    season: league.season,
+    week,
+    matchups: scored.matchups.map(scoreLine),
+    updatedAt: now.toISOString()
+  });
+  return true;
 }
 
 /**
  * The weekly cycle (every 15 minutes). Advances every in-season league whose week is over: final
  * scores, `Week Provisionally Final`, and the rollover (`advanceLeague`). One league failing is
- * logged and does not stop the others; the next run retries it.
+ * logged and does not stop the others; once all are done the job fails (`settle`), so Lambda
+ * retries it (`advanceLeague` is safe to run repeatedly) and the failure is emailed.
  */
 export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
@@ -82,7 +102,7 @@ export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<
       deps.log.error('could not advance league', { leagueId: league.id, error });
     }
   }
-  return { status: 'ok', leagues: leagues.length, ...outcomes, failed };
+  return settle(deps.log, 'advanceSeason', { status: 'ok', leagues: leagues.length, ...outcomes, failed });
 }
 
 /**
@@ -131,6 +151,8 @@ async function refreshOfficialStats(deps: OfficialJobDeps, season: number, week:
  * week's stats once (`refreshOfficialStats`) and finalizes each league's weeks oldest first
  * (`finalizeOfficialWeek`): corrected scores, `Stat Correction Applied`, standings and bracket
  * updates, `Week Official Final`, and the week's achievements. Idempotent per league and week.
+ * A league or week that fails is logged and does not stop the others; once all are done the job
+ * fails (`settle`), so Lambda retries it and the failure is emailed.
  */
 export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
@@ -157,7 +179,9 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
       deps.log.error('could not list the weeks to make official', { leagueId: league.id, error });
     }
   }
-  if (targets.length === 0) return skipped('no_weeks_to_finalize', failed > 0 ? { failed } : {});
+  if (targets.length === 0) {
+    return settle(deps.log, 'officialFinal', skipped('no_weeks_to_finalize', failed > 0 ? { failed } : {}));
+  }
   const games = gamesCache(deps);
   const due: typeof targets = [];
   for (const target of targets) {
@@ -166,7 +190,13 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
     const official = await deps.repos.history.getOfficialWeek(target.league.id, target.week);
     if (official?.status !== 'complete') due.push(target);
   }
-  if (due.length === 0) return skipped('nothing_due', { leagues: leagues.length, weeks: targets.length });
+  if (due.length === 0) {
+    return settle(
+      deps.log,
+      'officialFinal',
+      skipped('nothing_due', { leagues: leagues.length, weeks: targets.length, failed })
+    );
+  }
 
   let statsChanged = 0;
   for (const key of new Set(due.map((t) => `${t.league.season}:${t.week}`))) {
@@ -186,7 +216,7 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
     }
   }
   const leagueCount = new Set(due.map((t) => t.league.id)).size;
-  return {
+  return settle(deps.log, 'officialFinal', {
     status: 'ok',
     leagues: leagueCount,
     weeks: due.length,
@@ -194,7 +224,7 @@ export async function officialFinal(deps: OfficialJobDeps, clock: Clock): Promis
     corrections,
     ...outcomes,
     failed
-  };
+  });
 }
 
 /**

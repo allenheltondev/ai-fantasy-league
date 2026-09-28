@@ -110,7 +110,11 @@ export class InMemoryWaiverRepository implements WaiverRepository {
   async beginRun(run: WaiverRunRecord, staleBefore: string): Promise<boolean> {
     const runs = this.#league(run.leagueId).runs;
     const existing = runs.get(run.runId);
-    if (existing !== undefined && (existing.status === 'complete' || existing.startedAt >= staleBefore)) {
+    if (
+      existing !== undefined &&
+      existing.status !== 'failed' &&
+      (existing.status === 'complete' || existing.startedAt >= staleBefore)
+    ) {
       return false;
     }
     runs.set(run.runId, clone(run));

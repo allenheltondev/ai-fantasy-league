@@ -76,7 +76,7 @@ const TxnSchema = z.object({
 const RunSchema = z.object({
   leagueId: z.string(),
   runId: z.string(),
-  status: z.enum(['running', 'complete']),
+  status: z.enum(['running', 'complete', 'failed']),
   startedAt: z.string(),
   completedAt: z.string().nullable(),
   awarded: z.number(),
@@ -185,9 +185,10 @@ export class DynamoWaiverRepository implements WaiverRepository {
       await this.#put(
         { ...runKey(run.leagueId, run.runId), entity: 'waiver_run', ...run },
         {
-          ConditionExpression: 'attribute_not_exists(pk) OR (#status = :running AND startedAt < :stale)',
+          ConditionExpression:
+            'attribute_not_exists(pk) OR #status = :failed OR (#status = :running AND startedAt < :stale)',
           ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':running': 'running', ':stale': staleBefore }
+          ExpressionAttributeValues: { ':running': 'running', ':failed': 'failed', ':stale': staleBefore }
         }
       );
       return true;

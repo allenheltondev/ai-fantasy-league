@@ -49,3 +49,87 @@ describe('CloudFront-only API (#104)', () => {
     expect(api).toContain('ORIGIN_VERIFY_SECRET_PREVIOUS: !Ref OriginVerifySecretPrevious');
   });
 });
+
+/** The template's top-level resources: logical id, type, and the block's text. */
+function resources(): { id: string; type: string; body: string }[] {
+  const body = template.slice(template.indexOf('\nResources:\n'), template.indexOf('\nOutputs:\n'));
+  const starts = [...body.matchAll(/^ {2}(\w+):\n {4}Type: (\S+)/gm)];
+  return starts.map((m, i) => ({
+    id: m[1] as string,
+    type: m[2] as string,
+    body: body.slice(m.index, starts[i + 1]?.index ?? body.length)
+  }));
+}
+
+/** A function's events: event id, event type, and the event's text. */
+function events(fn: string): { id: string; type: string; body: string }[] {
+  const block = fn.slice(fn.indexOf('\n      Events:\n'));
+  const starts = [...block.matchAll(/^ {8}(\w+):\n {10}Type: (\w+)/gm)];
+  return starts.map((m, i) => ({
+    id: m[1] as string,
+    type: m[2] as string,
+    body: block.slice(m.index, starts[i + 1]?.index ?? block.length)
+  }));
+}
+
+describe('operations (#130)', () => {
+  const all = resources();
+  const functions = all.filter((r) => r.type === 'AWS::Serverless::Function');
+  const notifier = functions.find((f) => f.id === 'FailureNotifierFunction')?.body ?? '';
+  const asyncFunctions = functions.filter((f) => f.id !== 'FailureNotifierFunction');
+
+  it('uses only resource types the deploy role can create', () => {
+    expect(template).not.toMatch(/AWS::(CloudWatch|Logs|SQS|SNS)::/);
+    expect(template).not.toMatch(/DeadLetterConfig|DeadLetterQueue|LoggingConfig|AlarmActions/);
+  });
+
+  it("sends every asynchronously invoked function's failures to the default bus, except the notifier", () => {
+    expect(asyncFunctions.map((f) => f.id)).toEqual([
+      'ApiFunction',
+      'DataJobsFunction',
+      'AgentRouterFunction',
+      'AgentTaskFunction',
+      'ChatEventsFunction',
+      'RealtimePublisherFunction'
+    ]);
+    for (const f of asyncFunctions) {
+      // Invoked asynchronously: an EventBridge rule or a Scheduler schedule.
+      expect(
+        events(f.body).some((e) => e.type === 'EventBridgeRule' || e.type === 'ScheduleV2'),
+        f.id
+      ).toBe(true);
+      expect(f.body, f.id).toContain(
+        [
+          '      EventInvokeConfig:',
+          '        MaximumRetryAttempts: 2',
+          '        DestinationConfig:',
+          '          OnFailure:',
+          '            Type: EventBridge',
+          '            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default\n'
+        ].join('\n')
+      );
+    }
+    // Never its own failure destination: no loop.
+    expect(notifier).not.toContain('EventInvokeConfig');
+  });
+
+  it("emails this stack's failed invocations through rsc-core's Send Email, with PutEvents only", () => {
+    expect(notifier).toContain('Handler: failure-notifier.handler');
+    expect(notifier).toContain('ALARM_EMAIL: !Ref AlarmEmail\n');
+    expect(notifier).toContain('STACK_NAME: !Ref AWS::StackName\n');
+    expect(template).toMatch(/AlarmEmail:\n {4}Type: String\n {4}Default: allenheltondev@gmail\.com\n/);
+    const rule = events(notifier).find((e) => e.id === 'InvocationFailed')?.body ?? '';
+    expect(rule).toContain('EventBusName: default\n');
+    expect(rule).toMatch(/source:\n\s+- lambda\n/);
+    expect(rule).toMatch(/detail-type:\n\s+- Lambda Function Invocation Result - Failure\n/);
+    // Exactly the functions above (functionArn is qualified: <function ARN>:$LATEST), not itself.
+    const prefixes = [...rule.matchAll(/- prefix: !Sub '\$\{(\w+)\.Arn\}:'/g)].map((m) => m[1]);
+    expect(prefixes).toEqual(asyncFunctions.map((f) => f.id));
+    const policies = notifier.slice(
+      notifier.indexOf('      Policies:\n'),
+      notifier.indexOf('      Events:\n')
+    );
+    expect([...policies.matchAll(/Action: (\S+)/g)].map((m) => m[1])).toEqual(['events:PutEvents']);
+    expect(policies).toContain('event-bus/default\n');
+  });
+});
