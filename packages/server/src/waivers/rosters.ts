@@ -14,9 +14,8 @@ import type { WeekLocks } from '../season/lineups.js';
 /**
  * Roster changes for adds, drops, and waiver awards, and where every player stands in a league.
  *
- * A player can join a roster only after his `OWN#` lock is taken for that team, so two adds of the
- * same player can never both land. Team writes are version-checked and retried against the latest
- * team, so a roster change never overwrites another one.
+ * Roster changes and their `OWN#` ownership records commit atomically. Version checks reject
+ * concurrent roster changes; retries only preserve unrelated team metadata updates.
  *
  * The roster limit counts the week's lineup (`resolveLineup` in season/lineups.ts): players in IR
  * slots do not take an active spot. A drop needs no lineup write: lineups are reconciled with the
@@ -139,9 +138,9 @@ export interface RosterChange {
 const MAX_WRITE_ATTEMPTS = 4;
 
 /**
- * Applies a roster change to a team: takes the added player's ownership lock, writes the team
- * (version-checked, re-reading and retrying when another write got there first), then frees the
- * dropped player's lock. Throws PLAYER_NOT_AVAILABLE when another team holds the added player, and
+ * Applies a roster change with atomic ownership updates in the team repository. Retries metadata
+ * conflicts only; a changed roster must go back through the caller's capacity and rule validation.
+ * Throws PLAYER_NOT_AVAILABLE when another team holds the added player, and
  * PLAYER_NOT_ON_ROSTER when the dropped player left the roster in the meantime.
  */
 export async function changeRoster(
@@ -152,17 +151,9 @@ export async function changeRoster(
 ): Promise<Team> {
   const add = change.add ?? null;
   const drop = change.drop ?? null;
-  if (add !== null && !(await acquire(repos, team, add))) {
-    throw new ApiError('PLAYER_NOT_AVAILABLE', `Player ${add} was just added by another team.`, {
-      fix: 'Search again for available players (search_players with availability "free_agent") and pick another.',
-      details: { playerId: add }
-    });
-  }
   let current = team;
   for (let attempt = 1; ; attempt++) {
     if (drop !== null && !current.roster.includes(drop)) {
-      if (add !== null && !current.roster.includes(add))
-        await repos.waivers.releasePlayer(team.leagueId, add, team.id);
       throw new ApiError('PLAYER_NOT_ON_ROSTER', `Player ${drop} is not on ${current.name}'s roster.`, {
         fix: 'Read your roster again and pick a player who is on it.',
         details: { playerId: drop }
@@ -170,7 +161,6 @@ export async function changeRoster(
     }
     const faabRemaining = current.faabRemaining - (change.cost ?? 0);
     if (faabRemaining < 0) {
-      if (add !== null) await repos.waivers.releasePlayer(team.leagueId, add, team.id);
       throw new ApiError(
         'INSUFFICIENT_FAAB',
         `${current.name} has only $${current.faabRemaining} FAAB left.`,
@@ -189,7 +179,6 @@ export async function changeRoster(
         faabRemaining,
         updatedAt: now.toISOString()
       });
-      if (drop !== null) await repos.waivers.releasePlayer(team.leagueId, drop, team.id);
       return updated;
     } catch (error) {
       const latest = await repos.teams.get(team.leagueId, team.id);
@@ -197,28 +186,15 @@ export async function changeRoster(
         !(error instanceof ApiError) ||
         error.code !== 'CONFLICT' ||
         latest === null ||
+        latest.roster.length !== current.roster.length ||
+        latest.roster.some((id, i) => id !== current.roster[i]) ||
         attempt >= MAX_WRITE_ATTEMPTS
       ) {
-        if (add !== null) await repos.waivers.releasePlayer(team.leagueId, add, team.id);
         throw error;
       }
       current = latest;
     }
   }
-}
-
-/** Takes a player's lock, reclaiming it from a team whose roster no longer has him. */
-async function acquire(
-  repos: Pick<Repos, 'teams' | 'waivers'>,
-  team: Team,
-  playerId: string
-): Promise<boolean> {
-  if (await repos.waivers.acquirePlayer(team.leagueId, playerId, team.id)) return true;
-  const holder = await repos.waivers.playerOwner(team.leagueId, playerId);
-  if (holder === null) return repos.waivers.acquirePlayer(team.leagueId, playerId, team.id);
-  const holderTeam = await repos.teams.get(team.leagueId, holder);
-  if (holderTeam !== null && holderTeam.roster.includes(playerId)) return false;
-  return repos.waivers.acquirePlayer(team.leagueId, playerId, team.id, holder);
 }
 
 /**

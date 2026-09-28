@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import { fixturePlayers } from '../../src/players/fixtures.js';
 import type { Player } from '../../src/players/model.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
@@ -16,7 +16,7 @@ afterAll(() => table.close());
 /** The same behavioral contract, run against both implementations. */
 const backends: [string, () => Repos][] = [
   ['in-memory', () => createInMemoryRepos()],
-  ['DynamoDB (dynalite)', () => createDynamoRepos(table)]
+  ['DynamoDB (DynamoDB Local)', () => createDynamoRepos(table)]
 ];
 
 const T0 = new Date('2026-09-10T12:00:00.000Z');

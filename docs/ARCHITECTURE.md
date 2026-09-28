@@ -139,15 +139,15 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 |---|---|---|---|
 | Unit | vitest | every package, `*.test.ts` beside the source | Coverage ratchet: `core` ≥ 90% lines/branches; others at their achieved level, never lowered |
 | Property | vitest + fast-check | `core`: scoring, the snake draft, waiver resolution, the trade state machine, the schedule | In the unit run |
-| Integration | vitest + dynalite (in-process DynamoDB) | `server/test/integration`: repositories and full operation flows through the REST adapter | CI |
+| Integration | vitest + DynamoDB Local (Docker) | `server/test/integration`: repositories and full operation flows through the REST adapter | CI |
 | Contract | vitest | Every operation's responses validate against its generated OpenAPI schema, and the committed `openapi.json` matches what the code generates | CI |
 | Agent | vitest with a fake scripted model | `agents`: prompts, tool binding, trigger gating, fallbacks | CI |
-| E2E | Playwright | `app/e2e`: SPA + local API server (dynalite, fake model, fixture data) | CI |
+| E2E | Playwright | `app/e2e`: SPA + local API server (DynamoDB Local, fake model, fixture data) | CI |
 | Simulation | vitest | `sim`: replay N weeks of 2025 with scripted bots, and a league replay through the real server jobs, handlers, and agents on the fake model; asserts invariants (valid rosters, conservation of FAAB, and so on) | CI (short); full season and a week-4 start nightly |
 | Deploy smoke | node script | `scripts/deploy-smoke.mjs` against the deployed URL, with no AWS credentials | After deploys |
 | Template | `sam validate --lint` | `infra/` | CI |
 
-**Local dev** is `npm run dev`: a local API server (the Hono node adapter, dynalite, `FANTASY_FAKE_MODEL=1`, fixture data) plus Vite with the `/api` proxy. The API half starts from `packages/agents/src/dev.ts`, which runs the in-process `EventLoop` (`packages/server/src/events/loop.ts`): agents pick on their draft turn and act on their other triggers with the fake model, the pick clock autopicks, system chat messages post, and the season jobs run on their cadences. E2E starts the plain server (`packages/server/src/local.ts`), where events are only recorded.
+**Local dev** is `npm run dev`: a local API server (the Hono node adapter, DynamoDB Local, `FANTASY_FAKE_MODEL=1`, fixture data) plus Vite with the `/api` proxy. The API half starts from `packages/agents/src/dev.ts`, which runs the in-process `EventLoop` (`packages/server/src/events/loop.ts`): agents pick on their draft turn and act on their other triggers with the fake model, the pick clock autopicks, system chat messages post, and the season jobs run on their cadences. E2E starts the plain server (`packages/server/src/local.ts`), where events are only recorded.
 
 ## Models
 

@@ -1,3 +1,5 @@
+import { ApiError } from '../errors.js';
+import type { Team } from './types.js';
 import {
   claimExists,
   staleClaim,
@@ -23,6 +25,23 @@ interface LeagueWaivers {
 
 export class InMemoryWaiverRepository implements WaiverRepository {
   readonly #leagues = new Map<string, LeagueWaivers>();
+
+  /** Synchronous with the memory team's write: mirrors the DynamoDB transaction. */
+  updateOwnership(next: Team, previous: Team, teams: readonly Team[]): void {
+    const owners = this.#league(next.leagueId).owners;
+    const added = next.roster.filter((id) => !previous.roster.includes(id));
+    for (const id of added) {
+      const holder = owners.get(id);
+      if (holder != null && holder !== next.id && teams.find((t) => t.id === holder)?.roster.includes(id)) {
+        throw new ApiError('PLAYER_NOT_AVAILABLE', `Player ${id} is on another roster.`, {
+          fix: 'Refresh the available players and choose another player.'
+        });
+      }
+    }
+    for (const id of added) owners.set(id, next.id);
+    for (const id of previous.roster)
+      if (!next.roster.includes(id) && owners.get(id) === next.id) owners.set(id, null);
+  }
 
   /** In DynamoDB these items live in the league partition; mirrors `leagues.delete` (memory.ts). */
   dropLeague(leagueId: string): void {

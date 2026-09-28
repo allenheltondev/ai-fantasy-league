@@ -92,17 +92,21 @@ describe('draft queue', () => {
     s.fail.GET = 'api';
     const { result } = renderHook(() => useDraftQueue('L1', s.api));
     await waitFor(() => expect(result.current.error).toMatch(/do not manage a team/));
-    expect(result.current.ready).toBe(true);
-    expect(readQueue('L1')).toEqual([chase]);
-    s.fail.PUT = 'api';
+    expect(result.current.ready).toBe(false);
     act(() => result.current.add(lamb));
-    await waitFor(() => expect(result.current.error).toMatch(/do not manage a team/));
-    act(() => result.current.add(chase));
-    await waitFor(() => expect(result.current.error).toBeNull());
-    expect(s.ids()).toEqual(['fx-lamb', 'fx-chase']);
+    expect(s.calls).toHaveLength(1);
+    expect(readQueue('L1')).toEqual([chase]);
+    const loaded = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(loaded.result.current.ready).toBe(true));
+    s.fail.PUT = 'api';
+    act(() => loaded.result.current.add(lamb));
+    await waitFor(() => expect(loaded.result.current.error).toMatch(/do not manage a team/));
+    act(() => loaded.result.current.move(lamb.id, 0));
+    await waitFor(() => expect(loaded.result.current.error).toBeNull());
+    expect(s.ids()).toEqual(['fx-chase', 'fx-lamb']);
     s.fail.PUT = 'network';
-    act(() => result.current.remove('fx-chase'));
-    await waitFor(() => expect(result.current.error).toBe('Could not save your queue.'));
+    act(() => loaded.result.current.remove('fx-chase'));
+    await waitFor(() => expect(loaded.result.current.error).toBe('Could not save your queue.'));
   });
 
   it('falls back to a plain message when the network fails, and ignores a load after unmount', async () => {

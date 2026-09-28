@@ -21,7 +21,8 @@ async function scheduledLeague(
   detail: ScheduleDetail
 ): Promise<League | 'ignored' | 'stale'> {
   const league = await services.repos.leagues.get(detail.leagueId);
-  if (league === null || league.phase !== 'setup') return 'ignored';
+  if (league === null || (league.phase !== 'setup' && !(league.phase === 'drafting' && league.draftStartup)))
+    return 'ignored';
   const stored = league.settings.draft.scheduledAt;
   if (stored === null || Date.parse(stored) !== Date.parse(detail.scheduledAt)) return 'stale';
   return league;
@@ -56,6 +57,7 @@ export async function handleDraftStartScheduled(
     if (!isApiError(error)) throw error;
     // Someone started it by hand at the same moment: nothing to do.
     const again = await services.repos.leagues.get(league.id);
+    if (again?.draftStartup) throw error;
     if (again !== null && again.phase !== 'setup') return 'ignored';
     await services.events.publish('Draft Start Blocked', {
       leagueId: league.id,
@@ -80,6 +82,7 @@ export async function handleDraftReminder(
 ): Promise<DraftReminderOutcome> {
   const league = await scheduledLeague(services, detail);
   if (typeof league === 'string') return league;
+  if (league.phase !== 'setup') return 'ignored';
   const scheduledAt = league.settings.draft.scheduledAt as string;
   const minutes = Math.max(
     1,

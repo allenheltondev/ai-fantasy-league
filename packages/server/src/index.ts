@@ -61,7 +61,7 @@ export {
 } from './chat/system-messages.js';
 export * from './realtime/realtime.js';
 export { relayEvent, RELAYED_EVENTS, TEAM_ONLY_EVENTS } from './realtime/relay.js';
-export type { BusEvent } from './events/bus.js';
+export { canonicalEvent, type BusEvent } from './events/bus.js';
 export * from './events/loop.js';
 export { serverSubscribers } from './events/subscribers.js';
 export { JOB_SCHEDULE_EXPRESSIONS, nextRunFn, recurringJobs, seasonJobs } from './jobs/schedules.js';

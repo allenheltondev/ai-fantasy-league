@@ -2,7 +2,7 @@ import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
 import type { Hono } from 'hono';
 import { createCognitoVerifier } from '../../src/auth/verifier.js';
 import type { Services } from '../../src/context.js';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import { InMemoryEventPublisher } from '../../src/events/publisher.js';
 import { createApp } from '../../src/http/app.js';
 import { silentLogger } from '../../src/log.js';

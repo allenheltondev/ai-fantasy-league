@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /** The EventBridge envelope fields our event handlers read. */
 export interface BusEvent {
   id: string;
@@ -23,4 +25,21 @@ export function eventLeagueIds(detail: Record<string, unknown>): string[] {
     ];
   }
   return [];
+}
+
+/** A republished recovery event keeps its logical identity and original storage timestamp. */
+export function canonicalEvent<T extends BusEvent>(event: T): T {
+  const detail = eventDetail(event);
+  if (
+    event.source !== 'fantasy' ||
+    typeof detail.eventKey !== 'string' ||
+    !detail.eventKey ||
+    typeof detail.occurredAt !== 'string' ||
+    !Number.isFinite(Date.parse(detail.occurredAt))
+  )
+    return event;
+  const id = createHash('sha256')
+    .update(JSON.stringify([detail.leagueId, event['detail-type'], detail.eventKey]))
+    .digest('hex');
+  return { ...event, id: `logical-${id}`, time: new Date(detail.occurredAt).toISOString() };
 }

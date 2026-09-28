@@ -1,3 +1,4 @@
+import { recordLeagueMemory } from '../../src/memory.js';
 import {
   EVENT_DETAIL_SCHEMAS,
   InMemoryRealtime,
@@ -269,9 +270,15 @@ describe('event contract: the weekly cycle', () => {
         status: 'scheduled' as const
       }))
     );
-    // qb2 starts for team-2 and team-3.
+    // Each team has its own starting QB.
     await s.services.data.reference.stats.putLines([
-      { playerId: 'qb2', season: 2026, week: 5, stats: { pass_yd: 300, pass_td: 3 }, updatedAt: SF_KICKOFF }
+      ...['qb2', 'team-3-qb2'].map((playerId) => ({
+        playerId,
+        season: 2026,
+        week: 5,
+        stats: { pass_yd: 300, pass_td: 3 },
+        updatedAt: SF_KICKOFF
+      }))
     ]);
     return s;
   }
@@ -612,7 +619,7 @@ describe('event contract: player news', () => {
           source: 'example',
           publishedAt: '2026-10-04T14:00:00.000Z',
           summary: null,
-          playerIds: ['nobody', 'rb3'],
+          playerIds: ['nobody', 'rb3', 'team-3-rb3'],
           teams: ['SF'],
           ingestedAt: '2026-10-04T14:05:00.000Z'
         })
@@ -640,10 +647,7 @@ describe('event contract: player news', () => {
         )
       })
     );
-    expect(decisions(changed)).toEqual([
-      ['team-2', 'lineup', 'requested'],
-      ['team-3', 'lineup', 'requested']
-    ]);
+    expect(decisions(changed)).toEqual([['team-2', 'lineup', 'requested']]);
     const request = last(s.events.events, 'Agent Action Requested');
     expect(request.detail).toMatchObject({ payload: { reason: 'status', playerId: 'rb3' } });
   });
@@ -900,8 +904,8 @@ describe('event contract: trades', () => {
   async function tradeLeague(): Promise<Setup> {
     const s = await inSeason();
     const rosters: Record<string, string[]> = {
-      'team-1': ['rb3'],
       'team-2': (await s.repos.teams.get(LEAGUE_ID, 'team-2'))?.roster.filter((id) => id !== 'rb3') ?? [],
+      'team-1': ['rb3'],
       'team-3': [],
       'team-4': []
     };
@@ -1150,5 +1154,53 @@ describe('event contract coverage', () => {
     ])
       expect(eventDetailSchema(`Trade ${type}`), type).toBeDefined();
     expect(eventDetailSchema('Agent Action Requested')).toBeUndefined();
+  });
+});
+
+describe('recovery event identities', () => {
+  it('uses one task identity for republished draft turns, and keeps distinct turns distinct', async () => {
+    const s = await inSeason();
+    const e = {
+      detailType: 'Draft Turn Started',
+      detail: {
+        leagueId: LEAGUE_ID,
+        teamId: 'team-2',
+        pick: 1,
+        round: 1,
+        pickInRound: 1,
+        deadline: '2026-10-04T15:01:00Z',
+        pickSeconds: 60,
+        eventKey: 'draft:1',
+        occurredAt: START
+      }
+    };
+    const first = await consume(s.services, delivered(e, START));
+    const next = await consume(s.services, delivered(e, '2026-10-04T15:00:30Z'));
+    const tasks = (c: Consumed) => c.routed.filter((d) => d.decision === 'requested').map((d) => d.taskId);
+    expect(tasks(first)).toEqual([expect.any(String)]);
+    expect(tasks(next)).toEqual(tasks(first));
+    const distinct = await consume(
+      s.services,
+      delivered({ ...e, detail: { ...e.detail, eventKey: 'draft:2', pick: 2 } })
+    );
+    expect(tasks(distinct)).not.toEqual(tasks(first));
+  });
+
+  it('does not add the same recovered result to agent memory twice', async () => {
+    const s = await inSeason();
+    const e = {
+      detailType: 'Week Provisionally Final',
+      detail: {
+        leagueId: LEAGUE_ID,
+        week: 4,
+        matchups: [{ homeTeamId: 'team-2', awayTeamId: 'team-3', homeScore: 100, awayScore: 80 }],
+        eventKey: 'rollover:4',
+        occurredAt: START
+      }
+    };
+    await recordLeagueMemory(s.services, delivered(e, START));
+    const before = await s.repos.agents.getMemory(LEAGUE_ID, `${LEAGUE_ID}.team-2`);
+    await recordLeagueMemory(s.services, delivered(e, '2026-10-04T16:00:00Z'));
+    expect(await s.repos.agents.getMemory(LEAGUE_ID, `${LEAGUE_ID}.team-2`)).toEqual(before);
   });
 });

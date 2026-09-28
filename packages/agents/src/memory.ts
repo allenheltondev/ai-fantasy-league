@@ -1,3 +1,4 @@
+import { canonicalEvent } from '@fantasy/server';
 import {
   MEMORY_TOKEN_BUDGET,
   rememberEvent,
@@ -132,6 +133,7 @@ export async function recordLeagueMemory(
   event: BusEvent,
   store: AgentMemoryStore = tableMemoryStore(services.repos.agents)
 ): Promise<number> {
+  event = canonicalEvent(event);
   if (event.source !== 'fantasy') return 0;
   const detailType = event['detail-type'];
   const at = event.time ?? services.clock.now().toISOString();

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { updateRecovery } from '../../league/recovery.js';
 import {
   createDraft,
   deadlineFor,
@@ -57,7 +59,9 @@ export const startDraft = defineOperation({
   output: DraftBoardSchema,
   handler: async (ctx, input) => {
     const access = await requireCommissioner(ctx, input.leagueId);
-    assertAction('start_draft', access.league, access.actor, ctx.clock.now());
+    if (access.league.phase !== 'drafting' || !access.league.draftStartup) {
+      assertAction('start_draft', access.league, access.actor, ctx.clock.now());
+    }
     const started = await startLeagueDraft(ctx, {
       league: access.league,
       teams: access.teams,
@@ -107,6 +111,9 @@ export async function startLeagueDraft(
   const { league, teams } = input;
   const now = ctx.clock.now();
   const warnings: Warning[] = [];
+  if (league.phase === 'drafting' && league.draftStartup) {
+    return resumeDraftStartup(ctx, league);
+  }
   if (teams.length !== league.settings.teamCount) {
     throw new ApiError(
       'CONFLICT',
@@ -162,11 +169,68 @@ export async function startLeagueDraft(
   const updated = await ctx.repos.leagues.update({
     ...transitionPhase(league, 'drafting', now),
     settings,
+    draftStartup: { by: input.by, at },
     deadlines: { ...league.deadlines, draftStartsAt: record.startedAt }
   });
-  await startSeasonSchedule(ctx, updated);
-  await renumberSlots(ctx, teams, record.state.teamIds, now);
-  const filled = await fillAgentSeats(ctx, league.id, teams, input.by);
+  const resumed = await resumeDraftStartup(ctx, updated);
+  return { ...resumed, warnings: [...warnings, ...resumed.warnings] };
+}
+
+/** Re-enterable after every write, event publication, or scheduler failure. */
+export async function resumeDraftStartup(ctx: StartDraftDeps, league: League): Promise<StartedDraft> {
+  const record = await ctx.repos.drafts.get(league.id);
+  if (record === null)
+    throw new ApiError('CONFLICT', 'Draft startup is pending, but its draft record is missing.', {
+      fix: 'Ask the commissioner or administrator to restore the draft record before retrying start_draft. Repeated retries cannot repair missing draft data.'
+    });
+  const owner = randomUUID();
+  const claimed = await updateRecovery(ctx.repos, league.id, (latest) => {
+    if (!latest.draftStartup) return null;
+    if (Date.parse(latest.draftStartup.leaseUntil ?? '') > ctx.clock.now().getTime()) {
+      throw new ApiError('CONFLICT', 'Draft startup is already running.', {
+        fix: 'Refresh the draft board shortly. If startup was interrupted, retry after two minutes; the season job also recovers it.'
+      });
+    }
+    return {
+      ...latest,
+      draftStartup: {
+        ...latest.draftStartup,
+        owner,
+        leaseUntil: new Date(ctx.clock.now().getTime() + 120_000).toISOString()
+      }
+    };
+  });
+  if (!claimed?.draftStartup) return { record, settings: league.settings, warnings: [] };
+  try {
+    const result = await finishDraftStartup(ctx, claimed, record);
+    await updateRecovery(ctx.repos, league.id, (latest) =>
+      latest.draftStartup?.owner === owner ? { ...latest, draftStartup: null } : null
+    );
+    return result;
+  } catch (error) {
+    try {
+      await updateRecovery(ctx.repos, league.id, (latest) => {
+        if (latest.draftStartup?.owner !== owner) return null;
+        const { owner: _owner, leaseUntil: _leaseUntil, ...pending } = latest.draftStartup;
+        return { ...latest, draftStartup: pending };
+      });
+    } catch (releaseError) {
+      ctx.log.warn('draft recovery lease release failed', { leagueId: league.id, error: releaseError });
+    }
+    throw error;
+  }
+}
+
+async function finishDraftStartup(
+  ctx: StartDraftDeps,
+  league: League,
+  record: DraftRecord
+): Promise<StartedDraft> {
+  const warnings: Warning[] = [];
+  const teams = await ctx.repos.teams.list(league.id);
+  await startSeasonSchedule(ctx, league);
+  await renumberSlots(ctx, teams, record.state.teamIds, ctx.clock.now());
+  const filled = await fillAgentSeats(ctx, league.id, teams, league.draftStartup?.by ?? 'system');
   if (filled > 0) {
     warnings.push({
       code: 'AGENT_SEATS_FILLED',
@@ -175,8 +239,10 @@ export async function startLeagueDraft(
   }
   // A manual start supersedes a scheduled one.
   await cancelDraftSchedule(ctx, league.id);
-  await announceTurn(ctx, record);
-  return { record, settings, warnings };
+  // Reload the latest known turn without resetting its clock when startup is retried.
+  const current = (await ctx.repos.drafts.get(league.id)) ?? record;
+  if (current.status === 'in_progress') await announceTurn(ctx, current);
+  return { record: current, settings: league.settings, warnings };
 }
 
 /** A draft left by an interrupted start: its clock restarts now. */

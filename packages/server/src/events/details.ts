@@ -21,6 +21,8 @@ const id = z.string().min(1);
 const week = z.number().int().min(1).max(18);
 const iso = z.string();
 
+const recoveryIdentity = { eventKey: z.string().optional(), occurredAt: z.string().optional() };
+
 const ScoreLineSchema = z.object({
   matchupId: z.string(),
   homeTeamId: z.string(),
@@ -110,6 +112,7 @@ export const EVENT_DETAIL_SCHEMAS = {
     midSeasonStart: z.boolean()
   }),
   'Draft Turn Started': z.object({
+    ...recoveryIdentity,
     leagueId: id,
     teamId: id,
     pick: z.number().int().min(1),
@@ -175,6 +178,7 @@ export const EVENT_DETAIL_SCHEMAS = {
   }),
   'Week Rolled Over': z.union([
     z.object({
+      ...recoveryIdentity,
       leagueId: id,
       season: z.number().int(),
       fromWeek: week,
@@ -183,6 +187,7 @@ export const EVENT_DETAIL_SCHEMAS = {
       rolledOverAt: iso
     }),
     z.object({
+      ...recoveryIdentity,
       season: z.number().int(),
       seasonType: z.string(),
       week: z.number().int(),
@@ -285,6 +290,7 @@ export const EVENT_DETAIL_SCHEMAS = {
     updatedAt: iso
   }),
   'Week Provisionally Final': z.object({
+    ...recoveryIdentity,
     leagueId: id,
     season: z.number().int(),
     week,
@@ -321,6 +327,7 @@ export const EVENT_DETAIL_SCHEMAS = {
     loserScore: z.number()
   }),
   'Season Completed': z.object({
+    ...recoveryIdentity,
     leagueId: id,
     season: z.number().int(),
     championTeamId: z.string().nullable(),
@@ -339,6 +346,7 @@ export const EVENT_DETAIL_SCHEMAS = {
     awardedAt: iso
   }),
   'Model Power Rankings': z.object({
+    ...recoveryIdentity,
     leagueId: id,
     season: z.number().int(),
     week: week.describe('The week that just ended.'),

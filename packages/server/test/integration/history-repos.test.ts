@@ -1,6 +1,6 @@
 import { buildBracket, seedPlayoffs, yahooDefaultSettings, type Bracket } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import type { AchievementRecord, OfficialWeekRecord, SeasonHistoryRecord } from '../../src/repos/history.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
@@ -15,7 +15,7 @@ afterAll(() => table.close());
 /** The history repository's behavioral contract, run against both implementations. */
 const backends: [string, () => Repos][] = [
   ['in-memory', () => createInMemoryRepos()],
-  ['DynamoDB (dynalite)', () => createDynamoRepos(table)]
+  ['DynamoDB (DynamoDB Local)', () => createDynamoRepos(table)]
 ];
 
 let counter = 0;

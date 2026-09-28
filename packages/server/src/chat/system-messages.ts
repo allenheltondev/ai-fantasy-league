@@ -5,7 +5,7 @@ import {
   SYSTEM_MESSAGE_TEMPLATES,
   systemMessageRoute
 } from '@fantasy/core';
-import { eventDetail, type BusEvent } from '../events/bus.js';
+import { canonicalEvent, eventDetail, type BusEvent } from '../events/bus.js';
 import { EVENT_SOURCE } from '../events/publisher.js';
 import type { Services } from '../context.js';
 import { phaseFlags } from '../league/phase.js';
@@ -41,6 +41,7 @@ export async function postSystemMessage(
   services: Pick<Services, 'repos' | 'events' | 'clock' | 'log'>,
   event: BusEvent
 ): Promise<SystemMessageOutcome> {
+  event = canonicalEvent(event);
   const detailType = event['detail-type'];
   const log = services.log.child({ eventId: event.id, detailType });
   const outcome = await post(services, event);

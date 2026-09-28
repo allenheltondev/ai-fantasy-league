@@ -15,7 +15,7 @@ import { seedTrade } from '../support/trades.js';
 import { seedSeasonLeague } from '../support/waivers.js';
 
 /**
- * Trade integrity (#121) over the REST adapter and dynalite: moving the deadline in season, offers
+ * Trade integrity (#121) over the REST adapter and DynamoDB Local: moving the deadline in season, offers
  * that can no longer work (a player moved), players held while their trade processes, a no-review
  * trade that fails partway, review into the playoffs, the offer limit, withdrawals, private notes,
  * and the commissioner's own trade. Rosters are 3 active spots (QB, RB, BN).

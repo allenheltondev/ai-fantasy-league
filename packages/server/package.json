@@ -15,7 +15,7 @@
     }
   },
   "scripts": {
-    "dev": "npm run build -w @fantasy/core && FANTASY_LOCAL_AUTH=1 tsx src/local.ts",
+    "dev": "npm run build -w @fantasy/core && node --env-file=../../scripts/local.env --import tsx src/local.ts",
     "openapi": "tsx --conditions=types --tsconfig tsconfig.json scripts/generate-openapi.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -24,7 +24,6 @@
   "devDependencies": {
     "@hono/node-server": "^2.1.1",
     "ajv": "^8.20.0",
-    "dynalite": "^4.0.0",
     "tsx": "^4.23.15"
   },
   "dependencies": {

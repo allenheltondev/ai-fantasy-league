@@ -10,7 +10,7 @@ import { ALICE, BOB, CAROL } from '../support/leagues.js';
 import { seedSeasonLeague } from '../support/waivers.js';
 
 /**
- * Waivers and free agency end to end over the REST adapter and dynalite: free-agent adds, drops onto
+ * Waivers and free agency end to end over the REST adapter and DynamoDB Local: free-agent adds, drops onto
  * waivers, FAAB claims from a person and an agent, the processing job (idempotent per window), and
  * the transactions log.
  */

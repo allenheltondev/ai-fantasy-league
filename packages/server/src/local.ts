@@ -1,6 +1,5 @@
 /**
- * Local API server for `npm run dev`: the Hono node adapter, dynalite (in-process
- * DynamoDB) seeded with the fixture draft pool, in-memory events, and optional dev sign-in.
+ * Local API server for `npm run dev`: the Hono node adapter, DynamoDB Local seeded with the fixture draft pool, in-memory events, and optional dev sign-in.
  *
  * Dev sign-in (`Authorization: Bearer dev` or `Bearer dev:<handle>`) is only on when
  * FANTASY_LOCAL_AUTH=1, and never inside Lambda (see auth/dev.ts).
@@ -12,7 +11,7 @@ import { serve } from '@hono/node-server';
 import { createDevVerifier, isLocalAuthEnabled } from './auth/dev.js';
 import { createCognitoVerifier, type TokenVerifier } from './auth/verifier.js';
 import type { Services } from './context.js';
-import { startLocalTable } from './dev/dynalite.js';
+import { startLocalTable } from './dev/local-table.js';
 import { seedDemoSeason } from './dev/season-demo.js';
 import { EventLoop, type EventSubscriber } from './events/loop.js';
 import { InMemoryEventPublisher } from './events/publisher.js';

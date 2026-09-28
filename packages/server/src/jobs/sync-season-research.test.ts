@@ -103,7 +103,7 @@ describe('syncSeasonResearch', () => {
     ]);
   });
 
-  it('leaves in-season projections alone once stored, and keeps only the synced universe', async () => {
+  it('refreshes incomplete in-season projections and keeps only the synced universe', async () => {
     const { provider, deps } = await setup({ ...PRESEASON_2026, seasonType: 'regular', week: 3 });
     provider.players = [sourcePlayer({ id: '1' })];
     await syncPlayers(deps, deps.clock);
@@ -118,9 +118,26 @@ describe('syncSeasonResearch', () => {
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [
         { kind: 'stats', stored: false, reason: 'unchanged' },
-        { kind: 'projections', stored: false, reason: 'in_season' }
+        { kind: 'projections', stored: false, reason: 'unchanged' }
       ]
     });
+  });
+
+  it('fills missing projection weeks before freezing a complete in-season snapshot', async () => {
+    const { provider, deps } = await setup({ ...PRESEASON_2026, seasonType: 'regular', week: 3 });
+    provider.projections[1] = [line('1', 2026, 1, { rec: 5 })];
+    await syncSeasonResearch(deps, deps.clock);
+    provider.projections = Object.fromEntries(
+      Array.from({ length: 18 }, (_, i) => [i + 1, [line('1', 2026, i + 1, { rec: 5 })]])
+    );
+    expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
+      sets: [{ kind: 'stats' }, { kind: 'projections', stored: true, weeks: 18 }]
+    });
+    provider.calls.length = 0;
+    expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
+      sets: [{ kind: 'stats' }, { kind: 'projections', reason: 'in_season' }]
+    });
+    expect(provider.calls.some((c) => c.startsWith('getWeekProjections'))).toBe(false);
   });
 
   it('fails the run on a source error, so the schedule retries it', async () => {

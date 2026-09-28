@@ -132,6 +132,7 @@ export function createInMemoryRepos(options: { players?: readonly Player[] } = {
   // Waiver claims, the wire, transactions, trades, and league history share the league partition
   // in DynamoDB, so deleting a league deletes them too.
   const leagueRepos = createInMemoryLeagueRepos({
+    onRosterUpdate: (next, previous, teams) => waivers.updateOwnership(next, previous, teams),
     onDelete: (leagueId) => {
       waivers.dropLeague(leagueId);
       trades.dropLeague(leagueId);

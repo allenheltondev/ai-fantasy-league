@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
 import { InMemoryEventPublisher, createInMemoryRepos, createServices, silentLogger } from '@fantasy/server';
 import { describe, expect, it } from 'vitest';
@@ -59,6 +60,6 @@ describe('--archive', () => {
     expect(archiveDir('fixtures')).toBe(FIXTURE_ARCHIVE_DIR);
     expect(archiveDir('2025')).toMatch(/archives[/\\]2025$/);
     expect(archiveDir('/tmp/a')).toBe('/tmp/a');
-    expect(archiveDir('a', '/base')).toBe('/base/a');
+    expect(archiveDir('a', '/base')).toBe(resolve('/base', 'a'));
   });
 });

@@ -245,6 +245,8 @@ export async function announceTurn(deps: DraftDeps, record: DraftRecord): Promis
   const slot = currentPick(record.state);
   if (slot === null || record.deadline === null) return;
   await deps.events.publish('Draft Turn Started', {
+    eventKey: `draft:${record.startedAt}:${slot.overall}:${record.deadline}`,
+    occurredAt: record.updatedAt,
     leagueId: record.leagueId,
     teamId: slot.teamId,
     pick: slot.overall,
