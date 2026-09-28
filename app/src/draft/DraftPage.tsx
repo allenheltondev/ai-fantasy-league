@@ -8,8 +8,7 @@ import {
   CardHeader,
   CardTitle,
   ErrorState,
-  Input,
-  Select,
+  SegmentedControl,
   StatusBadge
 } from '@readysetcloud/ui';
 import { ApiError, apiFetch, type ApiFetch } from '../api';
@@ -18,11 +17,15 @@ import { Confetti } from '../motion/Confetti';
 import { useTitleBadge } from '../motion/decor';
 import { useArrivals } from '../motion/useArrivals';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
+import { BestAvailableTable } from './BestAvailableTable';
+import { DepthChart } from './DepthChart';
+import { PlayerCard } from './PlayerCard';
+import type { BoardSort } from './research';
 import {
   formatClock,
   overallPick,
-  POSITIONS,
   secondsUntil,
+  type PlayerRef,
   type DraftBoard,
   type DraftRecap,
   type DraftRecapEntry
@@ -84,6 +87,9 @@ export function DraftPage({
   const [picking, setPicking] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [position, setPosition] = useState('');
+  const [sort, setSort] = useState<BoardSort>('rank');
+  const [card, setCard] = useState<PlayerRef | null>(null);
+  const [view, setView] = useState<'board' | 'depth'>('board');
   const [tick, setTick] = useState(now);
   // Your own pick just went in: a burst of confetti and a line naming the player.
   const [myPick, setMyPick] = useState<{ name: string; n: number } | null>(null);
@@ -93,14 +99,19 @@ export function DraftPage({
   const load = useCallback(async () => {
     try {
       const res = await api<DraftBoard>(`/leagues/${leagueId}/draft`, {
-        query: { q: q.trim() || undefined, position: position || undefined, limit: 25 }
+        query: {
+          q: q.trim() || undefined,
+          position: position || undefined,
+          limit: 25,
+          sort: sort === 'rank' ? undefined : sort
+        }
       });
       setBoard(res.data);
       setLoadError(null);
     } catch (error) {
       setLoadError(toApiError(error));
     }
-  }, [api, leagueId, q, position]);
+  }, [api, leagueId, q, position, sort]);
 
   const realtime = async (id: string) => (await api<RealtimeInfo>(`/leagues/${id}/realtime`)).data;
   const live = useLiveEvents({
@@ -186,6 +197,11 @@ export function DraftPage({
     const roster = board.rosters.find((r) => r.teamId === board.yourTeamId);
     const drafted = new Set(board.picks.map((p) => p.player.id));
     const queued = queue.players.filter((p) => !drafted.has(p.id));
+    const open = (player: PlayerRef) => (
+      <button type="button" className="text-left hover:underline" onClick={() => setCard(player)}>
+        {player.name}
+      </button>
+    );
     content = (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -232,61 +248,74 @@ export function DraftPage({
         )}
 
         <Card>
-          <CardHeader>
-            <CardTitle>Board</CardTitle>
+          <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>{view === 'board' ? 'Board' : 'Depth'}</CardTitle>
+            <SegmentedControl
+              aria-label="Board view"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'board', label: 'Board' },
+                { value: 'depth', label: 'Depth' }
+              ]}
+            />
           </CardHeader>
           <CardBody className="overflow-x-auto">
-            <table aria-label="Draft board" className="min-w-full text-sm">
-              <thead>
-                <tr>
-                  <th scope="col">Rd</th>
-                  {board.order.map((team) => (
-                    <th
-                      key={team.teamId}
-                      scope="col"
-                      className={team.teamId === board.yourTeamId ? 'text-primary-800' : ''}
-                    >
-                      {team.teamName}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: board.rounds }, (_, r) => r + 1).map((round) => (
-                  <tr key={round}>
-                    <th scope="row">{round}</th>
-                    {board.order.map((team, index) => {
-                      const overall = overallPick(round, index, board.order.length);
-                      const pick = byOverall.get(overall);
-                      const onClock = current === overall;
-                      return (
-                        <td
-                          key={team.teamId}
-                          data-testid={`cell-${overall}`}
-                          className={onClock ? 'bg-primary-100' : ''}
-                          title={pick?.reason ?? undefined}
-                        >
-                          {pick === undefined ? (
-                            onClock ? (
-                              'On the clock'
-                            ) : (
-                              ''
-                            )
-                          ) : (
-                            <span
-                              key={pick.player.id}
-                              className={arrived(String(overall)) ? 'motion-flip-in' : undefined}
-                            >
-                              {`${pick.player.name} (${pick.player.position})${pick.auto ? ' · auto' : ''}`}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
+            {view === 'depth' ? (
+              <DepthChart api={api} leagueId={leagueId} version={board.picks.length} onOpen={setCard} />
+            ) : (
+              <table aria-label="Draft board" className="min-w-full text-sm">
+                <thead>
+                  <tr>
+                    <th scope="col">Rd</th>
+                    {board.order.map((team) => (
+                      <th
+                        key={team.teamId}
+                        scope="col"
+                        className={team.teamId === board.yourTeamId ? 'text-primary-800' : ''}
+                      >
+                        {team.teamName}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {Array.from({ length: board.rounds }, (_, r) => r + 1).map((round) => (
+                    <tr key={round}>
+                      <th scope="row">{round}</th>
+                      {board.order.map((team, index) => {
+                        const overall = overallPick(round, index, board.order.length);
+                        const pick = byOverall.get(overall);
+                        const onClock = current === overall;
+                        return (
+                          <td
+                            key={team.teamId}
+                            data-testid={`cell-${overall}`}
+                            className={onClock ? 'bg-primary-100' : ''}
+                            title={pick?.reason ?? undefined}
+                          >
+                            {pick === undefined ? (
+                              onClock ? (
+                                'On the clock'
+                              ) : (
+                                ''
+                              )
+                            ) : (
+                              <span
+                                key={pick.player.id}
+                                className={arrived(String(overall)) ? 'motion-flip-in' : undefined}
+                              >
+                                {open(pick.player)} ({pick.player.position}){pick.auto ? ' · auto' : ''}
+                              </span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </CardBody>
         </Card>
 
@@ -295,50 +324,22 @@ export function DraftPage({
             <CardHeader>
               <CardTitle>Best available</CardTitle>
             </CardHeader>
-            <CardBody className="space-y-3">
-              <div className="flex flex-wrap gap-3">
-                <Input label="Search players" value={q} onChange={(e) => setQ(e.target.value)} />
-                <Select label="Position" value={position} onChange={(e) => setPosition(e.target.value)}>
-                  <option value="">All</option>
-                  {POSITIONS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <ul aria-label="Best available" className="divide-y divide-border">
-                {board.bestAvailable.map(({ player, rank }) => (
-                  <li key={player.id} className="flex items-center justify-between gap-2 py-2">
-                    <span>
-                      {player.name}{' '}
-                      <span className="text-muted-foreground">
-                        {player.position} · {player.team ?? 'FA'} · rank {rank ?? '—'}
-                      </span>
-                    </span>
-                    <span className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={queue.has(player.id)}
-                        onClick={() => queue.add(player)}
-                        aria-label={`Queue ${player.name}`}
-                      >
-                        Queue
-                      </Button>
-                      <Button
-                        size="sm"
-                        disabled={!mine || picking !== null}
-                        loading={picking === player.id}
-                        onClick={() => void draft(player.id, current, player.name)}
-                        aria-label={`Draft ${player.name}`}
-                      >
-                        Pick
-                      </Button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <CardBody>
+              <BestAvailableTable
+                rows={board.bestAvailable}
+                sort={sort}
+                onSort={setSort}
+                position={position}
+                onPosition={setPosition}
+                q={q}
+                onQuery={setQ}
+                isQueued={queue.has}
+                onQueue={queue.add}
+                canDraft={mine}
+                picking={picking}
+                onDraft={(player) => void draft(player.id, current, player.name)}
+                onOpen={setCard}
+              />
             </CardBody>
           </Card>
           <Card>
@@ -361,7 +362,7 @@ export function DraftPage({
                   {queued.map((player, index) => (
                     <li key={player.id} className="flex items-center justify-between gap-2 py-2">
                       <span>
-                        {index + 1}. {player.name}{' '}
+                        {index + 1}. {open(player)}{' '}
                         <span className="text-muted-foreground">{player.position}</span>
                       </span>
                       <span className="flex gap-1">
@@ -409,13 +410,26 @@ export function DraftPage({
               <ol aria-label="Your roster" className="list-decimal pl-5">
                 {(roster?.players ?? []).map((p) => (
                   <li key={p.id}>
-                    {p.name} ({p.position})
+                    {open(p)} ({p.position})
                   </li>
                 ))}
               </ol>
             </CardBody>
           </Card>
         </div>
+        {card !== null && (
+          <PlayerCard
+            api={api}
+            leagueId={leagueId}
+            player={card}
+            onClose={() => setCard(null)}
+            queued={queue.has(card.id)}
+            onQueue={queue.add}
+            canDraft={mine && !drafted.has(card.id)}
+            picking={picking === card.id}
+            onDraft={(player) => void draft(player.id, current, player.name).then(() => setCard(null))}
+          />
+        )}
       </div>
     );
   }
