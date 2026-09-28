@@ -1,6 +1,7 @@
 import { getDraftBoard } from './get-draft-board.js';
 import { checkInDraftLobby } from './lobby.js';
 import { getDraftDepth } from './get-draft-depth.js';
+import { getDraftReportCard } from './get-draft-report-card.js';
 import { makeDraftPick } from './make-draft-pick.js';
 import { pauseDraft, resumeDraft } from './pause-draft.js';
 import { getDraftQueue, setDraftQueue } from './queue.js';
@@ -21,5 +22,7 @@ export const draftOperations = [
   // Draft research (#136)
   getDraftDepth,
   // The lobby before the draft (#134)
-  checkInDraftLobby
+  checkInDraftLobby,
+  // Post-draft grades and projected standings
+  getDraftReportCard
 ];

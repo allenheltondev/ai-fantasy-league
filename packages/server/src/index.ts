@@ -43,6 +43,16 @@ export { listInSeason } from './season/lineups.js';
 export { fixtureDraftPool, fixturePlayers } from './players/fixtures.js';
 export { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/handlers.js';
 export { handleDraftDeadline, type DeadlineOutcome } from './league/draft.js';
+export {
+  computedJudgements,
+  computedReport,
+  draftReportInputs,
+  reconcileReport,
+  type DraftReportInputs,
+  type ReportPick,
+  type ReportTeam,
+  type TeamJudgement
+} from './league/draft-report.js';
 export * from './chat/model.js';
 export { ChatRoomSchema, type ChatRoom } from './chat/rooms.js';
 export {

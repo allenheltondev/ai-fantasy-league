@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { OFF_SWITCH, ParameterKillSwitch } from '../src/kill-switch.js';
 import { AGENT_TEAM, LEAGUE_ID, setup } from './support.js';
+import { handleLeagueEvent } from '@fantasy/server';
+import { draftSetup } from './draft-support.js';
 
 const env = await import('../src/lambda/env.js');
 
@@ -96,5 +98,36 @@ describe('agent Lambda handlers', () => {
     };
     expect(await router.handler({ ...final, id: 'evt-final-2' })).toEqual({ decisions: [], remembered: 0 });
     expect(s.logs.some((l) => l.includes('agent memory update failed'))).toBe(true);
+  });
+
+  it('grades the draft on Draft Completed with the fake model', async () => {
+    const s = await draftSetup({ teamCount: 4 });
+    for (let guard = 0; guard < 200; guard++) {
+      const draft = await s.repos.drafts.get(s.leagueId);
+      if (draft?.status === 'complete') break;
+      s.clock.set(new Date(new Date(draft?.deadline ?? s.clock.now()).getTime() + 1000));
+      await handleLeagueEvent(s.services, {
+        id: `deadline-${String(draft!.state.picks.length + 1)}`,
+        source: 'fantasy',
+        'detail-type': 'Draft Pick Deadline',
+        detail: { leagueId: s.leagueId, pick: draft!.state.picks.length + 1 }
+      });
+    }
+    vi.stubEnv('TABLE_NAME', 'unused');
+    vi.stubEnv('FANTASY_FAKE_MODEL', '1');
+    vi.resetModules();
+    vi.doMock('../src/lambda/env.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/lambda/env.js')>()),
+      createAgentServices: () => s.services
+    }));
+    const task = await import('../src/lambda/task.js');
+    const completed = s.events.events.find((e) => e.detailType === 'Draft Completed');
+    const report = await task.handler({
+      id: 'evt-draft',
+      'detail-type': 'Draft Completed',
+      source: 'fantasy',
+      detail: completed?.detail
+    });
+    expect(report).toMatchObject({ status: 'ready', source: 'model', leagueId: s.leagueId });
   });
 });
