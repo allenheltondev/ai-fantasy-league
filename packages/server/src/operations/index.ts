@@ -3,6 +3,7 @@ import { leagueOperations } from './league/index.js';
 import { getPlayer, searchPlayers } from './players.js';
 import { getHealth, getMe } from './system.js';
 import { getAgentActivity } from './agents/activity.js';
+import { getAgentCatalog } from './agents/catalog.js';
 import { configureAgentSeat, getAgentSeat, randomizeAgentSeatsOperation } from './agents/seats.js';
 import { getNews } from './research/get-news.js';
 import { getProjections } from './research/get-projections.js';
@@ -24,7 +25,8 @@ export const operations = [
   configureAgentSeat,
   randomizeAgentSeatsOperation,
   getAgentSeat,
-  getAgentActivity
+  getAgentActivity,
+  getAgentCatalog
 ];
 
 export const registry: Registry = createRegistry(operations);

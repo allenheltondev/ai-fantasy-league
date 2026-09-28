@@ -137,6 +137,16 @@ const CASES: Record<string, Case[]> = {
     },
     { label: 'no seat', path: '/api/v1/leagues/lg-1/agents/team-9', status: 404 }
   ],
+  get_agent_catalog: [
+    { label: 'catalog', path: '/api/v1/agents/catalog', status: 200 },
+    { label: 'suggested seats', path: '/api/v1/agents/catalog?suggest=5&seed=contract', status: 200 },
+    { label: 'too many', path: '/api/v1/agents/catalog?suggest=50', status: 400 },
+    { label: 'anonymous', path: '/api/v1/agents/catalog', init: { token: null }, status: 401 }
+  ],
+  get_default_settings: [
+    { label: 'defaults', path: '/api/v1/settings/defaults?teamCount=10&preset=standard', status: 200 },
+    { label: 'odd bounds', path: '/api/v1/settings/defaults?teamCount=2', status: 400 }
+  ],
   get_agent_activity: [
     { label: 'commissioner', path: '/api/v1/leagues/lg-1/agent-activity?limit=5', status: 200 },
     {

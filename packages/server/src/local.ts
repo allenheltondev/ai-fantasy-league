@@ -7,7 +7,7 @@
  */
 import type { AddressInfo } from 'node:net';
 import { pathToFileURL } from 'node:url';
-import { systemClock, type Clock } from '@fantasy/core';
+import { FixedClock, systemClock, type Clock } from '@fantasy/core';
 import { serve } from '@hono/node-server';
 import { createDevVerifier, isLocalAuthEnabled } from './auth/dev.js';
 import { createCognitoVerifier, type TokenVerifier } from './auth/verifier.js';
@@ -45,6 +45,18 @@ export function localVerifier(env: Record<string, string | undefined>): TokenVer
   return null;
 }
 
+/**
+ * `FANTASY_LOCAL_NOW` pins the local clock to a moment (e2e runs create leagues at a fixed point in
+ * a season, whatever today's date is); otherwise the system clock.
+ */
+export function localClock(env: Record<string, string | undefined>): Clock {
+  const at = env.FANTASY_LOCAL_NOW;
+  if (at === undefined || at === '') return systemClock;
+  const start = new Date(at);
+  if (Number.isNaN(start.getTime())) throw new Error(`FANTASY_LOCAL_NOW is not a date: "${at}".`);
+  return new FixedClock(start);
+}
+
 export async function startLocalServer(options: LocalServerOptions = {}): Promise<LocalServer> {
   const env = options.env ?? process.env;
   if (env.AWS_LAMBDA_FUNCTION_NAME) throw new Error('The local server must not run inside Lambda.');
@@ -54,7 +66,7 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
   await repos.players.putMany(fixturePlayers);
   const events = new InMemoryEventPublisher();
   const services = createServices({
-    clock: options.clock ?? systemClock,
+    clock: options.clock ?? localClock(env),
     repos,
     events,
     log,
