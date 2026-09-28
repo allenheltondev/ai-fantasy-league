@@ -88,6 +88,18 @@ describe("Sleeper's intended differences", () => {
     expect(delta('points-allowed-14-20', { sack: 3 })).toBe(0);
     expect(delta('def-forced-fumbles', { ff: 2 })).toBe(2);
     expect(delta('def-special-teams-fumble-recoveries', { def_st_fum_rec: 1 })).toBe(-1);
+    expect(delta('def-special-teams-forced-fumbles', { def_st_ff: 2, ff: 3 })).toBe(2);
+    // A player's st_ff is also in idp_ff, so only st_fum_rec is counted here.
+    expect(delta('special-teams-fumble-recoveries', { st_fum_rec: 1, st_ff: 1 })).toBe(1);
+  });
+
+  it('applies a difference Sleeper dropped only to the seasons it covered', () => {
+    const allowed17 = line({ pts_allow: 17, sack: 1 });
+    expect(sleeperDefaultDifference({ season: 2025 })(allowed17, 'std', 1)).toMatch(/^points-allowed-14-20 /);
+    expect(sleeperDefaultDifference({ season: 2026 })(allowed17, 'std', 1)).toBeNull();
+    expect(sleeperDefaultDifference({ season: 2026 })(allowed17, 'std', 0.5)).toBeNull();
+    // With no season given, every class applies.
+    expect(explain(allowed17, 'std', 1)).toMatch(/^points-allowed-14-20 /);
   });
 
   it('explains a mismatch that is exactly the sum of the classes on the line', () => {
