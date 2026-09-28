@@ -156,6 +156,7 @@ export const WAIVER_CASES: Record<string, Case[]> = {
   ],
   list_transactions: [
     { label: 'log', path: `${W}/transactions?limit=5`, status: 200 },
+    { label: 'detail', path: `${W}/transactions?detail=true`, status: 200 },
     { label: 'outsider', path: `${W}/transactions`, init: { token: outsider }, status: 403 }
   ]
 };

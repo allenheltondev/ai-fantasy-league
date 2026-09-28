@@ -16,7 +16,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "validate-scoring": "tsx --conditions=types scripts/validate-scoring.ts"
   },
   "dependencies": {
     "@fantasy/core": "0.0.0",

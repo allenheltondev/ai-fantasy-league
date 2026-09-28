@@ -1,4 +1,5 @@
 import {
+  eligibleStarterSlots,
   isPlayerLocked,
   isOnBye,
   isStarterSlot,
@@ -8,6 +9,7 @@ import {
   RosterSlotSchema,
   scorePlayer,
   slotCount,
+  type LeagueSettings,
   type LineupEntry,
   type RuleIssue,
   type WeekGames
@@ -15,7 +17,7 @@ import {
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
-import { PlayerRefSchema, toPlayerRef, type Player } from '../../players/model.js';
+import { PlayerDetailSchema, toPlayerDetail, type Player } from '../../players/model.js';
 import type { Warning } from '../../registry/operation.js';
 import type { League } from '../../repos/types.js';
 import { gamesByTeam, playerStatus, weekGames } from '../../season/lineups.js';
@@ -48,7 +50,7 @@ export function leagueWeek(league: League, requested: number | undefined): numbe
 }
 
 export const RosterEntrySchema = z.object({
-  player: PlayerRefSchema,
+  player: PlayerDetailSchema,
   slot: RosterSlotSchema.describe('Where the player sits this week: a starting slot, BN (bench), or IR.'),
   status: PlayerStatusSchema.describe(
     'Availability: active, questionable, doubtful, out, ir, pup, nfi, suspended, covid, na.'
@@ -62,7 +64,13 @@ export const RosterEntrySchema = z.object({
     .number()
     .nullable()
     .describe('Projected points this week under league scoring, or null.'),
-  points: z.number().nullable().describe('Points scored this week so far, or null before he has stats.')
+  points: z.number().nullable().describe('Points scored this week so far, or null before he has stats.'),
+  eligibleSlots: z
+    .array(RosterSlotSchema)
+    .optional()
+    .describe(
+      'Starting slots this league uses that he can fill (for set_lineup). Present when `detail` is true.'
+    )
 });
 export type RosterEntry = z.infer<typeof RosterEntrySchema>;
 
@@ -77,6 +85,8 @@ export function slotCounts(league: League): z.infer<typeof SlotCountSchema>[] {
 
 export interface WeekData {
   games: WeekGames;
+  /** NFL teams whose game this week is final. */
+  finalTeams: ReadonlySet<string>;
   byes: Record<string, number>;
   projected: Map<string, number>;
   actual: Map<string, number>;
@@ -101,6 +111,7 @@ export async function loadWeekData(
   const wanted = new Set(playerIds);
   return {
     games: gamesByTeam(games),
+    finalTeams: new Set(games.filter((g) => g.status === 'final').flatMap((g) => [g.homeTeam, g.awayTeam])),
     byes: season?.byes ?? {},
     projected: new Map(projections.map((l) => [l.playerId, score(l.stats)])),
     actual: new Map(lines.filter((l) => wanted.has(l.playerId)).map((l) => [l.playerId, score(l.stats)]))
@@ -114,7 +125,9 @@ export function rosterEntries(
   lineup: readonly LineupEntry[],
   players: ReadonlyMap<string, Player>,
   week: WeekData,
-  now: Date
+  now: Date,
+  /** League settings for `eligibleSlots`; pass them for detailed entries. */
+  detail: Pick<LeagueSettings, 'roster'> | null = null
 ): RosterEntry[] {
   return lineup
     .map((e) => {
@@ -123,7 +136,7 @@ export function rosterEntries(
       const ref =
         player === undefined
           ? { id: e.playerId, name: e.playerId, team: null, position: 'WR' as const }
-          : toPlayerRef(player);
+          : toPlayerDetail(player, detail !== null);
       const kickoff = playerKickoff({ nflTeam: team }, week.games);
       return {
         player: ref,
@@ -135,7 +148,15 @@ export function rosterEntries(
         kickoff: kickoff?.toISOString() ?? null,
         locked: isPlayerLocked({ nflTeam: team }, week.games, now),
         projectedPoints: week.projected.get(e.playerId) ?? null,
-        points: week.actual.get(e.playerId) ?? null
+        points: week.actual.get(e.playerId) ?? null,
+        ...(detail === null
+          ? {}
+          : {
+              eligibleSlots:
+                player === undefined
+                  ? []
+                  : eligibleStarterSlots([player.position]).filter((slot) => slotCount(detail, slot) > 0)
+            })
       };
     })
     .sort(

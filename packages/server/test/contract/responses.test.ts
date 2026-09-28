@@ -75,6 +75,7 @@ const CASES: Record<string, Case[]> = {
   ],
   get_trending_players: [
     { label: 'adds', path: '/api/v1/players/trending', status: 200 },
+    { label: 'detail', path: '/api/v1/players/trending?detail=true', status: 200 },
     {
       label: 'week lookback by position',
       path: '/api/v1/players/trending?lookbackHours=100&position=RB',
@@ -97,6 +98,7 @@ const CASES: Record<string, Case[]> = {
   ...LEAGUE_CASES,
   get_roster: [
     { label: 'own team', path: '/api/v1/leagues/lg-cs/teams/team-1/roster', status: 200 },
+    { label: 'detail', path: '/api/v1/leagues/lg-cs/teams/team-1/roster?detail=true', status: 200 },
     { label: 'no lineup yet', path: '/api/v1/leagues/lg-cs/teams/team-2/roster?week=2', status: 200 },
     {
       label: 'outsider',
@@ -105,6 +107,17 @@ const CASES: Record<string, Case[]> = {
       status: 403
     },
     { label: 'week not played', path: '/api/v1/leagues/lg-cs/teams/team-1/roster?week=18', status: 400 }
+  ],
+  get_matchup_outlook: [
+    { label: 'own team', path: '/api/v1/leagues/lg-cs/matchup/outlook', status: 200 },
+    { label: 'detail', path: '/api/v1/leagues/lg-cs/matchup/outlook?teamId=team-2&detail=true', status: 200 },
+    { label: 'unknown team', path: '/api/v1/leagues/lg-cs/matchup/outlook?teamId=team-9', status: 404 },
+    {
+      label: 'outsider',
+      path: '/api/v1/leagues/lg-cs/matchup/outlook',
+      init: { token: OTHER_USER },
+      status: 403
+    }
   ],
   set_lineup: [
     {

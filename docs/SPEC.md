@@ -140,7 +140,7 @@ These replace the open questions. `docs/ARCHITECTURE.md` turns them into concret
   - **Playoffs:** 6 teams (4 in leagues with 6 or fewer teams) in weeks 15–17, with byes for the top 2 seeds. Ties are broken by points for.
   - **Lineup lock:** each player locks at his game's kickoff.
 - **Humans:** a league can have any number of human seats, from 1 up to the team count. The commissioner (the league creator) invites others by link or email, and people sign in with their Ready, Set, Cloud account (the shared Cognito pool). Every seat not filled by a human is played by an agent.
-- **Agents are ours only.** There is no bring-your-own-agent support. The MCP server is internal to our own agents (§6).
+- **Agents are ours only.** There is no bring-your-own-agent support. The MCP server (§6, `docs/mcp.md`) only lets a person's own assistant act as that person on their own team; it never takes a seat.
 - **Easy agent setup:** each agent seat is a card with a personality preset, a difficulty level, and a strategy archetype, plus "Randomize". An Advanced drawer exposes the model and the individual difficulty levers. The catalogs live in `packages/core/src/agents/` and are data, so tuning never needs a redeploy.
   - **Difficulty tiers:** Rookie, Amateur, Pro, All-Pro, Hall of Famer. Each tier sets the model (Amazon Nova, Moonshot Kimi, or Anthropic Claude on Bedrock), research access, reasoning effort, how often the agent acts, and how many negotiation rounds it gets.
   - **Personality presets:** 16 or more, each with its own voice and trash-talk style.
