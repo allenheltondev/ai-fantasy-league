@@ -38,3 +38,14 @@ describe('chat and realtime infrastructure', () => {
     expect(api).toContain('MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName');
   });
 });
+
+describe('CloudFront-only API (#104)', () => {
+  it('has CloudFront send the origin-verify secret the API requires', () => {
+    const origin = section('          - Id: api', '        DefaultCacheBehavior:');
+    expect(origin).toContain('- HeaderName: X-Origin-Verify');
+    expect(origin).toContain('HeaderValue: !Ref OriginVerifySecret');
+    const api = section('  ApiFunction:', '  DataJobsFunction:');
+    expect(api).toContain('ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret');
+    expect(api).toContain('ORIGIN_VERIFY_SECRET_PREVIOUS: !Ref OriginVerifySecretPrevious');
+  });
+});

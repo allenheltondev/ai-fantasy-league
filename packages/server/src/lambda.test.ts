@@ -8,6 +8,8 @@ const LAMBDA_ENV = {
   TABLE_NAME: 'FantasyTable',
   USER_POOL_ID: 'us-east-1_TestPool1',
   USER_POOL_CLIENT_ID: 'client',
+  ORIGIN_VERIFY_SECRET: 'origin-current',
+  ORIGIN_VERIFY_SECRET_PREVIOUS: 'origin-previous',
   // Even if someone sets it in Lambda, dev sign-in must stay off.
   FANTASY_LOCAL_AUTH: '1'
 };
@@ -23,7 +25,7 @@ function functionUrlEvent(
     routeKey: '$default',
     rawPath: path,
     rawQueryString: '',
-    headers: { host: 'abc.lambda-url.us-east-1.on.aws', ...headers },
+    headers: { host: 'abc.lambda-url.us-east-1.on.aws', 'x-origin-verify': 'origin-current', ...headers },
     body: null,
     isBase64Encoded: false,
     requestContext: {
@@ -59,6 +61,17 @@ describe('lambda handler', () => {
     expect(JSON.parse(result.body)).toMatchObject({ data: { status: 'ok' }, league: null, warnings: [] });
     const openApi = await handler(functionUrlEvent('GET', '/api/v1/openapi.json'));
     expect(JSON.parse(openApi.body)).toMatchObject({ openapi: '3.1.0' });
+  });
+
+  it('refuses a direct Function URL call without the CloudFront origin header', async () => {
+    const handler = await loadHandler();
+    const direct = await handler(functionUrlEvent('GET', '/api/v1/health', { 'x-origin-verify': '' }));
+    expect(direct.statusCode).toBe(403);
+    expect(JSON.parse(direct.body)).toMatchObject({ error: { code: 'FORBIDDEN' } });
+    const rotated = await handler(
+      functionUrlEvent('GET', '/api/v1/health', { 'x-origin-verify': 'origin-previous' })
+    );
+    expect(rotated.statusCode).toBe(200);
   });
 
   it('routes EventBridge events to the league event handlers', async () => {

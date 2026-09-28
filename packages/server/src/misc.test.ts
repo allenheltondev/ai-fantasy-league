@@ -61,7 +61,13 @@ describe('logger', () => {
 describe('loadLambdaConfig', () => {
   it('reads the Lambda environment', () => {
     expect(
-      loadLambdaConfig({ TABLE_NAME: 't', USER_POOL_ID: 'p', USER_POOL_CLIENT_ID: 'c', LOG_LEVEL: 'debug' })
+      loadLambdaConfig({
+        TABLE_NAME: 't',
+        USER_POOL_ID: 'p',
+        USER_POOL_CLIENT_ID: 'c',
+        ORIGIN_VERIFY_SECRET: 'o',
+        LOG_LEVEL: 'debug'
+      })
     ).toEqual({
       tableName: 't',
       userPoolId: 'p',
@@ -72,6 +78,8 @@ describe('loadLambdaConfig', () => {
   });
 
   it('names what is missing', () => {
-    expect(() => loadLambdaConfig({ TABLE_NAME: 't' })).toThrow(/USER_POOL_ID, USER_POOL_CLIENT_ID/);
+    expect(() => loadLambdaConfig({ TABLE_NAME: 't' })).toThrow(
+      /USER_POOL_ID, USER_POOL_CLIENT_ID, ORIGIN_VERIFY_SECRET/
+    );
   });
 });
