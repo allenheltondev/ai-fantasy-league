@@ -83,6 +83,31 @@ function draftApi(page: Page) {
   });
   const posted: unknown[] = [];
   void page.route('**/api/v1/leagues/L1/draft?*', (route) => route.fulfill({ json: envelope(board()) }));
+  // The league header and the realtime token (off here, so the board polls).
+  void page.route('**/api/v1/leagues/L1/state', (route) =>
+    route.fulfill({
+      json: envelope({
+        leagueId: 'L1',
+        name: 'Draft Day League',
+        phase: 'drafting',
+        week: null,
+        allowedActions: []
+      })
+    })
+  );
+  void page.route('**/api/v1/leagues/L1/realtime', (route) =>
+    route.fulfill({
+      json: envelope({
+        enabled: false,
+        token: null,
+        endpoint: null,
+        cacheName: null,
+        topics: null,
+        expiresAt: null,
+        pollIntervalSeconds: 3
+      })
+    })
+  );
   void page.route('**/api/v1/leagues/L1/draft/picks', async (route) => {
     const body = route.request().postDataJSON() as { playerId: string; pick: number };
     posted.push({ body, key: route.request().headers()['idempotency-key'] });
@@ -125,12 +150,25 @@ test('a human on the clock drafts a player from the board', async ({ page }) => 
   await expect(page.getByText('You are on the clock!')).toBeVisible();
   await expect(page.getByTestId('cell-1')).toHaveText('Christian McCaffrey (RB)');
   await expect(page.getByTestId('pick-clock')).toHaveText(/^1:(2\d|30)$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Draft Day League' })).toBeVisible();
+  await expect(page.getByTestId('draft-updates')).toHaveText('Refreshing every 3s');
 
-  await page.getByRole('button', { name: "Draft Ja'Marr Chase" }).click();
+  // Line up a queue, then draft from it.
+  await page.getByRole('button', { name: 'Queue CeeDee Lamb' }).click();
+  await page.getByRole('button', { name: "Queue Ja'Marr Chase" }).click();
+  await page.getByRole('button', { name: "Move Ja'Marr Chase up" }).click();
+  await expect(page.getByRole('list', { name: 'Your queue' }).getByRole('listitem').first()).toContainText(
+    "1. Ja'Marr Chase"
+  );
+  await page.getByRole('button', { name: "Draft Ja'Marr Chase from the queue" }).click();
 
   await expect(page.getByTestId('cell-2')).toHaveText("Ja'Marr Chase (WR)");
   await expect(page.getByRole('list', { name: 'Your roster' })).toContainText("Ja'Marr Chase");
   await expect(page.getByText('You are on the clock!')).toHaveCount(0);
   await expect(page.getByText(/Your next pick is #3/)).toBeVisible();
+  // Drafted players leave the queue; the rest stays, across a reload.
+  await expect(page.getByRole('list', { name: 'Your queue' })).not.toContainText("Ja'Marr Chase");
+  await page.reload();
+  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('CeeDee Lamb');
   expect(posted).toEqual([{ body: { playerId: 'fx-chase', pick: 2 }, key: expect.any(String) }]);
 });
