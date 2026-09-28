@@ -969,15 +969,16 @@ Resources:
   # chat-events.mjs and realtime.mjs next to index.mjs).
   # ===========================================================================
 
-  # Turns league events into system chat messages, idempotently per event id
-  # (packages/server/src/chat/system-messages.ts).
+  # Turns league events into system chat messages and notification inbox items
+  # (#165), both idempotently per event id (packages/server/src/chat/
+  # system-messages.ts, packages/server/src/notifications/consumer.ts).
   ChatEventsFunction:
     Type: AWS::Serverless::Function
     Condition: DeployServer
     Metadata:
       SkipBuild: true
     Properties:
-      Description: System chat messages for league events
+      Description: System chat messages and notification inboxes for league events
       CodeUri:
         Bucket: !Ref ArtifactBucket
         Key: !Ref ServerArtifactKey
@@ -1006,14 +1007,15 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
           Statement:
-            # Reads the league and teams; writes CHAT# messages.
+            # Reads the league and teams; writes CHAT# messages and
+            # LEAGUE# NOTIF# inbox items (conditional puts).
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
                 - dynamodb:Query
               Resource: !GetAtt FantasyTable.Arn
-            # Chat Message Posted, Chat Moment.
+            # Chat Message Posted, Chat Moment, Notification Created.
             - Effect: Allow
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
@@ -1048,6 +1050,14 @@ Resources:
                 - Settings Changed
                 - Agent Seat Changed
                 - Agent Budget Exceeded
+                # Notification inboxes only (no chat line): offers and their
+                # answers, and the team on the draft clock.
+                - Trade Proposed
+                - Trade Countered
+                - Trade Rejected
+                - Trade Expired
+                - Trade Withdrawn
+                - Draft Turn Started
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
@@ -1131,6 +1141,8 @@ Resources:
                 - Trade Rejected
                 - Trade Expired
                 - Trade Withdrawn
+                # A team's new inbox item: relayed only to that team's topic.
+                - Notification Created
             # Live updates are only worth delivering while they are fresh.
             RetryPolicy:
               MaximumRetryAttempts: 2

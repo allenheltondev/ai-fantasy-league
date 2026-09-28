@@ -97,6 +97,20 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
       { leagueId: 'demo-season', owner: { sub: `local-${demo}`, name: demo }, now: services.clock.now() }
     );
   }
+  // FANTASY_LOCAL_TRADE_DEMO=<handle>,<rival>: the same league (`demo-trades`) with a second person,
+  // local-<rival>, on team-2 (the notification e2e: one person's offer lands in the other's inbox).
+  const [owner, rival] = (env.FANTASY_LOCAL_TRADE_DEMO ?? '').split(',').map((h) => h.trim());
+  if (owner && rival) {
+    await seedDemoSeason(
+      { repos, reference: services.data.reference },
+      {
+        leagueId: 'demo-trades',
+        owner: { sub: `local-${owner}`, name: owner },
+        rival: { sub: `local-${rival}`, name: rival },
+        now: services.clock.now()
+      }
+    );
+  }
   const loop =
     options.eventLoop === undefined ? null : await startEventLoop(services, events, options.eventLoop);
   const app = createApp({ registry, services, verifier: localVerifier(env) });

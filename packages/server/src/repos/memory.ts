@@ -3,6 +3,7 @@ import { InMemoryWaiverRepository } from './memory-waivers.js';
 import { InMemoryChatRepository } from './memory-chat.js';
 import { InMemoryHistoryRepository } from './memory-history.js';
 import { InMemoryTradeRepository } from './memory-trades.js';
+import { InMemoryNotificationRepository } from './memory-notifications.js';
 import { createInMemoryLeagueRepos } from './memory-league.js';
 import type { Player, Position } from '../players/model.js';
 import type {
@@ -129,13 +130,15 @@ export function createInMemoryRepos(options: { players?: readonly Player[] } = {
   const waivers = new InMemoryWaiverRepository();
   const trades = new InMemoryTradeRepository();
   const history = new InMemoryHistoryRepository();
-  // Waiver claims, the wire, transactions, trades, and league history share the league partition
+  const notifications = new InMemoryNotificationRepository();
+  // Waiver claims, the wire, transactions, trades, league history, and notifications share the league partition
   // in DynamoDB, so deleting a league deletes them too.
   const leagueRepos = createInMemoryLeagueRepos({
     onDelete: (leagueId) => {
       waivers.dropLeague(leagueId);
       trades.dropLeague(leagueId);
       history.dropLeague(leagueId);
+      notifications.dropLeague(leagueId);
     }
   });
   return {
@@ -147,6 +150,7 @@ export function createInMemoryRepos(options: { players?: readonly Player[] } = {
     waivers,
     chat: new InMemoryChatRepository(),
     trades,
-    history
+    history,
+    notifications
   };
 }

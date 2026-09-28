@@ -281,7 +281,10 @@ describe('chat events Lambda', () => {
     vi.stubEnv('TABLE_NAME', 'T');
     const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
-      expect(await handler(bus('League Created', {}))).toEqual({ status: 'skipped', reason: 'no_template' });
+      expect(await handler(bus('League Created', {}))).toEqual({
+        chat: { status: 'skipped', reason: 'no_template' },
+        notifications: { status: 'skipped', reason: 'not_notifiable' }
+      });
     } finally {
       stdout.mockRestore();
       vi.unstubAllEnvs();

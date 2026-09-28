@@ -24,8 +24,10 @@ import {
   type Player,
   type Principal,
   type RecordedEvent,
+  type NotificationOutcome,
   type Services,
-  type SystemMessageOutcome
+  type SystemMessageOutcome,
+  writeNotifications
 } from '@fantasy/server';
 import { computeStandings, playoffBracket, systemMessageRoute, yahooDefaultSettings } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
@@ -42,8 +44,8 @@ import { LEAGUE_ID, SF_KICKOFF, START, setup, type Setup } from '../support.js';
  * The cross-stream event contract (issue #112). Each event is produced by its real emitter (an
  * operation, a job, or the emitter's exported detail builder), checked against its schema in
  * `EVENT_DETAIL_SCHEMAS`, and then fed, exactly as emitted, to every consumer: the chat system
- * messages (`postSystemMessage`), the realtime relay (`relayEvent`), and the agent router
- * (`routeEvent`). Consumer unit tests build details by hand; this suite is what catches an emitter
+ * messages (`postSystemMessage`), the notification inboxes (`writeNotifications`, #165), the
+ * realtime relay (`relayEvent`), and the agent router (`routeEvent`). Consumer unit tests build details by hand; this suite is what catches an emitter
  * and a consumer drifting apart.
  *
  * It lives in `agents` because only this package can see all three consumers (`agents` depends on
@@ -82,6 +84,7 @@ function delivered(e: { detailType: string; detail: EventDetail }, time?: string
 interface Consumed {
   event: BusEvent;
   chat: SystemMessageOutcome;
+  notifications: NotificationOutcome;
   relay: { topics: string[]; published: InMemoryRealtime['published'] };
   routed: RouteDecision[];
 }
@@ -97,12 +100,19 @@ async function consume(services: Services, event: BusEvent): Promise<Consumed> {
   ).toBeNull();
   const realtime = new InMemoryRealtime();
   const chat = await postSystemMessage(services, event);
+  const notifications = await writeNotifications(services, event);
   const relay = await relayEvent(realtime, silentLogger, event);
   const routed = await routeEvent(
     { services, kinds: allKinds, rosterIndex: leagueRosterIndex(services) },
     event
   );
-  return { event, chat, relay: { topics: relay.topics, published: realtime.published }, routed };
+  return {
+    event,
+    chat,
+    notifications,
+    relay: { topics: relay.topics, published: realtime.published },
+    routed
+  };
 }
 
 function last(events: readonly RecordedEvent[], detailType: string): RecordedEvent {
@@ -209,6 +219,10 @@ describe('event contract: waivers', () => {
       detail: { teamId: 'team-1', awarded: [{ player: wr9 }] }
     });
     expect(processed.routed).toEqual([]);
+    expect(processed.notifications).toMatchObject({
+      status: 'written',
+      notifications: [{ teamId: 'team-1', kind: 'waiver_won', body: 'Added to your roster: WR9 ($7).' }]
+    });
 
     // Agents react to the moment the announcement raised.
     const moment = await consume(s.services, delivered(last(s.events.events, 'Chat Moment')));
@@ -930,6 +944,8 @@ describe('event contract: trades', () => {
     expect(proposed.chat).toEqual({ status: 'skipped', reason: 'no_template' });
     expect(proposed.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
     expect(decisions(proposed)).toEqual([['team-2', 'trade_response', 'requested']]);
+    // The offer is to an AI manager: nobody's inbox.
+    expect(proposed.notifications).toEqual({ status: 'skipped', reason: 'nobody' });
 
     // The agent counters through its own tool; the person it goes back to is not an agent.
     const countered = await invokeTool({
@@ -949,6 +965,18 @@ describe('event contract: trades', () => {
     const counterEvent = await consume(s.services, delivered(last(s.events.events, 'Trade Countered')));
     expect(counterEvent.relay.topics).toEqual(teamTopics('team-2', 'team-1'));
     expect(counterEvent.routed).toEqual([]);
+    // The counter lands in the person's inbox, and its announcement reaches only their team topic.
+    expect(counterEvent.notifications).toMatchObject({
+      status: 'written',
+      notifications: [
+        { teamId: 'team-1', kind: 'trade_countered', target: { section: 'trades', tradeId: counter.id } }
+      ]
+    });
+    const inboxItem = await consume(s.services, delivered(last(s.events.events, 'Notification Created')));
+    expect(inboxItem.relay.topics).toEqual([`fantasy.team.${LEAGUE_ID}.team-1`]);
+    expect(inboxItem.chat).toMatchObject({ status: 'skipped' });
+    expect(inboxItem.notifications).toMatchObject({ status: 'skipped', reason: 'not_notifiable' });
+    expect(inboxItem.routed).toEqual([]);
 
     await run(
       s,
@@ -1128,6 +1156,7 @@ describe('event contract coverage', () => {
       'Agent Seat Changed',
       'Agent Budget Exceeded',
       'Chat Message Posted',
+      'Notification Created',
       'Scores Updated',
       'NFL Games Updated',
       'Week Official Final',

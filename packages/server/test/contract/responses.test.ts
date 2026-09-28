@@ -5,6 +5,7 @@ import { registry } from '../../src/operations/index.js';
 import { DRAFT_CASES, seedDraftContractLeague } from '../support/contract-draft.js';
 import { CHAT_CASES } from '../support/contract-chat.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
+import { NOTIFICATION_CASES, seedContractNotifications } from '../support/contract-notifications.js';
 import { seedContractTrades, TRADE_CASES } from '../support/contract-trades.js';
 import { seedContractWaivers, WAIVER_CASES } from '../support/contract-waivers.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
@@ -179,6 +180,7 @@ const CASES: Record<string, Case[]> = {
   ...WAIVER_CASES,
   ...TRADE_CASES,
   ...CHAT_CASES,
+  ...NOTIFICATION_CASES,
   configure_agent_seat: [
     {
       label: 'commissioner',
@@ -312,6 +314,7 @@ beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
   await seedReferenceData(h.services, h.repos);
   await seedContractLeagues(h.repos);
+  await seedContractNotifications(h.repos);
   await seedNflSchedule(h.services.data.reference);
   await seedSeasonLeague(
     { repos: h.repos, reference: h.services.data.reference },

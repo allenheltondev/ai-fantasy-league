@@ -60,7 +60,18 @@ export {
   type SystemMessageOutcome
 } from './chat/system-messages.js';
 export * from './realtime/realtime.js';
-export { relayEvent, RELAYED_EVENTS, TEAM_ONLY_EVENTS } from './realtime/relay.js';
+export { relayEvent, RELAYED_EVENTS, TEAM_INBOX_EVENTS, TEAM_ONLY_EVENTS } from './realtime/relay.js';
+export {
+  NOTIFICATION_EVENT_TYPES,
+  writeNotifications,
+  type NotificationOutcome
+} from './notifications/consumer.js';
+export {
+  NotificationSchema,
+  type Notification,
+  type NotificationRepository,
+  type StoredNotification
+} from './notifications/model.js';
 export type { BusEvent } from './events/bus.js';
 export * from './events/loop.js';
 export { serverSubscribers } from './events/subscribers.js';
