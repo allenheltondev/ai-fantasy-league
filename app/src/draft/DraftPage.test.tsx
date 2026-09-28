@@ -136,7 +136,9 @@ function fakeChat() {
       expiresAt: null,
       pollIntervalSeconds: 5
     })),
-    teams: vi.fn(async () => [])
+    teams: vi.fn(async () => [
+      { id: 'team-2', name: 'The Spreadsheet', ownerName: 'Sheets', avatarSeed: 'sheets', ai: true }
+    ])
   };
   return { chat, markRead, list };
 }
@@ -822,6 +824,10 @@ describe('DraftPage', () => {
     expect(screen.getByRole('heading', { name: 'Draft', level: 2 })).toBeInTheDocument();
     expect(list).toHaveBeenCalledWith('L1', expect.objectContaining({ roomId: 'draft' }));
     await waitFor(() => expect(markRead).toHaveBeenCalledWith('L1', 'draft'));
+    // Who you can talk to (#177): the @ button opens the AI managers.
+    await user.click(await screen.findByRole('button', { name: 'Mention someone' }));
+    await user.click(await screen.findByRole('option', { name: /Sheets, The Spreadsheet, AI manager/ }));
+    expect(screen.getByLabelText('Message')).toHaveValue('@Sheets ');
   });
 
   it('lets the commissioner pause the draft after a confirm, and resume it', async () => {
