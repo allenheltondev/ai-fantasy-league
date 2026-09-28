@@ -90,6 +90,21 @@ export const ScheduleSettingsSchema = z.strictObject({
 });
 export type ScheduleSettings = z.infer<typeof ScheduleSettingsSchema>;
 
+/** Seconds per pick on the draft clock by default: a Yahoo-style live draft. */
+export const DEFAULT_PICK_SECONDS = 90;
+export const MIN_PICK_SECONDS = 15;
+export const MAX_PICK_SECONDS = 24 * 60 * 60;
+
+export const DraftSettingsSchema = z.strictObject({
+  /** Seconds each team has to pick before autopick picks for it. */
+  pickSeconds: z.int().min(MIN_PICK_SECONDS).max(MAX_PICK_SECONDS)
+});
+export type DraftSettings = z.infer<typeof DraftSettingsSchema>;
+
+export function defaultDraftSettings(): DraftSettings {
+  return { pickSeconds: DEFAULT_PICK_SECONDS };
+}
+
 export const LeagueSettingsSchema = z.strictObject({
   teamCount: z.int().min(MIN_TEAMS).max(MAX_TEAMS),
   schedule: ScheduleSettingsSchema,
@@ -97,7 +112,9 @@ export const LeagueSettingsSchema = z.strictObject({
   scoring: ScoringSettingsSchema,
   waivers: WaiverSettingsSchema,
   trades: TradeSettingsSchema,
-  playoffs: PlayoffSettingsSchema
+  playoffs: PlayoffSettingsSchema,
+  /** Leagues stored before the pick clock was a setting read as the default. */
+  draft: DraftSettingsSchema.default(defaultDraftSettings)
 });
 export type LeagueSettings = z.infer<typeof LeagueSettingsSchema>;
 
@@ -148,7 +165,8 @@ export function yahooDefaultSettings(teamCount = 8, options: DefaultSettingsOpti
       offerExpiryHours: 48,
       expireAtNextLineupLock: true
     },
-    playoffs
+    playoffs,
+    draft: defaultDraftSettings()
   };
 }
 

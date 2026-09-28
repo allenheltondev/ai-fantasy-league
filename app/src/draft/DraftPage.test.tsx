@@ -1,0 +1,270 @@
+import { act, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, type ApiFetch, type ApiRequest } from '../api/client';
+import type { DraftBoard } from './board';
+import { formatClock, overallPick, secondsUntil } from './board';
+import { DraftPage } from './DraftPage';
+
+const NOW = Date.parse('2026-09-30T12:00:00.000Z');
+const ref = (id: string, name: string, position: string, team: string | null = 'SF') => ({
+  id,
+  name,
+  team,
+  position
+});
+
+function board(overrides: Partial<DraftBoard> = {}): DraftBoard {
+  return {
+    status: 'in_progress',
+    rounds: 2,
+    pickSeconds: 90,
+    startedAt: '2026-09-30T11:59:00.000Z',
+    completedAt: null,
+    order: [
+      { teamId: 'team-1', teamName: "Allen's Team", seatType: 'human' },
+      { teamId: 'team-2', teamName: 'The Spreadsheet', seatType: 'agent' }
+    ],
+    onTheClock: {
+      overall: 2,
+      round: 1,
+      pick: 2,
+      teamId: 'team-2',
+      teamName: 'The Spreadsheet',
+      deadline: '2026-09-30T12:01:05.000Z',
+      secondsLeft: 65
+    },
+    yourTeamId: 'team-1',
+    yourNextPick: { overall: 3, round: 2, pick: 1, picksAway: 1 },
+    yourNeeds: ['QB', 'K'],
+    picks: [
+      {
+        overall: 1,
+        round: 1,
+        pick: 1,
+        teamId: 'team-1',
+        player: ref('fx-cmc', 'Christian McCaffrey', 'RB'),
+        auto: true,
+        madeAt: null
+      }
+    ],
+    rosters: [
+      { teamId: 'team-1', teamName: "Allen's Team", players: [ref('fx-cmc', 'Christian McCaffrey', 'RB')] },
+      { teamId: 'team-2', teamName: 'The Spreadsheet', players: [] }
+    ],
+    bestAvailable: [
+      { player: ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN'), rank: 1 },
+      { player: ref('fx-def-nyj', 'NYJ Defense', 'DEF', null), rank: null }
+    ],
+    ...overrides
+  };
+}
+
+type Handler = (path: string, request: ApiRequest) => unknown;
+
+function fakeApi(handler: Handler) {
+  const calls: { path: string; request: ApiRequest }[] = [];
+  const api = (async (path: string, request: ApiRequest = {}) => {
+    calls.push({ path, request });
+    const data = handler(path, request);
+    if (data instanceof Error) throw data;
+    return { data, league: null, warnings: [] };
+  }) as ApiFetch;
+  return { api, calls };
+}
+
+function renderDraft(api: ApiFetch, pollMs = 60_000) {
+  let now = NOW;
+  const clock = { now: () => now, advance: (ms: number) => (now += ms) };
+  render(
+    <MemoryRouter initialEntries={['/leagues/L1/draft']}>
+      <Routes>
+        <Route
+          path="/leagues/:leagueId/draft"
+          element={<DraftPage api={api} pollMs={pollMs} now={clock.now} />}
+        />
+      </Routes>
+    </MemoryRouter>
+  );
+  return clock;
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('board helpers', () => {
+  it('snakes the grid, counts down, and formats the clock', () => {
+    expect([1, 2].map((r) => [0, 1, 2].map((i) => overallPick(r, i, 3)))).toEqual([
+      [1, 2, 3],
+      [6, 5, 4]
+    ]);
+    expect(secondsUntil('2026-09-30T12:00:10.500Z', NOW)).toBe(11);
+    expect(secondsUntil('2026-09-30T11:00:00.000Z', NOW)).toBe(0);
+    expect(formatClock(65)).toBe('1:05');
+    expect(formatClock(-3)).toBe('0:00');
+  });
+});
+
+describe('DraftPage', () => {
+  it('shows the grid, the clock, your next pick, and your roster while another team picks', async () => {
+    const { api, calls } = fakeApi(() => board());
+    renderDraft(api);
+    expect(await screen.findByText(/is on the clock: round 1, pick 2/)).toBeInTheDocument();
+    expect(screen.getByTestId('pick-clock')).toHaveTextContent('1:05');
+    expect(screen.getByText('Live')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-1')).toHaveTextContent('Christian McCaffrey (RB) · auto');
+    expect(screen.getByTestId('cell-2')).toHaveTextContent('On the clock');
+    expect(screen.getByTestId('cell-4')).toHaveTextContent('');
+    expect(screen.getByText(/Your next pick is #3, 1 pick\(s\) away/)).toBeInTheDocument();
+    expect(screen.getByText('Still to fill: QB, K')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('list', { name: 'Your roster' })).getByText(/McCaffrey/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/DEF · FA · rank —/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: "Draft Ja'Marr Chase" })).toBeDisabled();
+    expect(calls[0]).toEqual({
+      path: '/leagues/L1/draft',
+      request: { query: { q: undefined, position: undefined, limit: 25 } }
+    });
+  });
+
+  it('counts the clock down every second and polls the board', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { api, calls } = fakeApi(() => board());
+    const clock = renderDraft(api, 3000);
+    expect(await screen.findByTestId('pick-clock')).toHaveTextContent('1:05');
+    clock.advance(5000);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3100);
+    });
+    expect(screen.getByTestId('pick-clock')).toHaveTextContent('1:00');
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('lets you pick when you are on the clock, then refreshes', async () => {
+    const user = userEvent.setup();
+    let picked = false;
+    const mine = board({
+      onTheClock: {
+        overall: 3,
+        round: 2,
+        pick: 1,
+        teamId: 'team-1',
+        teamName: "Allen's Team",
+        deadline: null,
+        secondsLeft: 30
+      },
+      yourNextPick: { overall: 3, round: 2, pick: 1, picksAway: 0 }
+    });
+    const { api, calls } = fakeApi((path) => {
+      if (path.endsWith('/picks')) {
+        picked = true;
+        return { pick: { overall: 3 } };
+      }
+      return picked
+        ? board({ onTheClock: null, status: 'complete', yourNextPick: null, yourNeeds: [] })
+        : mine;
+    });
+    renderDraft(api);
+    expect(await screen.findByText(/You are on the clock!/)).toBeInTheDocument();
+    expect(screen.getByTestId('pick-clock')).toHaveTextContent('0:30');
+    await user.click(screen.getByRole('button', { name: "Draft Ja'Marr Chase" }));
+    expect(calls.find((c) => c.path.endsWith('/picks'))?.request).toEqual({
+      method: 'POST',
+      body: { playerId: 'fx-chase', pick: 3 }
+    });
+    expect(await screen.findByText(/The draft is complete/)).toBeInTheDocument();
+    expect(screen.getByText('Complete')).toBeInTheDocument();
+  });
+
+  it('shows why a pick was refused', async () => {
+    const user = userEvent.setup();
+    const mine = board({
+      onTheClock: {
+        overall: 3,
+        round: 2,
+        pick: 1,
+        teamId: 'team-1',
+        teamName: "Allen's Team",
+        deadline: '2026-09-30T12:01:00.000Z',
+        secondsLeft: 60
+      }
+    });
+    let attempts = 0;
+    const { api } = fakeApi((path) => {
+      if (!path.endsWith('/picks')) return mine;
+      attempts++;
+      return attempts === 1
+        ? new ApiError(409, { code: 'ROSTER_WOULD_BE_INVALID', message: 'Too many QBs.', fix: 'Draft a K.' })
+        : new TypeError('offline');
+    });
+    renderDraft(api);
+    await user.click(await screen.findByRole('button', { name: "Draft Ja'Marr Chase" }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many QBs. Draft a K.');
+    await user.click(screen.getByRole('button', { name: 'Draft NYJ Defense' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach the server.');
+  });
+
+  it('filters the best available by name and position', async () => {
+    const user = userEvent.setup();
+    const { api, calls } = fakeApi(() =>
+      board({ status: 'paused', onTheClock: { ...board().onTheClock!, deadline: null, secondsLeft: 40 } })
+    );
+    renderDraft(api);
+    expect(await screen.findByText('Paused')).toBeInTheDocument();
+    expect(screen.getByTestId('pick-clock')).toHaveTextContent('0:40');
+    await user.type(screen.getByLabelText('Search players'), 'chase');
+    await user.selectOptions(screen.getByLabelText('Position'), 'WR');
+    expect(calls.at(-1)?.request.query).toEqual({ q: 'chase', position: 'WR', limit: 25 });
+  });
+
+  it('shows a frozen clock with no time recorded as 0:00', async () => {
+    const manual = { ...board().picks[0]!, auto: false };
+    const { api } = fakeApi(() =>
+      board({
+        status: 'paused',
+        picks: [manual],
+        onTheClock: { ...board().onTheClock!, deadline: null, secondsLeft: null }
+      })
+    );
+    renderDraft(api);
+    expect(await screen.findByTestId('pick-clock')).toHaveTextContent('0:00');
+    expect(screen.getByTestId('cell-1')).toHaveTextContent(/^Christian McCaffrey \(RB\)$/);
+  });
+
+  it('explains a draft that has not started', async () => {
+    const notStarted = fakeApi(
+      () =>
+        new ApiError(409, {
+          code: 'DRAFT_NOT_STARTED',
+          message: 'Not yet.',
+          fix: 'Wait for the commissioner.'
+        })
+    );
+    renderDraft(notStarted.api);
+    expect(await screen.findByText('The draft has not started')).toBeInTheDocument();
+    expect(screen.getByText('Wait for the commissioner.')).toBeInTheDocument();
+  });
+
+  it('offers a retry when the board cannot load', async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    const { api } = fakeApi(() =>
+      fail ? new TypeError('offline') : board({ yourTeamId: null, yourNextPick: null, rosters: [] })
+    );
+    renderDraft(api);
+    expect(await screen.findByText('Could not reach the server.')).toBeInTheDocument();
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText(/is on the clock/)).toBeInTheDocument();
+    expect(screen.queryByText(/Your next pick/)).not.toBeInTheDocument();
+  });
+
+  it('shows a loading state first', () => {
+    const api = (() => new Promise(() => undefined)) as unknown as ApiFetch;
+    renderDraft(api);
+    expect(screen.getByText('Loading the draft board…')).toBeInTheDocument();
+  });
+});
