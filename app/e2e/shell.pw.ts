@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 test('a signed-out visitor to a deep link lands on the sign-in page', async ({ page }) => {
   await page.goto('/leagues/L1/draft');
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page).toHaveTitle('Fantasy');
+  await expect(page).toHaveTitle('AI Fantasy Football');
   await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();
   await expect(page.getByLabel(/email/i)).toBeVisible();
   await expect(page.getByTestId('auth-not-configured')).toHaveCount(0);
