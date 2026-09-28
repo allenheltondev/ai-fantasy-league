@@ -14,7 +14,10 @@ import { createCognitoVerifier, type TokenVerifier } from './auth/verifier.js';
 import type { Services } from './context.js';
 import { startLocalTable } from './dev/dynalite.js';
 import { seedDemoSeason } from './dev/season-demo.js';
+import { EventLoop, type EventSubscriber } from './events/loop.js';
 import { InMemoryEventPublisher } from './events/publisher.js';
+import { serverSubscribers } from './events/subscribers.js';
+import { seasonJobs } from './jobs/schedules.js';
 import { createApp } from './http/app.js';
 import { createLogger, parseLogLevel, type Logger } from './log.js';
 import { registry } from './operations/index.js';
@@ -29,12 +32,25 @@ export interface LocalServerOptions {
   env?: Record<string, string | undefined>;
   clock?: Clock;
   log?: Logger;
+  /**
+   * Deliver events in process (`EventLoop`): the draft pick clock, system chat messages, the season
+   * jobs on their cadences, and whatever `subscribers` adds (the agents package adds the agent
+   * router and task runner; see `packages/agents/src/dev.ts`). Off by default, so events are only
+   * recorded.
+   */
+  eventLoop?: {
+    subscribers?: (services: Services) => EventSubscriber[];
+    /** How often the loop checks for deferred events and job runs (default 1000 ms). */
+    pollMs?: number;
+  };
 }
 
 export interface LocalServer {
   url: string;
   services: Services;
   events: InMemoryEventPublisher;
+  /** The running event loop, when `eventLoop` was given. */
+  loop: EventLoop | null;
   close(): Promise<void>;
 }
 
@@ -82,6 +98,7 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
       { leagueId: 'demo-season', owner: { sub: `local-${demo}`, name: demo }, now: services.clock.now() }
     );
   }
+  const loop = options.eventLoop === undefined ? null : startEventLoop(services, events, options.eventLoop);
   const app = createApp({ registry, services, verifier: localVerifier(env) });
 
   const server = await new Promise<ReturnType<typeof serve>>((resolve) => {
@@ -94,11 +111,32 @@ export async function startLocalServer(options: LocalServerOptions = {}): Promis
     url: `http://127.0.0.1:${port}`,
     services,
     events,
+    loop,
     close: async () => {
+      await loop?.stop();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await table.close();
     }
   };
+}
+
+function startEventLoop(
+  services: Services,
+  events: InMemoryEventPublisher,
+  options: NonNullable<LocalServerOptions['eventLoop']>
+): EventLoop {
+  const loop = new EventLoop({
+    publisher: events,
+    clock: services.clock,
+    subscribers: [...serverSubscribers(services), ...(options.subscribers?.(services) ?? [])],
+    jobs: seasonJobs(
+      { repos: services.repos, reference: services.data.reference, events, log: services.log },
+      services.clock
+    ),
+    log: services.log
+  });
+  loop.start(options.pollMs ?? 1000);
+  return loop;
 }
 
 /* v8 ignore start -- process entrypoint */
