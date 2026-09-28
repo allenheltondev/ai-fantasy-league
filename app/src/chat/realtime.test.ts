@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createChatApi, mergeMessages, type ChatMessage, type RealtimeInfo } from './api';
+import { createChatApi, dmRoomId, mergeMessages, type ChatMessage, type RealtimeInfo } from './api';
 import { connectMomento, liveTarget, parseChatItem } from './realtime';
 
 vi.mock('@gomomento/sdk-web', () => {
@@ -61,7 +61,12 @@ describe('realtime helpers', () => {
       expiresAt: null,
       pollIntervalSeconds: 5
     };
-    expect(liveTarget(info)).toEqual({ token: 't', cacheName: 'c', topic: 'l' });
+    expect(liveTarget(info)).toEqual({ token: 't', cacheName: 'c', topics: ['l'] });
+    expect(liveTarget({ ...info, topics: { league: 'l', global: 'g', team: 'tm' } })).toEqual({
+      token: 't',
+      cacheName: 'c',
+      topics: ['l', 'tm']
+    });
     expect(liveTarget({ ...info, enabled: false })).toBeNull();
     expect(liveTarget({ ...info, token: null })).toBeNull();
     expect(liveTarget({ ...info, cacheName: null })).toBeNull();
@@ -78,7 +83,7 @@ describe('realtime helpers', () => {
     };
     const onChat = vi.fn();
     const onError = vi.fn();
-    const close = await connectMomento({ token: 't', cacheName: 'c', topic: 'l' }, { onChat, onError });
+    const close = await connectMomento({ token: 't', cacheName: 'c', topics: ['l'] }, { onChat, onError });
     sdk.__state.options.onItem({ valueString: () => JSON.stringify({ type: 'chat', message }) });
     sdk.__state.options.onItem({ valueString: () => '{}' });
     sdk.__state.options.onError();
@@ -88,8 +93,16 @@ describe('realtime helpers', () => {
     expect(sdk.__state.last.unsubscribe).toHaveBeenCalled();
     sdk.__mode('fail');
     await expect(
-      connectMomento({ token: 't', cacheName: 'c', topic: 'l' }, { onChat, onError })
+      connectMomento({ token: 't', cacheName: 'c', topics: ['l', 'tm'] }, { onChat, onError })
     ).rejects.toThrow(/Could not subscribe/);
+    sdk.__mode('ok');
+    // Two topics: one close unsubscribes both.
+    const both = await connectMomento(
+      { token: 't', cacheName: 'c', topics: ['l', 'tm'] },
+      { onChat, onError }
+    );
+    both();
+    expect(sdk.__state.last.unsubscribe).toHaveBeenCalled();
   });
 });
 
@@ -107,6 +120,9 @@ describe('chat api', () => {
       if (path.endsWith('/chat/messages'))
         return { data: { messages: [message], nextCursor: null }, league: null, warnings: [] };
       if (path.endsWith('/realtime')) return { data: { enabled: false }, league: null, warnings: [] };
+      if (path.endsWith('/chat/rooms'))
+        return { data: { defaultRoomId: 'trash-talk', rooms: [] }, league: null, warnings: [] };
+      if (path.endsWith('/read')) return { data: {}, league: null, warnings: [] };
       return {
         data: { teams: [{ id: 'team-1', name: 'A', ownerName: null, extra: true }] },
         league: null,
@@ -119,8 +135,25 @@ describe('chat api', () => {
     expect(await api.post('L1', 'hi')).toEqual(message);
     expect(await api.realtime('L1')).toEqual({ enabled: false });
     expect(await api.teams('L1')).toEqual([{ id: 'team-1', name: 'A', ownerName: null }]);
-    expect(calls[0]).toEqual(['/leagues/L%201/chat/messages', { query: { limit: 5, after: undefined } }]);
+    expect(calls[0]).toEqual([
+      '/leagues/L%201/chat/messages',
+      { query: { limit: 5, after: undefined, roomId: undefined } }
+    ]);
     expect(calls[2]).toEqual(['/leagues/L1/chat/messages', { method: 'POST', body: { text: 'hi' } }]);
+    expect(await api.post('L1', 'psst', 'dm-team-1-team-2')).toEqual(message);
+    expect(calls.at(-1)).toEqual([
+      '/leagues/L1/chat/messages',
+      { method: 'POST', body: { text: 'psst', roomId: 'dm-team-1-team-2' } }
+    ]);
+    expect(await api.rooms('L1', { pastWeek: 3 })).toEqual({ defaultRoomId: 'trash-talk', rooms: [] });
+    expect(calls.at(-1)).toEqual(['/leagues/L1/chat/rooms', { query: { pastWeek: 3 } }]);
+    await api.rooms('L1');
+    await api.markRead('L1', 'm-2026-W05-W05-1');
+    expect(calls.at(-1)).toEqual([
+      '/leagues/L1/chat/rooms/m-2026-W05-W05-1/read',
+      { method: 'POST', body: {} }
+    ]);
+    expect(dmRoomId('team-2', 'team-10')).toBe('dm-team-10-team-2');
   });
 
   it('merges messages by id in time order', () => {

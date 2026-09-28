@@ -20,6 +20,8 @@ export const NOTIFY_EVENTS = [
 export interface Notification {
   message: string;
   variant: ToastVariant;
+  /** Chat: the room the message is in, so the toast can open it. */
+  roomId?: string;
 }
 
 interface Named {
@@ -90,12 +92,15 @@ function trade(type: string, detail: Record<string, unknown>, you: string): Noti
 
 function mention(detail: Record<string, unknown>, you: string): Notification | null {
   const message = detail.message as ChatMessage | undefined;
-  if (!Array.isArray(message?.mentionedTeamIds) || !message.mentionedTeamIds.includes(you)) return null;
-  if (message.author?.teamId === you) return null;
-  return {
-    message: `${message.author?.name ?? 'Someone'} mentioned you: “${clip(message.text)}”`,
-    variant: 'info'
-  };
+  if (message === undefined || message.author?.teamId === you) return null;
+  const roomId = message.roomId ?? 'trash-talk';
+  const who = message.author?.name ?? 'Someone';
+  // A DM reaches only its two teams' topics: any DM you receive is addressed to you.
+  if (roomId.startsWith('dm-')) {
+    return { message: `${who} sent you a message: “${clip(message.text)}”`, variant: 'info', roomId };
+  }
+  if (!Array.isArray(message.mentionedTeamIds) || !message.mentionedTeamIds.includes(you)) return null;
+  return { message: `${who} mentioned you: “${clip(message.text)}”`, variant: 'info', roomId };
 }
 
 /** The toast for a live event, or null when it isn't news to you (or you have no team). */

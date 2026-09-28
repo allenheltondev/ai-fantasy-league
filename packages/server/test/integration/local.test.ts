@@ -111,6 +111,13 @@ describe('local dev server', () => {
       expect(body.data.players).toHaveLength(13);
       const league = await local.services.repos.leagues.get('demo-season');
       expect(league).toMatchObject({ phase: 'regular_season', week: 1, commissionerId: 'local-coach' });
+      const draftRoom = await fetch(`${local.url}/api/v1/leagues/demo-season/chat/messages?roomId=draft`, {
+        headers: { authorization: 'Bearer dev:coach' }
+      });
+      const draft = (await draftRoom.json()) as { data: { messages: { kind: string; text: string }[] } };
+      expect(draft.data.messages).toEqual([
+        expect.objectContaining({ kind: 'system', text: 'The draft is complete. Good luck this season!' })
+      ]);
       // Seeding again leaves the stored league alone.
       const { seedDemoSeason } = await import('../../src/dev/season-demo.js');
       const again = await seedDemoSeason(

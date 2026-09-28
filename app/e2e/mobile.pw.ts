@@ -372,6 +372,19 @@ for (const viewport of VIEWPORTS) {
       await page.goto('/leagues/demo-season/chat');
       await expect(page.getByLabel('Chat messages')).toBeVisible();
       await expectFits(page, 'chat');
+      // Chat rooms (#144): the room sheet, a room with an announcement, and a new DM.
+      await page.getByRole('button', { name: /Chat room: Trash Talk/ }).tap();
+      const sheet = page.getByRole('dialog');
+      await expect(sheet.getByRole('heading', { name: 'Direct messages' })).toBeVisible();
+      await expectFits(page, 'chat: room sheet');
+      await sheet.getByRole('button', { name: '+ New message' }).tap();
+      await expectFits(page, 'chat: room sheet, new message');
+      await sheet.getByRole('button', { name: /^# Draft/ }).tap();
+      await expect(page.getByRole('article', { name: 'League announcement: Draft Completed' })).toBeVisible();
+      await expectFits(page, 'chat: #Draft');
+      await page.goto('/leagues/demo-season/chat?room=dm-team-1-team-2');
+      await expect(page.getByRole('heading', { name: 'Team 2', level: 2 })).toBeVisible();
+      await expectFits(page, 'chat: DM');
 
       // The section nav is one row that scrolls sideways: Settings, off to the right, is a tap away.
       const sections = page.getByRole('navigation', { name: 'League sections' });

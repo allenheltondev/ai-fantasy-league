@@ -114,6 +114,26 @@ function stubChatApi(page: Page) {
         }
         return json(route, { messages: [...messages].reverse(), nextCursor: null });
       });
+      await page.route('**/api/v1/leagues/L1/chat/rooms**', (route) =>
+        route.request().method() === 'POST'
+          ? json(route, { roomId: 'trash-talk', lastReadAt: new Date(clock).toISOString() })
+          : json(route, {
+              defaultRoomId: 'trash-talk',
+              postingBudget: null,
+              rooms: [
+                {
+                  roomId: 'trash-talk',
+                  kind: 'fixed',
+                  title: 'Trash Talk',
+                  archived: false,
+                  week: null,
+                  teamIds: [],
+                  lastMessageAt: null,
+                  unreadCount: 0
+                }
+              ]
+            })
+      );
       await page.route('**/api/v1/leagues/L1', (route) => json(route, { id: 'L1', teams: TEAMS }));
       await page.route('**/api/v1/leagues/L1/state', (route) =>
         json(route, {
