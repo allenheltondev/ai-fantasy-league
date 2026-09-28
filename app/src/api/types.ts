@@ -244,6 +244,41 @@ export interface MatchupData {
   lineups: { home: MatchupLineup; away: MatchupLineup } | null;
 }
 
+/** One NFL game as it stands (get_nfl_games, #132). Team codes are Sleeper's (`WAS`, `LAR`). */
+export interface NflGame {
+  gameId: string | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  kickoff: string | null;
+  state: 'pre' | 'in' | 'post';
+  status: string | null;
+  period: number | null;
+  clock: string | null;
+  possessionTeam: string | null;
+  isRedZone: boolean;
+  downDistance: string | null;
+  fieldPosition: string | null;
+  yardsToGoal: number | null;
+}
+
+/** A team with the ball inside the opponent's 20. */
+export interface RedZoneTeam {
+  team: string;
+  downDistance: string | null;
+  fieldPosition: string | null;
+}
+
+/** get_nfl_games (#132): the week's NFL games and the teams in the red zone. */
+export interface NflGamesData {
+  season: number;
+  week: number;
+  games: NflGame[];
+  redZone: RedZoneTeam[];
+  updatedAt: string | null;
+}
+
 export interface OutlookSide {
   teamId: string;
   teamName: string;

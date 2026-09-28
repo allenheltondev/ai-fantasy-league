@@ -1,6 +1,7 @@
 import type { IdCrosswalk } from './nflverse/crosswalk.js';
 import type {
   ByeWeeks,
+  LiveGame,
   NflState,
   Player,
   ProjectionLine,
@@ -45,4 +46,16 @@ export interface DataProvider {
     asOf: Date,
     crosswalk?: IdCrosswalk
   ): Promise<StatLine[]>;
+  /**
+   * The week's games as they stand: scores, status, and for live games possession, down and
+   * distance, and the red zone. Only a live source has it: historical providers leave it out, and
+   * callers skip the feature. `games` is the week's schedule when the caller already has it (each
+   * game is matched to ours by teams); without it the provider reads its own schedule.
+   */
+  getLiveGames?(
+    season: number,
+    week: number,
+    asOf: Date,
+    games?: readonly ScheduledGame[]
+  ): Promise<LiveGame[]>;
 }

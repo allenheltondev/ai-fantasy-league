@@ -1,3 +1,5 @@
+import type { EspnClient } from '../espn/client.js';
+import { normalizeScoreboard } from '../espn/normalize.js';
 import type { NflverseClient } from '../nflverse/client.js';
 import {
   applyCrosswalk,
@@ -17,6 +19,7 @@ import {
 } from '../sleeper/normalize.js';
 import type {
   ByeWeeks,
+  LiveGame,
   NflState,
   Player,
   ProjectionLine,
@@ -29,6 +32,8 @@ import type {
 export interface LiveProviderOptions {
   sleeper: SleeperClient;
   nflverse: NflverseClient;
+  /** ESPN's scoreboard, for live games (scores, possession, red zone). Without it `getLiveGames` returns []. */
+  espn?: EspnClient;
   /** Fill missing/incorrect `gsisId`s from the dynastyprocess ID map (one ~2.6 MB fetch). Default true. */
   crosswalk?: boolean;
   /** Receives the crosswalk report on each `getPlayers` call (for logging and alerting). */
@@ -37,7 +42,7 @@ export interface LiveProviderOptions {
 
 /**
  * Live data: Sleeper for players, state, stats, projections, and trending; nflverse for the
- * schedule and ID map. A live source cannot serve the past, so `asOf` is accepted for interface
+ * schedule and ID map; ESPN's scoreboard for live games. A live source cannot serve the past, so `asOf` is accepted for interface
  * parity and ignored: it always returns the latest data (which never includes the future).
  * Schedules are cached per season for the provider's lifetime.
  */
@@ -120,5 +125,24 @@ export class LiveDataProvider implements DataProvider {
 
   async getByeWeeks(season: number, asOf: Date): Promise<ByeWeeks> {
     return computeByeWeeks(await this.getSchedule(season, asOf));
+  }
+
+  /** ESPN's scoreboard for the week, matched to our schedule's games. */
+  async getLiveGames(
+    season: number,
+    week: number,
+    asOf: Date,
+    games?: readonly ScheduledGame[]
+  ): Promise<LiveGame[]> {
+    const espn = this.#options.espn;
+    if (espn === undefined) return [];
+    const [board, schedule] = await Promise.all([
+      espn.scoreboard(season, week),
+      games ??
+        this.getSchedule(season, asOf).then((all) =>
+          all.filter((g) => g.week === week && g.seasonType === 'regular')
+        )
+    ]);
+    return normalizeScoreboard(board, { games: schedule, asOf });
   }
 }

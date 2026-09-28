@@ -8,7 +8,7 @@
  */
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { systemClock, type Clock } from '@fantasy/core';
-import { LiveDataProvider, NflverseClient, SleeperClient } from '@fantasy/data';
+import { EspnClient, LiveDataProvider, NflverseClient, SleeperClient } from '@fantasy/data';
 import { EventBridgePublisher } from '../events/eventbridge.js';
 import { createLogger } from '../log.js';
 import { PlayerDirectory } from '../players/directory.js';
@@ -33,6 +33,7 @@ export function createJobDeps(env: Record<string, string | undefined>, clock: Cl
   const provider = new LiveDataProvider({
     sleeper: new SleeperClient({ clock, ...(config.sleeperBaseUrl && { baseUrl: config.sleeperBaseUrl }) }),
     nflverse: new NflverseClient(),
+    espn: new EspnClient(),
     onCrosswalkReport: (report) => log.info('crosswalk report', { report })
   });
   return {
