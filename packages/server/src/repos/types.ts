@@ -186,9 +186,20 @@ export interface Team {
   waiverPriority: number;
   /** Player ids. Empty until the draft. */
   roster: string[];
+  /**
+   * When the seat's current occupant (its owner, or the agent playing it) took it (#144): a new
+   * occupant reads none of the team's direct messages from before. Absent on teams stored before
+   * it was recorded, where `seatTenureStart` falls back to `createdAt`.
+   */
+  occupiedSince?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
+}
+
+/** When the team's current occupant took the seat. */
+export function seatTenureStart(team: Pick<Team, 'occupiedSince' | 'createdAt'>): string {
+  return team.occupiedSince ?? team.createdAt;
 }
 
 export interface TeamRepository {

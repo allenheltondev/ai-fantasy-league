@@ -2,7 +2,13 @@ import { DEFAULT_ROOM_ID } from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
 import { UNREAD_CAP } from '../../chat/model.js';
-import { ChatRoomSchema, resolveRoom, RoomIdSchema, visibleRooms } from '../../chat/rooms.js';
+import {
+  ChatRoomSchema,
+  resolveRoom,
+  roomVisibleFrom,
+  RoomIdSchema,
+  visibleRooms
+} from '../../chat/rooms.js';
 import { requireMember } from '../../league/access.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
@@ -14,7 +20,7 @@ export const listChatRooms = defineOperation({
   summary: 'List the chat rooms you can read, with unread counts',
   description: [
     'Returns every chat room you can read, each with its `title`, `kind`, `lastMessageAt`, and `unreadCount` (messages since you last marked it read with mark_room_read, at most 100).',
-    'Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week and of last week until it is official (`kind: matchup`); and your direct messages with other teams (`kind: dm`, listed once either side has posted).',
+    'Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week and of last week until it is official (`kind: matchup`); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat).',
     'Past weeks’ matchup rooms are archived (read-only): pass `pastWeek` to list that week’s.',
     'Read a room with get_chat and post with post_message, both with its `roomId`.',
     'Errors: FORBIDDEN if you are not in the league.'
@@ -57,12 +63,21 @@ export const listChatRooms = defineOperation({
     );
     const read = await ctx.repos.chat.readState(access.league.id, principalKey(ctx.principal));
     const summaries = await Promise.all(
-      rooms.map((room) => ctx.repos.chat.summary(access.league.id, room.roomId, read[room.roomId] ?? null))
+      rooms.map((room) =>
+        ctx.repos.chat.summary(
+          access.league.id,
+          room.roomId,
+          read[room.roomId] ?? null,
+          roomVisibleFrom(access, room)
+        )
+      )
     );
-    return {
-      defaultRoomId: DEFAULT_ROOM_ID,
-      rooms: rooms.map((room, i) => ({ ...room, ...(summaries[i] as (typeof summaries)[number]) }))
-    };
+    // A DM with nothing from your time on the seat is not yours to list: it was the previous
+    // occupant's.
+    const listed = rooms
+      .map((room, i) => ({ ...room, ...(summaries[i] as (typeof summaries)[number]) }))
+      .filter((room) => room.kind !== 'dm' || room.lastMessageAt !== null);
+    return { defaultRoomId: DEFAULT_ROOM_ID, rooms: listed };
   }
 });
 

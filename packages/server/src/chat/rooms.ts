@@ -14,7 +14,7 @@ import type { Ctx } from '../context.js';
 import { ApiError } from '../errors.js';
 import type { LeagueAccess } from '../league/access.js';
 import { actorTeam } from '../league/phase.js';
-import type { Matchup } from '../repos/types.js';
+import { seatTenureStart, type Matchup } from '../repos/types.js';
 
 /**
  * Chat rooms as a caller sees them (issue #144): which rooms exist in a league, who may read and
@@ -52,6 +52,20 @@ export type ChatRoom = z.infer<typeof ChatRoomSchema>;
 export interface ResolvedRoom {
   room: ChatRoom;
   parsed: ParsedRoom;
+  /** The oldest message time the caller may read here (`roomVisibleFrom`); null for everything. */
+  visibleFrom: string | null;
+}
+
+/**
+ * A DM belongs to the people who wrote it, not to the seat: whoever plays a team now (its owner, or
+ * the agent) reads only the team's DM messages created since they took the seat (`occupiedSince`).
+ * The other team, which never changed hands, still reads its whole history. Other rooms have no
+ * floor.
+ */
+export function roomVisibleFrom(access: LeagueAccess, room: Pick<ChatRoom, 'kind'>): string | null {
+  if (room.kind !== 'dm') return null;
+  const team = actorTeam(access.actor);
+  return team === null ? null : seatTenureStart(team);
 }
 
 function roomNotFound(roomId: string, fix?: string): ApiError {
@@ -116,7 +130,7 @@ export async function resolveRoom(ctx: Ctx, access: LeagueAccess, roomId: string
   switch (parsed.kind) {
     case 'fixed': {
       const fixed = FIXED_ROOMS.find((r) => r.id === parsed.id) as (typeof FIXED_ROOMS)[number];
-      return { parsed, room: fixedRoom(fixed.id, fixed.title) };
+      return { parsed, room: fixedRoom(fixed.id, fixed.title), visibleFrom: null };
     }
     case 'matchup': {
       const { league } = access;
@@ -132,7 +146,11 @@ export async function resolveRoom(ctx: Ctx, access: LeagueAccess, roomId: string
           'Matchup rooms exist for this season’s weeks up to the current one. Call list_chat_rooms for this week’s matchup rooms.'
         );
       }
-      return { parsed, room: matchupRoom(access, matchup, await weekArchived(ctx, access, parsed.week)) };
+      return {
+        parsed,
+        room: matchupRoom(access, matchup, await weekArchived(ctx, access, parsed.week)),
+        visibleFrom: null
+      };
     }
     case 'dm': {
       const mine = actorTeam(access.actor)?.id ?? null;
@@ -144,7 +162,8 @@ export async function resolveRoom(ctx: Ctx, access: LeagueAccess, roomId: string
               : `Use your own DM rooms from list_chat_rooms, or start one by posting to "dm-" plus your team id and the other team's id, sorted and joined with "-".`
         });
       }
-      return { parsed, room: dmRoom(access, parsed.teamIds, mine) };
+      const room = dmRoom(access, parsed.teamIds, mine);
+      return { parsed, room, visibleFrom: roomVisibleFrom(access, room) };
     }
   }
 }

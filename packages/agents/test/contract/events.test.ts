@@ -819,6 +819,10 @@ describe('event contract: the scheduled draft', () => {
           base.services,
           delivered(last(base.events.events, 'Draft Starting Soon'))
         );
+        outcomes.soonPosted = await consume(
+          base.services,
+          delivered(last(base.events.events, 'Chat Message Posted'))
+        );
 
         await base.run('set_seat_type', { leagueId: base.leagueId, teamId: 'team-2', seatType: 'human' });
         base.clock.set(scheduledAt);
@@ -832,6 +836,18 @@ describe('event contract: the scheduled draft', () => {
     });
     const soon = outcomes.soon!;
     expect(posted(soon).text).toBe('The draft starts in 10 minutes. Set your queue in the draft room!');
+    // Announced in #draft (#144), and pushed live like any league-room message.
+    expect(posted(soon).roomId).toBe('draft');
+    expect(outcomes.soonPosted!.event.detail).toMatchObject({ roomId: 'draft', teamIds: null });
+    expect(outcomes.soonPosted!.relay.published).toEqual([
+      {
+        topic: expect.stringMatching(/^fantasy\.league\./),
+        message: expect.objectContaining({
+          type: 'chat',
+          message: expect.objectContaining({ roomId: 'draft' })
+        })
+      }
+    ]);
     expect(soon.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
     expect(soon.routed).toEqual([]);
     const blocked = outcomes.blocked!;
@@ -840,6 +856,7 @@ describe('event contract: the scheduled draft', () => {
     );
     expect(blocked.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
     expect(blocked.routed).toEqual([]);
+    expect(posted(blocked).roomId).toBe('draft');
   });
 });
 

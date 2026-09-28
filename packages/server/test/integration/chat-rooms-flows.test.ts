@@ -11,7 +11,7 @@ import type { Matchup } from '../../src/repos/types.js';
 import { invokeTool } from '../../src/registry/invoke.js';
 import { createHarness, type Harness } from '../support/harness.js';
 import { as, data, errorCode } from '../support/league-client.js';
-import { ALICE, BOB, CAROL, seedLeague } from '../support/leagues.js';
+import { ALICE, BOB, CAROL, seedInvite, seedLeague, token } from '../support/leagues.js';
 
 const LG = 'lg-rooms';
 const L = `/leagues/${LG}`;
@@ -379,6 +379,108 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(
         (await as(h, CAROL).post(`${L}/chat/messages`, { roomId: 'league', text: 'me too' })).status
       ).toBe(200);
+    });
+  });
+
+  describe(`DMs across a seat changing hands (${backend})`, () => {
+    const SEAT = 'lg-seat';
+    const S = `/leagues/${SEAT}`;
+    const DAVE = { sub: 'dave', name: 'Dave', email: 'dave@example.com' };
+    let h: Harness;
+    let keys = 0;
+    const asAgent = (teamId: string, name: string, args: Record<string, unknown>) =>
+      invokeTool({
+        registry,
+        services: h.services,
+        principal: agentPrincipal({ agentId: `${SEAT}.${teamId}`, teamId, leagueId: SEAT }),
+        name,
+        args: {
+          leagueId: SEAT,
+          ...args,
+          ...(name === 'post_message' ? { idempotencyKey: `seat-tool-${++keys}` } : {})
+        }
+      });
+    const texts = (page: Page) => page.messages.map((m) => m.text);
+    const dms = (rooms: Rooms) => rooms.rooms.filter((r) => r.kind === 'dm');
+
+    beforeEach(async () => {
+      h = await createHarness({ backend });
+      // Setup phase (people join and leave then): team-1 Alice, team-2 Bob, team-3 agent, team-4 Carol.
+      await seedLeague(h.repos, { id: SEAT, owners: [ALICE, BOB, null, CAROL], teamCount: 4 });
+    });
+    afterEach(() => h.close());
+
+    it('a person who leaves takes their DMs along: the agent that takes the seat reads only its own', async () => {
+      const bob = as(h, BOB);
+      const DM4 = 'dm-team-2-team-4';
+      await as(h, CAROL).post(`${S}/chat/messages`, { roomId: DM4, text: 'Carol: my secret trade plan' });
+      h.clock.advance(1000);
+      expect((await as(h, CAROL).post(`${S}/leave`)).status).toBe(200);
+      h.clock.advance(1000);
+
+      // The agent now playing team-4 sees nothing from Carol's time, and no DM listed.
+      const empty = (await asAgent('team-4', 'get_chat', { roomId: DM4 })).body as { data: Page };
+      expect(empty.data).toEqual({ messages: [], nextCursor: null });
+      const before = (await asAgent('team-4', 'list_chat_rooms', {})).body as { data: Rooms };
+      expect(dms(before.data)).toEqual([]);
+      // Bob's side never changed hands: he keeps the whole conversation.
+      expect(texts(data<Page>(await bob.get(`${S}/chat/messages?roomId=${DM4}`)))).toEqual([
+        'Carol: my secret trade plan'
+      ]);
+      expect(dms(data<Rooms>(await bob.get(`${S}/chat/rooms`))).map((r) => r.roomId)).toEqual([DM4]);
+
+      // New messages reach the agent, counted as unread; the old one never does.
+      await bob.post(`${S}/chat/messages`, { roomId: DM4, text: 'Bob: hello, new manager' });
+      const read = (await asAgent('team-4', 'get_chat', { roomId: DM4, detail: false })).body as {
+        data: Page;
+      };
+      expect(texts(read.data)).toEqual(['Bob: hello, new manager']);
+      const after = (await asAgent('team-4', 'list_chat_rooms', {})).body as { data: Rooms };
+      expect(dms(after.data)).toEqual([
+        expect.objectContaining({ roomId: DM4, unreadCount: 1, lastMessageAt: h.clock.now().toISOString() })
+      ]);
+      // Catching up from before the takeover still stops at it.
+      const caughtUp = (await asAgent('team-4', 'get_chat', { roomId: DM4, since: '2026-01-01T00:00:00Z' }))
+        .body as { data: Page };
+      expect(texts(caughtUp.data)).toEqual(['Bob: hello, new manager']);
+    });
+
+    it('a person who takes over an agent seat reads none of the agent’s earlier DMs', async () => {
+      const bob = as(h, BOB);
+      const DM3 = 'dm-team-2-team-3';
+      await bob.post(`${S}/chat/messages`, { roomId: DM3, text: 'Bob: psst, agent' });
+      h.clock.advance(1000);
+      await asAgent('team-3', 'post_message', { roomId: DM3, text: 'Agent: my kicker is yours for a price' });
+      h.clock.advance(1000);
+      // Dave joins and takes team-3, the first agent seat.
+      await seedInvite(h.repos, SEAT, token('seat'));
+      const joined = await as(h, DAVE).post(`/invites/${token('seat')}/join`, { teamName: 'Dave Squad' });
+      expect(data<{ team: { id: string } }>(joined).team.id).toBe('team-3');
+      h.clock.advance(1000);
+
+      const dave = as(h, DAVE);
+      expect(data<Page>(await dave.get(`${S}/chat/messages?roomId=${DM3}`))).toEqual({
+        messages: [],
+        nextCursor: null
+      });
+      expect(dms(data<Rooms>(await dave.get(`${S}/chat/rooms`)))).toEqual([]);
+      expect(texts(data<Page>(await bob.get(`${S}/chat/messages?roomId=${DM3}`)))).toEqual([
+        'Agent: my kicker is yours for a price',
+        'Bob: psst, agent'
+      ]);
+
+      await bob.post(`${S}/chat/messages`, { roomId: DM3, text: 'Bob: welcome, Dave' });
+      expect(texts(data<Page>(await dave.get(`${S}/chat/messages?roomId=${DM3}`)))).toEqual([
+        'Bob: welcome, Dave'
+      ]);
+      expect(dms(data<Rooms>(await dave.get(`${S}/chat/rooms`)))).toEqual([
+        expect.objectContaining({ roomId: DM3, title: "Bob's Team", unreadCount: 1 })
+      ]);
+      // Reading it clears the count without bringing back anything older.
+      await dave.post(`${S}/chat/rooms/${DM3}/read`);
+      expect(dms(data<Rooms>(await dave.get(`${S}/chat/rooms`)))).toEqual([
+        expect.objectContaining({ roomId: DM3, unreadCount: 0, lastMessageAt: expect.any(String) })
+      ]);
     });
   });
 }
