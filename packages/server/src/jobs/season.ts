@@ -8,10 +8,12 @@ import { listInSeason, weekGames } from '../season/lineups.js';
 import { scoreLine, updateMatchupScores } from '../season/scoring.js';
 import type { JobDeps, JobResult } from './deps.js';
 import { settle, skipped } from './deps.js';
+import { refreshNflGames, type NflWeekTarget } from './nfl-games.js';
 import { inUniverse, sameLine, universeIds } from './ingest-stats.js';
 import { STATS_GAME_DURATION_MS } from '../season/window.js';
 
 type SeasonJobDeps = Pick<JobDeps, 'repos' | 'reference' | 'events' | 'log'>;
+type LiveJobDeps = SeasonJobDeps & Partial<Pick<JobDeps, 'provider'>>;
 
 /** One read of a week's games per season and week, shared by every league in the run. */
 function gamesCache(deps: SeasonJobDeps) {
@@ -35,12 +37,17 @@ function gamesCache(deps: SeasonJobDeps) {
  * logged and does not stop the others; once all are done the job fails (`settle`), so Lambda
  * retries it (rescoring is idempotent) and the failure is emailed. A league that stays broken
  * therefore sends one failure email per two-minute run during game windows.
+ *
+ * Each run also refreshes the week's NFL games from ESPN (`refreshNflGames`: scores, possession,
+ * the red zone), once per season and week, not per league. That is best effort: it logs a warning
+ * on failure and never fails the job.
  */
-export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
+export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
   const leagues = await listInSeason(deps.repos);
   if (leagues.length === 0) return skipped('no_leagues_in_season');
   const games = gamesCache(deps);
+  const weeks = new Map<string, NflWeekTarget>();
   let live = 0;
   let updated = 0;
   let failed = 0;
@@ -49,7 +56,14 @@ export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<
     const week = league.week;
     try {
       const weekGames = await games(league.season, week);
-      if (!isInGameWindow(now, weekGames, { gameDurationMs: STATS_GAME_DURATION_MS })) continue;
+      const inWindow = isInGameWindow(now, weekGames, { gameDurationMs: STATS_GAME_DURATION_MS });
+      weeks.set(`${league.season}:${week}`, {
+        season: league.season,
+        week,
+        games: weekGames,
+        live: inWindow
+      });
+      if (!inWindow) continue;
       live++;
       if (await scoreLeague(deps, league, week, now)) updated++;
     } catch (error) {
@@ -57,14 +71,26 @@ export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<
       deps.log.error('could not score league', { leagueId: league.id, week, error });
     }
   }
+  const nflGames: Record<string, number> = {};
+  for (const target of weeks.values()) {
+    const outcome = await refreshNflGames(deps, target, now);
+    nflGames[outcome] = (nflGames[outcome] ?? 0) + 1;
+  }
   if (live === 0) {
     return settle(
       deps.log,
       'scoreLiveWeek',
-      skipped('outside_game_window', { leagues: leagues.length, ...(failed > 0 ? { failed } : {}) })
+      skipped('outside_game_window', { leagues: leagues.length, nflGames, ...(failed > 0 ? { failed } : {}) })
     );
   }
-  return settle(deps.log, 'scoreLiveWeek', { status: 'ok', leagues: leagues.length, live, updated, failed });
+  return settle(deps.log, 'scoreLiveWeek', {
+    status: 'ok',
+    leagues: leagues.length,
+    live,
+    updated,
+    nflGames,
+    failed
+  });
 }
 
 /** Rescores one league's week; emits `Scores Updated` and returns true when a score changed. */

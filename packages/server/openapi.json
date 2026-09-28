@@ -6591,7 +6591,7 @@
       "get": {
         "operationId": "get_draft_board",
         "summary": "See the draft: order, picks, who is on the clock, rosters, and the best available players",
-        "description": "Read this before every pick. `onTheClock` is the team picking now and its deadline (autopick picks when it passes); `yourNextPick.picksAway` is 0 when it is your turn. `yourNeeds` lists your empty starting slots: your remaining picks must fill them, so a pick that makes that impossible is refused. `bestAvailable` lists undrafted players by consensus rank (lower is better); filter it with `position` or a name in `q`, and pass `detail: true` or `limit` for more. Before the draft starts this returns DRAFT_NOT_STARTED. Any member of the league can read it.",
+        "description": "Read this before every pick. `onTheClock` is the team picking now and its deadline (autopick picks when it passes); `yourNextPick.picksAway` is 0 when it is your turn. `yourNeeds` lists your empty starting slots: your remaining picks must fill them, so a pick that makes that impossible is refused. `bestAvailable` lists undrafted players by consensus rank (lower is better), with each player’s `bye` week and `injuryStatus`; filter it with `position` or a name in `q`, and pass `detail: true` or `limit` for more. Before the draft starts this returns DRAFT_NOT_STARTED. Any member of the league can read it.",
         "tags": [
           "draft"
         ],
@@ -6936,6 +6936,19 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               }
                             },
                             "required": [
@@ -6947,7 +6960,8 @@
                               "auto",
                               "madeAt",
                               "adp",
-                              "reason"
+                              "reason",
+                              "bye"
                             ],
                             "additionalProperties": false
                           }
@@ -7380,11 +7394,33 @@
                                   }
                                 ],
                                 "description": "Consensus overall rank (ADP stand-in); lower is better."
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
+                              },
+                              "injuryStatus": {
+                                "description": "Injury designation such as \"Questionable\", \"Out\", or \"IR\"; null when healthy.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
                               "player",
-                              "rank"
+                              "rank",
+                              "bye",
+                              "injuryStatus"
                             ],
                             "additionalProperties": false
                           },
@@ -8630,6 +8666,19 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               }
                             },
                             "required": [
@@ -8641,7 +8690,8 @@
                               "auto",
                               "madeAt",
                               "adp",
-                              "reason"
+                              "reason",
+                              "bye"
                             ],
                             "additionalProperties": false
                           }
@@ -9074,11 +9124,33 @@
                                   }
                                 ],
                                 "description": "Consensus overall rank (ADP stand-in); lower is better."
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
+                              },
+                              "injuryStatus": {
+                                "description": "Injury designation such as \"Questionable\", \"Out\", or \"IR\"; null when healthy.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
                               "player",
-                              "rank"
+                              "rank",
+                              "bye",
+                              "injuryStatus"
                             ],
                             "additionalProperties": false
                           },
@@ -14210,6 +14282,364 @@
                         "throughWeek",
                         "teams",
                         "models"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
+    "/api/v1/leagues/{leagueId}/nfl-games": {
+      "get": {
+        "operationId": "get_nfl_games",
+        "summary": "The week's NFL games: scores, clock, possession, and the red zone",
+        "description": "Returns every NFL game of the league's week, in kickoff order: teams, score, state (`pre`, `in`, `post`), status and clock, and for games in progress the team with the ball, down and distance, field position, and whether it is in the red zone (inside the opponent's 20). `redZone` lists the teams in the red zone right now: a started player on one of those teams is near a score. Live details come from a public scoreboard read every two minutes during games; possession and the red zone are left out when that read is more than ten minutes old, and a game not read yet shows as the schedule has it. Defaults to the current week (before the season, the first week). Only members can read it.",
+        "tags": [
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "week",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18
+            },
+            "description": "NFL week (default: the current week)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "season": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "week": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "games": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "gameId": {
+                                "description": "The schedule’s game id, or null for a game only ESPN listed.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "homeTeam": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "awayTeam": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "homeScore": {
+                                "description": "Null before kickoff.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "awayScore": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "kickoff": {
+                                "description": "UTC, ISO 8601.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "pre",
+                                  "in",
+                                  "post"
+                                ],
+                                "description": "Before kickoff, in progress, or final."
+                              },
+                              "status": {
+                                "description": "Short status: `8:32 - 2nd`, `Final`, or the kickoff time.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "period": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The quarter (5 and up is overtime)."
+                              },
+                              "clock": {
+                                "description": "The game clock while in progress.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "possessionTeam": {
+                                "description": "The team with the ball (live games only).",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "isRedZone": {
+                                "type": "boolean",
+                                "description": "The team with the ball is inside the opponent’s 20."
+                              },
+                              "downDistance": {
+                                "description": "For example `2nd & 4 at DAL 7`.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "fieldPosition": {
+                                "description": "The spot of the ball, for example `DAL 7`.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "yardsToGoal": {
+                                "description": "Yards from the ball to the goal line the offense attacks.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "gameId",
+                              "homeTeam",
+                              "awayTeam",
+                              "homeScore",
+                              "awayScore",
+                              "kickoff",
+                              "state",
+                              "status",
+                              "period",
+                              "clock",
+                              "possessionTeam",
+                              "isRedZone",
+                              "downDistance",
+                              "fieldPosition",
+                              "yardsToGoal"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "redZone": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "team": {
+                                "type": "string"
+                              },
+                              "downDistance": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "fieldPosition": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "team",
+                              "downDistance",
+                              "fieldPosition"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "updatedAt": {
+                          "description": "When the live details were read, or null for none yet.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "season",
+                        "week",
+                        "games",
+                        "redZone",
+                        "updatedAt"
                       ],
                       "additionalProperties": false
                     },

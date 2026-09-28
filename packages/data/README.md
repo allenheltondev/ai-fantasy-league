@@ -13,6 +13,8 @@ interface DataProvider {
   getTrending(type: 'add' | 'drop', asOf: Date, options?: { lookbackHours?: number; limit?: number }): Promise<TrendingEntry[]>;
   getSchedule(season: number, asOf: Date): Promise<ScheduledGame[]>; // UTC kickoffs
   getByeWeeks(season: number, asOf: Date): Promise<ByeWeeks>;
+  // Live providers only: the week's games from ESPN's scoreboard (scores, possession, red zone).
+  getLiveGames?(season: number, week: number, asOf: Date, games?: ScheduledGame[]): Promise<LiveGame[]>;
 }
 ```
 
@@ -52,6 +54,7 @@ we did not record from Sleeper.
 | Players, state, stats, projections, trending | Sleeper | `https://api.sleeper.app/v1/players/nfl`, `/v1/state/nfl`, `/v1/stats/nfl/regular/{season}/{week}`, `/v1/projections/nfl/regular/{season}/{week}`, `/v1/players/nfl/trending/{add\|drop}` |
 | Schedule with kickoff times (ET) and scores | nflverse `schedules` release (same file as `nflverse/nfldata` `data/games.csv`) | `https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv` |
 | Weekly player stats (+ `fantasy_points`, `fantasy_points_ppr`) | nflverse `stats_player` release | `https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_{season}.csv` |
+| Live games: score, status, possession, down and distance, red zone | ESPN public scoreboard (unauthenticated, undocumented; best effort) | `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={season}&seasontype=2&week={week}` |
 | Sleeper ↔ GSIS id map | dynastyprocess `db_playerids.csv` | `https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv` |
 
 nflverse `gametime` is Eastern time even for international games; `easternToUtc` converts it with
@@ -98,6 +101,10 @@ Team defense (DEF) stats are not in nflverse's player file and are not derived y
 - `nflverse/`: **real** trimmed files fetched from the URLs above: the id map rows for the fixture
   players (plus namesakes and two unmapped rookies), their 2025 week 1–2 stat rows, and the full
   2025 schedule.
+- `espn/`: **hand-authored** from ESPN's documented scoreboard shape (the sandbox cannot reach
+  ESPN): one week with a red-zone drive, a drive outside it, a live game between plays (no
+  possession), a pregame, and a final. `normalizeScoreboard` maps ESPN's codes (`WSH`) to ours
+  and tolerates missing situations and unknown fields; verify against the live feed after deploy.
 - `sleeper/`: **hand-authored** in Sleeper's real response shapes, because `api.sleeper.app` was not
   reachable from the sandbox that built this package. The weekly stats mirror the real nflverse
   numbers; projections, trending, and DEF lines are illustrative. `manifest.json` records each

@@ -91,5 +91,46 @@ export interface ScheduledGame {
   awayScore?: number;
 }
 
+/** ESPN's game state: before kickoff, in progress, or over. */
+export type GameState = 'pre' | 'in' | 'post';
+
+/**
+ * One NFL game as it stands (ESPN's scoreboard): score, status and clock, and while it is in
+ * progress who has the ball and where. Team codes are Sleeper's. Only an in-progress game with a
+ * known possession can be in the red zone.
+ */
+export interface LiveGame {
+  /** Our schedule's `gameId` for this game, or null when the schedule has no matching game. */
+  gameKey: string | null;
+  /** ESPN's event id. */
+  espnId: string;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  /** Null before kickoff. */
+  homeScore: number | null;
+  awayScore: number | null;
+  /** Kickoff in UTC, ISO 8601, or null when ESPN leaves it out. */
+  kickoff: string | null;
+  state: GameState;
+  /** ESPN's short status, for example `8:32 - 2nd`, `Final`, or `10/4 - 4:25 PM EDT`. */
+  status: string | null;
+  /** The quarter (5 and up is overtime), or null before kickoff. */
+  period: number | null;
+  /** The game clock (`8:32`) while in progress, else null. */
+  clock: string | null;
+  /** The team with the ball, or null (not in progress, a change of possession, or unknown). */
+  possessionTeam: string | null;
+  /** The team with the ball is inside the opponent's 20-yard line. */
+  isRedZone: boolean;
+  /** Down, distance, and spot, for example `2nd & 4 at DAL 7`, or null. */
+  downDistance: string | null;
+  /** The spot of the ball, for example `DAL 7` (or `50`), or null. */
+  fieldPosition: string | null;
+  /** Yards from the ball to the end zone the offense is attacking (0-100), or null. */
+  yardsToGoal: number | null;
+  /** When the game was read (the caller's `asOf`). */
+  updatedAt: string;
+}
+
 /** Bye week per team code for one regular season. */
 export type ByeWeeks = Record<string, number>;

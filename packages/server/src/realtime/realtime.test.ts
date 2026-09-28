@@ -411,13 +411,24 @@ describe('relayEvent', () => {
     await relayEvent(realtime, silentLogger, event('Scores Updated', { week: 5, playerIds: ['p'] }));
     await relayEvent(realtime, silentLogger, event('Waivers Processed', { leagueIds: ['a', 'b', 'a', 3] }));
     await relayEvent(realtime, silentLogger, { ...event('Trade Vetoed', 'not an object'), time: undefined });
+    await relayEvent(
+      realtime,
+      silentLogger,
+      event('NFL Games Updated', { season: 2026, week: 5, games: [] })
+    );
     expect(realtime.published.map((p) => p.topic)).toEqual([
       'fantasy.league.lg-1',
       'fantasy.global',
       'fantasy.league.a',
       'fantasy.league.b',
+      'fantasy.global',
       'fantasy.global'
     ]);
+    expect(realtime.published.at(-1)?.message).toMatchObject({
+      detailType: 'NFL Games Updated',
+      leagueId: null,
+      detail: { week: 5 }
+    });
     expect(realtime.published[0]?.message).toEqual({
       type: 'event',
       detailType: 'Draft Pick Made',
