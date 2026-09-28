@@ -1,6 +1,5 @@
 import {
   firstKickoff,
-  weekEndsAt,
   scorePlayer,
   tradeValue,
   type PlayerProjections,
@@ -14,8 +13,7 @@ import type { Logger } from '../log.js';
 import type { Player } from '../players/model.js';
 import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Repos, Team } from '../repos/types.js';
-import { STATS_GAME_DURATION_MS } from '../season/window.js';
-import { gamesByTeam, resolveWeekLineups, toRosterPlayer, weekGames } from '../season/lineups.js';
+import { gamesByTeam, resolveWeekLineups, toRosterPlayer, weekGames, weekLocks } from '../season/lineups.js';
 
 /**
  * What a trade decision needs to know about the league right now: every team's players with their
@@ -104,12 +102,9 @@ export const LOCK_RETRY_MS = 30 * 60 * 1000;
  * follows), or a short retry when that has already passed or there is no schedule.
  */
 export async function locksReleaseAt(reference: ReferenceStore, league: League, now: Date): Promise<string> {
-  const ends = weekEndsAt(
-    await weekGames(reference, league.season, tradeWeek(league)),
-    STATS_GAME_DURATION_MS
-  );
+  const { endsAt } = await weekLocks(reference, league, now);
   const retry = now.getTime() + LOCK_RETRY_MS;
-  return new Date(ends === null ? retry : Math.max(Date.parse(ends), retry)).toISOString();
+  return new Date(endsAt === null ? retry : Math.max(Date.parse(endsAt), retry)).toISOString();
 }
 
 /** Weeks the trade value math looks ahead (this week and the next three). */

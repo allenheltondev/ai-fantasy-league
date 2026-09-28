@@ -3,7 +3,6 @@ import {
   processTrade,
   reconcileLineup,
   voidTrade,
-  waiverClearsAt,
   type RuleIssue,
   type Trade,
   type TradeSide
@@ -339,7 +338,6 @@ async function applyTrade(
   for (const [side, other] of pairs) await writeRoster(repos, league.id, side, other.sends, now);
 
   const week = tradeWeek(league);
-  const clearsAt = waiverClearsAt(league.settings, { droppedAt: at });
   const transactions: TransactionRecord[] = [];
   const txn = (id: string, teamId: string, add: string | null, drop: string | null): TransactionRecord => ({
     id: `${trade.tradeId}.${id}`,
@@ -358,12 +356,11 @@ async function applyTrade(
     for (const playerId of other.sends) transactions.push(txn(playerId, side.teamId, playerId, null));
     for (const playerId of side.drops) {
       await repos.waivers.releasePlayer(league.id, playerId, side.teamId);
-      await putOnWaivers(repos, {
+      await putOnWaivers(repos, league.settings, {
         leagueId: league.id,
         playerId,
         teamId: side.teamId,
-        droppedAt: new Date(at),
-        clearsAt
+        droppedAt: new Date(at)
       });
       transactions.push(txn(`drop.${playerId}`, side.teamId, null, playerId));
     }

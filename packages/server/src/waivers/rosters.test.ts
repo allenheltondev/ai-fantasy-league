@@ -6,6 +6,8 @@ import { newTeam } from '../league/seats.js';
 import { silentLogger } from '../log.js';
 import { staleTeam } from '../repos/errors.js';
 import { createInMemoryRepos } from '../repos/memory.js';
+import { createInMemoryReferenceStore } from '../repos/memory-reference.js';
+import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Repos, Team } from '../repos/types.js';
 import type { WaiverClaimRecord } from '../repos/waivers.js';
 import { processLeagueWaivers } from './process.js';
@@ -59,9 +61,11 @@ function claim(overrides: Partial<WaiverClaimRecord>): WaiverClaimRecord {
 }
 
 let repos: Repos;
+let reference: ReferenceStore;
 let teams: Team[];
 beforeEach(async () => {
   repos = createInMemoryRepos();
+  reference = createInMemoryReferenceStore(repos.players);
   await repos.leagues.create(league());
   teams = [1, 2].map((slot) => ({
     ...newTeam({ leagueId: 'lg', id: `t${slot}`, draftSlot: slot, settings, now: NOW }),
@@ -122,12 +126,18 @@ describe('league standings and limits', () => {
       droppedAt: NOW.toISOString(),
       clearsAt: '2026-10-09T08:00:00.000Z'
     });
-    const players = await leaguePlayers(repos, 'lg', teams, NOW);
+    const players = await leaguePlayers(repos, league(), teams, NOW);
     expect(players.standing('p2')).toEqual({ status: 'rostered', teamId: 't2' });
     expect(players.standing('p8')).toMatchObject({ status: 'waivers', clearsAt: '2026-10-09T08:00:00.000Z' });
     expect(players.standing('p0')).toEqual({ status: 'free_agent' });
-    expect(openSpots(settings, teams[1] as Team, null)).toBe(1);
-    expect(openSpots(settings, teams[1] as Team, 'p2')).toBe(2);
+    const lineup = [
+      { playerId: 'p2', slot: 'QB' as const },
+      { playerId: 'p3', slot: 'IR' as const }
+    ];
+    expect(openSpots(settings, lineup, null)).toBe(2);
+    expect(openSpots(settings, lineup, 'p2')).toBe(3);
+    // Dropping an IR player frees no active spot.
+    expect(openSpots(settings, lineup, 'p3')).toBe(2);
   });
 
   it('counts adds and waiver awards in the current week only', async () => {
@@ -163,7 +173,7 @@ describe('processLeagueWaivers recovery', () => {
       })
     );
     const events = new InMemoryEventPublisher();
-    const result = await processLeagueWaivers({ repos, events, log: silentLogger }, league(), NOW);
+    const result = await processLeagueWaivers({ repos, reference, events, log: silentLogger }, league(), NOW);
     expect(result).toMatchObject({ status: 'processed', awarded: 1, failed: 1 });
     expect((await repos.teams.get('lg', 't1'))?.faabRemaining).toBe(90);
     expect(await repos.waivers.getClaim('lg', 'c1')).toMatchObject({ status: 'awarded', cost: 10 });
@@ -182,7 +192,7 @@ describe('processLeagueWaivers recovery', () => {
     // The standings snapshot says p9 is free; the lock says t2 has him.
     const spy = vi.spyOn(repos.teams, 'list').mockResolvedValueOnce(teams);
     const result = await processLeagueWaivers(
-      { repos, events: new InMemoryEventPublisher(), log: silentLogger },
+      { repos, reference, events: new InMemoryEventPublisher(), log: silentLogger },
       league(),
       NOW
     );
@@ -205,7 +215,7 @@ describe('processWaivers job', () => {
       return original(id);
     });
     const events = new InMemoryEventPublisher();
-    const result = await processWaivers({ repos, events, log }, new FixedClock(NOW));
+    const result = await processWaivers({ repos, reference, events, log }, new FixedClock(NOW));
     expect(result).toMatchObject({ status: 'ok', leagues: 2, processed: 1, failedLeagues: ['lg-playoffs'] });
     expect(log.error).toHaveBeenCalledOnce();
     expect(events.events.map((e) => e.detailType)).toEqual(['Waivers Processed', 'Waiver Window Opened']);
@@ -215,7 +225,7 @@ describe('processWaivers job', () => {
     vi.spyOn(repos.teams, 'list').mockRejectedValue(new Error('table down'));
     const log = { ...silentLogger, error: vi.fn() };
     await expect(
-      processWaivers({ repos, events: new InMemoryEventPublisher(), log }, new FixedClock(NOW))
+      processWaivers({ repos, reference, events: new InMemoryEventPublisher(), log }, new FixedClock(NOW))
     ).rejects.toThrow('every league');
   });
 });

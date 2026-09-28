@@ -1,17 +1,22 @@
 import {
+  isPlayerLocked,
   normalizePlayerStatus,
+  playerKickoff,
   reconcileLineup,
+  weekEndsAt,
   type LineupEntry,
   type PlayerStatus,
   type RosterPlayer,
   type WeekGames
 } from '@fantasy/core';
 import type { ScheduledGame } from '@fantasy/data';
+import { ApiError } from '../errors.js';
 import type { EventPublisher } from '../events/publisher.js';
 import type { Logger } from '../log.js';
 import type { Player } from '../players/model.js';
 import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Repos, Team } from '../repos/types.js';
+import { STATS_GAME_DURATION_MS } from './window.js';
 
 /**
  * Shared season-loop plumbing: what a team's lineup is in a week, the NFL games that lock players,
@@ -43,6 +48,42 @@ export function gamesByTeam(games: readonly ScheduledGame[]): WeekGames {
     byTeam[g.awayTeam] = { kickoff: g.kickoff };
   }
   return byTeam;
+}
+
+/** The league's current week as the lock checks see it. */
+export interface WeekLocks {
+  games: WeekGames;
+  /** When the week's last game is over, or null with no games (or before the season). */
+  endsAt: string | null;
+  /** True once the player's game this week has kicked off (players on bye never lock). */
+  isLocked(player: Pick<Player, 'team'>): boolean;
+  /** His game's kickoff this week, or null on a bye. */
+  kickoff(player: Pick<Player, 'team'>): Date | null;
+}
+
+/**
+ * The lock state of the league's current week at `now`, from the stored NFL schedule. Drops,
+ * waiver awards, and pickups all check it, the same way set_lineup does.
+ */
+export async function weekLocks(reference: ReferenceStore, league: League, now: Date): Promise<WeekLocks> {
+  const scheduled = league.week === null ? [] : await weekGames(reference, league.season, league.week);
+  const games = gamesByTeam(scheduled);
+  return {
+    games,
+    endsAt: weekEndsAt(scheduled, STATS_GAME_DURATION_MS),
+    isLocked: (player) => isPlayerLocked({ nflTeam: player.team }, games, now),
+    kickoff: (player) => playerKickoff({ nflTeam: player.team }, games)
+  };
+}
+
+/** Refuses to release a player whose game has kicked off: his points this week are already known. */
+export function assertNotLocked(locks: WeekLocks, player: Pick<Player, 'id' | 'name' | 'team'>): void {
+  if (!locks.isLocked(player)) return;
+  const kickoff = locks.kickoff(player)?.toISOString() ?? '';
+  throw new ApiError('PLAYER_LOCKED', `${player.name} is locked: his game kicked off at ${kickoff}.`, {
+    fix: `A locked player cannot be dropped until the week rolls over. Keep ${player.name}, or drop someone whose game has not started (get_roster shows \`locked\` per player).`,
+    details: { playerId: player.id, kickoff }
+  });
 }
 
 /** The stored player's availability as core's normalized status. */
@@ -77,6 +118,12 @@ export async function rosterPlayers(repos: Repos, team: Team): Promise<Map<strin
 export interface TeamLineup {
   /** Every rostered player with a slot. */
   entries: LineupEntry[];
+  /**
+   * The lineup as stored (saved for the week or carried forward), before reconciling with the
+   * roster: it can still list a starter who has since left the roster. Scoring freezes locked
+   * starters from it (core `frozenLineup`).
+   */
+  stored: LineupEntry[];
   /** True when the team saved a lineup for exactly this week. */
   saved: boolean;
   /** The week the lineup came from when it was carried forward, or null. */
@@ -93,6 +140,7 @@ export async function resolveLineup(repos: Repos, team: Team, week: number): Pro
   const base = own ?? (await repos.lineups.latest(team.leagueId, team.id, week));
   return {
     entries: reconcileLineup(base?.entries ?? [], team.roster),
+    stored: base?.entries ?? [],
     saved: own !== null,
     carriedFromWeek: own === null && base !== null ? base.week : null
   };
@@ -116,7 +164,7 @@ export async function resolveWeekLineups(
       team.id,
       own === undefined
         ? await resolveLineup(repos, team, week)
-        : { entries: reconcileLineup(own, team.roster), saved: true, carriedFromWeek: null }
+        : { entries: reconcileLineup(own, team.roster), stored: own, saved: true, carriedFromWeek: null }
     );
   }
   return out;

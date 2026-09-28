@@ -1,12 +1,13 @@
 import {
   computeStandings,
+  frozenLineup,
   scoreTeamWeek,
   type FinalizedMatchup,
   type StatLine,
   type TeamWeekScore
 } from '@fantasy/core';
 import type { League, Matchup, StandingsSnapshot } from '../repos/types.js';
-import { resolveWeekLineups, type SeasonDeps } from './lineups.js';
+import { gamesByTeam, resolveWeekLineups, weekGames, type SeasonDeps } from './lineups.js';
 
 /**
  * Matchup scoring: each team's starters scored from the stored stat lines with the league's
@@ -14,22 +15,42 @@ import { resolveWeekLineups, type SeasonDeps } from './lineups.js';
  * snapshots once a week is final.
  */
 
-/** Every team's score for a week, keyed by team id. Only starters count. */
+/**
+ * Every team's score for a week, keyed by team id. Only starters count, and a starter freezes at
+ * his kickoff: he is scored from the week's stored lineup even if he has left the roster since
+ * (core `frozenLineup`), so a mid-week roster change can never swap out a starter who already played.
+ */
 export async function scoreWeek(
   deps: Pick<SeasonDeps, 'repos' | 'reference'>,
   league: League,
-  week: number
+  week: number,
+  now: Date
 ): Promise<Map<string, TeamWeekScore>> {
-  const [teams, lines] = await Promise.all([
+  const [teams, lines, games] = await Promise.all([
     deps.repos.teams.list(league.id),
-    deps.reference.stats.getWeek(league.season, week)
+    deps.reference.stats.getWeek(league.season, week),
+    weekGames(deps.reference, league.season, week)
   ]);
   const stats: Record<string, StatLine> = {};
   for (const line of lines) stats[line.playerId] = line.stats;
   const lineups = await resolveWeekLineups(deps.repos, teams, week);
+  const ids = new Set(
+    [...lineups.values()].flatMap((l) => [...l.stored, ...l.entries].map((e) => e.playerId))
+  );
+  const nflTeam = new Map((await deps.repos.players.getMany([...ids])).map((p) => [p.id, p.team]));
+  const byTeam = gamesByTeam(games);
   const scores = new Map<string, TeamWeekScore>();
-  for (const [teamId, lineup] of lineups)
-    scores.set(teamId, scoreTeamWeek(league.settings, lineup.entries, stats));
+  for (const [teamId, lineup] of lineups) {
+    const entries = frozenLineup(
+      league.settings,
+      lineup.stored,
+      lineup.entries,
+      (id) => nflTeam.get(id),
+      byTeam,
+      now
+    );
+    scores.set(teamId, scoreTeamWeek(league.settings, entries, stats));
+  }
   return scores;
 }
 
@@ -48,11 +69,12 @@ export async function updateMatchupScores(
   deps: Pick<SeasonDeps, 'repos' | 'reference'>,
   league: League,
   week: number,
-  status: 'in_progress' | 'final'
+  status: 'in_progress' | 'final',
+  now: Date
 ): Promise<ScoredMatchups> {
   const stored = await deps.repos.schedule.listMatchups(league.id, week);
   if (stored.length === 0) return { matchups: [], changed: [] };
-  const scores = await scoreWeek(deps, league, week);
+  const scores = await scoreWeek(deps, league, week, now);
   const matchups: Matchup[] = [];
   const changed: Matchup[] = [];
   for (const m of stored) {

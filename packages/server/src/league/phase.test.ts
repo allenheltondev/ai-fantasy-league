@@ -17,6 +17,7 @@ import {
   leagueAllowedActions,
   NEXT_PHASE,
   phaseError,
+  nextLineupLock,
   phaseFlags,
   resolveActor,
   transitionPhase,
@@ -106,6 +107,23 @@ describe('phaseFlags', () => {
     });
     expect(phaseFlags(inSeason, new Date('2026-09-11T00:20:00.000Z')).preLock).toBe(false);
     expect(phaseFlags(league({ phase: 'regular_season', week: 3 }), NOW).preLock).toBe(true);
+  });
+
+  it('stays pre-lock after Thursday night while later kickoffs remain, and reports the next one', () => {
+    const THU = '2026-09-11T00:20:00.000Z';
+    const SUN = '2026-09-13T17:00:00.000Z';
+    const inSeason = league({
+      phase: 'regular_season',
+      week: 1,
+      deadlines: { ...deadlines, nextLineupLockAt: THU, lineupLocksAt: [THU, SUN] }
+    });
+    const friday = new Date('2026-09-11T12:00:00.000Z');
+    expect(phaseFlags(inSeason, friday).preLock).toBe(true);
+    expect(nextLineupLock(inSeason, friday)).toBe(SUN);
+    expect(nextLineupLock(inSeason, NOW)).toBe(THU);
+    const monday = new Date('2026-09-14T00:00:00.000Z');
+    expect(phaseFlags(inSeason, monday).preLock).toBe(false);
+    expect(nextLineupLock(inSeason, monday)).toBe(SUN);
   });
 
   it('passes the trade deadline by week or by the stored deadline time', () => {

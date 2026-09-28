@@ -192,6 +192,34 @@ describe('handleDraftDeadline', () => {
     expect(await handleDraftDeadline(t.services, { leagueId: L, pick: 4 })).toBe('ignored');
   });
 
+  it('sets waiver priority to the reverse draft order, holds undrafted players on waivers, and retries a season-start conflict', async () => {
+    const t = await setup();
+    // start_draft reordered round 1: team-3 picked first, team-2 last.
+    const order = ['team-3', 'team-1', 'team-4', 'team-2'];
+    const s = draftWith(fixtureDraftPool.slice(0, 4), { rounds: 1, teamIds: order });
+    await t.repos.drafts.create(record(s, { status: 'complete', deadline: null, completedAt: START }));
+    const update = t.repos.leagues.update.bind(t.repos.leagues);
+    // The move to the regular season lands; startLeagueSeason's write then loses a race once.
+    vi.spyOn(t.repos.leagues, 'update')
+      .mockImplementationOnce(update)
+      .mockImplementationOnce(async (league) => {
+        await update({ ...league });
+        throw staleLeague(L);
+      })
+      .mockImplementation(update);
+    expect(await handleDraftDeadline(t.services, { leagueId: L, pick: 4 })).toBe('completed');
+    const priority = (await t.repos.teams.list(L))
+      .sort((a, b) => a.waiverPriority - b.waiverPriority)
+      .map((team) => team.id);
+    expect(priority).toEqual([...order].reverse());
+    expect((await t.repos.leagues.get(L))?.deadlines).toMatchObject({
+      postDraftWaiversUntil: '2026-09-11T08:00:00.000Z',
+      // Written by startLeagueSeason after its retry (no NFL games are stored here).
+      lineupLocksAt: []
+    });
+    expect(t.events.events.filter((e) => e.detailType === 'Draft Completed')).toHaveLength(1);
+  });
+
   it('reports a lost race, logs an empty pool, and rethrows real failures', async () => {
     const t = await setup();
     await t.repos.drafts.create(record(draftWith([])));

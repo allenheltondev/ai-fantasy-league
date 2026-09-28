@@ -8,7 +8,7 @@ import type { JobDeps, JobResult } from './deps.js';
  * others. Each league's run is idempotent per window (`processLeagueWaivers`).
  */
 export async function processWaivers(
-  deps: Pick<JobDeps, 'repos' | 'events' | 'log'>,
+  deps: Pick<JobDeps, 'repos' | 'reference' | 'events' | 'log'>,
   clock: Clock
 ): Promise<JobResult> {
   const now = clock.now();

@@ -1,8 +1,10 @@
 import {
   firstKickoff,
   gameWindows,
+  kickoffTimes,
   nextLeagueWeek,
   playoffMatchups,
+  reverseStandingsOrder,
   weekEndsAt,
   type BracketWeekResults
 } from '@fantasy/core';
@@ -17,6 +19,7 @@ import { scheduleTradeDeadline } from '../trades/lifecycle.js';
 import { tradeDeadlineAt } from '../trades/world.js';
 import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Lineup, Matchup, Repos } from '../repos/types.js';
+import { applyPriorities } from '../waivers/process.js';
 import { resolveWeekLineups, weekGames, type SeasonDeps } from './lineups.js';
 import { recordStandings, scoreLine, updateMatchupScores } from './scoring.js';
 
@@ -52,7 +55,7 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
   if (endsAt === null) return skip('no_schedule');
   if (now.getTime() < Date.parse(endsAt)) return skip('week_in_progress');
 
-  const scored = await updateMatchupScores(deps, league, week, 'final');
+  const scored = await updateMatchupScores(deps, league, week, 'final', now);
   if (phase === 'regular_season') await recordStandings(deps, league, week, now);
   const final = {
     leagueId: league.id,
@@ -78,10 +81,13 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
   const saved = await commit(deps.repos, {
     ...moved,
     week: step.week,
-    deadlines: { ...moved.deadlines, nextLineupLockAt: firstKickoff(nextGames) },
+    deadlines: weekDeadlines(moved, nextGames),
     updatedAt: now.toISOString()
   });
   if (saved === null) return skip('concurrent_update');
+  if (league.settings.waivers.priorityOrder === 'reverse_standings_weekly') {
+    await resetPriorityToStandings(deps.repos, league.id, now);
+  }
 
   await deps.events.publish('Week Provisionally Final', final);
   await deps.events.publish('Week Rolled Over', {
@@ -94,6 +100,32 @@ export async function advanceLeague(deps: SeasonDeps, league: League, now: Date)
   });
   await scheduleLockWarnings(deps, saved, nextGames, now);
   return { leagueId: league.id, status: 'rolled_over', finalWeek: week, week: step.week, phase: step.phase };
+}
+
+/**
+ * The week's lock deadlines: every kickoff (`lineupLocksAt`, so `preLock` and the next lock move on
+ * after Thursday night) and the first one.
+ */
+function weekDeadlines(league: League, games: readonly ScheduledGame[]): League['deadlines'] {
+  return {
+    ...league.deadlines,
+    nextLineupLockAt: firstKickoff(games),
+    lineupLocksAt: kickoffTimes(games)
+  };
+}
+
+/**
+ * `priorityOrder: reverse_standings_weekly`: at every rollover the waiver priority list resets to
+ * the latest standings, worst record first (core `reverseStandingsOrder`).
+ */
+async function resetPriorityToStandings(repos: Repos, leagueId: string, now: Date): Promise<void> {
+  const [standings, teams] = await Promise.all([
+    repos.schedule.latestStandings(leagueId),
+    repos.teams.list(leagueId)
+  ]);
+  if (standings === null) return;
+  const current = [...teams].sort((a, b) => a.waiverPriority - b.waiverPriority).map((t) => t.id);
+  await applyPriorities(repos, leagueId, reverseStandingsOrder(standings.rows, current), now);
 }
 
 /** The version-checked league write; null when another writer got there first. */
@@ -264,8 +296,7 @@ export async function startLeagueSeason(
     ...moved,
     week,
     deadlines: {
-      ...moved.deadlines,
-      nextLineupLockAt: firstKickoff(games),
+      ...weekDeadlines(moved, games),
       tradeDeadlineAt: await tradeDeadlineAt(deps.reference, league)
     },
     updatedAt: now.toISOString()
