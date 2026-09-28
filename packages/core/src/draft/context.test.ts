@@ -9,7 +9,9 @@ import {
   byeRemains,
   draftRiskMultiplier,
   isSidelined,
+  likelyGoneBeforeYourPick,
   likelyTakenBeforeNextTurn,
+  positionScarcity,
   picksBeforeNextTurn,
   recentPositionRun,
   seasonWindow,
@@ -137,6 +139,91 @@ describe('likelyTakenBeforeNextTurn', () => {
     // Nobody left to pick for: the list stops short.
     expect(likelyTakenBeforeNextTurn(s, 't1', pool.slice(0, 2), ranks, settings)).toEqual(['p00', 'p01']);
     expect(likelyTakenBeforeNextTurn(advance(s, 11), 't1', pool, ranks, settings)).toEqual([]);
+  });
+});
+
+describe('likelyGoneBeforeYourPick', () => {
+  const pool: DraftablePlayer[] = Array.from({ length: 60 }, (_, i) => ({
+    playerId: `p${String(i).padStart(2, '0')}`,
+    positions: [OFFENSE_POSITIONS[i % OFFENSE_POSITIONS.length]!]
+  }));
+  const ranks = pool.map((p) => p.playerId);
+
+  it('counts the picks until your turn, or after it when you are on the clock', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 2, max: 8 }),
+        fc.integer({ min: 0, max: 30 }),
+        fc.nat(),
+        (n, made, who) => {
+          const d = draft(n, 4);
+          const s = advance(d, Math.min(made, totalPicks(d) - 1));
+          const team = `t${(who % n) + 1}`;
+          const gone = likelyGoneBeforeYourPick(s, team, pool, ranks, settings);
+          const onClock = currentPick(s)!.teamId === team;
+          const expected = onClock ? (picksBeforeNextTurn(s, team) ?? 0) : (picksUntilTurn(s, team) ?? 0);
+          expect(gone.length).toBe(expected);
+          expect(new Set(gone).size).toBe(gone.length);
+          if (onClock) expect(gone).toEqual(likelyTakenBeforeNextTurn(s, team, pool, ranks, settings));
+        }
+      )
+    );
+  });
+
+  it('stops when the pool runs dry, and is empty once you have no pick left', () => {
+    // t4 picks 4th in a 4-team snake: t1, t2, t3 pick first.
+    const s = draft(4, 2);
+    expect(likelyGoneBeforeYourPick(s, 't4', pool, ranks, settings)).toEqual(['p00', 'p01', 'p02']);
+    expect(likelyGoneBeforeYourPick(s, 't4', pool.slice(0, 1), ranks, settings)).toEqual(['p00']);
+    expect(likelyGoneBeforeYourPick(advance(s, 5), 't4', pool, ranks, settings)).toEqual([]);
+    expect(likelyGoneBeforeYourPick(advance(s, 8), 't4', pool, ranks, settings)).toEqual([]);
+  });
+});
+
+describe('positionScarcity', () => {
+  it('counts each position among the top available, and how many of those go early', () => {
+    const players = (['TE', 'WR', 'TE', 'QB', 'TE'] as const).map((p, i) => ({
+      playerId: `p${i}`,
+      positions: [p]
+    }));
+    expect(positionScarcity(players, ['p0', 'p1', 'p4'], ['QB', 'TE', 'K'], 4)).toEqual([
+      { position: 'QB', left: 1, likelyGone: 0 },
+      { position: 'TE', left: 2, likelyGone: 1 },
+      { position: 'K', left: 0, likelyGone: 0 }
+    ]);
+  });
+
+  it('counts an unranked position (team defenses) across the whole pool, not just the top n', () => {
+    const players = (['WR', 'WR', 'DEF', 'DEF', 'DEF'] as const).map((p, i) => ({
+      playerId: `p${i}`,
+      positions: [p]
+    }));
+    expect(positionScarcity(players, ['p2'], ['WR', 'DEF'], 2, ['DEF'])).toEqual([
+      { position: 'WR', left: 2, likelyGone: 0 },
+      { position: 'DEF', left: 3, likelyGone: 1 }
+    ]);
+  });
+
+  it('never counts more than the top n, nor more gone than left', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.constantFrom(...OFFENSE_POSITIONS), { maxLength: 40 }),
+        fc.integer({ min: -2, max: 50 }),
+        fc.array(fc.nat({ max: 45 })),
+        (positions, top, goneIdx) => {
+          const players = positions.map((p, i) => ({ playerId: `p${i}`, positions: [p] }));
+          const rows = positionScarcity(
+            players,
+            goneIdx.map((i) => `p${i}`),
+            OFFENSE_POSITIONS,
+            top
+          );
+          const total = rows.reduce((sum, r) => sum + r.left, 0);
+          expect(total).toBe(Math.min(Math.max(0, top), players.length));
+          for (const r of rows) expect(r.likelyGone).toBeLessThanOrEqual(r.left);
+        }
+      )
+    );
   });
 });
 

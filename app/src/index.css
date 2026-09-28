@@ -67,6 +67,23 @@
     transform-origin: 50% 0;
   }
 
+  /* A pick lands on the draft room's ticker (#170). */
+  .motion-slide-in {
+    animation: motion-slide-in 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+  }
+
+  /*
+   * The draft room's clock (#170): the pick on the clock breathes on the board, and your own clock
+   * pulses in its last seconds. Like the live dot, these loop only while the state lasts.
+   */
+  .motion-clock-cell {
+    animation: motion-attention 1.6s ease-out infinite;
+  }
+  .motion-urgent {
+    display: inline-block;
+    animation: motion-urgent 1s ease-in-out infinite;
+  }
+
   /* It's your turn: a few pulses of the ring, then still. */
   .motion-attention {
     border-radius: var(--radius);
@@ -147,6 +164,17 @@
     box-shadow: 0 0 0 10px rgb(var(--primary-500) / 0);
   }
 }
+@keyframes motion-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem) scale(0.96);
+  }
+}
+@keyframes motion-urgent {
+  50% {
+    transform: scale(1.08);
+  }
+}
 @keyframes motion-live {
   50% {
     opacity: 0.35;
@@ -187,6 +215,9 @@
   .motion-flash-down,
   .motion-floater,
   .motion-flip-in,
+  .motion-slide-in,
+  .motion-clock-cell,
+  .motion-urgent,
   .motion-attention,
   .motion-live-dot,
   .motion-stagger,
