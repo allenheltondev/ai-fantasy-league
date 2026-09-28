@@ -6,6 +6,7 @@ import {
   isComplete,
   LAST_NFL_WEEK,
   makePick,
+  nextWaiverRun,
   picksUntilTurn,
   teamPicks,
   type DraftablePlayer,
@@ -253,36 +254,87 @@ export async function finishDraft(deps: DraftDeps, leagueId: string, record: Dra
   for (const teamId of order) {
     await syncRoster(deps, leagueId, teamId, record.state, now);
   }
+  await setReverseDraftPriority(deps, leagueId, order, now);
   const current = await currentNflWeek(deps.data.nflState, now, deps.log);
-  for (let attempt = 0; ; attempt++) {
+  let started: League | null = null;
+  let week = 0;
+  for (let attempt = 0; started === null; attempt++) {
     const league = await deps.repos.leagues.get(leagueId);
     if (league === null || league.phase !== 'drafting') return;
-    const week = Math.min(
+    week = Math.min(
       Math.max(league.settings.schedule.startWeek, current.week),
       league.settings.schedule.regularSeasonEndWeek,
       LAST_NFL_WEEK
     );
+    const postDraftWaiversUntil =
+      league.settings.waivers.postDraftPlayers === 'waivers' ? nextWaiverRun(now) : null;
     try {
-      const started = await deps.repos.leagues.update({
+      started = await deps.repos.leagues.update({
         ...transitionPhase(league, 'regular_season', now),
-        week
-      });
-      // The season loop takes over: the first week's lineup lock and its lock warnings.
-      await startLeagueSeason(
-        { repos: deps.repos, reference: deps.data.reference, events: deps.events, log: deps.log },
-        started,
-        now
-      );
-      await deps.events.publish('Draft Completed', {
-        leagueId,
-        picks: record.state.picks.length,
-        rounds: record.state.rounds,
         week,
-        completedAt: record.completedAt ?? now.toISOString()
+        deadlines: { ...league.deadlines, postDraftWaiversUntil }
       });
-      return;
     } catch (error) {
       if (!isApiError(error) || error.code !== 'CONFLICT' || attempt >= 2) throw error;
+    }
+  }
+  // The season loop takes over: the first week's lineup lock and its lock warnings. Only the move
+  // to the regular season above retries on a conflict; a failure here is not swallowed.
+  await startSeasonWithRetry(deps, started, now);
+  await deps.events.publish('Draft Completed', {
+    leagueId,
+    picks: record.state.picks.length,
+    rounds: record.state.rounds,
+    week,
+    completedAt: record.completedAt ?? now.toISOString()
+  });
+}
+
+/** Starts the season loop, re-reading the league when another write got to it first. */
+async function startSeasonWithRetry(deps: DraftDeps, league: League, now: Date): Promise<void> {
+  const seasonDeps = { repos: deps.repos, reference: deps.data.reference, events: deps.events, log: deps.log };
+  let current = league;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await startLeagueSeason(seasonDeps, current, now);
+      return;
+    } catch (error) {
+      const latest = await deps.repos.leagues.get(league.id);
+      if (
+        !isApiError(error) ||
+        error.code !== 'CONFLICT' ||
+        attempt >= 3 ||
+        latest === null ||
+        latest.version === current.version
+      ) {
+        throw error;
+      }
+      current = latest;
+    }
+  }
+}
+
+/**
+ * Waiver priority after the draft is the reverse of the draft order: the team that picked last in
+ * round 1 claims first. `order` is the round-1 order the draft ran with (after any start_draft
+ * reorder), not the teams' original slots.
+ */
+async function setReverseDraftPriority(
+  deps: DraftDeps,
+  leagueId: string,
+  order: readonly string[],
+  now: Date
+): Promise<void> {
+  for (const [index, teamId] of [...order].reverse().entries()) {
+    for (let attempt = 0; ; attempt++) {
+      const team = await deps.repos.teams.get(leagueId, teamId);
+      if (team === null || team.waiverPriority === index + 1) break;
+      try {
+        await deps.repos.teams.update({ ...team, waiverPriority: index + 1, updatedAt: now.toISOString() });
+        break;
+      } catch (error) {
+        if (!isApiError(error) || error.code !== 'CONFLICT' || attempt >= 2) throw error;
+      }
     }
   }
 }

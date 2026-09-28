@@ -14,7 +14,7 @@ export const LeagueStatusSchema = z
     flags: z
       .object({
         waiversOpen: z.boolean().describe('Waiver claims and free-agent adds are accepted.'),
-        preLock: z.boolean().describe("This week's lineups have not locked yet."),
+        preLock: z.boolean().describe("Some of this week's games have not kicked off: those players can still change slots."),
         tradeDeadlinePassed: z.boolean().describe('No more trades can process this season.')
       })
       .describe('Sub-phase conditions within the phase.'),

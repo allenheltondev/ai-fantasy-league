@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { actorTeam, leagueAllowedActions, phaseFlags, type ActionOperation } from './phase.js';
+import { actorTeam, leagueAllowedActions, nextLineupLock, phaseFlags, type ActionOperation } from './phase.js';
 import type { LeagueAccess } from './access.js';
 import {
   FlagsSchema,
@@ -59,7 +59,7 @@ export function leagueState(
       tradeDeadlineWeek: league.settings.trades.deadlineWeek,
       tradeDeadlineAt: league.deadlines.tradeDeadlineAt,
       draftStartsAt: league.deadlines.draftStartsAt,
-      nextLineupLockAt: league.deadlines.nextLineupLockAt,
+      nextLineupLockAt: nextLineupLock(league, now),
       nextWaiverRunAt: league.deadlines.nextWaiverRunAt
     },
     teams: teams.map(teamSummary)

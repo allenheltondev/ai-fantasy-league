@@ -1,17 +1,20 @@
 import {
   nextWaiverRun,
   resolveWaivers,
+  reverseStandingsOrder,
   waiverRunAtOrAfter,
   waiverRunId,
   type WaiverClaim,
   type WaiverTeamState
 } from '@fantasy/core';
-import { ApiError } from '../errors.js';
+import { ApiError, isApiError } from '../errors.js';
 import type { EventPublisher } from '../events/publisher.js';
 import type { Logger } from '../log.js';
+import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Repos, Team } from '../repos/types.js';
 import type { TransactionRecord, WaiverClaimRecord } from '../repos/waivers.js';
-import { acquisitionsThisWeek, changeRoster, leaguePlayers, rosterEntries } from './rosters.js';
+import { resolveWeekLineups, weekLocks } from '../season/lineups.js';
+import { acquisitionsThisWeek, changeRoster, leaguePlayers, putOnWaivers } from './rosters.js';
 
 /**
  * Waiver processing for one league (the `processWaivers` job runs it for every in-season league).
@@ -26,12 +29,20 @@ import { acquisitionsThisWeek, changeRoster, leaguePlayers, rosterEntries } from
  *   The claim is stamped with the run (`awardingRunId`) just before the roster write, so a claim
  *   still pending with a stamp and its player already on its team was applied by an interrupted
  *   run: it is only marked, never charged twice.
+ * - A claim whose drop player is locked (his game has kicked off) fails with PLAYER_LOCKED before
+ *   resolution. The roster limit counts the week's lineup, so IR players take no active spot. The
+ *   player an award drops goes on waivers like any other drop.
+ * - `faabTiebreak: reverse_standings` breaks tied bids with the latest standings, worst first.
+ * - A claim cancelled or reordered while the run is going is re-read: a cancelled one is skipped,
+ *   so a racing cancel never aborts the league's run.
  * - Afterwards the teams' waiver priorities follow core's new order, `Waivers Processed` is emitted,
  *   and the next window opens (`Waiver Window Opened`, `deadlines.nextWaiverRunAt`).
  */
 
 export interface ProcessDeps {
   repos: Repos;
+  /** The NFL schedule, for the lock checks on drop players. */
+  reference: ReferenceStore;
   events: EventPublisher;
   log: Logger;
 }
@@ -67,20 +78,32 @@ export async function processLeagueWaivers(
   const at = waiverRunAtOrAfter(`${runId}T00:00:00.000Z`);
   const week = league.week ?? league.settings.schedule.startWeek;
   let teams = await repos.teams.list(league.id);
-  const players = await leaguePlayers(repos, league.id, teams, now);
+  const locks = await weekLocks(deps.reference, league, now);
+  const players = await leaguePlayers(repos, league, teams, now, locks);
   const pending = await repos.waivers.listClaims(league.id, 'pending');
-  const due = pending.filter((c) => {
-    const s = players.standing(c.addPlayerId);
-    return s.status !== 'waivers';
-  });
+  const records = new Map(
+    (await repos.players.getMany([...new Set(pending.flatMap((c) => [c.addPlayerId, c.dropPlayerId ?? []].flat()))])).map(
+      (p) => [p.id, p]
+    )
+  );
+  const due = pending.filter(
+    (c) => players.standing(c.addPlayerId, records.get(c.addPlayerId)?.team).status !== 'waivers'
+  );
 
   // Recover awards an interrupted run already applied to the team.
   const recovered: WaiverClaimRecord[] = [];
   const toResolve: WaiverClaimRecord[] = [];
+  let failed = 0;
   for (const claim of due) {
-    if (claim.awardingRunId !== null && players.ownerOf.get(claim.addPlayerId) === claim.teamId)
+    const drop = claim.dropPlayerId === null ? undefined : records.get(claim.dropPlayerId);
+    if (claim.awardingRunId !== null && players.ownerOf.get(claim.addPlayerId) === claim.teamId) {
       recovered.push(claim);
-    else toResolve.push(claim);
+    } else if (drop !== undefined && locks.isLocked(drop)) {
+      // A locked player cannot be dropped, so this claim cannot go through this week.
+      if (await markFailed(repos, claim, now, lockedFailure(drop.name))) failed += 1;
+    } else {
+      toResolve.push(claim);
+    }
   }
   const transactions: TransactionRecord[] = [];
   for (const claim of recovered) {
@@ -89,10 +112,11 @@ export async function processLeagueWaivers(
   }
 
   const acquisitions = await acquisitionsThisWeek(repos, league, now);
+  const lineups = await resolveWeekLineups(repos, teams, week);
   const state: Record<string, WaiverTeamState> = {};
   for (const team of teams) {
     state[team.id] = {
-      roster: rosterEntries(team),
+      roster: lineups.get(team.id)?.entries ?? [],
       faabRemaining: team.faabRemaining,
       acquisitionsThisWeek: acquisitions.get(team.id) ?? 0
     };
@@ -105,17 +129,20 @@ export async function processLeagueWaivers(
     priorityOrder: priorityOrder.map((t) => t.id),
     availablePlayerIds: [...new Set(toResolve.map((c) => c.addPlayerId))].filter(
       (id) => !players.ownerOf.has(id)
-    )
+    ),
+    ...(league.settings.waivers.faabTiebreak === 'reverse_standings'
+      ? { reverseStandings: await reverseStandings(repos, league.id, teams) }
+      : {})
   });
 
   const byId = new Map(toResolve.map((c) => [c.id, c]));
   let awarded = recovered.length;
-  let failed = 0;
   for (const award of resolution.awarded) {
-    const claim = await repos.waivers.updateClaim({
-      ...(byId.get(award.claim.claimId) as WaiverClaimRecord),
+    // A claim cancelled while the run was going is skipped; a reorder is picked up.
+    const claim = await updatePending(repos, byId.get(award.claim.claimId) as WaiverClaimRecord, {
       awardingRunId: runId
     });
+    if (claim === null) continue;
     const team = teams.find((t) => t.id === claim.teamId) as Team;
     try {
       const updated = await changeRoster(
@@ -127,9 +154,17 @@ export async function processLeagueWaivers(
       teams = teams.map((t) => (t.id === updated.id ? updated : t));
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
-      failed += 1;
-      await markFailed(repos, claim, now, { code: error.code, message: error.message, fix: error.fix });
+      if (await markFailed(repos, claim, now, { code: error.code, message: error.message, fix: error.fix }))
+        failed += 1;
       continue;
+    }
+    if (claim.dropPlayerId !== null) {
+      await putOnWaivers(repos, league.settings, {
+        leagueId: league.id,
+        playerId: claim.dropPlayerId,
+        teamId: claim.teamId,
+        droppedAt: now
+      });
     }
     await markAwarded(repos, claim, now, award.cost);
     transactions.push(txn(league.id, claim, at, week, award.cost));
@@ -137,8 +172,8 @@ export async function processLeagueWaivers(
   }
   for (const f of resolution.failed) {
     const claim = byId.get(f.claim.claimId) as WaiverClaimRecord;
-    failed += 1;
-    await markFailed(repos, claim, now, { code: f.issue.code, message: f.issue.message, fix: f.issue.fix });
+    if (await markFailed(repos, claim, now, { code: f.issue.code, message: f.issue.message, fix: f.issue.fix }))
+      failed += 1;
   }
   await repos.waivers.addTransactions(transactions);
   await applyPriorities(repos, league.id, resolution.priorityOrder, now);
@@ -211,32 +246,74 @@ function txn(
   };
 }
 
+const MAX_CLAIM_WRITES = 4;
+
+/**
+ * Writes a change to a claim that must still be pending. On a version conflict (the team cancelled
+ * or reordered while the run was going) it re-reads the claim: a claim no longer pending is left
+ * alone (null), a reordered one gets the change on top. `force` writes even when it is no longer
+ * pending, for an award whose roster change already happened.
+ */
+async function updatePending(
+  repos: Repos,
+  claim: WaiverClaimRecord,
+  patch: Partial<WaiverClaimRecord>,
+  force = false
+): Promise<WaiverClaimRecord | null> {
+  let current = claim;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await repos.waivers.updateClaim({ ...current, ...patch });
+    } catch (error) {
+      if (!isApiError(error) || error.code !== 'CONFLICT' || attempt >= MAX_CLAIM_WRITES) throw error;
+      const latest = await repos.waivers.getClaim(claim.leagueId, claim.id);
+      if (latest === null || (latest.status !== 'pending' && !force)) return null;
+      current = latest;
+    }
+  }
+}
+
 async function markAwarded(
   repos: Repos,
   claim: WaiverClaimRecord,
   now: Date,
   cost = claim.bid
 ): Promise<void> {
-  await repos.waivers.updateClaim({
-    ...claim,
-    status: 'awarded',
-    resolvedAt: now.toISOString(),
-    cost,
-    failure: null
-  });
+  await updatePending(
+    repos,
+    claim,
+    { status: 'awarded', resolvedAt: now.toISOString(), cost, failure: null },
+    true
+  );
 }
 
+/** Marks a claim failed; false when it was cancelled in the meantime and left alone. */
 async function markFailed(
   repos: Repos,
   claim: WaiverClaimRecord,
   now: Date,
   failure: { code: string; message: string; fix: string }
-): Promise<void> {
-  await repos.waivers.updateClaim({ ...claim, status: 'failed', resolvedAt: now.toISOString(), failure });
+): Promise<boolean> {
+  return (await updatePending(repos, claim, { status: 'failed', resolvedAt: now.toISOString(), failure })) !== null;
+}
+
+function lockedFailure(name: string) {
+  return {
+    code: 'PLAYER_LOCKED',
+    message: `The drop player ${name} is locked: his game this week has kicked off, so he cannot be dropped.`,
+    fix: 'Claim again with a drop player whose game has not started, or after the week rolls over.'
+  };
+}
+
+/** Team ids worst record first, from the latest standings (the `reverse_standings` tiebreak). */
+async function reverseStandings(repos: Repos, leagueId: string, teams: readonly Team[]): Promise<string[]> {
+  const standings = await repos.schedule.latestStandings(leagueId);
+  const byPriority = [...teams].sort((a, b) => a.waiverPriority - b.waiverPriority).map((t) => t.id);
+  return reverseStandingsOrder(standings?.rows ?? [], byPriority);
 }
 
 /** Writes each team's new place on the priority list (1 = first), re-reading on a conflict. */
-async function applyPriorities(
+export async function applyPriorities(
   repos: Repos,
   leagueId: string,
   order: readonly string[],

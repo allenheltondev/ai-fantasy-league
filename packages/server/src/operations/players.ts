@@ -77,7 +77,7 @@ export const searchPlayers = defineOperation({
     return {
       players: filtered.players.slice(0, input.limit).map((p) => ({
         ...toPlayerDetail(p, input.detail),
-        availability: standingView(filtered.standingOf(p.id))
+        availability: standingView(filtered.standingOf(p))
       }))
     };
   }
