@@ -52,7 +52,10 @@ export function createJobDeps(env: Record<string, string | undefined>, clock: Cl
   };
 }
 
-/** Runs one job by name. Unknown names fail loudly so a mistyped schedule shows up in alarms. */
+/**
+ * Runs one job by name. Unknown names fail loudly, so a mistyped schedule fails the invocation and
+ * reaches the failure email (FailureNotifierFunction in infra/template.yaml).
+ */
 export async function runJob(
   event: JobEvent,
   deps: JobDeps,

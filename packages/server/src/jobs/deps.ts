@@ -39,6 +39,19 @@ export interface JobResult {
 
 export type Job = (deps: JobDeps, clock: Clock) => Promise<JobResult>;
 
+/**
+ * Finish all, then fail: a league job keeps going past a league that fails (logging it), and once
+ * every league is done this throws if any failed, so the invocation fails, Lambda retries it (the
+ * league jobs are idempotent, so leagues that succeeded are no-ops on the retry), and the failure
+ * reaches the OnFailure destination and its email (FailureNotifierFunction, #130).
+ */
+export function settle(log: Logger, job: string, result: JobResult): JobResult {
+  const failed = typeof result.failed === 'number' ? result.failed : 0;
+  if (failed === 0) return result;
+  log.info(`${job} partly done`, { ...result });
+  throw new Error(`${job}: ${failed} failed after the rest finished (see the error logs for which)`);
+}
+
 export function skipped(reason: string, extra: Record<string, unknown> = {}): JobResult {
   return { status: 'skipped', reason, ...extra };
 }

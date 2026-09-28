@@ -303,7 +303,7 @@ describe('officialFinal job', () => {
     expect((await deps.repos.history.getOfficialWeek('lg-off', 2))?.status).toBe('complete');
   });
 
-  it('skips without leagues, falls back to getWeekStats, and counts failures', async () => {
+  it('skips without leagues, falls back to getWeekStats, and fails after trying every week', async () => {
     const empty = createTestJobDeps();
     expect(await officialFinal(empty, new FixedClock(officialTime(4)))).toMatchObject({
       reason: 'no_weeks_to_finalize'
@@ -325,7 +325,9 @@ describe('officialFinal job', () => {
       }
     };
     broken.repos.schedule.latestStandings = schedule.latestStandings.bind(schedule);
-    expect(await officialFinal(broken, new FixedClock(officialTime(4)))).toMatchObject({ failed: 1 });
+    await expect(officialFinal(broken, new FixedClock(officialTime(4)))).rejects.toThrow(
+      'officialFinal: 1 failed after the rest finished'
+    );
     expect((deps.provider as StubProvider).calls).toContain(`getWeekStats:${SEASON}:4`);
     // A league whose weeks cannot be listed is counted as a failure too.
     const down = {
@@ -335,10 +337,9 @@ describe('officialFinal job', () => {
         schedule: { ...schedule, listMatchups: () => Promise.reject(new Error('down')) }
       }
     };
-    expect(await officialFinal(down, new FixedClock(officialTime(4)))).toMatchObject({
-      reason: 'no_weeks_to_finalize',
-      failed: 1
-    });
+    await expect(officialFinal(down, new FixedClock(officialTime(4)))).rejects.toThrow(
+      'officialFinal: 1 failed'
+    );
   });
 });
 

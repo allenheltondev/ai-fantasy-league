@@ -129,7 +129,7 @@ Parameters:
     Default: allenheltondev@gmail.com
     AllowedPattern: ^[^\s@]+@[^\s@]+$
     Description: >
-      Where alarm emails go. AlarmNotifierFunction sends them through
+      Where failure emails go. FailureNotifierFunction sends them through
       rsc-core's `Send Email` event (its SendEmailFunction on the default bus);
       the default matches rsc-core's AdminEmail.
 
@@ -281,15 +281,15 @@ Resources:
           ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
           ORIGIN_VERIFY_SECRET_PREVIOUS: !Ref OriginVerifySecretPrevious
           NODE_OPTIONS: --enable-source-maps
-      # Its own log group (see "Operations" below), so the error-log metric
-      # filter has a group to attach to.
-      LoggingConfig:
-        LogGroup: !Ref ApiLogGroup
-      # An event whose handler still fails after Lambda's asynchronous retries
-      # lands in the dead-letter queue instead of being dropped.
-      DeadLetterQueue:
-        Type: SQS
-        TargetArn: !GetAtt EventsDeadLetterQueue.Arn
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         # Get/Put/Update/Delete/Query/Scan/Batch*/ConditionCheck on the table
@@ -341,8 +341,6 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
       # The Function URL stays AuthType NONE: CloudFront OAC for Lambda
       # function URLs needs the *viewer* to send an x-amz-content-sha256 body
       # hash on POST/PUT, which a browser cannot do (same finding as
@@ -391,10 +389,15 @@ Resources:
           # fantasy.* badges (rsc-core #244). Set to 'false' to stop reporting them.
           BADGE_CHEST_ENABLED: 'true'
           NODE_OPTIONS: --enable-source-maps
-      # Its own log group (see "Operations" below), so the error-log metric
-      # filter has a group to attach to.
-      LoggingConfig:
-        LogGroup: !Ref DataJobsLogGroup
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -431,8 +434,6 @@ Resources:
             Input: '{"job":"syncPlayers"}'
             RetryPolicy:
               MaximumRetryAttempts: 2
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         SyncNflState:
           Type: ScheduleV2
           Properties:
@@ -441,8 +442,6 @@ Resources:
             Input: '{"job":"syncNflState"}'
             RetryPolicy:
               MaximumRetryAttempts: 1
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         SyncSchedule:
           Type: ScheduleV2
           Properties:
@@ -451,8 +450,6 @@ Resources:
             Input: '{"job":"syncSchedule"}'
             RetryPolicy:
               MaximumRetryAttempts: 2
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         # Every 2 minutes, but the job returns after two reads outside game windows.
         IngestStats:
           Type: ScheduleV2
@@ -462,8 +459,6 @@ Resources:
             Input: '{"job":"ingestStats"}'
             RetryPolicy:
               MaximumRetryAttempts: 0
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         IngestProjections:
           Type: ScheduleV2
           Properties:
@@ -472,8 +467,6 @@ Resources:
             Input: '{"job":"ingestProjections"}'
             RetryPolicy:
               MaximumRetryAttempts: 1
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         IngestTrending:
           Type: ScheduleV2
           Properties:
@@ -482,8 +475,6 @@ Resources:
             Input: '{"job":"ingestTrending"}'
             RetryPolicy:
               MaximumRetryAttempts: 1
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         IngestNews:
           Type: ScheduleV2
           Properties:
@@ -492,8 +483,6 @@ Resources:
             Input: '{"job":"ingestNews"}'
             RetryPolicy:
               MaximumRetryAttempts: 0
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         # Season loop (docs/adr/002-weekly-cycle.md). Live scoring polls like
         # ingestStats and returns after one query outside game windows.
         ScoreLiveWeek:
@@ -504,8 +493,6 @@ Resources:
             Input: '{"job":"scoreLiveWeek"}'
             RetryPolicy:
               MaximumRetryAttempts: 0
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         # The weekly cycle: provisional final after the last game, then the
         # rollover (and the next week's Lineup Lock Approaching deferred events).
         AdvanceSeason:
@@ -516,8 +503,6 @@ Resources:
             Input: '{"job":"advanceSeason"}'
             RetryPolicy:
               MaximumRetryAttempts: 1
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         # Daily at WAIVER_RUN_HOUR_UTC (packages/core/src/waivers/schedule.ts): 3 AM US Central
         # in daylight time. Idempotent per day, so a retry never processes a window twice. When
         # any league fails the job fails (after the others finish), so Lambda's retry picks it up.
@@ -529,8 +514,6 @@ Resources:
             Input: '{"job":"processWaivers"}'
             RetryPolicy:
               MaximumRetryAttempts: 2
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
         # The Thursday official final (#80): after the stat-correction window,
         # re-pull the finished week (Sleeper reconciled with nflverse), rescore,
         # and emit Stat Correction Applied / Week Official Final. Friday's run is
@@ -543,8 +526,6 @@ Resources:
             Input: '{"job":"officialFinal"}'
             RetryPolicy:
               MaximumRetryAttempts: 2
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
 
   # The news feed list the ingestNews job reads on every run, so feeds can be
   # added or removed without a deploy (aws ssm put-parameter --overwrite).
@@ -807,15 +788,15 @@ Resources:
           TABLE_NAME: !Ref FantasyTable
           EVENT_BUS_NAME: default
           NODE_OPTIONS: --enable-source-maps
-      # Its own log group (see "Operations" below), so the error-log metric
-      # filter has a group to attach to.
-      LoggingConfig:
-        LogGroup: !Ref AgentRouterLogGroup
-      # An event whose handler still fails after Lambda's asynchronous retries
-      # lands in the dead-letter queue instead of being dropped.
-      DeadLetterQueue:
-        Type: SQS
-        TargetArn: !GetAtt EventsDeadLetterQueue.Arn
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -864,8 +845,6 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
 
   # Runs one agent task: claim, model (or fallback), record, rollups
   # (packages/agents/src/runner.ts).
@@ -894,15 +873,15 @@ Resources:
           AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter
           AGENT_MODEL_TIMEOUT_MS: '90000'
           NODE_OPTIONS: --enable-source-maps
-      # Its own log group (see "Operations" below), so the error-log metric
-      # filter has a group to attach to.
-      LoggingConfig:
-        LogGroup: !Ref AgentTaskLogGroup
-      # An event whose handler still fails after Lambda's asynchronous retries
-      # lands in the dead-letter queue instead of being dropped.
-      DeadLetterQueue:
-        Type: SQS
-        TargetArn: !GetAtt EventsDeadLetterQueue.Arn
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
@@ -958,8 +937,6 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
 
   # ===========================================================================
   # End of agent platform section
@@ -1000,15 +977,15 @@ Resources:
           TABLE_NAME: !Ref FantasyTable
           EVENT_BUS_NAME: default
           NODE_OPTIONS: --enable-source-maps
-      # Its own log group (see "Operations" below), so the error-log metric
-      # filter has a group to attach to.
-      LoggingConfig:
-        LogGroup: !Ref ChatEventsLogGroup
-      # An event whose handler still fails after Lambda's asynchronous retries
-      # lands in the dead-letter queue instead of being dropped.
-      DeadLetterQueue:
-        Type: SQS
-        TargetArn: !GetAtt EventsDeadLetterQueue.Arn
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -1056,8 +1033,6 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
 
   # Publishes league events and chat messages to Momento Topics
   # (packages/server/src/realtime/relay.ts). The only function besides the API
@@ -1085,15 +1060,15 @@ Resources:
           SECRET_ID: !Ref SecretsArn
           MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
           NODE_OPTIONS: --enable-source-maps
-      # Its own log group (see "Operations" below), so the error-log metric
-      # filter has a group to attach to.
-      LoggingConfig:
-        LogGroup: !Ref RealtimePublisherLogGroup
-      # An event whose handler still fails after Lambda's asynchronous retries
-      # lands in the dead-letter queue instead of being dropped.
-      DeadLetterQueue:
-        Type: SQS
-        TargetArn: !GetAtt EventsDeadLetterQueue.Arn
+      # An asynchronous invocation (EventBridge rule or schedule) that still
+      # fails after Lambda's retries goes to the default bus as "Lambda Function
+      # Invocation Result - Failure"; FailureNotifierFunction emails it.
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: EventBridge
+            Destination: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -1139,49 +1114,42 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 300
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
 
   # ===========================================================================
   # End of group chat and realtime section
   # ===========================================================================
 
   # ===========================================================================
-  # Operations (#130): alarms, error-log metrics, and the dead-letter queue.
+  # Operations (#130): failure emails.
   #
-  # Every alarm is named <stack>-<LogicalId>. CloudWatch puts each state change
-  # on the default bus (`CloudWatch Alarm State Change`); AlarmNotifierFunction
-  # picks up this stack's alarms entering ALARM and emails AlarmEmail through
-  # rsc-core's `Send Email` event (no SNS: the deploy role cannot use it).
-  # Per function: Errors (an invocation threw), Throttles, and ErrorLogs, a
-  # metric filter on the structured JSON logger (packages/server/src/log.ts
-  # writes {"level":"error","message":...} for 'job failed', 'could not advance
-  # league', 'waiver processing failed', 'unhandled request error', and the
-  # rest), so a job that logs a per-league failure and carries on still alerts.
-  # Each function logs to its own group here (LoggingConfig) because a metric
-  # filter needs the group to exist, and Lambda's implicit /aws/lambda/<name>
-  # groups may already exist outside the stack.
+  # Every asynchronously invoked function above (the EventBridge rule handlers
+  # and the data jobs) has an EventInvokeConfig whose OnFailure destination is
+  # the default bus. When an invocation still fails after Lambda's two retries
+  # (or ages out), Lambda puts "Lambda Function Invocation Result - Failure"
+  # (source lambda) on the bus with the failed event, and this function emails
+  # AlarmEmail through rsc-core's `Send Email` event. The jobs throw when any
+  # league failed (after finishing the others), so partial failures email too.
   #
-  # EventsDeadLetterQueue keeps what would otherwise be dropped: events an
-  # EventBridge rule or a Scheduler schedule could not deliver after its
-  # RetryPolicy, and events whose handler still failed after Lambda's
-  # asynchronous retries (DeadLetterQueue on the event-driven functions).
-  # Plain resources and inline/resource policies only (no managed policies).
+  # Only Lambda, IAM roles, and EventBridge rules: the deploy role cannot
+  # create CloudWatch alarms (PutMetricAlarm denied) or SNS topics. Alarms,
+  # error-log metric filters, and SQS dead-letter queues are deferred (#129).
   # ===========================================================================
 
-  # Emails this stack's alarms as they enter ALARM
-  # (packages/server/src/alarms/notify.ts).
-  AlarmNotifierFunction:
+  # Emails this stack's failed asynchronous invocations
+  # (packages/server/src/failures/notify.ts). It has no failure destination of
+  # its own, and its rule matches only the functions above, so it never
+  # notifies about itself.
+  FailureNotifierFunction:
     Type: AWS::Serverless::Function
     Condition: DeployServer
     Metadata:
       SkipBuild: true
     Properties:
-      Description: Emails this stack's CloudWatch alarms through rsc-core's Send Email event
+      Description: Emails this stack's failed async Lambda invocations through rsc-core's Send Email event
       CodeUri:
         Bucket: !Ref ArtifactBucket
         Key: !Ref ServerArtifactKey
-      Handler: alarm-notifier.handler
+      Handler: failure-notifier.handler
       Runtime: nodejs22.x
       Architectures:
         - arm64
@@ -1194,11 +1162,6 @@ Resources:
           STACK_NAME: !Ref AWS::StackName
           EVENT_BUS_NAME: default
           NODE_OPTIONS: --enable-source-maps
-      LoggingConfig:
-        LogGroup: !Ref AlarmNotifierLogGroup
-      DeadLetterQueue:
-        Type: SQS
-        TargetArn: !GetAtt EventsDeadLetterQueue.Arn
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -1208,599 +1171,31 @@ Resources:
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
       Events:
-        AlarmStateChange:
+        InvocationFailed:
           Type: EventBridgeRule
           Properties:
             EventBusName: default
             Pattern:
               source:
-                - aws.cloudwatch
+                - lambda
               detail-type:
-                - CloudWatch Alarm State Change
+                - Lambda Function Invocation Result - Failure
+              # functionArn carries the qualifier (<function ARN>:$LATEST), so
+              # each function's ARN plus ':' matches it exactly. Generated
+              # function names can truncate the stack name, so a stack-name
+              # prefix would not be reliable.
               detail:
-                alarmName:
-                  - prefix: !Sub ${AWS::StackName}-
-                state:
-                  value:
-                    - ALARM
+                requestContext:
+                  functionArn:
+                    - prefix: !Sub '${ApiFunction.Arn}:'
+                    - prefix: !Sub '${DataJobsFunction.Arn}:'
+                    - prefix: !Sub '${AgentRouterFunction.Arn}:'
+                    - prefix: !Sub '${AgentTaskFunction.Arn}:'
+                    - prefix: !Sub '${ChatEventsFunction.Arn}:'
+                    - prefix: !Sub '${RealtimePublisherFunction.Arn}:'
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
-            DeadLetterConfig:
-              Arn: !GetAtt EventsDeadLetterQueue.Arn
-
-  EventsDeadLetterQueue:
-    Type: AWS::SQS::Queue
-    Condition: DeployServer
-    Properties:
-      MessageRetentionPeriod: 1209600 # 14 days, the maximum
-      SqsManagedSseEnabled: true
-
-  # EventBridge rules deliver to the queue with this resource policy, scoped to
-  # this stack's rules. Scheduler schedules and the functions' asynchronous
-  # dead-letter sends use their roles' inline sqs:SendMessage grants (SAM adds
-  # them), which need no statement here.
-  EventsDeadLetterQueuePolicy:
-    Type: AWS::SQS::QueuePolicy
-    Condition: DeployServer
-    Properties:
-      Queues:
-        - !Ref EventsDeadLetterQueue
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: EventBridgeRuleDeadLetters
-            Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sqs:SendMessage
-            Resource: !GetAtt EventsDeadLetterQueue.Arn
-            Condition:
-              ArnEquals:
-                aws:SourceArn:
-                  - !GetAtt ApiFunctionDraftPickDeadline.Arn
-                  - !GetAtt AgentRouterFunctionLeagueTriggers.Arn
-                  - !GetAtt AgentTaskFunctionAgentActionRequested.Arn
-                  - !GetAtt ChatEventsFunctionLeagueEvents.Arn
-                  - !GetAtt RealtimePublisherFunctionRealtimeEvents.Arn
-                  - !GetAtt AlarmNotifierFunctionAlarmStateChange.Arn
-
-  EventsDeadLetterAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-EventsDeadLetterAlarm
-      AlarmDescription: An event was dead-lettered (undeliverable, or its handler kept failing). Inspect and redrive EventsDeadLetterQueue.
-      Namespace: AWS/SQS
-      MetricName: ApproximateNumberOfMessagesVisible
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt EventsDeadLetterQueue.QueueName
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 0
-      ComparisonOperator: GreaterThanThreshold
-      TreatMissingData: notBreaching
-
-  # --- the API (ApiFunction) ---
-  ApiLogGroup:
-    Type: AWS::Logs::LogGroup
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/api
-      RetentionInDays: 30
-
-  ApiErrorLogsFilter:
-    Type: AWS::Logs::MetricFilter
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Ref ApiLogGroup
-      FilterPattern: '{ $.level = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
-          MetricName: ApiErrorLogs
-          MetricValue: '1'
-          Unit: Count
-
-  ApiErrorLogsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-ApiErrorLogsAlarm
-      AlarmDescription: The API logged an error (level "error" in ApiLogGroup).
-      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
-      MetricName: ApiErrorLogs
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  ApiErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-ApiErrorsAlarm
-      AlarmDescription: An invocation of the API failed.
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ApiFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  ApiThrottlesAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-ApiThrottlesAlarm
-      AlarmDescription: An invocation of the API was throttled.
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ApiFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  # --- the scheduled data jobs (DataJobsFunction) ---
-  DataJobsLogGroup:
-    Type: AWS::Logs::LogGroup
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/data-jobs
-      RetentionInDays: 30
-
-  DataJobsErrorLogsFilter:
-    Type: AWS::Logs::MetricFilter
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Ref DataJobsLogGroup
-      FilterPattern: '{ $.level = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
-          MetricName: DataJobsErrorLogs
-          MetricValue: '1'
-          Unit: Count
-
-  DataJobsErrorLogsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-DataJobsErrorLogsAlarm
-      AlarmDescription: The scheduled data jobs logged an error (level "error" in DataJobsLogGroup).
-      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
-      MetricName: DataJobsErrorLogs
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  DataJobsErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-DataJobsErrorsAlarm
-      AlarmDescription: An invocation of the scheduled data jobs failed.
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref DataJobsFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  DataJobsThrottlesAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-DataJobsThrottlesAlarm
-      AlarmDescription: An invocation of the scheduled data jobs was throttled.
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref DataJobsFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  # --- the agent router (AgentRouterFunction) ---
-  AgentRouterLogGroup:
-    Type: AWS::Logs::LogGroup
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/agent-router
-      RetentionInDays: 30
-
-  AgentRouterErrorLogsFilter:
-    Type: AWS::Logs::MetricFilter
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Ref AgentRouterLogGroup
-      FilterPattern: '{ $.level = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
-          MetricName: AgentRouterErrorLogs
-          MetricValue: '1'
-          Unit: Count
-
-  AgentRouterErrorLogsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AgentRouterErrorLogsAlarm
-      AlarmDescription: The agent router logged an error (level "error" in AgentRouterLogGroup).
-      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
-      MetricName: AgentRouterErrorLogs
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  AgentRouterErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AgentRouterErrorsAlarm
-      AlarmDescription: An invocation of the agent router failed.
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AgentRouterFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  AgentRouterThrottlesAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AgentRouterThrottlesAlarm
-      AlarmDescription: An invocation of the agent router was throttled.
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AgentRouterFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  # --- the agent task runner (AgentTaskFunction) ---
-  AgentTaskLogGroup:
-    Type: AWS::Logs::LogGroup
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/agent-task
-      RetentionInDays: 30
-
-  AgentTaskErrorLogsFilter:
-    Type: AWS::Logs::MetricFilter
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Ref AgentTaskLogGroup
-      FilterPattern: '{ $.level = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
-          MetricName: AgentTaskErrorLogs
-          MetricValue: '1'
-          Unit: Count
-
-  AgentTaskErrorLogsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AgentTaskErrorLogsAlarm
-      AlarmDescription: The agent task runner logged an error (level "error" in AgentTaskLogGroup).
-      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
-      MetricName: AgentTaskErrorLogs
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  AgentTaskErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AgentTaskErrorsAlarm
-      AlarmDescription: An invocation of the agent task runner failed.
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AgentTaskFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  AgentTaskThrottlesAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AgentTaskThrottlesAlarm
-      AlarmDescription: An invocation of the agent task runner was throttled.
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AgentTaskFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  # --- the chat system-message handler (ChatEventsFunction) ---
-  ChatEventsLogGroup:
-    Type: AWS::Logs::LogGroup
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/chat-events
-      RetentionInDays: 30
-
-  ChatEventsErrorLogsFilter:
-    Type: AWS::Logs::MetricFilter
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Ref ChatEventsLogGroup
-      FilterPattern: '{ $.level = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
-          MetricName: ChatEventsErrorLogs
-          MetricValue: '1'
-          Unit: Count
-
-  ChatEventsErrorLogsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-ChatEventsErrorLogsAlarm
-      AlarmDescription: The chat system-message handler logged an error (level "error" in ChatEventsLogGroup).
-      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
-      MetricName: ChatEventsErrorLogs
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  ChatEventsErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-ChatEventsErrorsAlarm
-      AlarmDescription: An invocation of the chat system-message handler failed.
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ChatEventsFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  ChatEventsThrottlesAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-ChatEventsThrottlesAlarm
-      AlarmDescription: An invocation of the chat system-message handler was throttled.
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ChatEventsFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  # --- the realtime publisher (RealtimePublisherFunction) ---
-  RealtimePublisherLogGroup:
-    Type: AWS::Logs::LogGroup
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/realtime
-      RetentionInDays: 30
-
-  RealtimePublisherErrorLogsFilter:
-    Type: AWS::Logs::MetricFilter
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Ref RealtimePublisherLogGroup
-      FilterPattern: '{ $.level = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
-          MetricName: RealtimePublisherErrorLogs
-          MetricValue: '1'
-          Unit: Count
-
-  RealtimePublisherErrorLogsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-RealtimePublisherErrorLogsAlarm
-      AlarmDescription: The realtime publisher logged an error (level "error" in RealtimePublisherLogGroup).
-      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
-      MetricName: RealtimePublisherErrorLogs
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  RealtimePublisherErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-RealtimePublisherErrorsAlarm
-      AlarmDescription: An invocation of the realtime publisher failed.
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref RealtimePublisherFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  RealtimePublisherThrottlesAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-RealtimePublisherThrottlesAlarm
-      AlarmDescription: An invocation of the realtime publisher was throttled.
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref RealtimePublisherFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  # --- the alarm notifier (AlarmNotifierFunction) ---
-  AlarmNotifierLogGroup:
-    Type: AWS::Logs::LogGroup
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${AWS::StackName}/alarm-notifier
-      RetentionInDays: 30
-
-  AlarmNotifierErrorLogsFilter:
-    Type: AWS::Logs::MetricFilter
-    Condition: DeployServer
-    Properties:
-      LogGroupName: !Ref AlarmNotifierLogGroup
-      FilterPattern: '{ $.level = "error" }'
-      MetricTransformations:
-        - MetricNamespace: !Sub AiFantasyLeague/${AWS::StackName}
-          MetricName: AlarmNotifierErrorLogs
-          MetricValue: '1'
-          Unit: Count
-
-  AlarmNotifierErrorLogsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AlarmNotifierErrorLogsAlarm
-      AlarmDescription: The alarm notifier logged an error (level "error" in AlarmNotifierLogGroup).
-      Namespace: !Sub AiFantasyLeague/${AWS::StackName}
-      MetricName: AlarmNotifierErrorLogs
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  AlarmNotifierErrorsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AlarmNotifierErrorsAlarm
-      AlarmDescription: An invocation of the alarm notifier failed.
-      Namespace: AWS/Lambda
-      MetricName: Errors
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AlarmNotifierFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
-
-  AlarmNotifierThrottlesAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: DeployServer
-    Properties:
-      # The stack prefix is what AlarmNotifierFunction's rule matches on.
-      AlarmName: !Sub ${AWS::StackName}-AlarmNotifierThrottlesAlarm
-      AlarmDescription: An invocation of the alarm notifier was throttled.
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref AlarmNotifierFunction
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: notBreaching
 
   # ===========================================================================
   # End of operations section
@@ -1867,13 +1262,6 @@ Outputs:
   AgentKillSwitchParameterName:
     Description: SSM parameter to set to "on" to put every agent into deterministic mode
     Value: !Ref AgentKillSwitchParameter
-  EventsDeadLetterQueueUrl:
-    Condition: DeployServer
-    Description: >
-      Dead-lettered events from the EventBridge rules, the Scheduler schedules,
-      and failed asynchronous handler invocations. Inspect with
-      aws sqs receive-message --queue-url <url> --attribute-names All --message-attribute-names All
-    Value: !Ref EventsDeadLetterQueue
   AppDistributionDomainName:
     Condition: DeployServer
     Description: The distribution's *.cloudfront.net domain (Staging's AppUrl)

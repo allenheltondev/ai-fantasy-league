@@ -254,7 +254,7 @@ describe('advanceLeague', () => {
     expect(types(events)).not.toContain('Week Provisionally Final');
   });
 
-  it('rethrows unexpected storage failures, and the job counts them without stopping', async () => {
+  it('rethrows unexpected storage failures, and the job fails after trying every league', async () => {
     const { deps, repos, league } = await setup();
     const broken = {
       ...deps,
@@ -268,7 +268,10 @@ describe('advanceLeague', () => {
       }
     };
     await expect(advanceLeague(broken, league, afterWeek(1))).rejects.toThrow('dynamo down');
-    expect(await advanceSeason(broken, new FixedClock(afterWeek(1)))).toMatchObject({ failed: 1 });
+    // The job still tries every league, then fails so Lambda retries it.
+    await expect(advanceSeason(broken, new FixedClock(afterWeek(1)))).rejects.toThrow(
+      'advanceSeason: 1 failed after the rest finished'
+    );
   });
 });
 
@@ -303,7 +306,7 @@ describe('season jobs with nothing to do', () => {
     expect(await scoreLiveWeek(noWeek.deps, clock)).toMatchObject({ reason: 'outside_game_window' });
   });
 
-  it('live scoring logs and counts a failing league without stopping the others', async () => {
+  it('live scoring finishes every league, then fails when one failed', async () => {
     const { deps, repos, league, events } = await setup();
     await repos.leagues.create({ ...league, id: 'lg-broken' });
     const listMatchups = repos.schedule.listMatchups.bind(repos.schedule);
@@ -311,14 +314,16 @@ describe('season jobs with nothing to do', () => {
       if (id === 'lg-broken') throw new Error('dynamo down');
       return listMatchups(id, week);
     });
-    const log = { ...silentLogger, error: vi.fn() };
+    const log = { ...silentLogger, error: vi.fn(), info: vi.fn() };
     const clock = new FixedClock(new Date(Date.parse(SUNDAY_KICKOFF) + 3_600_000));
-    expect(await scoreLiveWeek({ ...deps, log }, clock)).toMatchObject({
-      status: 'ok',
-      leagues: 2,
-      live: 2,
-      failed: 1
-    });
+    // Every league is tried, then the job fails so Lambda retries it and the failure is emailed.
+    await expect(scoreLiveWeek({ ...deps, log }, clock)).rejects.toThrow(
+      'scoreLiveWeek: 1 failed after the rest finished'
+    );
+    expect(log.info).toHaveBeenCalledWith(
+      'scoreLiveWeek partly done',
+      expect.objectContaining({ status: 'ok', leagues: 2, live: 2, updated: 1, failed: 1 })
+    );
     expect(log.error).toHaveBeenCalledWith(
       'could not score league',
       expect.objectContaining({ leagueId: 'lg-broken' })
@@ -329,7 +334,7 @@ describe('season jobs with nothing to do', () => {
     );
   });
 
-  it('live scoring counts a league whose schedule cannot be read', async () => {
+  it("live scoring fails when a league's schedule cannot be read", async () => {
     const { deps } = await setup();
     const broken = {
       ...deps,
@@ -342,11 +347,12 @@ describe('season jobs with nothing to do', () => {
       }
     };
     const clock = new FixedClock(new Date(Date.parse(SUNDAY_KICKOFF) + 3_600_000));
-    expect(await scoreLiveWeek(broken, clock)).toMatchObject({
-      status: 'skipped',
-      reason: 'outside_game_window',
-      failed: 1
-    });
+    const log = { ...silentLogger, info: vi.fn() };
+    await expect(scoreLiveWeek({ ...broken, log }, clock)).rejects.toThrow('scoreLiveWeek: 1 failed');
+    expect(log.info).toHaveBeenCalledWith(
+      'scoreLiveWeek partly done',
+      expect.objectContaining({ status: 'skipped', reason: 'outside_game_window', failed: 1 })
+    );
   });
 });
 
