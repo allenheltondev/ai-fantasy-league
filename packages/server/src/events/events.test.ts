@@ -12,17 +12,23 @@ describe('scheduleEventDetail', () => {
         at: AT,
         name: 'waivers-lg-1-w5',
         whenPast: 'send',
-        event: { detailType: 'Trade Expired', detail: { leagueId: 'lg-1', week: 5 } }
+        event: { detailType: 'Agent Action Requested', detail: { leagueId: 'lg-1', week: 5 } }
       })
     ).toEqual({
       at: '2026-10-01T08:00:00.000Z',
       name: 'waivers-lg-1-w5',
       whenPast: 'send',
-      event: { source: 'fantasy', detailType: 'Trade Expired', detail: { leagueId: 'lg-1', week: 5 } }
+      event: {
+        source: 'fantasy',
+        detailType: 'Agent Action Requested',
+        detail: { leagueId: 'lg-1', week: 5 }
+      }
     });
-    expect(scheduleEventDetail({ at: AT, event: { detailType: 'Trade Expired', detail: {} } })).toEqual({
+    expect(
+      scheduleEventDetail({ at: AT, event: { detailType: 'Agent Action Requested', detail: {} } })
+    ).toEqual({
       at: '2026-10-01T08:00:00.000Z',
-      event: { source: 'fantasy', detailType: 'Trade Expired', detail: {} }
+      event: { source: 'fantasy', detailType: 'Agent Action Requested', detail: {} }
     });
   });
 });
@@ -30,15 +36,15 @@ describe('scheduleEventDetail', () => {
 describe('InMemoryEventPublisher', () => {
   it('records publishes, schedules, and cancels', async () => {
     const events = new InMemoryEventPublisher();
-    await events.publish('Trade Proposed', { leagueId: 'lg-1' });
+    await events.publish('Agent Action Requested', { leagueId: 'lg-1' });
     await events.scheduleAt({
       at: AT,
       name: 'n',
-      event: { detailType: 'Trade Expired', detail: { tradeId: 't' } }
+      event: { detailType: 'Agent Action Requested', detail: { tradeId: 't' } }
     });
     await events.cancelScheduled('n');
     expect(events.events.map((e) => [e.source, e.detailType])).toEqual([
-      ['fantasy', 'Trade Proposed'],
+      ['fantasy', 'Agent Action Requested'],
       ['fantasy', 'Schedule Event'],
       ['fantasy', 'Cancel Scheduled Event']
     ]);
@@ -59,30 +65,30 @@ describe('EventBridgePublisher', () => {
   it('puts events on the configured bus with source fantasy', async () => {
     const client = new FakeSender();
     const publisher = new EventBridgePublisher({ client, busName: 'default' });
-    await publisher.publish('Trade Accepted', { pick: 1 });
+    await publisher.publish('Agent Action Requested', { pick: 1 });
     await publisher.scheduleAt({
       at: AT,
-      event: { detailType: 'Trade Countered', detail: { week: 5 } }
+      event: { detailType: 'Agent Action Requested', detail: { week: 5 } }
     });
     await publisher.cancelScheduled('lock-5');
     const entries = client.commands.map((c) => c.input.Entries?.[0]);
     expect(entries[0]).toEqual({
       EventBusName: 'default',
       Source: 'fantasy',
-      DetailType: 'Trade Accepted',
+      DetailType: 'Agent Action Requested',
       Detail: '{"pick":1}'
     });
     expect(entries[1]?.DetailType).toBe('Schedule Event');
     expect(JSON.parse(entries[1]?.Detail ?? '')).toEqual({
       at: AT.toISOString(),
-      event: { source: 'fantasy', detailType: 'Trade Countered', detail: { week: 5 } }
+      event: { source: 'fantasy', detailType: 'Agent Action Requested', detail: { week: 5 } }
     });
     expect(entries[2]).toMatchObject({ DetailType: 'Cancel Scheduled Event', Detail: '{"name":"lock-5"}' });
   });
 
   it('throws when EventBridge rejects the entry', async () => {
     const publisher = new EventBridgePublisher({ client: new FakeSender(1) });
-    await expect(publisher.publish('Trade Vetoed', {})).rejects.toThrow(/rejected/);
+    await expect(publisher.publish('Agent Action Requested', {})).rejects.toThrow(/rejected/);
   });
 
   it('builds a real client by default', () => {

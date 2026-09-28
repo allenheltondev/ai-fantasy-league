@@ -339,7 +339,14 @@ describe('startLeagueSeason (#85)', () => {
     );
     expect(started).toMatchObject({ phase: 'regular_season', week: 1 });
     expect(started.deadlines.nextLineupLockAt).toBe('2026-09-11T00:20:00.000Z');
-    expect(deps.events.events.filter((e) => e.detailType === 'Schedule Event')).toHaveLength(4);
+    // Week 11's first kickoff is the trade deadline; it is scheduled with the lock warnings.
+    expect(started.deadlines.tradeDeadlineAt).toBe('2026-11-20T00:20:00.000Z');
+    const scheduled = deps.events.events.filter((e) => e.detailType === 'Schedule Event');
+    expect(scheduled).toHaveLength(5);
+    expect(scheduled.at(-1)?.detail).toMatchObject({
+      name: 'trade-deadline-lg-cycle',
+      event: { detailType: 'Trade Deadline Passed' }
+    });
   });
 
   it('starts a league drafted mid-season at the next unlocked week', async () => {

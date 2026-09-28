@@ -101,10 +101,18 @@ describe('validateTrade', () => {
       settings,
       { sides: [side('A', ['a0'], ['a1']), side('B', ['b0'])] },
       context(rosters, { games, currentWeek: 12 }),
-      'processing'
+      'acceptance'
     );
     expect(v.errors.map((e) => e.code)).toEqual(['PLAYER_LOCKED', 'PLAYER_LOCKED', 'TRADE_DEADLINE_PASSED']);
     expect(v.errors[1]?.message).toMatch(/cannot be dropped/);
+    // A trade accepted before the deadline still processes after it (Yahoo).
+    const late = validateTrade(
+      settings,
+      { sides: [side('A', ['a0']), side('B', ['b0'])] },
+      context(rosters, { currentWeek: 12 }),
+      'processing'
+    );
+    expect(late.errors).toEqual([]);
   });
 
   it('requires drops so both rosters fit, but only warns about the responder at proposal', () => {

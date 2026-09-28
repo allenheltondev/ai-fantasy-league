@@ -70,7 +70,8 @@ const TxnSchema = z.object({
   addPlayerId: z.string().nullable(),
   dropPlayerId: z.string().nullable(),
   cost: z.number().nullable(),
-  claimId: z.string().nullable()
+  claimId: z.string().nullable(),
+  tradeId: z.string().nullable().optional()
 });
 const RunSchema = z.object({
   leagueId: z.string(),

@@ -14,6 +14,8 @@ import { firstScoringWeek, nextUnlockedWeek, type NflStateSource } from '../leag
 import { isInSeason, transitionPhase } from '../league/phase.js';
 import { startSeasonSchedule } from '../league/schedule.js';
 import { weekKey } from '../repos/dynamo/query.js';
+import { scheduleTradeDeadline } from '../trades/lifecycle.js';
+import { tradeDeadlineAt } from '../trades/world.js';
 import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Lineup, Repos } from '../repos/types.js';
 import { applyPriorities } from '../waivers/process.js';
@@ -258,9 +260,13 @@ export async function startLeagueSeason(
   const saved = await deps.repos.leagues.update({
     ...moved,
     week,
-    deadlines: weekDeadlines(moved, games),
+    deadlines: {
+      ...weekDeadlines(moved, games),
+      tradeDeadlineAt: await tradeDeadlineAt(deps.reference, league)
+    },
     updatedAt: now.toISOString()
   });
   await scheduleLockWarnings(deps, saved, games, now);
+  await scheduleTradeDeadline(deps, saved);
   return saved;
 }

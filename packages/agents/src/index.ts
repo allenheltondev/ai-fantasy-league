@@ -14,4 +14,5 @@ export { noopTask } from './tasks/noop.js';
 export { draftTask, DraftDecisionSchema, agentRank } from './tasks/draft.js';
 export { waiverTask, WaiverDecisionSchema } from './tasks/waivers.js';
 export * from './tasks/chat.js';
+export { tradeResponseTask, TradeDecisionSchema } from './tasks/trades.js';
 export * from './tools.js';

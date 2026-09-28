@@ -36,6 +36,10 @@ describe('buildUrl', () => {
     expect(buildUrl('leagues', { a: 1, b: null, c: undefined, d: true })).toBe('/api/v1/leagues?a=1&d=true');
     expect(buildUrl('/health')).toBe('/api/v1/health');
   });
+
+  it('repeats a key for each value of an array', () => {
+    expect(buildUrl('/t', { send: ['a', 'b'], none: [] })).toBe('/api/v1/t?send=a&send=b');
+  });
 });
 
 describe('apiFetch', () => {

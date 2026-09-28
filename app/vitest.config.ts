@@ -7,6 +7,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Page tests drive whole flows with userEvent (a wizard, a trade builder). They run 1-3s
+    // alone and several times that under coverage on a busy runner, so the 5s default is too
+    // tight for them; a real hang still fails well within this.
+    testTimeout: 20_000,
     // Playwright owns e2e/; keep vitest out of it.
     exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
     coverage: {
