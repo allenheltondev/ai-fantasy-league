@@ -226,6 +226,7 @@ export const EVENT_DETAIL_SCHEMAS = {
   }),
   'Chat Mention': z.object({
     leagueId: id,
+    roomId: id.describe('The room of the message; in a DM, the other team is always addressed.'),
     messageId: id,
     authorTeamId: z.string().nullable(),
     authorType: z.enum(CHAT_MESSAGE_KINDS),
@@ -237,9 +238,21 @@ export const EVENT_DETAIL_SCHEMAS = {
     messageId: id,
     sourceEventType: z.string(),
     sourceEventId: z.string(),
-    teamId: id.optional()
+    teamId: id.optional(),
+    roomId: id.describe('The room the moment was announced in; agents react there.'),
+    teamIds: z.array(id).optional().describe('A matchup room moment: the two teams playing, who react first.')
   }),
-  'Chat Message Posted': z.object({ leagueId: id, message: ChatMessageSchema }),
+  'Chat Message Posted': z.object({
+    leagueId: id,
+    roomId: id,
+    teamIds: z
+      .tuple([id, id])
+      .nullable()
+      .describe(
+        'A DM: the only two teams that may see it (the relay sends it to their team topics alone). Null for rooms the whole league reads.'
+      ),
+    message: ChatMessageSchema
+  }),
   'Scores Updated': z.union([
     z.object({
       leagueId: id,

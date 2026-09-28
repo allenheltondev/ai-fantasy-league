@@ -222,21 +222,34 @@ describe.each(backends)('%s league repositories', (_name, make) => {
         claimId: null
       }
     ]);
-    for (const id of ['m1', 'm2']) {
-      await repos.chat.put({
-        id,
-        leagueId: l.id,
-        kind: 'user',
-        author: { teamId: 'team-1', teamName: 'A', name: 'u1' },
-        text: 'hi',
-        mentionedTeamIds: [],
-        event: null,
-        createdAt: START
-      });
+    for (const [id, roomId] of [
+      ['m1', 'trash-talk'],
+      ['m2', 'dm-team-1-team-2']
+    ] as const) {
+      await repos.chat.put(
+        {
+          id,
+          leagueId: l.id,
+          roomId,
+          kind: 'user',
+          author: { teamId: 'team-1', teamName: 'A', name: 'u1' },
+          text: 'hi',
+          mentionedTeamIds: [],
+          event: null,
+          createdAt: START
+        },
+        { dmTeamIds: ['team-1', 'team-2'] }
+      );
     }
+    await repos.chat.markRead(l.id, 'user#u1', 'trash-talk', START);
     await repos.chat.deleteLeague(l.id);
     await repos.leagues.delete(l.id);
-    expect(await repos.chat.list(l.id, { limit: 10 })).toEqual({ messages: [], nextCursor: null });
+    expect(await repos.chat.list(l.id, 'trash-talk', { limit: 10 })).toEqual({
+      messages: [],
+      nextCursor: null
+    });
+    expect(await repos.chat.dmRooms(l.id, 'team-1')).toEqual([]);
+    expect(await repos.chat.readState(l.id, 'user#u1')).toEqual({});
     expect(await repos.lineups.listWeek(l.id, 1)).toEqual([]);
     expect(await repos.waivers.listWire(l.id)).toEqual([]);
     expect((await repos.waivers.listTransactions(l.id, { limit: 10 })).items).toEqual([]);

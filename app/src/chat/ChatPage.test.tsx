@@ -153,8 +153,13 @@ describe('ChatPage', () => {
     });
     const view = renderChat(api, connect);
     expect(await screen.findByText('Live')).toBeInTheDocument();
-    act(() => handlers?.onChat(msg({ text: 'pushed live' })));
+    act(() => handlers?.onChat(msg({ id: 'other-room', roomId: 'draft', text: 'a draft pick' })));
+    act(() => handlers?.onChat(msg({ roomId: 'trash-talk', text: 'pushed live' })));
+    // Messages from before rooms carry no roomId: they are trash talk.
+    act(() => handlers?.onChat(msg({ text: 'from before rooms' })));
     expect(await screen.findByText('pushed live')).toBeInTheDocument();
+    expect(screen.queryByText('a draft pick')).not.toBeInTheDocument();
+    expect(await screen.findByText('from before rooms')).toBeInTheDocument();
     act(() => handlers?.onError());
     expect(await screen.findByText('Updates every 0.05s')).toBeInTheDocument();
     expect(unsubscribe).toHaveBeenCalledTimes(1);

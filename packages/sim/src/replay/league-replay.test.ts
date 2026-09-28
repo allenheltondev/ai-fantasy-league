@@ -93,6 +93,12 @@ describe('replayLeague: the real league on the simulated clock', () => {
     expect(report.events.deferredReleased).toBeGreaterThan(0);
     expect(report.events.delivered['Lineup Lock Approaching']).toBeGreaterThan(0);
     expect(report.chat.byKind.system).toBeGreaterThan(0);
+    // League news lands in its rooms (#144): draft picks in #draft, week finals in #league and in
+    // every matchup room.
+    expect(report.chat.byRoom.draft).toBeGreaterThan(0);
+    expect(report.chat.byRoom.league).toBeGreaterThan(0);
+    expect(report.chat.byRoom.matchup).toBeGreaterThan(0);
+    expect(Object.values(report.chat.byRoom).reduce((a, b) => a + b, 0)).toBe(report.chat.messages);
     expect(report.timings.map((t) => t.label)).toEqual(['draft', 'regular', 'regular', 'playoffs']);
 
     const markdown = renderLeagueReport(report);

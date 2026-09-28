@@ -405,6 +405,49 @@ describe('relayEvent', () => {
     });
   });
 
+  it('pushes DM messages only to the two teams’ topics, and drops a DM it cannot address', async () => {
+    const realtime = new InMemoryRealtime();
+    const dm = { id: 'm2', roomId: 'dm-team-1-team-2', text: 'secret' };
+    expect(
+      await relayEvent(
+        realtime,
+        silentLogger,
+        event('Chat Message Posted', {
+          leagueId: 'lg-1',
+          roomId: 'dm-team-1-team-2',
+          teamIds: ['team-1', 'team-2'],
+          message: dm
+        })
+      )
+    ).toEqual({ topics: ['fantasy.team.lg-1.team-1', 'fantasy.team.lg-1.team-2'] });
+    // No detail room but a DM message, or a DM without both teams: never the league topic.
+    for (const detail of [
+      { leagueId: 'lg-1', message: dm },
+      { leagueId: 'lg-1', roomId: 'dm-team-1-team-2', teamIds: ['team-1', 'team-1'], message: dm },
+      { leagueId: 'lg-1', roomId: 'dm-team-1-team-2', teamIds: null, message: dm }
+    ]) {
+      expect(await relayEvent(realtime, silentLogger, event('Chat Message Posted', detail))).toEqual({
+        topics: []
+      });
+    }
+    expect(realtime.published.map((p) => p.topic)).toEqual([
+      'fantasy.team.lg-1.team-1',
+      'fantasy.team.lg-1.team-2'
+    ]);
+    expect(
+      await relayEvent(
+        realtime,
+        silentLogger,
+        event('Chat Message Posted', {
+          leagueId: 'lg-1',
+          roomId: 'draft',
+          teamIds: null,
+          message: { id: 'm3' }
+        })
+      )
+    ).toEqual({ topics: ['fantasy.league.lg-1'] });
+  });
+
   it('passes league events through untouched, per league or globally', async () => {
     const realtime = new InMemoryRealtime();
     await relayEvent(realtime, silentLogger, event('Draft Pick Made', { leagueId: 'lg-1', pick: 3 }));

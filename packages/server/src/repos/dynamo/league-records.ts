@@ -96,6 +96,7 @@ export const TeamRecordSchema = z.object({
   faabRemaining: z.number(),
   waiverPriority: z.number(),
   roster: z.array(z.string()),
+  occupiedSince: iso.optional(),
   createdAt: iso,
   updatedAt: iso,
   version: z.number()

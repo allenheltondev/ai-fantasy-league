@@ -170,7 +170,7 @@ describe('league lifecycle over HTTP (dynalite)', () => {
     ).toBe(200);
     expect((await alice.del(`/leagues/${extra!.id}`)).status).toBe(200);
     // The chat partition goes with the league.
-    expect((await h.repos.chat.list(extra!.id, { limit: 10 })).messages).toEqual([]);
+    expect((await h.repos.chat.list(extra!.id, 'trash-talk', { limit: 10 })).messages).toEqual([]);
     expect((await alice.post('/leagues', { name: 'Fourth' })).status).toBe(200);
   });
 

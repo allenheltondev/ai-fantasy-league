@@ -15,6 +15,10 @@ import { GLOBAL_TOPIC, leagueTopic, teamTopic, type Realtime, type RealtimeMessa
  * those two teams' private topics (`teamTopic`), never to the league topic, which reaches every
  * member.
  *
+ * Direct messages (chat rooms `dm-...`, #144) are the same: a `Chat Message Posted` in a DM goes to
+ * its two teams' topics (`detail.teamIds`) and never to the league topic. A DM message without its
+ * two teams is dropped rather than risk the league topic.
+ *
  * Per-team results also go to the team's own topic: each team's waiver awards from
  * `Waivers Processed` (the league topic still gets the whole run, which everyone may see).
  */
@@ -68,10 +72,16 @@ export async function relayEvent(realtime: Realtime, log: Logger, event: BusEven
     const message = detail.message;
     if (leagueIds.length === 1 && message !== null && typeof message === 'object') {
       const leagueId = leagueIds[0] as string;
-      deliveries.push({
-        topic: leagueTopic(leagueId),
-        message: { type: 'chat', leagueId, message: message as Record<string, unknown> }
-      });
+      const chat = { type: 'chat' as const, leagueId, message: message as Record<string, unknown> };
+      const roomId = [detail.roomId, (message as { roomId?: unknown }).roomId].find(isId);
+      if (roomId?.startsWith('dm-') === true) {
+        const teams = Array.isArray(detail.teamIds) ? [...new Set(detail.teamIds.filter(isId))] : [];
+        if (teams.length === 2) {
+          for (const teamId of teams) deliveries.push({ topic: teamTopic(leagueId, teamId), message: chat });
+        }
+      } else {
+        deliveries.push({ topic: leagueTopic(leagueId), message: chat });
+      }
     }
   } else if (teamOnly) {
     const base = { type: 'event' as const, detailType, eventId: event.id, time: event.time ?? null, detail };

@@ -1,6 +1,14 @@
-import { mentionedTeamIds, moderateChatText } from '@fantasy/core';
+import {
+  DEFAULT_ROOM_ID,
+  dmPartner,
+  mentionedTeamIds,
+  moderateChatText,
+  roomMentionTargets
+} from '@fantasy/core';
 import { z } from 'zod';
+import { principalKey } from '../../auth/principal.js';
 import { authorKey, CHAT_LIMITS, ChatMessageSchema, type ChatMessage } from '../../chat/model.js';
+import { requireOpenRoom, resolveRoom, RoomIdSchema } from '../../chat/rooms.js';
 import { ApiError } from '../../errors.js';
 import { requireMember } from '../../league/access.js';
 import { assertAction } from '../../league/phase.js';
@@ -13,18 +21,20 @@ export const postMessage = defineOperation({
   name: 'post_message',
   method: 'POST',
   path: '/leagues/{leagueId}/chat/messages',
-  summary: 'Post a message to the league group chat',
+  summary: 'Post a message to a chat room',
   description: [
-    'Posts `text` to the league group chat as you (a person, or an agent speaking for its team). Everyone in the league sees it live.',
-    'Mention a team with `@` plus its team name, its manager\'s name, or its team id (for example "@Big Tuna" or "@team-3"); mentioned teams are notified, and AI managers may reply.',
+    `Posts \`text\` to a chat room as you (a person, or an agent speaking for its team): \`roomId\`, default "${DEFAULT_ROOM_ID}". Everyone who can read the room sees it live.`,
+    'Rooms: `league`, `trash-talk`, `draft`, `trades`, `waivers-news`, this week\'s matchup rooms (list_chat_rooms), and direct messages. To message one team privately, post to the DM room "dm-" plus your team id and theirs, sorted and joined with "-" (for example "dm-team-1-team-3"); only your two teams can read it, and the other team is notified of every message.',
+    'Mention a team with `@` plus its team name, its manager\'s name, or its team id (for example "@Big Tuna" or "@team-3"); mentioned teams are notified, and AI managers may reply. In a DM only the other team can be mentioned.',
     `Messages are 1-${CHAT_LIMITS.maxLength} characters. Keep trash talk friendly. Chat is for banter and negotiation only: nothing agreed in chat happens until someone uses the trade tools.`,
     'Every message, from a person or an AI manager, goes through the same moderation: control and invisible characters are removed, and harassment (telling someone to hurt themselves) is refused.',
-    `Errors: RATE_LIMITED after ${CHAT_LIMITS.burstMessages} messages in ${CHAT_LIMITS.burstWindowMs / 1000} seconds (wait, then retry); FORBIDDEN if you are not in the league; INVALID_INPUT for an empty or too-long message; MESSAGE_BLOCKED when moderation refuses it (rewrite it as the fix says).`
+    `Errors: RATE_LIMITED after ${CHAT_LIMITS.burstMessages} messages in ${CHAT_LIMITS.burstWindowMs / 1000} seconds across all rooms (wait, then retry); FORBIDDEN if you are not in the league or the room is a DM between two other teams; ROOM_NOT_FOUND for a room this league does not have; ROOM_ARCHIVED for a past week's matchup room; INVALID_INPUT for an empty or too-long message; MESSAGE_BLOCKED when moderation refuses it (rewrite it as the fix says).`
   ].join(' '),
   tags: ['chat'],
   mutation: true,
   input: z.object({
     leagueId: LeagueIdSchema,
+    roomId: RoomIdSchema.default(DEFAULT_ROOM_ID),
     text: z
       .string()
       .trim()
@@ -37,6 +47,8 @@ export const postMessage = defineOperation({
     const access = await requireMember(ctx, input.leagueId);
     const now = ctx.clock.now();
     assertAction('post_message', access.league, access.actor, now);
+    const { room, parsed } = await resolveRoom(ctx, access, input.roomId);
+    requireOpenRoom(room);
     const author = chatAuthor(access.actor);
     const moderated = moderateChatText(input.text);
     if (!moderated.ok) {
@@ -50,11 +62,12 @@ export const postMessage = defineOperation({
     }
     const text = moderated.text;
 
-    const recent = await ctx.repos.chat.list(access.league.id, { limit: 20 });
+    // Per author across every room: the league's activity index since the window started.
     const windowStart = now.getTime() - CHAT_LIMITS.burstWindowMs;
-    const mine = recent.messages
-      .filter((m) => authorKey(m) === authorKey(author))
-      .map((m) => Date.parse(m.createdAt))
+    const recent = await ctx.repos.chat.activity(access.league.id, new Date(windowStart).toISOString());
+    const mine = recent
+      .filter((a) => authorKey({ kind: a.kind, author: { teamId: a.teamId } }) === authorKey(author))
+      .map((a) => Date.parse(a.createdAt))
       .filter((at) => at > windowStart);
     if (mine.length >= CHAT_LIMITS.burstMessages) {
       const waitSeconds = Math.max(1, Math.ceil((Math.min(...mine) - windowStart) / 1000));
@@ -64,22 +77,46 @@ export const postMessage = defineOperation({
       });
     }
 
-    const mentioned = mentionedTeamIds(text, mentionTargets(access.teams));
+    const authorTeamId = author.author.teamId;
+    const mentioned = mentionedTeamIds(
+      text,
+      roomMentionTargets(parsed, mentionTargets(access.teams), authorTeamId)
+    );
     const message: ChatMessage = {
       id: newId(ctx),
       leagueId: access.league.id,
+      roomId: room.roomId,
       ...author,
       text,
       mentionedTeamIds: mentioned,
       event: null,
       createdAt: now.toISOString()
     };
-    await ctx.repos.chat.put(message);
-    await ctx.events.publish('Chat Message Posted', { leagueId: message.leagueId, message });
-    const notify = mentioned.filter((teamId) => teamId !== author.author.teamId);
+    const dmTeamIds = parsed.kind === 'dm' ? parsed.teamIds : null;
+    await ctx.repos.chat.put(message, dmTeamIds === null ? {} : { dmTeamIds });
+    // You have read everything up to your own message.
+    await ctx.repos.chat.markRead(
+      message.leagueId,
+      principalKey(ctx.principal),
+      room.roomId,
+      message.createdAt
+    );
+    await ctx.events.publish('Chat Message Posted', {
+      leagueId: message.leagueId,
+      roomId: room.roomId,
+      teamIds: dmTeamIds,
+      message
+    });
+    // Every DM message is addressed to the other team, mentioned or not.
+    const addressed =
+      dmTeamIds === null || authorTeamId === null
+        ? mentioned
+        : [dmPartner({ teamIds: dmTeamIds }, authorTeamId)];
+    const notify = addressed.filter((teamId) => teamId !== authorTeamId);
     if (notify.length > 0) {
       await ctx.events.publish('Chat Mention', {
         leagueId: message.leagueId,
+        roomId: room.roomId,
         messageId: message.id,
         authorTeamId: author.author.teamId,
         authorType: author.kind,

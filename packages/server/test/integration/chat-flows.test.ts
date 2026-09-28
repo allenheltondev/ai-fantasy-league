@@ -60,6 +60,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
       const mention = h.events.events.find((e) => e.detailType === 'Chat Mention');
       expect(mention?.detail).toEqual({
         leagueId: 'lg-chat',
+        roomId: 'trash-talk',
         messageId: data<{ message: ChatMessage }>(res).message.id,
         authorTeamId: 'team-2',
         authorType: 'user',
@@ -107,6 +108,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(compact.messages).toEqual([
         {
           id: expect.any(String),
+          roomId: 'trash-talk',
           kind: 'user',
           author: 'Alice',
           teamId: 'team-1',
@@ -124,6 +126,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
       await h.repos.chat.put({
         id: 'm-old',
         leagueId: league,
+        roomId: 'trash-talk',
         kind: 'user',
         author: { teamId: 'team-1', teamName: "Alice's Team", name: 'Alice' },
         text: '@Bob found me',
@@ -135,6 +138,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
         await h.repos.chat.put({
           id: `m-${i}`,
           leagueId: league,
+          roomId: 'trash-talk',
           kind: 'user',
           author: { teamId: 'team-1', teamName: "Alice's Team", name: 'Alice' },
           text: `filler ${i}`,
@@ -333,7 +337,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
 }
 
 describe('system messages and chat in one partition', () => {
-  it('stores system messages beside people, idempotently per event', async () => {
+  it('stores system messages in their room beside people, idempotently per event', async () => {
     const h = await createHarness({ backend: 'dynamo' });
     try {
       await seedLeague(h.repos, { id: 'lg-chat', owners: [ALICE, BOB], teamCount: 4 });
@@ -357,14 +361,16 @@ describe('system messages and chat in one partition', () => {
         status: 'duplicate',
         messageId: 'sys-evt-1'
       });
-      await as(h, ALICE).post(`${L}/chat/messages`, { text: 'great pick' });
-      const page = data<Page>(await as(h, ALICE).get(`${L}/chat/messages`));
+      await as(h, ALICE).post(`${L}/chat/messages`, { roomId: 'draft', text: 'great pick' });
+      const page = data<Page>(await as(h, ALICE).get(`${L}/chat/messages?roomId=draft`));
       expect(page.messages.map((m) => [m.kind, m.text])).toEqual([
         ['user', 'great pick'],
         ['system', "Bob's Team drafted Bijan Robinson (round 1, pick 2)."]
       ]);
+      expect(data<Page>(await as(h, ALICE).get(`${L}/chat/messages`)).messages).toEqual([]);
       expect(page.messages[1]).toMatchObject({
         id: 'sys-evt-1',
+        roomId: 'draft',
         author: { teamId: null, name: 'League' },
         event: { detailType: 'Draft Pick Made', eventId: 'evt-1' },
         createdAt: '2026-09-10T11:00:00.000Z'

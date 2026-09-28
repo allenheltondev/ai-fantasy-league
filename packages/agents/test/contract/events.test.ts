@@ -27,7 +27,7 @@ import {
   type Services,
   type SystemMessageOutcome
 } from '@fantasy/server';
-import { computeStandings, playoffBracket, yahooDefaultSettings } from '@fantasy/core';
+import { computeStandings, playoffBracket, systemMessageRoute, yahooDefaultSettings } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
 import type { BusEvent } from '../../src/events.js';
 import { ScriptedModelClient } from '../../src/fake-model.js';
@@ -111,8 +111,12 @@ function last(events: readonly RecordedEvent[], detailType: string): RecordedEve
   return found;
 }
 
+/** The system message an event posted, checked to be in the room the routing table names (#144). */
 const posted = (c: Consumed): ChatMessage => {
   if (c.chat.status !== 'posted') throw new Error(`expected a chat message, got ${JSON.stringify(c.chat)}`);
+  expect(c.chat.message.roomId, `${c.event['detail-type']} room`).toBe(
+    systemMessageRoute(c.event['detail-type']).room
+  );
   return c.chat.message;
 };
 const decisions = (c: Consumed) => c.routed.map((d) => [d.teamId, d.kind, d.decision]);
@@ -194,6 +198,7 @@ describe('event contract: waivers', () => {
     });
     const message = posted(processed);
     expect(message.text).toBe("Waivers processed for week 5: Allen's Team added WR9 ($7).");
+    expect(message.roomId).toBe('waivers-news');
     expect(message.players).toEqual([wr9]);
     expect(processed.chat).toMatchObject({ moment: true });
     expect(processed.relay.topics).toEqual([
@@ -209,7 +214,8 @@ describe('event contract: waivers', () => {
     const moment = await consume(s.services, delivered(last(s.events.events, 'Chat Moment')));
     expect(moment.event.detail).toMatchObject({
       sourceEventType: 'Waivers Processed',
-      messageId: message.id
+      messageId: message.id,
+      roomId: 'waivers-news'
     });
     expect(moment.routed.map((d) => [d.kind, d.decision])).toEqual([
       ['chat_moment', 'requested'],
@@ -331,8 +337,25 @@ describe('event contract: the weekly cycle', () => {
     );
     expect(final.chat).toMatchObject({ moment: true });
     expect(final.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
-    const moment = await consume(s.services, delivered(last(s.events.events, 'Chat Moment')));
-    expect(moment.event.detail).toMatchObject({ teamId: 'team-2' });
+    // One line in each matchup room, too.
+    expect(final.chat.status === 'posted' && final.chat.matchupMessages.map((m) => m.roomId)).toEqual([
+      'm-2026-W05-W05-M1',
+      'm-2026-W05-W05-M2'
+    ]);
+    const roomLines = s.events.events.filter(
+      (e) => e.detailType === 'Chat Message Posted' && String(e.detail.roomId).startsWith('m-2026-W05-')
+    );
+    expect(roomLines).toHaveLength(2);
+    for (const line of roomLines) {
+      const relayed = await consume(s.services, delivered(line));
+      expect(relayed.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    }
+    const moments = s.events.events.filter((e) => e.detailType === 'Chat Moment');
+    const leagueMoment = await consume(
+      s.services,
+      delivered(moments.find((e) => e.detail.roomId === 'league') as RecordedEvent)
+    );
+    expect(leagueMoment.event.detail).toMatchObject({ teamId: 'team-2', roomId: 'league' });
 
     // The league's rollover sends every agent shopping for trades (once per league week).
     const rolled = await consume(s.services, delivered(last(s.events.events, 'Week Rolled Over')));
@@ -638,10 +661,34 @@ describe('event contract: chat', () => {
     const message = await consume(s.services, delivered(last(s.events.events, 'Chat Message Posted')));
     expect(message.relay.published[0]?.message).toMatchObject({
       type: 'chat',
-      message: { text: '@team-2 your bench is a crime scene' }
+      message: { text: '@team-2 your bench is a crime scene', roomId: 'trash-talk' }
     });
+    expect(message.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
     expect(message.chat).toEqual({ status: 'skipped', reason: 'no_template' });
     const mention = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
+    expect(decisions(mention)).toEqual([['team-2', 'chat_reply', 'requested']]);
+    expect(mention.relay.topics).toEqual([]);
+  });
+
+  it('a DM (Chat Message Posted with its two teams) reaches only their team topics; the other team is addressed', async () => {
+    const s = await inSeason();
+    await run(
+      s,
+      'post_message',
+      { leagueId: LEAGUE_ID, roomId: 'dm-team-1-team-2', text: 'Want my backup QB?' },
+      ALLEN_IN_SEASON
+    );
+    const dm = await consume(s.services, delivered(last(s.events.events, 'Chat Message Posted')));
+    expect(dm.event.detail).toMatchObject({ roomId: 'dm-team-1-team-2', teamIds: ['team-1', 'team-2'] });
+    expect(dm.relay.topics).toEqual([`fantasy.team.${LEAGUE_ID}.team-1`, `fantasy.team.${LEAGUE_ID}.team-2`]);
+    expect(dm.relay.published[0]?.message).toMatchObject({
+      type: 'chat',
+      message: { text: 'Want my backup QB?' }
+    });
+    expect(dm.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+    // No @mention, but a DM always addresses the other team.
+    const mention = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
+    expect(mention.event.detail).toMatchObject({ roomId: 'dm-team-1-team-2', mentionedTeamIds: ['team-2'] });
     expect(decisions(mention)).toEqual([['team-2', 'chat_reply', 'requested']]);
     expect(mention.relay.topics).toEqual([]);
   });
@@ -772,6 +819,10 @@ describe('event contract: the scheduled draft', () => {
           base.services,
           delivered(last(base.events.events, 'Draft Starting Soon'))
         );
+        outcomes.soonPosted = await consume(
+          base.services,
+          delivered(last(base.events.events, 'Chat Message Posted'))
+        );
 
         await base.run('set_seat_type', { leagueId: base.leagueId, teamId: 'team-2', seatType: 'human' });
         base.clock.set(scheduledAt);
@@ -785,6 +836,18 @@ describe('event contract: the scheduled draft', () => {
     });
     const soon = outcomes.soon!;
     expect(posted(soon).text).toBe('The draft starts in 10 minutes. Set your queue in the draft room!');
+    // Announced in #draft (#144), and pushed live like any league-room message.
+    expect(posted(soon).roomId).toBe('draft');
+    expect(outcomes.soonPosted!.event.detail).toMatchObject({ roomId: 'draft', teamIds: null });
+    expect(outcomes.soonPosted!.relay.published).toEqual([
+      {
+        topic: expect.stringMatching(/^fantasy\.league\./),
+        message: expect.objectContaining({
+          type: 'chat',
+          message: expect.objectContaining({ roomId: 'draft' })
+        })
+      }
+    ]);
     expect(soon.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
     expect(soon.routed).toEqual([]);
     const blocked = outcomes.blocked!;
@@ -793,6 +856,7 @@ describe('event contract: the scheduled draft', () => {
     );
     expect(blocked.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
     expect(blocked.routed).toEqual([]);
+    expect(posted(blocked).roomId).toBe('draft');
   });
 });
 
