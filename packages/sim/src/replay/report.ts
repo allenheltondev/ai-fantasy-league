@@ -288,7 +288,7 @@ export async function buildLeagueReport(input: {
     wallMs: input.wallMs,
     violations,
     notes: [
-      'Trades are not replayed yet: no trade task kind or trade operations exist. Replays should cover them once they merge.',
+      'Trades: the human stand-in offers one bench swap a week before the deadline and agents answer through trade_response; agents do not propose trades on their own (no trigger for it yet).',
       'The champion is the one the league stored with its playoff bracket; the replay checks it against the stored playoff games replayed through core `advanceBracket`.'
     ]
   };
@@ -336,7 +336,16 @@ export function renderLeagueReport(report: LeagueReplayReport): string {
       .map(([op, n]) => `${op} ${n}`)
       .join(', ')}; refused ${report.human.refused.length}.`,
     '',
-    `Waiver transactions: ${report.transactions.length}. Chat messages: ${report.chat.messages} (${Object.entries(
+    `Transactions: ${report.transactions.length} (${Object.entries(
+      report.transactions.reduce<Record<string, number>>(
+        (n, t) => ({ ...n, [t.type]: (n[t.type] ?? 0) + 1 }),
+        {}
+      )
+    )
+      .map(([type, n]) => `${type} ${n}`)
+      .join(
+        ', '
+      )}). Trades proposed ${report.events.delivered['Trade Proposed'] ?? 0}, processed ${report.events.delivered['Trade Processed'] ?? 0}. Chat messages: ${report.chat.messages} (${Object.entries(
       report.chat.byKind
     )
       .map(([k, n]) => `${k} ${n}`)

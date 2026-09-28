@@ -69,6 +69,9 @@ describe('replayLeague: the real league on the simulated clock', () => {
     // The weekly waiver look comes after the new week's projections, so agents find pickups.
     expect(report.transactions.length).toBeGreaterThan(0);
     expect(report.agents.totals.costUsd).toBeGreaterThan(0);
+    // The human offers a trade before the deadline, and the agent answers it through its task.
+    expect(report.human.actions.propose_trade).toBeGreaterThan(0);
+    expect(report.agents.totals.byKind.trade_response).toBe(report.events.delivered['Trade Proposed']);
     expect(Object.keys(report.agents.byModel).length).toBeGreaterThan(0);
     expect(report.decisions).toHaveLength(report.agents.totals.tasks);
     expect(model.transcript.length).toBe(report.agents.totals.tasks);

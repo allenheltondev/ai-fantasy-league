@@ -258,7 +258,12 @@ describe('server subscribers', () => {
     const events = new InMemoryEventPublisher();
     const services = createServices({ clock: new FixedClock(at(0)), repos, events, log: silentLogger });
     const [clock, messages] = serverSubscribers(services);
-    expect(clock?.detailTypes).toEqual(['Draft Pick Deadline']);
+    expect(clock?.detailTypes).toEqual([
+      'Draft Pick Deadline',
+      'Trade Offer Deadline',
+      'Trade Review Ended',
+      'Trade Deadline Passed'
+    ]);
     expect(messages?.detailTypes).toContain('Draft Completed');
     const base = { id: 'e', source: 'fantasy' };
     expect(

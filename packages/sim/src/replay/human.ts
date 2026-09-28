@@ -71,8 +71,12 @@ interface RosterView {
  * The scripted human in seat 1, playing through the same operations a person's browser calls:
  * - on its draft turn it takes the best available player, or the best one for its first empty
  *   starting slot when that pick would leave the roster unable to fill its starters;
- * - before each lineup lock it starts the lineup optimizer's picks from `get_roster` projections.
- * It makes no waiver claims. Every call it makes is counted in `actions`.
+ * - before each lineup lock it starts the lineup optimizer's picks from `get_roster` projections;
+ * - each week before the trade deadline, when the league rolls over, it offers one agent team (in
+ *   turn) a bench-for-bench swap at a position both benches hold; the agent answers through its
+ *   `trade_response` task, and an accepted trade processes after the review period.
+ * It makes no waiver claims. Every call it makes is counted in `actions`; refusals (a lopsided or
+ * locked trade, say) are recorded in `refused`.
  */
 export class HumanStandIn {
   readonly actions: Record<string, number> = {};
@@ -89,7 +93,7 @@ export class HumanStandIn {
   subscriber(): EventSubscriber {
     return {
       name: 'human-stand-in',
-      detailTypes: ['Draft Turn Started', 'Lineup Lock Approaching'],
+      detailTypes: ['Draft Turn Started', 'Lineup Lock Approaching', 'Week Rolled Over'],
       handle: (event) => this.#handle(event)
     };
   }
@@ -99,6 +103,10 @@ export class HumanStandIn {
     if (this.#league === null || detail.leagueId !== this.#league.id) return;
     if (event['detail-type'] === 'Draft Turn Started') {
       if (detail.teamId === this.teamId) await this.#draft(Number(detail.pick));
+      return;
+    }
+    if (event['detail-type'] === 'Week Rolled Over') {
+      await this.#offerTrade(Number(detail.week));
       return;
     }
     await this.#lineup(Number(detail.week));
@@ -155,6 +163,34 @@ export class HumanStandIn {
     const moves = best.lineup.filter((e) => before.get(e.playerId) !== e.slot);
     if (moves.length === 0) return;
     dataOf(await this.#call('set_lineup', { teamId: this.teamId, week: view.week, moves }), 'set_lineup');
+  }
+
+  async #offerTrade(week: number): Promise<void> {
+    const settings = (this.#league as { settings: LeagueSettings }).settings;
+    if (week > settings.trades.deadlineWeek) return;
+    const partner = `team-${2 + (week % (settings.teamCount - 1))}`;
+    const bench = async (teamId: string) =>
+      dataOf<RosterView>(await this.#call('get_roster', { teamId, week }), 'get_roster').players.filter(
+        (p) => p.slot === 'BN'
+      );
+    const mine = await bench(this.teamId);
+    const theirs = await bench(partner);
+    const points = (p: RosterView['players'][number]) => p.projectedPoints ?? 0;
+    const give = [...mine].sort((a, b) => points(a) - points(b));
+    for (const offer of give) {
+      const want = theirs
+        .filter((p) => p.player.position === offer.player.position)
+        .sort((a, b) => points(b) - points(a))[0];
+      if (want === undefined) continue;
+      await this.#call('propose_trade', {
+        teamId: this.teamId,
+        withTeamId: partner,
+        send: [offer.player.id],
+        receive: [want.player.id],
+        message: 'Bench depth swap?'
+      });
+      return;
+    }
   }
 
   /** The league it plays in, once created. */
