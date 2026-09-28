@@ -84,7 +84,25 @@ describe('generateMcpTools', () => {
         'search_players',
         'get_projections',
         'get_trending_players',
-        'get_news'
+        'get_news',
+        'create_league',
+        'create_invite',
+        'delete_league',
+        'get_invite',
+        'get_league',
+        'get_league_state',
+        'get_matchup',
+        'get_standings',
+        'join_league',
+        'leave_league',
+        'list_invites',
+        'list_my_leagues',
+        'remove_member',
+        'rename_team',
+        'revoke_invite',
+        'set_seat_type',
+        'transfer_commissioner',
+        'update_league_settings'
       ])
     );
   });

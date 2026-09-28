@@ -50,7 +50,7 @@ export interface StoredSeasonSchedule {
   syncedAt: string;
 }
 
-export interface ScheduleRepository {
+export interface NflScheduleRepository {
   /** Replaces the season's games (per week) and bye weeks. */
   putSeason(season: number, games: readonly ScheduledGame[], byes: ByeWeeks, syncedAt: Date): Promise<void>;
   /** One week's games, ordered by kickoff. */
@@ -170,7 +170,7 @@ export interface PlayerSyncRepository {
 
 export interface ReferenceStore {
   nflState: NflStateRepository;
-  schedule: ScheduleRepository;
+  schedule: NflScheduleRepository;
   stats: StatsRepository;
   projections: ProjectionRepository;
   trending: TrendingRepository;

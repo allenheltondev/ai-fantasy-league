@@ -7,8 +7,17 @@ export const LeagueStatusSchema = z
     id: z.string().describe('League id.'),
     phase: z
       .enum(LEAGUE_PHASES)
-      .describe('Where the league is in its season. Decides which actions are allowed right now.'),
+      .describe(
+        'Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now.'
+      ),
     week: z.number().int().nullable().describe('Current NFL week, or null before the season.'),
+    flags: z
+      .object({
+        waiversOpen: z.boolean().describe('Waiver claims and free-agent adds are accepted.'),
+        preLock: z.boolean().describe("This week's lineups have not locked yet."),
+        tradeDeadlinePassed: z.boolean().describe('No more trades can process this season.')
+      })
+      .describe('Sub-phase conditions within the phase.'),
     allowedActions: z
       .array(z.string())
       .describe('Operation names you may call in this league right now. Check it before acting.')

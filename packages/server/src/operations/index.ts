@@ -1,4 +1,5 @@
 import { createRegistry, type Registry } from '../registry/registry.js';
+import { leagueOperations } from './league/index.js';
 import { getPlayer, searchPlayers } from './players.js';
 import { getHealth, getMe } from './system.js';
 import { getNews } from './research/get-news.js';
@@ -14,7 +15,9 @@ export const operations = [
   // Research (player and NFL data the scheduled jobs keep fresh)
   getProjections,
   getTrendingPlayers,
-  getNews
+  getNews,
+  // League lifecycle, membership, and settings
+  ...leagueOperations
 ];
 
 export const registry: Registry = createRegistry(operations);

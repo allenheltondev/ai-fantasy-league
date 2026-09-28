@@ -16,7 +16,7 @@ import {
   type ProjectionRepository,
   type ProjectionSnapshot,
   type ReferenceStore,
-  type ScheduleRepository,
+  type NflScheduleRepository,
   type StatsRepository,
   type StoredNflState,
   type StoredSeasonSchedule,
@@ -45,7 +45,7 @@ export class InMemoryNflStateRepository implements NflStateRepository {
   }
 }
 
-export class InMemoryScheduleRepository implements ScheduleRepository {
+export class InMemoryNflScheduleRepository implements NflScheduleRepository {
   readonly #games = new Map<number, ScheduledGame[]>();
   readonly #seasons = new Map<number, StoredSeasonSchedule>();
 
@@ -198,7 +198,7 @@ export class InMemoryPlayerSyncRepository implements PlayerSyncRepository {
 export function createInMemoryReferenceStore(players: PlayerRepository): ReferenceStore {
   return {
     nflState: new InMemoryNflStateRepository(),
-    schedule: new InMemoryScheduleRepository(),
+    schedule: new InMemoryNflScheduleRepository(),
     stats: new InMemoryStatsRepository(),
     projections: new InMemoryProjectionRepository(),
     trending: new InMemoryTrendingRepository(),

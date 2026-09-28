@@ -65,17 +65,28 @@ describe('research operations over seeded reference data', () => {
     expect((all.body.data.projections as unknown[]).length).toBe(2);
   });
 
-  it('get_projections uses a league’s own scoring when it has settings', async () => {
-    const settings = yahooDefaultSettings(8, { scoring: 'full_ppr' });
-    // League settings are not modeled on the repository record yet; the hook reads them when present.
-    const withSettings = Object.assign(league({ id: 'lg-ppr' }), { settings });
-    await h.repos.leagues.create(withSettings);
+  it('get_projections uses a league’s own scoring', async () => {
+    await h.repos.leagues.create(
+      league({ id: 'lg-ppr', settings: yahooDefaultSettings(8, { scoring: 'full_ppr' }) })
+    );
     const ppr = await get(h, '/api/v1/projections?playerIds=fx-chase&leagueId=lg-ppr');
-    const def = await get(h, `/api/v1/projections?playerIds=fx-chase&leagueId=${RESEARCH_LEAGUE_ID}`);
+    const half = await get(h, `/api/v1/projections?playerIds=fx-chase&leagueId=${RESEARCH_LEAGUE_ID}`);
+    const none = await get(h, '/api/v1/projections?playerIds=fx-chase');
     expect(ppr.body.data.scoring).toEqual({ source: 'league' });
-    expect(def.body.data.scoring).toEqual({ source: 'default' });
+    expect(half.body.data.scoring).toEqual({ source: 'league' });
+    expect(none.body.data.scoring).toEqual({ source: 'default' });
     const points = (b: Body) => (b.data.projections as { points: number }[])[0]!.points;
-    expect(points(ppr.body) - points(def.body)).toBeCloseTo(3.5);
+    expect(points(ppr.body) - points(half.body)).toBeCloseTo(3.5);
+    expect(points(half.body)).toBeCloseTo(points(none.body));
+  });
+
+  it('get_projections refuses league scoring to non-members', async () => {
+    await h.repos.leagues.create(
+      league({ id: 'lg-private', commissionerId: 'someone-else', createdBy: 'someone-else' })
+    );
+    const res = await get(h, '/api/v1/projections?playerIds=fx-chase&leagueId=lg-private');
+    expect(res.status).toBe(403);
+    expect(res.body.error?.code).toBe('FORBIDDEN');
   });
 
   it('get_projections warns about requested players with no projection', async () => {

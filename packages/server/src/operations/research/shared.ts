@@ -1,3 +1,4 @@
+import { requireMember } from '../../league/access.js';
 import { LAST_NFL_WEEK, ScoringSettingsSchema, scoringPreset, type ScoringSettings } from '@fantasy/core';
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
@@ -60,12 +61,8 @@ const LeagueScoringSchema = z.object({ settings: z.object({ scoring: ScoringSett
  */
 export async function scoringFor(ctx: Ctx, leagueId: string | undefined): Promise<ScoringChoice> {
   if (leagueId === undefined) return { settings: scoringPreset('yahoo_standard'), source: 'default' };
-  const league = await ctx.repos.leagues.get(leagueId);
-  if (league === null) {
-    throw new ApiError('LEAGUE_NOT_FOUND', `League "${leagueId}" does not exist.`, {
-      fix: 'Check the leagueId, or omit it to use default (Yahoo standard half-PPR) scoring.'
-    });
-  }
+  // League settings are league data: only members (and the league's own agents) may use them.
+  const { league } = await requireMember(ctx, leagueId);
   const parsed = LeagueScoringSchema.safeParse(league);
   return parsed.success
     ? { settings: parsed.data.settings.scoring, source: 'league' }

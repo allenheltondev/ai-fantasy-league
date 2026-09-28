@@ -1,0 +1,137 @@
+import { LeagueSettingsSchema } from '@fantasy/core';
+import { z } from 'zod';
+import { LEAGUE_PHASES, SEAT_TYPES } from '../types.js';
+import { weekKey } from './query.js';
+
+/** Item shapes in the league partition (`pk = LEAGUE#<leagueId>`), parsed on every read. */
+
+export const leaguePk = (leagueId: string) => `LEAGUE#${leagueId}`;
+
+export const leagueKey = (leagueId: string) => ({ pk: leaguePk(leagueId), sk: 'META' });
+export const teamKey = (leagueId: string, teamId: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `TEAM#${teamId}`
+});
+export const memberKey = (leagueId: string, userId: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `MEMBER#${userId}`
+});
+export const inviteKey = (leagueId: string, inviteId: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `INVITE#${inviteId}`
+});
+export const matchupKey = (leagueId: string, week: number, matchupId: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `MATCHUP#${weekKey(week)}#${matchupId}`
+});
+export const standingsKey = (leagueId: string, week: number) => ({
+  pk: leaguePk(leagueId),
+  sk: `STANDINGS#${weekKey(week)}`
+});
+
+/** Items that share an `sk` prefix with others (`TEAM#<id>#AGENT`) are told apart by `entity`. */
+export const ENTITY = {
+  league: 'league',
+  team: 'team',
+  member: 'member',
+  invite: 'invite',
+  matchup: 'matchup',
+  standings: 'standings'
+} as const;
+
+const iso = z.string();
+
+export const LeagueRecordSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  season: z.number(),
+  phase: z.enum(LEAGUE_PHASES),
+  week: z.number().nullable(),
+  settings: LeagueSettingsSchema,
+  commissionerId: z.string(),
+  commissionerName: z.string(),
+  createdBy: z.string(),
+  scheduleSeed: z.string(),
+  deadlines: z.object({
+    draftStartsAt: iso.nullable(),
+    nextLineupLockAt: iso.nullable(),
+    nextWaiverRunAt: iso.nullable(),
+    tradeDeadlineAt: iso.nullable()
+  }),
+  createdAt: iso,
+  updatedAt: iso,
+  version: z.number()
+});
+
+export const TeamRecordSchema = z.object({
+  id: z.string(),
+  leagueId: z.string(),
+  name: z.string(),
+  seatType: z.enum(SEAT_TYPES),
+  ownerUserId: z.string().nullable(),
+  ownerName: z.string().nullable(),
+  agentConfigId: z.string().nullable(),
+  draftSlot: z.number(),
+  faabRemaining: z.number(),
+  waiverPriority: z.number(),
+  roster: z.array(z.string()),
+  createdAt: iso,
+  updatedAt: iso,
+  version: z.number()
+});
+
+export const MemberRecordSchema = z.object({
+  leagueId: z.string(),
+  userId: z.string(),
+  teamId: z.string(),
+  joinedAt: iso
+});
+
+export const InviteRecordSchema = z.object({
+  id: z.string(),
+  leagueId: z.string(),
+  tokenHash: z.string(),
+  email: z.string().nullable(),
+  maxUses: z.number(),
+  uses: z.number(),
+  expiresAt: iso,
+  revokedAt: iso.nullable(),
+  createdBy: z.string(),
+  createdAt: iso,
+  version: z.number()
+});
+
+export const MatchupRecordSchema = z.object({
+  id: z.string(),
+  leagueId: z.string(),
+  week: z.number(),
+  kind: z.enum(['regular', 'playoff']),
+  homeTeamId: z.string(),
+  awayTeamId: z.string(),
+  homeScore: z.number().nullable(),
+  awayScore: z.number().nullable(),
+  status: z.enum(['scheduled', 'in_progress', 'final'])
+});
+
+const GameResultSchema = z.enum(['W', 'L', 'T']);
+
+export const StandingsRecordSchema = z.object({
+  leagueId: z.string(),
+  week: z.number(),
+  computedAt: iso,
+  rows: z.array(
+    z.object({
+      teamId: z.string(),
+      rank: z.number(),
+      wins: z.number(),
+      losses: z.number(),
+      ties: z.number(),
+      gamesPlayed: z.number(),
+      winPct: z.number(),
+      pointsFor: z.number(),
+      pointsAgainst: z.number(),
+      streak: z.object({ result: GameResultSchema, length: z.number() }).nullable(),
+      tiebreakerOverNext: z.enum(['points_for', 'head_to_head', 'coin_flip']).nullable()
+    })
+  )
+});

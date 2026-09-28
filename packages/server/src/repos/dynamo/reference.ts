@@ -20,7 +20,7 @@ import {
   type ProjectionRepository,
   type ProjectionSnapshot,
   type ReferenceStore,
-  type ScheduleRepository,
+  type NflScheduleRepository,
   type StatsRepository,
   type StoredNflState,
   type StoredSeasonSchedule,
@@ -181,7 +181,7 @@ export class DynamoNflStateRepository implements NflStateRepository {
 export const scheduleWeekPk = (season: number, week: number) => `NFLSCHED#${season}#${weekKey(week)}`;
 export const scheduleSeasonKey = (season: number) => ({ pk: `NFLSCHED#${season}`, sk: 'SEASON' });
 
-export class DynamoScheduleRepository implements ScheduleRepository {
+export class DynamoNflScheduleRepository implements NflScheduleRepository {
   constructor(private readonly table: TableContext) {}
 
   async putSeason(
@@ -508,7 +508,7 @@ export class DynamoPlayerSyncRepository implements PlayerSyncRepository {
 export function createDynamoReferenceStore(table: TableContext): ReferenceStore {
   return {
     nflState: new DynamoNflStateRepository(table),
-    schedule: new DynamoScheduleRepository(table),
+    schedule: new DynamoNflScheduleRepository(table),
     stats: new DynamoStatsRepository(table),
     projections: new DynamoProjectionRepository(table),
     trending: new DynamoTrendingRepository(table),
