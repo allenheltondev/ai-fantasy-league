@@ -2,13 +2,11 @@ import type { Clock } from '@fantasy/core';
 import { deepEqual, isInGameWindow, type StatLine } from '@fantasy/data';
 import type { PlayerDirectory } from '../players/directory.js';
 import type { StoredStatLine } from '../repos/reference.js';
+import { STATS_GAME_DURATION_MS } from '../season/window.js';
 import { skipped, type JobDeps, type JobResult } from './deps.js';
 
-/**
- * Live stats window: kickoff until 4.5 hours later, a little past the data package's 4-hour
- * default so overtime and late stat updates are still picked up.
- */
-export const STATS_GAME_DURATION_MS = 4.5 * 3_600_000;
+/** The live stats window (kickoff to +4.5h), shared with the season loop. */
+export { STATS_GAME_DURATION_MS };
 
 /**
  * Ids of the synced player universe, used to skip lines for players we do not store (IDP, practice

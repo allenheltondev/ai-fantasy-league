@@ -11,7 +11,7 @@ import type { EventPublisher } from '../events/publisher.js';
 import type { Logger } from '../log.js';
 import type { Player } from '../players/model.js';
 import type { ReferenceStore } from '../repos/reference.js';
-import type { Repos, Team } from '../repos/types.js';
+import type { League, Repos, Team } from '../repos/types.js';
 
 /**
  * Shared season-loop plumbing: what a team's lineup is in a week, the NFL games that lock players,
@@ -120,4 +120,13 @@ export async function resolveWeekLineups(
     );
   }
   return out;
+}
+
+/** Every league in `regular_season` or `playoffs`: two GSI2 `LEAGUEPHASE#<phase>` queries. */
+export async function listInSeason(repos: Pick<Repos, 'leagues'>): Promise<League[]> {
+  const [regular, playoffs] = await Promise.all([
+    repos.leagues.listByPhase('regular_season'),
+    repos.leagues.listByPhase('playoffs')
+  ]);
+  return [...regular, ...playoffs];
 }

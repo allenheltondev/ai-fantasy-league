@@ -1,11 +1,11 @@
 import type { Clock } from '@fantasy/core';
 import { isInGameWindow, type ScheduledGame } from '@fantasy/data';
 import { advanceLeague } from '../season/cycle.js';
-import { weekGames } from '../season/lineups.js';
+import { listInSeason, weekGames } from '../season/lineups.js';
 import { scoreLine, updateMatchupScores } from '../season/scoring.js';
 import type { JobDeps, JobResult } from './deps.js';
 import { skipped } from './deps.js';
-import { STATS_GAME_DURATION_MS } from './ingest-stats.js';
+import { STATS_GAME_DURATION_MS } from '../season/window.js';
 
 type SeasonJobDeps = Pick<JobDeps, 'repos' | 'reference' | 'events' | 'log'>;
 
@@ -31,7 +31,7 @@ function gamesCache(deps: SeasonJobDeps) {
  */
 export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
-  const leagues = await deps.repos.leagues.listInSeason();
+  const leagues = await listInSeason(deps.repos);
   if (leagues.length === 0) return skipped('no_leagues_in_season');
   const games = gamesCache(deps);
   let live = 0;
@@ -65,7 +65,7 @@ export async function scoreLiveWeek(deps: SeasonJobDeps, clock: Clock): Promise<
  */
 export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
-  const leagues = await deps.repos.leagues.listInSeason();
+  const leagues = await listInSeason(deps.repos);
   if (leagues.length === 0) return skipped('no_leagues_in_season');
   const outcomes: Record<string, number> = {};
   let failed = 0;

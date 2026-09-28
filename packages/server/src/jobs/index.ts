@@ -4,6 +4,7 @@ import { ingestProjections } from './ingest-projections.js';
 import { ingestStats } from './ingest-stats.js';
 import { ingestTrending } from './ingest-trending.js';
 import { advanceSeason, scoreLiveWeek } from './season.js';
+import { processWaivers } from './process-waivers.js';
 import { syncNflState } from './sync-nfl-state.js';
 import { syncPlayers } from './sync-players.js';
 import { syncSchedule } from './sync-schedule.js';
@@ -21,7 +22,8 @@ export const JOBS = {
   ingestTrending,
   ingestNews,
   scoreLiveWeek,
-  advanceSeason
+  advanceSeason,
+  processWaivers
 } as const satisfies Record<string, Job>;
 
 export type JobName = keyof typeof JOBS;
@@ -39,6 +41,7 @@ export {
   ingestStats,
   ingestTrending,
   scoreLiveWeek,
+  processWaivers,
   syncNflState,
   syncPlayers,
   syncSchedule

@@ -11,4 +11,5 @@ export * from './tasks/kinds.js';
 export { lineupTask, LineupDecisionSchema, TaskUnavailableError } from './tasks/lineup.js';
 export { noopTask } from './tasks/noop.js';
 export { draftTask, DraftDecisionSchema, agentRank } from './tasks/draft.js';
+export { waiverTask, WaiverDecisionSchema } from './tasks/waivers.js';
 export * from './tools.js';

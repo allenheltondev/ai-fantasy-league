@@ -1,0 +1,221 @@
+import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { InMemoryEventPublisher } from '../events/publisher.js';
+import { processWaivers } from '../jobs/process-waivers.js';
+import { newTeam } from '../league/seats.js';
+import { silentLogger } from '../log.js';
+import { staleTeam } from '../repos/errors.js';
+import { createInMemoryRepos } from '../repos/memory.js';
+import type { League, Repos, Team } from '../repos/types.js';
+import type { WaiverClaimRecord } from '../repos/waivers.js';
+import { processLeagueWaivers } from './process.js';
+import { acquisitionsThisWeek, changeRoster, leaguePlayers, openSpots } from './rosters.js';
+
+const NOW = new Date('2026-10-07T08:00:00.000Z');
+const settings = yahooDefaultSettings(4);
+settings.roster.slots = { QB: 1, RB: 1, BN: 1 };
+
+function league(overrides: Partial<League> = {}): League {
+  return {
+    id: 'lg',
+    name: 'Unit',
+    season: 2026,
+    phase: 'regular_season',
+    week: 5,
+    settings,
+    commissionerId: 'u',
+    commissionerName: 'U',
+    createdBy: 'u',
+    scheduleSeed: 's',
+    deadlines: { draftStartsAt: null, nextLineupLockAt: null, nextWaiverRunAt: null, tradeDeadlineAt: null },
+    createdAt: NOW.toISOString(),
+    updatedAt: NOW.toISOString(),
+    version: 1,
+    ...overrides
+  };
+}
+
+function claim(overrides: Partial<WaiverClaimRecord>): WaiverClaimRecord {
+  return {
+    id: 'c1',
+    leagueId: 'lg',
+    teamId: 't1',
+    addPlayerId: 'p9',
+    dropPlayerId: null,
+    bid: 10,
+    priority: 1,
+    status: 'pending',
+    week: 5,
+    processesAt: NOW.toISOString(),
+    createdAt: '2026-10-05T00:00:00.000Z',
+    createdBy: 'test',
+    resolvedAt: null,
+    failure: null,
+    cost: null,
+    awardingRunId: null,
+    version: 1,
+    ...overrides
+  };
+}
+
+let repos: Repos;
+let teams: Team[];
+beforeEach(async () => {
+  repos = createInMemoryRepos();
+  await repos.leagues.create(league());
+  teams = [1, 2].map((slot) => ({
+    ...newTeam({ leagueId: 'lg', id: `t${slot}`, draftSlot: slot, settings, now: NOW }),
+    roster: slot === 1 ? ['p1'] : ['p2', 'p3']
+  }));
+  await repos.teams.create(teams);
+});
+
+describe('changeRoster', () => {
+  it('reclaims a lock held by a team that no longer rosters the player', async () => {
+    await repos.waivers.acquirePlayer('lg', 'p5', 't2');
+    const updated = await changeRoster(repos, teams[0] as Team, { add: 'p5' }, NOW);
+    expect(updated.roster).toEqual(['p1', 'p5']);
+    expect(await repos.waivers.playerOwner('lg', 'p5')).toBe('t1');
+  });
+
+  it('refuses a player whose lock is held by the team rostering him', async () => {
+    await repos.waivers.acquirePlayer('lg', 'p2', 't2');
+    await expect(changeRoster(repos, teams[0] as Team, { add: 'p2' }, NOW)).rejects.toMatchObject({
+      code: 'PLAYER_NOT_AVAILABLE'
+    });
+  });
+
+  it('retries against the latest team after a concurrent write, and releases on failure', async () => {
+    const stale = teams[0] as Team;
+    await repos.teams.update({ ...stale, name: 'Renamed' });
+    const updated = await changeRoster(repos, stale, { add: 'p7' }, NOW);
+    expect(updated).toMatchObject({ name: 'Renamed', roster: ['p1', 'p7'] });
+
+    await expect(changeRoster(repos, updated, { add: 'p8', drop: 'p99' }, NOW)).rejects.toMatchObject({
+      code: 'PLAYER_NOT_ON_ROSTER'
+    });
+    expect(await repos.waivers.playerOwner('lg', 'p8')).toBeNull();
+    await expect(changeRoster(repos, updated, { add: 'p8', cost: 500 }, NOW)).rejects.toMatchObject({
+      code: 'INSUFFICIENT_FAAB'
+    });
+    expect(await repos.waivers.playerOwner('lg', 'p8')).toBeNull();
+  });
+
+  it('gives up after repeated conflicts and on unexpected errors', async () => {
+    const team = teams[0] as Team;
+    const update = vi.spyOn(repos.teams, 'update');
+    update.mockRejectedValue(new Error('boom'));
+    await expect(changeRoster(repos, team, { add: 'p6' }, NOW)).rejects.toThrow('boom');
+    expect(await repos.waivers.playerOwner('lg', 'p6')).toBeNull();
+    update.mockRejectedValue(staleTeam('t1'));
+    await expect(changeRoster(repos, team, { add: 'p6' }, NOW)).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(update).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe('league standings and limits', () => {
+  it('reports rostered, waivers, and free agents, and open spots', async () => {
+    await repos.waivers.putWireEntry({
+      leagueId: 'lg',
+      playerId: 'p8',
+      droppedByTeamId: 't1',
+      droppedAt: NOW.toISOString(),
+      clearsAt: '2026-10-09T08:00:00.000Z'
+    });
+    const players = await leaguePlayers(repos, 'lg', teams, NOW);
+    expect(players.standing('p2')).toEqual({ status: 'rostered', teamId: 't2' });
+    expect(players.standing('p8')).toMatchObject({ status: 'waivers', clearsAt: '2026-10-09T08:00:00.000Z' });
+    expect(players.standing('p0')).toEqual({ status: 'free_agent' });
+    expect(openSpots(settings, teams[1] as Team, null)).toBe(1);
+    expect(openSpots(settings, teams[1] as Team, 'p2')).toBe(2);
+  });
+
+  it('counts adds and waiver awards in the current week only', async () => {
+    const base = {
+      leagueId: 'lg',
+      teamId: 't1',
+      addPlayerId: 'p1',
+      dropPlayerId: null,
+      cost: null,
+      claimId: null
+    };
+    await repos.waivers.addTransactions([
+      { ...base, id: 'a', at: '2026-10-06T00:00:00.000Z', week: 5, type: 'add' },
+      { ...base, id: 'b', at: '2026-10-06T00:00:01.000Z', week: 5, type: 'drop' },
+      { ...base, id: 'c', at: '2026-10-01T00:00:00.000Z', week: 4, type: 'add' }
+    ]);
+    expect(await acquisitionsThisWeek(repos, league(), NOW)).toEqual(new Map([['t1', 1]]));
+    expect(await acquisitionsThisWeek(repos, league({ week: null }), NOW)).toEqual(new Map());
+  });
+});
+
+describe('processLeagueWaivers recovery', () => {
+  it('marks an award an interrupted run already applied without charging twice', async () => {
+    await repos.teams.update({ ...(teams[0] as Team), roster: ['p1', 'p9'], faabRemaining: 90 });
+    await repos.waivers.createClaim(claim({ awardingRunId: '2026-10-07' }));
+    await repos.waivers.createClaim(
+      claim({
+        id: 'c2',
+        teamId: 't2',
+        addPlayerId: 'p4',
+        dropPlayerId: 'p99',
+        createdAt: '2026-10-05T00:00:01.000Z'
+      })
+    );
+    const events = new InMemoryEventPublisher();
+    const result = await processLeagueWaivers({ repos, events, log: silentLogger }, league(), NOW);
+    expect(result).toMatchObject({ status: 'processed', awarded: 1, failed: 1 });
+    expect((await repos.teams.get('lg', 't1'))?.faabRemaining).toBe(90);
+    expect(await repos.waivers.getClaim('lg', 'c1')).toMatchObject({ status: 'awarded', cost: 10 });
+    expect(await repos.waivers.getClaim('lg', 'c2')).toMatchObject({
+      status: 'failed',
+      failure: { code: 'DROP_PLAYER_NOT_ON_ROSTER' }
+    });
+    const page = await repos.waivers.listTransactions('lg', { limit: 5 });
+    expect(page.items).toMatchObject([{ id: 'c1', type: 'waiver_claim', at: '2026-10-07T08:00:00.000Z' }]);
+  });
+
+  it('fails an award whose roster write is refused', async () => {
+    await repos.waivers.createClaim(claim({ addPlayerId: 'p9' }));
+    await repos.waivers.acquirePlayer('lg', 'p9', 't2');
+    await repos.teams.update({ ...(teams[1] as Team), roster: ['p2', 'p9'] });
+    // The standings snapshot says p9 is free; the lock says t2 has him.
+    const spy = vi.spyOn(repos.teams, 'list').mockResolvedValueOnce(teams);
+    const result = await processLeagueWaivers(
+      { repos, events: new InMemoryEventPublisher(), log: silentLogger },
+      league(),
+      NOW
+    );
+    spy.mockRestore();
+    expect(result).toMatchObject({ awarded: 0, failed: 1 });
+    expect(await repos.waivers.getClaim('lg', 'c1')).toMatchObject({
+      failure: { code: 'PLAYER_NOT_AVAILABLE' }
+    });
+  });
+});
+
+describe('processWaivers job', () => {
+  it('processes every in-season league and survives one failing', async () => {
+    await repos.leagues.create(league({ id: 'lg-playoffs', phase: 'playoffs' }));
+    await repos.leagues.create(league({ id: 'lg-setup', phase: 'setup' }));
+    const log = { ...silentLogger, error: vi.fn() };
+    const original = repos.teams.list.bind(repos.teams);
+    vi.spyOn(repos.teams, 'list').mockImplementation(async (id) => {
+      if (id === 'lg-playoffs') throw new Error('table down');
+      return original(id);
+    });
+    const events = new InMemoryEventPublisher();
+    const result = await processWaivers({ repos, events, log }, new FixedClock(NOW));
+    expect(result).toMatchObject({ status: 'ok', leagues: 2, processed: 1, failedLeagues: ['lg-playoffs'] });
+    expect(log.error).toHaveBeenCalledOnce();
+    expect(events.events.map((e) => e.detailType)).toEqual(['Waivers Processed', 'Waiver Window Opened']);
+  });
+
+  it('fails loudly when every league fails', async () => {
+    vi.spyOn(repos.teams, 'list').mockRejectedValue(new Error('table down'));
+    const log = { ...silentLogger, error: vi.fn() };
+    await expect(
+      processWaivers({ repos, events: new InMemoryEventPublisher(), log }, new FixedClock(NOW))
+    ).rejects.toThrow('every league');
+  });
+});

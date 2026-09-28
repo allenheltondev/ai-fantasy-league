@@ -9,7 +9,7 @@ import { createInMemoryRepos } from '../repos/memory.js';
 import { createInMemoryReferenceStore } from '../repos/memory-reference.js';
 import type { League } from '../repos/types.js';
 import { advanceLeague, scheduleLockWarnings, startLeagueSeason, storedNflState } from './cycle.js';
-import { resolveLineup } from './lineups.js';
+import { listInSeason, resolveLineup } from './lineups.js';
 
 const WEEK_MS = 7 * 24 * 3_600_000;
 /** Five hours after week `week`'s Monday night kickoff: the week is over. */
@@ -72,7 +72,7 @@ describe('advanceLeague', () => {
     expect(done).toEqual({ leagueId: league.id, status: 'completed', finalWeek: 17 });
     expect((await repos.leagues.get(league.id))?.phase).toBe('complete');
     expect(types(events).filter((t) => t === 'Week Provisionally Final')).toHaveLength(3);
-    expect(await repos.leagues.listInSeason()).toEqual([]);
+    expect(await listInSeason(repos)).toEqual([]);
   });
 
   it('writes no playoff games without standings, and logs when the bracket cannot be paired', async () => {
@@ -132,7 +132,7 @@ describe('advanceLeague', () => {
         ...repos,
         leagues: {
           ...repos.leagues,
-          listInSeason: repos.leagues.listInSeason.bind(repos.leagues),
+          listByPhase: repos.leagues.listByPhase.bind(repos.leagues),
           update: async () => Promise.reject(new Error('dynamo down'))
         }
       }

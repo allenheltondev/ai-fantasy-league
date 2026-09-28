@@ -1,5 +1,5 @@
 import { hashString, resolveAgentConfig } from '@fantasy/core';
-import type { AgentSeatRecord, FantasyEventType, Services } from '@fantasy/server';
+import { listInSeason, type AgentSeatRecord, type FantasyEventType, type Services } from '@fantasy/server';
 import { z } from 'zod';
 import type { AgentActionRequested, BusEvent } from './events.js';
 import type { TaskKindRegistry } from './tasks/kinds.js';
@@ -117,8 +117,8 @@ export const detailRosterIndex: RosterIndex = {
 };
 
 /**
- * Rosters from the league tables: every in-season league's teams holding the player (one GSI2
- * query plus one team query per league). A `rosteredBy` list on the event still wins.
+ * Rosters from the league tables: every in-season league's teams holding the player (two GSI2
+ * phase queries plus one team query per league). A `rosteredBy` list on the event still wins.
  */
 export function leagueRosterIndex(services: Services): RosterIndex {
   return {
@@ -126,7 +126,7 @@ export function leagueRosterIndex(services: Services): RosterIndex {
       const listed = await detailRosterIndex.teamsWithPlayer(playerId, detail);
       if (listed.length > 0) return listed;
       const found: { leagueId: string; teamId: string }[] = [];
-      for (const league of await services.repos.leagues.listInSeason()) {
+      for (const league of await listInSeason(services.repos)) {
         for (const team of await services.repos.teams.list(league.id)) {
           if (team.roster.includes(playerId)) found.push({ leagueId: league.id, teamId: team.id });
         }

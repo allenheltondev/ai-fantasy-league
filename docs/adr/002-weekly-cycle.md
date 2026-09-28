@@ -26,7 +26,7 @@ The cycle is **clock-driven, idempotent jobs** plus **deferred events**, with no
 | `Lineup Lock Approaching` | rsc-core deferred events (`ctx.events.scheduleAt`) | Scheduled at each rollover (and when a season starts) for every game window of the new week, one hour before the window's first kickoff. The names are stable per league, week, and window, so scheduling again moves the pending event instead of duplicating it. |
 | Lineup locks | `validateLineup` at write time | `set_lineup` refuses to move a player whose game has kicked off (`PLAYER_LOCKED`). |
 
-In-season leagues are found with one query: while a league is in `regular_season` or `playoffs`, its `META` item carries GSI2 `LEAGUES#IN_SEASON` / `<leagueId>` (a sparse index entry that drops off when the league completes).
+In-season leagues are found through the leagues-by-phase index (GSI2 `LEAGUEPHASE#<phase>` on `META`, shared with waiver processing): one query for `regular_season` and one for `playoffs` (`listInSeason` in `packages/server/src/season/lineups.ts`).
 
 **Everything reads `ctx.clock`** (or the job's clock). The simulator runs the cycle by calling `advanceLeague` / the jobs with its simulated clock; nothing waits on wall-clock time.
 

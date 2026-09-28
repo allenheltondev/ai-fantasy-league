@@ -8,7 +8,7 @@ import {
 } from '@fantasy/core';
 import type { ScheduledGame } from '@fantasy/data';
 import { ApiError, isApiError } from '../errors.js';
-import { STATS_GAME_DURATION_MS } from '../jobs/ingest-stats.js';
+import { STATS_GAME_DURATION_MS } from './window.js';
 import { firstScoringWeek, nextUnlockedWeek, type NflStateSource } from '../league/calendar.js';
 import { isInSeason, transitionPhase } from '../league/phase.js';
 import { startSeasonSchedule } from '../league/schedule.js';

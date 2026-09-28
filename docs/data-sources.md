@@ -22,6 +22,7 @@ Each EventBridge Scheduler schedule invokes it with `{ "job": "<name>" }`. Run o
 | `ingestNews` | `rate(15 minutes)` | The RSS feeds below | `NEWS#<id>`/`ITEM` (GSI2 `NEWS`/`<publishedAt>#<id>`), copies at `PLAYER#<id>` and `TEAMNEWS#<team>` / `NEWS#<publishedAt>#<id>` (90-day TTL) | `Player News Alert` for each new item tagged to a player |
 | `scoreLiveWeek` | `rate(2 minutes)`, working only inside a game window of an in-season league's week | Stored stats (`STATS#<season>#W05`) and lineups | Matchup scores (`MATCHUP#W05#<id>`, status `in_progress`) | `Scores Updated` with `leagueId` and the week's score lines |
 | `advanceSeason` | `rate(15 minutes)` | Stored schedule, stats, lineups, matchups | Final matchups, `STANDINGS#W05`, carried-forward `LINEUP#W06#<teamId>`, playoff matchups, the league's week and phase | `Week Provisionally Final`, `Week Rolled Over` (with `leagueId`), and `Schedule Event`s for `Lineup Lock Approaching` |
+| `processWaivers` | `cron(0 8 * * ? *)` (daily, 3 AM US Central in daylight time; `WAIVER_RUN_HOUR_UTC`) | The league table only: every league in `regular_season` or `playoffs` (GSI2 `LEAGUEPHASE#<phase>`) | Claims (`WAIVER#<claimId>`), team rosters and FAAB, `TXN#…`, `OWN#<playerId>`, and `WAIVERRUN#<YYYY-MM-DD>` (one run per league per day, so a retry is a no-op) | `Waivers Processed` and `Waiver Window Opened` per league |
 
 Notes:
 

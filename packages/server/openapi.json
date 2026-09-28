@@ -29,6 +29,9 @@
     },
     {
       "name": "system"
+    },
+    {
+      "name": "waivers"
     }
   ],
   "paths": {
@@ -7747,6 +7750,259 @@
         }
       }
     },
+    "/api/v1/leagues/{leagueId}/drops": {
+      "post": {
+        "operationId": "drop_player",
+        "summary": "Release a player from your roster",
+        "description": "Releases a player from your roster. He goes on waivers for the league waiver period (`waivers.waiverPeriodDays`, 2 days by default) and becomes a free agent at `clearsAt`; until then other teams can only claim him with a FAAB bid. To swap a player for a pickup in one move, use claim_waiver with `dropPlayerId` instead. PLAYER_NOT_ON_ROSTER means he is not on your team.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "dropped": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "Full display name."
+                            },
+                            "team": {
+                              "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "position": {
+                              "type": "string",
+                              "enum": [
+                                "QB",
+                                "RB",
+                                "WR",
+                                "TE",
+                                "K",
+                                "DEF"
+                              ],
+                              "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "team",
+                            "position"
+                          ],
+                          "additionalProperties": false,
+                          "description": "A player reference: always id, name, team, and position."
+                        },
+                        "clearsAt": {
+                          "type": "string",
+                          "description": "When he clears waivers and becomes a free agent (ISO 8601)."
+                        },
+                        "rosterSize": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "dropped",
+                        "clearsAt",
+                        "rosterSize"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "teamId": {
+                    "description": "Your team id. Defaults to the team you manage; you can only act for your own team.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "playerId": {
+                    "description": "The player id. Preferred when you have it; wins if `player` is also given.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "player": {
+                    "description": "The player name when you do not have an id. Nicknames (\"CMC\") and team or position hints (\"mccaffrey sf\") work. Ambiguous names return AMBIGUOUS_PLAYER with candidates.",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/leagues/{leagueId}/invites": {
       "post": {
         "operationId": "create_invite",
@@ -12399,6 +12655,2520 @@
         }
       }
     },
+    "/api/v1/leagues/{leagueId}/transactions": {
+      "get": {
+        "operationId": "list_transactions",
+        "summary": "The league transaction log: adds, drops, and waiver awards",
+        "description": "Lists roster moves in the league, newest first: free-agent adds (`add`, with any player dropped in the same move), releases (`drop`), and waiver claims awarded by a waiver run (`waiver_claim`, with the FAAB paid). Page with `cursor` (from `nextCursor`). Any member can read it.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "Maximum moves (1-100, default 25)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "`nextCursor` from the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "transactions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "week": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "add",
+                                  "drop",
+                                  "waiver_claim"
+                                ]
+                              },
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "added": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "dropped": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "cost": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "FAAB paid (waiver claims)."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "at",
+                              "week",
+                              "type",
+                              "teamId",
+                              "teamName",
+                              "added",
+                              "dropped",
+                              "cost"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "nextCursor": {
+                          "description": "Pass as `cursor` for older moves; null on the last page.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "transactions",
+                        "nextCursor"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
+    "/api/v1/leagues/{leagueId}/waivers/claims": {
+      "post": {
+        "operationId": "claim_waiver",
+        "summary": "Add a free agent now, or claim a player on waivers with a FAAB bid",
+        "description": "Adds a player to your roster. A free agent (not on a roster and not on waivers) joins immediately at no cost (`outcome: \"added\"`). A player on waivers (recently dropped) gets a pending claim instead (`outcome: \"claim_pending\"`), resolved at the waiver run in `claim.processesAt`: the highest FAAB bid wins, ties go to waiver priority, and your own claims run in their `priority` order. Pass `dropPlayerId` to release someone in the same move; it is required when your roster is full (ROSTER_FULL lists the players you can drop). The dropped player goes on waivers for the league waiver period. Call preview_waiver_claim first to check the outcome and the resulting roster. Errors: PLAYER_NOT_AVAILABLE (on a roster), INSUFFICIENT_FAAB (bid over your budget), ZERO_BID_NOT_ALLOWED, DUPLICATE_WAIVER_CLAIM (cancel the old one first), ACQUISITION_LIMIT_REACHED, and PHASE_NOT_ALLOWED outside the season.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "added",
+                            "claim_pending"
+                          ]
+                        },
+                        "player": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "Full display name."
+                            },
+                            "team": {
+                              "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "position": {
+                              "type": "string",
+                              "enum": [
+                                "QB",
+                                "RB",
+                                "WR",
+                                "TE",
+                                "K",
+                                "DEF"
+                              ],
+                              "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "team",
+                            "position"
+                          ],
+                          "additionalProperties": false,
+                          "description": "A player reference: always id, name, team, and position."
+                        },
+                        "dropped": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "description": "Full display name."
+                                },
+                                "team": {
+                                  "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "position": {
+                                  "type": "string",
+                                  "enum": [
+                                    "QB",
+                                    "RB",
+                                    "WR",
+                                    "TE",
+                                    "K",
+                                    "DEF"
+                                  ],
+                                  "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "team",
+                                "position"
+                              ],
+                              "additionalProperties": false,
+                              "description": "A player reference: always id, name, team, and position."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Released now (`added`) or when the claim wins (`claim_pending`)."
+                        },
+                        "claim": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "Claim id; pass it to cancel_waiver_claim or reorder_waiver_claims."
+                                },
+                                "teamId": {
+                                  "type": "string"
+                                },
+                                "teamName": {
+                                  "type": "string"
+                                },
+                                "player": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "description": "Full display name."
+                                    },
+                                    "team": {
+                                      "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "position": {
+                                      "type": "string",
+                                      "enum": [
+                                        "QB",
+                                        "RB",
+                                        "WR",
+                                        "TE",
+                                        "K",
+                                        "DEF"
+                                      ],
+                                      "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name",
+                                    "team",
+                                    "position"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "A player reference: always id, name, team, and position."
+                                },
+                                "drop": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                        },
+                                        "name": {
+                                          "type": "string",
+                                          "description": "Full display name."
+                                        },
+                                        "team": {
+                                          "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "position": {
+                                          "type": "string",
+                                          "enum": [
+                                            "QB",
+                                            "RB",
+                                            "WR",
+                                            "TE",
+                                            "K",
+                                            "DEF"
+                                          ],
+                                          "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "name",
+                                        "team",
+                                        "position"
+                                      ],
+                                      "additionalProperties": false,
+                                      "description": "A player reference: always id, name, team, and position."
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "bid": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "priority": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991,
+                                  "description": "The team's own order for its claims: 1 is processed first."
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "awarded",
+                                    "failed",
+                                    "cancelled"
+                                  ]
+                                },
+                                "processesAt": {
+                                  "type": "string",
+                                  "description": "The waiver run that will process the claim (ISO 8601)."
+                                },
+                                "createdAt": {
+                                  "type": "string"
+                                },
+                                "resolvedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "cost": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "FAAB paid, when awarded."
+                                },
+                                "failure": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "code": {
+                                          "type": "string"
+                                        },
+                                        "message": {
+                                          "type": "string"
+                                        },
+                                        "fix": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "code",
+                                        "message",
+                                        "fix"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "Why a failed claim lost, e.g. PLAYER_CLAIMED (outbid) or ROSTER_FULL."
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "teamId",
+                                "teamName",
+                                "player",
+                                "drop",
+                                "bid",
+                                "priority",
+                                "status",
+                                "processesAt",
+                                "createdAt",
+                                "resolvedAt",
+                                "cost",
+                                "failure"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The pending claim, for `claim_pending`."
+                        },
+                        "faabRemaining": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "outcome",
+                        "player",
+                        "dropped",
+                        "claim",
+                        "faabRemaining"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "teamId": {
+                    "description": "Your team id. Defaults to the team you manage; you can only act for your own team.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "playerId": {
+                    "description": "The player id. Preferred when you have it; wins if `player` is also given.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "player": {
+                    "description": "The player name when you do not have an id. Nicknames (\"CMC\") and team or position hints (\"mccaffrey sf\") work. Ambiguous names return AMBIGUOUS_PLAYER with candidates.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dropPlayerId": {
+                    "description": "The player to release if the add goes through. Required when your roster is full.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dropPlayer": {
+                    "description": "The drop player by name, when you do not have the id.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "bid": {
+                    "default": 0,
+                    "description": "Whole-dollar FAAB bid for a player on waivers (default 0). The highest bid wins; ties go to waiver priority. Ignored for free agents (they cost nothing) and under rolling waivers.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "priority": {
+                    "description": "Where this claim goes in your own claim order (1 is processed first). Defaults to after your other pending claims. Use it to say which of several targets you want most.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 99
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "list_waiver_claims",
+        "summary": "Your waiver claims: pending, awarded, failed, or cancelled",
+        "description": "Lists waiver claims, pending ones by default, in each team's processing order (priority, then age). You see your own team's claims; the commissioner sees every team's and can filter with `teamId`. Failed claims carry `failure` with the reason (for example PLAYER_CLAIMED when someone outbid you) and a fix.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Only this team (commissioner, or your own team)."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "type": "string",
+              "enum": [
+                "pending",
+                "awarded",
+                "failed",
+                "cancelled",
+                "all"
+              ]
+            },
+            "description": "Which claims: pending (default), awarded, failed, cancelled, or all."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "claims": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Claim id; pass it to cancel_waiver_claim or reorder_waiver_claims."
+                              },
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "drop": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "bid": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "priority": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "The team's own order for its claims: 1 is processed first."
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "awarded",
+                                  "failed",
+                                  "cancelled"
+                                ]
+                              },
+                              "processesAt": {
+                                "type": "string",
+                                "description": "The waiver run that will process the claim (ISO 8601)."
+                              },
+                              "createdAt": {
+                                "type": "string"
+                              },
+                              "resolvedAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "cost": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "FAAB paid, when awarded."
+                              },
+                              "failure": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "code": {
+                                        "type": "string"
+                                      },
+                                      "message": {
+                                        "type": "string"
+                                      },
+                                      "fix": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "code",
+                                      "message",
+                                      "fix"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Why a failed claim lost, e.g. PLAYER_CLAIMED (outbid) or ROSTER_FULL."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "teamId",
+                              "teamName",
+                              "player",
+                              "drop",
+                              "bid",
+                              "priority",
+                              "status",
+                              "processesAt",
+                              "createdAt",
+                              "resolvedAt",
+                              "cost",
+                              "failure"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "claims"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
+    "/api/v1/leagues/{leagueId}/waivers/claims/{claimId}": {
+      "delete": {
+        "operationId": "cancel_waiver_claim",
+        "summary": "Cancel one of your pending waiver claims",
+        "description": "Cancels a pending claim before the waiver run processes it. Only your own team's pending claims can be cancelled; WAIVER_CLAIM_NOT_PENDING means it was already processed or cancelled. To change a bid or drop, cancel the claim and make a new one.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "claimId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Waiver claim id, from claim_waiver or list_waiver_claims."
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Your team id. Defaults to the team you manage; you can only act for your own team."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "claim": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "Claim id; pass it to cancel_waiver_claim or reorder_waiver_claims."
+                            },
+                            "teamId": {
+                              "type": "string"
+                            },
+                            "teamName": {
+                              "type": "string"
+                            },
+                            "player": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "description": "Full display name."
+                                },
+                                "team": {
+                                  "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "position": {
+                                  "type": "string",
+                                  "enum": [
+                                    "QB",
+                                    "RB",
+                                    "WR",
+                                    "TE",
+                                    "K",
+                                    "DEF"
+                                  ],
+                                  "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "team",
+                                "position"
+                              ],
+                              "additionalProperties": false,
+                              "description": "A player reference: always id, name, team, and position."
+                            },
+                            "drop": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "description": "Full display name."
+                                    },
+                                    "team": {
+                                      "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "position": {
+                                      "type": "string",
+                                      "enum": [
+                                        "QB",
+                                        "RB",
+                                        "WR",
+                                        "TE",
+                                        "K",
+                                        "DEF"
+                                      ],
+                                      "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name",
+                                    "team",
+                                    "position"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "A player reference: always id, name, team, and position."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "bid": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "priority": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "description": "The team's own order for its claims: 1 is processed first."
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "pending",
+                                "awarded",
+                                "failed",
+                                "cancelled"
+                              ]
+                            },
+                            "processesAt": {
+                              "type": "string",
+                              "description": "The waiver run that will process the claim (ISO 8601)."
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "resolvedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "cost": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "FAAB paid, when awarded."
+                            },
+                            "failure": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "code": {
+                                      "type": "string"
+                                    },
+                                    "message": {
+                                      "type": "string"
+                                    },
+                                    "fix": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "code",
+                                    "message",
+                                    "fix"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Why a failed claim lost, e.g. PLAYER_CLAIMED (outbid) or ROSTER_FULL."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "teamId",
+                            "teamName",
+                            "player",
+                            "drop",
+                            "bid",
+                            "priority",
+                            "status",
+                            "processesAt",
+                            "createdAt",
+                            "resolvedAt",
+                            "cost",
+                            "failure"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "claim"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true
+      }
+    },
+    "/api/v1/leagues/{leagueId}/waivers/claims/order": {
+      "put": {
+        "operationId": "reorder_waiver_claims",
+        "summary": "Set the order your pending waiver claims are processed in",
+        "description": "Pass every pending claim id of your team in the order you want them tried (most wanted first). When one claim wins, a later claim that needs the same drop player fails, so put the player you want most first. Missing or extra ids return INVALID_INPUT listing your pending claims.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "claims": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Claim id; pass it to cancel_waiver_claim or reorder_waiver_claims."
+                              },
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player reference: always id, name, team, and position."
+                              },
+                              "drop": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "bid": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "priority": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "The team's own order for its claims: 1 is processed first."
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "pending",
+                                  "awarded",
+                                  "failed",
+                                  "cancelled"
+                                ]
+                              },
+                              "processesAt": {
+                                "type": "string",
+                                "description": "The waiver run that will process the claim (ISO 8601)."
+                              },
+                              "createdAt": {
+                                "type": "string"
+                              },
+                              "resolvedAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "cost": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "FAAB paid, when awarded."
+                              },
+                              "failure": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "code": {
+                                        "type": "string"
+                                      },
+                                      "message": {
+                                        "type": "string"
+                                      },
+                                      "fix": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "code",
+                                      "message",
+                                      "fix"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Why a failed claim lost, e.g. PLAYER_CLAIMED (outbid) or ROSTER_FULL."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "teamId",
+                              "teamName",
+                              "player",
+                              "drop",
+                              "bid",
+                              "priority",
+                              "status",
+                              "processesAt",
+                              "createdAt",
+                              "resolvedAt",
+                              "cost",
+                              "failure"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "claims"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "teamId": {
+                    "description": "Your team id. Defaults to the team you manage; you can only act for your own team.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "claimIds": {
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Waiver claim id, from claim_waiver or list_waiver_claims."
+                    },
+                    "description": "All of your pending claim ids, most wanted first."
+                  }
+                },
+                "required": [
+                  "claimIds"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/leagues/{leagueId}/waivers/preview": {
+      "get": {
+        "operationId": "preview_waiver_claim",
+        "summary": "Check a pickup before making it: would it succeed, and what does the roster become?",
+        "description": "A dry run of claim_waiver with the same inputs. Returns whether the claim would be accepted right now (`wouldSucceed`), whether it would add the player immediately (`add_now`, a free agent) or queue a claim (`claim_pending`, on waivers) and when that runs, the problems that would stop it (`issues`, each with a fix), your current roster, the roster after the move, and your FAAB before and after a winning bid. Use it to pick a drop player: `currentRoster` lists everyone you could release. Nothing changes.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Your team id. Defaults to the team you manage; you can only act for your own team."
+          },
+          {
+            "name": "playerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The player id. Preferred when you have it; wins if `player` is also given."
+          },
+          {
+            "name": "player",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The player name when you do not have an id. Nicknames (\"CMC\") and team or position hints (\"mccaffrey sf\") work. Ambiguous names return AMBIGUOUS_PLAYER with candidates."
+          },
+          {
+            "name": "dropPlayerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The player to release if the add goes through. Required when your roster is full."
+          },
+          {
+            "name": "dropPlayer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The drop player by name, when you do not have the id."
+          },
+          {
+            "name": "bid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "description": "Whole-dollar FAAB bid for a player on waivers (default 0). The highest bid wins; ties go to waiver priority. Ignored for free agents (they cost nothing) and under rolling waivers."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "wouldSucceed": {
+                          "type": "boolean"
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "add_now",
+                            "claim_pending",
+                            "blocked"
+                          ]
+                        },
+                        "player": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "Full display name."
+                            },
+                            "team": {
+                              "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "position": {
+                              "type": "string",
+                              "enum": [
+                                "QB",
+                                "RB",
+                                "WR",
+                                "TE",
+                                "K",
+                                "DEF"
+                              ],
+                              "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "team",
+                            "position"
+                          ],
+                          "additionalProperties": false,
+                          "description": "A player reference: always id, name, team, and position."
+                        },
+                        "drop": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "description": "Full display name."
+                                },
+                                "team": {
+                                  "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "position": {
+                                  "type": "string",
+                                  "enum": [
+                                    "QB",
+                                    "RB",
+                                    "WR",
+                                    "TE",
+                                    "K",
+                                    "DEF"
+                                  ],
+                                  "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "team",
+                                "position"
+                              ],
+                              "additionalProperties": false,
+                              "description": "A player reference: always id, name, team, and position."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "fix": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "message",
+                              "fix"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Why the claim would be refused, with fixes. Empty when it would succeed."
+                        },
+                        "processesAt": {
+                          "description": "When a pending claim would be processed.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "currentRoster": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "Full display name."
+                              },
+                              "team": {
+                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "team",
+                              "position"
+                            ],
+                            "additionalProperties": false,
+                            "description": "A player reference: always id, name, team, and position."
+                          }
+                        },
+                        "resultingRoster": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "Full display name."
+                              },
+                              "team": {
+                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "team",
+                              "position"
+                            ],
+                            "additionalProperties": false,
+                            "description": "A player reference: always id, name, team, and position."
+                          },
+                          "description": "Your roster if the move goes through."
+                        },
+                        "faabRemaining": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "faabAfter": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "FAAB left if the claim wins at this bid."
+                        }
+                      },
+                      "required": [
+                        "wouldSucceed",
+                        "outcome",
+                        "player",
+                        "drop",
+                        "issues",
+                        "processesAt",
+                        "currentRoster",
+                        "resultingRoster",
+                        "faabRemaining",
+                        "faabAfter"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "This week's lineups have not locked yet."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "get_me",
@@ -12963,7 +15733,7 @@
       "get": {
         "operationId": "search_players",
         "summary": "Search NFL players by name, team, or position",
-        "description": "Finds players in the NFL player universe. Use it to find a player id, or to browse a position or team. `q` matches full names, last names, name prefixes, nicknames (\"CMC\"), and small typos; add a team or position to narrow it (\"mccaffrey sf\", \"allen qb\"). With no `q`, returns the best-ranked players that match `position` and `team`. Results are ranked best match first. To limit results to players available in your league, pass `leagueId` with `availability`; until league rosters exist that filter is not applied and the response carries an AVAILABILITY_NOT_APPLIED warning.",
+        "description": "Finds players in the NFL player universe. Use it to find a player id, or to browse a position or team. `q` matches full names, last names, name prefixes, nicknames (\"CMC\"), and small typos; add a team or position to narrow it (\"mccaffrey sf\", \"allen qb\"). With no `q`, returns the best-ranked players that match `position` and `team`. Results are ranked best match first. Pass your `leagueId` to see where each player stands in your league (`availability`: free_agent, waivers with the time he clears, or rostered with the team), and add `availability` to list only those players, e.g. `availability: \"free_agent\"` for pickups you can add right now with claim_waiver.",
         "tags": [
           "players"
         ],
@@ -13069,7 +15839,7 @@
               "type": "string",
               "minLength": 1
             },
-            "description": "Your league id. Required with `availability`."
+            "description": "Your league id: adds each player’s league availability. Required with `availability`."
           },
           {
             "name": "availability",
@@ -13083,7 +15853,7 @@
                 "rostered"
               ]
             },
-            "description": "League availability filter (needs `leagueId`): `free_agent` (can be added now), `waivers` (claimable through waivers), or `rostered` (on a team). Not applied until league rosters exist; the response then carries an AVAILABILITY_NOT_APPLIED warning."
+            "description": "League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him)."
           }
         ],
         "responses": {
@@ -13164,6 +15934,32 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "availability": {
+                                "type": "object",
+                                "properties": {
+                                  "status": {
+                                    "type": "string",
+                                    "enum": [
+                                      "free_agent",
+                                      "waivers",
+                                      "rostered"
+                                    ]
+                                  },
+                                  "teamId": {
+                                    "description": "The team rostering him (status `rostered`).",
+                                    "type": "string"
+                                  },
+                                  "clearsAt": {
+                                    "description": "When he clears waivers and becomes a free agent (status `waivers`).",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "status"
+                                ],
+                                "additionalProperties": false,
+                                "description": "Where the player stands in the league. Present when `leagueId` is passed."
                               }
                             },
                             "required": [
@@ -13172,8 +15968,7 @@
                               "team",
                               "position"
                             ],
-                            "additionalProperties": false,
-                            "description": "A player. Compact responses include only id, name, team, and position; `detail: true` adds the rest."
+                            "additionalProperties": false
                           }
                         }
                       },
@@ -14921,7 +17716,18 @@
                   "NOT_YOUR_TURN",
                   "PLAYER_ALREADY_DRAFTED",
                   "ROSTER_WOULD_BE_INVALID",
-                  "ROSTER_POSITION_LIMIT"
+                  "ROSTER_POSITION_LIMIT",
+                  "ROSTER_FULL",
+                  "INSUFFICIENT_FAAB",
+                  "INVALID_BID",
+                  "ZERO_BID_NOT_ALLOWED",
+                  "PLAYER_NOT_AVAILABLE",
+                  "PLAYER_NOT_ON_ROSTER",
+                  "DROP_PLAYER_NOT_ON_ROSTER",
+                  "ACQUISITION_LIMIT_REACHED",
+                  "DUPLICATE_WAIVER_CLAIM",
+                  "WAIVER_CLAIM_NOT_FOUND",
+                  "WAIVER_CLAIM_NOT_PENDING"
                 ],
                 "description": "Stable machine-readable error code."
               },

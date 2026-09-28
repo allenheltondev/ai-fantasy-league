@@ -49,7 +49,8 @@ describe('runJob', () => {
       'ingestTrending',
       'ingestNews',
       'scoreLiveWeek',
-      'advanceSeason'
+      'advanceSeason',
+      'processWaivers'
     ]);
     expect(isJobName('syncPlayers')).toBe(true);
     expect(isJobName('toString')).toBe(false);

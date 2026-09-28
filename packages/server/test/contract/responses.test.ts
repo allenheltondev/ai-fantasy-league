@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
 import { DRAFT_CASES, seedDraftContractLeague } from '../support/contract-draft.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
+import { seedContractWaivers, WAIVER_CASES } from '../support/contract-waivers.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 import { seedLeague } from '../support/leagues.js';
 import { RESEARCH_LEAGUE_ID, seedReferenceData } from '../support/reference-seed.js';
@@ -138,6 +139,7 @@ const CASES: Record<string, Case[]> = {
     }
   ],
   ...DRAFT_CASES,
+  ...WAIVER_CASES,
   configure_agent_seat: [
     {
       label: 'commissioner',
@@ -252,6 +254,7 @@ beforeAll(async () => {
     { id: 'lg-cs', owners: [{ sub: 'user-123', name: 'Allen' }] }
   );
   await seedDraftContractLeague(h.repos);
+  await seedContractWaivers(h.repos);
   await seedLeague(h.repos, { id: 'lg-1', owners: [{ sub: 'user-123', name: 'Allen' }], teamCount: 4 });
 });
 afterAll(() => h.close());

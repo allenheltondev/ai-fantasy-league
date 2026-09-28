@@ -122,6 +122,20 @@ describe('get_roster', () => {
     });
   });
 
+  it('clears a dropped player from the lineup and benches an added one', async () => {
+    const team = (await h.repos.teams.get('lg-season', 'team-1'))!;
+    await h.repos.teams.update({
+      ...team,
+      roster: [...team.roster.filter((id) => id !== 'fx-kelce'), 'fx-swift']
+    });
+    const res = await alice.get(`${L}/teams/team-1/roster`);
+    const roster = data<{ players: RosterRow[] }>(res);
+    expect(slotOf(roster.players, 'fx-kelce')).toBeUndefined();
+    expect(slotOf(roster.players, 'fx-swift')).toBe('BN');
+    expect(warnings(res)).toContain('EMPTY_STARTER_SLOT');
+    await h.repos.teams.update({ ...(await h.repos.teams.get('lg-season', 'team-1'))!, roster: team.roster });
+  });
+
   it('refuses weeks the league does not play and unknown teams', async () => {
     expect(errorCode(await alice.get(`${L}/teams/team-1/roster?week=18`))).toBe('INVALID_INPUT');
     expect(errorCode(await alice.get(`${L}/teams/team-9/roster`))).toBe('TEAM_NOT_FOUND');

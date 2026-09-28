@@ -6,6 +6,7 @@ import { newTeam } from '../../src/league/seats.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { TABLE_KEYS } from '../../src/repos/dynamo/table.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
+import { listInSeason } from '../../src/season/lineups.js';
 import type { Invite, Matchup, Repos, StandingsSnapshot } from '../../src/repos/types.js';
 import { league, START } from '../support/harness.js';
 
@@ -213,7 +214,7 @@ describe.each(backends)('%s league repositories', (_name, make) => {
     const playoffs = league({ id: unique('lg'), createdBy: setup.createdBy, phase: 'playoffs', week: 15 });
     for (const l of [setup, live, playoffs]) await repos.leagues.create(l);
     const ours = async () =>
-      (await repos.leagues.listInSeason())
+      (await listInSeason(repos))
         .map((l) => l.id)
         .filter((id) => [setup.id, live.id, playoffs.id].includes(id));
     expect(await ours()).toEqual([live.id, playoffs.id].sort());
@@ -276,7 +277,7 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
     expect(TABLE_KEYS.gsi1).toEqual({ name: 'GSI1', pk: 'GSI1PK', sk: 'GSI1SK' });
   });
 
-  it('keys lineups by week and team, and indexes in-season leagues on GSI2', async () => {
+  it('keys lineups by week and team, and indexes leagues by phase on GSI2', async () => {
     const repos = createDynamoRepos(table);
     const l = league({ id: unique('lg'), createdBy: 'keys-user', phase: 'regular_season', week: 5 });
     await repos.leagues.create(l);
@@ -293,7 +294,7 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
     const keys = (items.Items ?? []).map((i) => ({ sk: i.sk, GSI2PK: i.GSI2PK, GSI2SK: i.GSI2SK }));
     expect(keys).toEqual([
       { sk: 'LINEUP#W05#team-2', GSI2PK: undefined, GSI2SK: undefined },
-      { sk: 'META', GSI2PK: 'LEAGUES#IN_SEASON', GSI2SK: l.id }
+      { sk: 'META', GSI2PK: 'LEAGUEPHASE#regular_season', GSI2SK: `${l.createdAt}#${l.id}` }
     ]);
   });
 
