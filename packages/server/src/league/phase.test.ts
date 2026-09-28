@@ -185,13 +185,14 @@ describe('action rules', () => {
       'remove_member',
       'rename_team',
       'revoke_invite',
+      'set_draft_queue',
       'set_seat_type',
       'start_draft',
       'transfer_commissioner',
       'update_league_settings'
     ]);
-    expect(allowed(MEMBER)).toEqual(['leave_league', 'post_message', 'rename_team']);
-    expect(allowed(AGENT)).toEqual(['post_message', 'rename_team']);
+    expect(allowed(MEMBER)).toEqual(['leave_league', 'post_message', 'rename_team', 'set_draft_queue']);
+    expect(allowed(AGENT)).toEqual(['post_message', 'rename_team', 'set_draft_queue']);
     expect(allowed(OUTSIDER)).toEqual([]);
   });
 
@@ -199,7 +200,8 @@ describe('action rules', () => {
     expect(allowed(MEMBER, league({ phase: 'drafting' }))).toEqual([
       'make_draft_pick',
       'post_message',
-      'rename_team'
+      'rename_team',
+      'set_draft_queue'
     ]);
     const season = league({ phase: 'regular_season', week: 5 });
     expect(allowed(AGENT, season)).toEqual([

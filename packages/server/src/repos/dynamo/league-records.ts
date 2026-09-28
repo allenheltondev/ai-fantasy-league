@@ -35,6 +35,10 @@ export const lineupKey = (leagueId: string, week: number, teamId: string) => ({
 });
 
 export const draftKey = (leagueId: string) => ({ pk: leaguePk(leagueId), sk: 'DRAFT' });
+export const draftQueueKey = (leagueId: string, teamId: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `DRAFTQUEUE#${teamId}`
+});
 
 /** Items that share an `sk` prefix with others (`TEAM#<id>#AGENT`) are told apart by `entity`. */
 export const ENTITY = {
@@ -45,7 +49,8 @@ export const ENTITY = {
   matchup: 'matchup',
   standings: 'standings',
   lineup: 'lineup',
-  draft: 'draft'
+  draft: 'draft',
+  draftQueue: 'draftQueue'
 } as const;
 
 const iso = z.string();
@@ -188,4 +193,12 @@ export const DraftRecordSchema = z.object({
   completedAt: iso.nullable(),
   updatedAt: iso,
   version: z.number()
+});
+
+export const DraftQueueRecordSchema = z.object({
+  leagueId: z.string(),
+  teamId: z.string(),
+  playerIds: z.array(z.string()),
+  updatedAt: iso,
+  updatedBy: z.string()
 });

@@ -24,6 +24,30 @@ interface Case {
 }
 
 export const DRAFT_CASES: Record<string, Case[]> = {
+  set_draft_queue: [
+    {
+      label: 'set',
+      path: `${D}/queue`,
+      init: { body: { playerIds: ['fx-cmc', 'fx-chase', 'fx-cmc'] }, idempotencyKey: key('queue') },
+      status: 200
+    },
+    {
+      label: 'unknown player',
+      path: `${D}/queue`,
+      init: { body: { playerIds: ['nobody'] }, idempotencyKey: key('queue-2') },
+      status: 404
+    },
+    {
+      label: 'outsider',
+      path: `${D}/queue`,
+      init: { token: outsider, body: { playerIds: [] }, idempotencyKey: key('queue-out') },
+      status: 403
+    }
+  ],
+  get_draft_queue: [
+    { label: 'own queue', path: `${D}/queue`, status: 200 },
+    { label: 'another team', path: `${D}/queue?teamId=team-2`, status: 403 }
+  ],
   start_draft: [
     {
       label: 'outsider',

@@ -1,12 +1,23 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ApiFetch } from '../api';
 import type { PlayerRef } from './board';
 
 /**
- * Your draft queue: players you want next, in order. Kept in this browser only (localStorage, per
- * league); the server's autopick does not read it.
+ * Your draft queue: players you want next, in order. It lives on the server (get_draft_queue /
+ * set_draft_queue), so the pick clock's autopick takes your first available queued player when your
+ * time runs out. Queues kept in this browser before that (localStorage, per league) are uploaded
+ * once, the first time the server queue is empty.
  */
 
 const key = (leagueId: string) => `fantasy:draft-queue:${leagueId}`;
+
+/** `get_draft_queue` / `set_draft_queue`. */
+export interface ServerDraftQueue {
+  teamId: string;
+  maxSize: number;
+  updatedAt: string | null;
+  players: { player: PlayerRef; rank: number | null; available: boolean }[];
+}
 
 function isPlayerRef(value: unknown): value is PlayerRef {
   const p = value as Partial<PlayerRef> | null;
@@ -19,6 +30,7 @@ function isPlayerRef(value: unknown): value is PlayerRef {
   );
 }
 
+/** The queue this browser kept before the server did, if any. */
 export function readQueue(leagueId: string): PlayerRef[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(key(leagueId)) ?? '[]');
@@ -28,11 +40,11 @@ export function readQueue(leagueId: string): PlayerRef[] {
   }
 }
 
-function writeQueue(leagueId: string, queue: readonly PlayerRef[]): void {
+function forgetLocalQueue(leagueId: string): void {
   try {
-    localStorage.setItem(key(leagueId), JSON.stringify(queue));
+    localStorage.removeItem(key(leagueId));
   } catch {
-    // Storage full or blocked: the queue still works for this visit.
+    // Blocked storage: nothing to forget.
   }
 }
 
@@ -47,25 +59,78 @@ export function move<T>(list: readonly T[], index: number, delta: number): T[] {
 
 export interface DraftQueue {
   players: PlayerRef[];
+  /** False until the server queue has loaded. */
+  ready: boolean;
+  /** Why the last load or save failed, or null. */
+  error: string | null;
   has(playerId: string): boolean;
   add(player: PlayerRef): void;
   remove(playerId: string): void;
   move(playerId: string, delta: number): void;
 }
 
-export function useDraftQueue(leagueId: string): DraftQueue {
-  const [players, setPlayers] = useState(() => readQueue(leagueId));
-  const update = useCallback(
-    (change: (current: PlayerRef[]) => PlayerRef[]) =>
-      setPlayers((current) => {
-        const next = change(current);
-        writeQueue(leagueId, next);
-        return next;
-      }),
-    [leagueId]
+const refs = (queue: ServerDraftQueue) => queue.players.map((p) => p.player);
+
+export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
+  const [players, setPlayers] = useState<PlayerRef[]>([]);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const path = `/leagues/${leagueId}/draft/queue`;
+  // Saves run one at a time, in order, so the last change always wins on the server.
+  const saving = useRef<Promise<void>>(Promise.resolve());
+
+  const save = useCallback(
+    (next: readonly PlayerRef[]) => {
+      saving.current = saving.current.then(async () => {
+        try {
+          await api<ServerDraftQueue>(path, { method: 'PUT', body: { playerIds: next.map((p) => p.id) } });
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Could not save your queue.');
+        }
+      });
+    },
+    [api, path]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        let queue = (await api<ServerDraftQueue>(path)).data;
+        const local = readQueue(leagueId);
+        if (queue.players.length === 0 && local.length > 0) {
+          queue = (
+            await api<ServerDraftQueue>(path, {
+              method: 'PUT',
+              body: { playerIds: local.map((p) => p.id) }
+            })
+          ).data;
+        }
+        forgetLocalQueue(leagueId);
+        if (!cancelled) setPlayers(refs(queue));
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load your queue.');
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, path, leagueId]);
+
+  const update = (change: (current: PlayerRef[]) => PlayerRef[]) => {
+    const next = change(players);
+    if (next === players) return;
+    setPlayers(next);
+    save(next);
+  };
+
   return {
     players,
+    ready,
+    error,
     has: (playerId) => players.some((p) => p.id === playerId),
     add: (player) => update((q) => (q.some((p) => p.id === player.id) ? q : [...q, player])),
     remove: (playerId) => update((q) => q.filter((p) => p.id !== playerId)),

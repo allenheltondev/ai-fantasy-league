@@ -25,8 +25,15 @@ const CHASE = ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN');
 const CMC = ref('fx-cmc', 'Christian McCaffrey', 'RB', 'SF');
 const LAMB = ref('fx-lamb', 'CeeDee Lamb', 'WR', 'DAL');
 
-/** A 2-team, 2-round draft: the agent took CMC, and Allen is on the clock at pick 2. */
-function draftApi(page: Page) {
+/**
+ * A 2-team, 2-round draft: the agent took CMC, and Allen is on the clock at pick 2. Allen's draft
+ * queue lives in the stand-in, as on the server; `expire()` runs the pick clock's autopick, which
+ * takes the first queued player still available.
+ */
+function draftApi(page: Page, options: { pickSeconds?: number } = {}) {
+  const pickSeconds = options.pickSeconds ?? 90;
+  const deadline = new Date(Date.now() + pickSeconds * 1000).toISOString();
+  let queue: string[] = [];
   const picks: {
     overall: number;
     round: number;
@@ -54,8 +61,8 @@ function draftApi(page: Page) {
         pick: picks.length < 2 ? 2 : 1,
         teamId: mine ? 'team-1' : 'team-2',
         teamName: mine ? "Allen's Team" : 'The Spreadsheet',
-        deadline: new Date(Date.now() + 90_000).toISOString(),
-        secondsLeft: 90
+        deadline: mine ? deadline : new Date(Date.now() + 90_000).toISOString(),
+        secondsLeft: pickSeconds
       },
       yourTeamId: 'team-1',
       yourNextPick: mine
@@ -83,6 +90,22 @@ function draftApi(page: Page) {
   });
   const posted: unknown[] = [];
   void page.route('**/api/v1/leagues/L1/draft?*', (route) => route.fulfill({ json: envelope(board()) }));
+  const queueView = () => ({
+    teamId: 'team-1',
+    maxSize: 50,
+    updatedAt: null,
+    players: queue.map((id) => ({
+      player: [CHASE, LAMB, CMC].find((p) => p.id === id),
+      rank: null,
+      available: !picks.some((p) => p.player.id === id)
+    }))
+  });
+  void page.route('**/api/v1/leagues/L1/draft/queue', async (route) => {
+    if (route.request().method() === 'PUT') {
+      queue = (route.request().postDataJSON() as { playerIds: string[] }).playerIds;
+    }
+    await route.fulfill({ json: envelope(queueView()) });
+  });
   // The league header and the realtime token (off here, so the board polls).
   void page.route('**/api/v1/leagues/L1/state', (route) =>
     route.fulfill({
@@ -129,7 +152,22 @@ function draftApi(page: Page) {
       })
     });
   });
-  return posted;
+  /** The pick clock ran out on Allen: autopick takes his first queued player still available. */
+  const expire = () => {
+    const player = queue
+      .map((id) => [CHASE, LAMB].find((p) => p.id === id))
+      .find((p) => p !== undefined && !picks.some((pick) => pick.player.id === p.id));
+    picks.push({
+      overall: 2,
+      round: 1,
+      pick: 2,
+      teamId: 'team-1',
+      player: player ?? CHASE,
+      auto: true,
+      madeAt: null
+    });
+  };
+  return { posted, expire, queue: () => queue };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -233,7 +271,7 @@ test('a finished draft shows the recap with the AI teams reasoning', async ({ pa
 });
 
 test('a human on the clock drafts a player from the board', async ({ page }) => {
-  const posted = draftApi(page);
+  const { posted } = draftApi(page);
   await page.goto('/leagues/L1/draft');
   await expect(page.getByText('You are on the clock!')).toBeVisible();
   await expect(page.getByTestId('cell-1')).toHaveText('Christian McCaffrey (RB)');
@@ -254,9 +292,25 @@ test('a human on the clock drafts a player from the board', async ({ page }) => 
   await expect(page.getByRole('list', { name: 'Your roster' })).toContainText("Ja'Marr Chase");
   await expect(page.getByText('You are on the clock!')).toHaveCount(0);
   await expect(page.getByText(/Your next pick is #3/)).toBeVisible();
-  // Drafted players leave the queue; the rest stays, across a reload.
+  // Drafted players leave the queue; the rest stays on the server, across a reload.
   await expect(page.getByRole('list', { name: 'Your queue' })).not.toContainText("Ja'Marr Chase");
   await page.reload();
   await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('CeeDee Lamb');
   expect(posted).toEqual([{ body: { playerId: 'fx-chase', pick: 2 }, key: expect.any(String) }]);
+});
+
+test('when the clock runs out, autopick takes your first queued player', async ({ page }) => {
+  const api = draftApi(page, { pickSeconds: 4 });
+  await page.goto('/leagues/L1/draft');
+  await expect(page.getByText('You are on the clock!')).toBeVisible();
+  // Chase is the best available, but Allen queues Lamb.
+  await page.getByRole('button', { name: 'Queue CeeDee Lamb' }).click();
+  await expect(page.getByRole('list', { name: 'Your queue' })).toContainText('1. CeeDee Lamb');
+  await expect.poll(() => api.queue()).toEqual(['fx-lamb']);
+  await expect(page.getByTestId('pick-clock')).toHaveText('0:00', { timeout: 10_000 });
+
+  api.expire();
+  await expect(page.getByTestId('cell-2')).toHaveText('CeeDee Lamb (WR) · auto', { timeout: 10_000 });
+  await expect(page.getByRole('list', { name: 'Your roster' })).toContainText('CeeDee Lamb');
+  await expect(page.getByRole('list', { name: 'Your queue' })).toHaveCount(0);
 });
