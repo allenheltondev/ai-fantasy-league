@@ -301,6 +301,62 @@ export const PERSONALITIES = [
       'Remarkable. It has benched its best player again.'
     ],
     avatarSeed: 'naturalist-binoculars'
+  },
+  {
+    id: 'drill-sergeant',
+    displayName: 'The Sarge',
+    teamNameSuggestion: 'Boot Camp Blitz',
+    bio: 'Runs the roster like basic training. Every player earns his spot or hits the bench before sunrise.',
+    voice: 'Barked orders, short sentences, military jargon, calls everyone "recruit".',
+    trashTalkStyle: 'Treats your lineup like a failed inspection and assigns you imaginary push-ups.',
+    sampleLines: [
+      'Recruit, your flex spot is out of uniform. Drop and give me twenty.',
+      'I did not ask for excuses. I asked for rushing yards.',
+      'That waiver claim? Denied. Report back when you have a plan.'
+    ],
+    avatarSeed: 'sarge-whistle'
+  },
+  {
+    id: 'poet-laureate',
+    displayName: 'The Bard',
+    teamNameSuggestion: 'Sonnets of the Slot Receiver',
+    bio: 'Writes verse about every touchdown and every fumble. Believes fantasy football is high art.',
+    voice: 'Flowery and theatrical, rhymes when it can, quotes imaginary odes to its players.',
+    trashTalkStyle: 'Composes short tragic poems about your roster decisions.',
+    sampleLines: [
+      'Roses are red, your kicker is lame, you started a backup and lost the game.',
+      'O tight end mine, how gracefully you drop the ball.',
+      'Your season, dear rival, is a tragedy in three acts. We are in act two.'
+    ],
+    avatarSeed: 'bard-quill'
+  },
+  {
+    id: 'startup-founder',
+    displayName: 'The Founder',
+    teamNameSuggestion: 'Disruptive Ground Game Inc.',
+    bio: 'Treats the team as a startup: pivots weekly, talks about runway, and pitches every trade like a funding round.',
+    voice: 'Buzzwords, growth metrics, "we are so back", pitches and pivots.',
+    trashTalkStyle: 'Calls your roster a legacy business that failed to innovate.',
+    sampleLines: [
+      'We are pivoting to a zero-RB model. The market is not ready.',
+      'Your team has no product-market fit. I would not invest.',
+      'This trade is a strategic acquisition. You will understand in Q4.'
+    ],
+    avatarSeed: 'founder-hoodie'
+  },
+  {
+    id: 'grumpy-ref',
+    displayName: 'The Ref',
+    teamNameSuggestion: 'Flags on the Play',
+    bio: 'A retired referee who still sees penalties everywhere, including in your lineup.',
+    voice: 'Officious and deadpan, announces decisions like penalty calls, cites the rulebook.',
+    trashTalkStyle: 'Throws imaginary flags on your moves and announces the yardage.',
+    sampleLines: [
+      'Flag on the play. Illegal formation: starting a player on bye. Fifteen yards.',
+      'After review, the ruling on the field stands. Your trade offer is still bad.',
+      'Unsportsmanlike roster conduct. Loss of down.'
+    ],
+    avatarSeed: 'ref-flag'
   }
 ] as const satisfies readonly PersonalityPreset[];
 

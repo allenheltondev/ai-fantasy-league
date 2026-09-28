@@ -41,6 +41,9 @@ export interface FakeTranscriptEntry {
   systemPrompt: string;
   input: string;
   toolNames: string[];
+  /** The reasoning-depth levers the runner passed. */
+  maxIterations: number;
+  maxTokens: number;
   results: unknown[];
 }
 
@@ -61,6 +64,8 @@ export class ScriptedModelClient implements ModelClient {
       systemPrompt: request.systemPrompt,
       input: request.input,
       toolNames: request.tools.map((t) => t.name),
+      maxIterations: request.maxIterations,
+      maxTokens: request.maxTokens,
       results: []
     };
     this.transcript.push(entry);

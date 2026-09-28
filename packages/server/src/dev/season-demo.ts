@@ -2,6 +2,7 @@ import { yahooDefaultSettings } from '@fantasy/core';
 import type { ScheduledGame } from '@fantasy/data';
 import { startSeasonSchedule } from '../league/schedule.js';
 import { newTeam } from '../league/seats.js';
+import { agentIdFor } from '../repos/agents.js';
 import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Repos } from '../repos/types.js';
 
@@ -160,6 +161,24 @@ export async function seedDemoSeason(
     joinedAt: at
   });
   await deps.repos.leagues.create(league);
+  // Agents on the other seats, each on a different model family, so the model leaderboard and the
+  // AI activity tab have something to show.
+  const agentSeats = [
+    ['team-2', 'pirate-captain', 'hall_of_famer', 'zero_rb'],
+    ['team-3', 'stats-nerd', 'pro', 'analytics_only'],
+    ['team-4', 'hype-man', 'rookie', 'waiver_hawk']
+  ] as const;
+  for (const [teamId, personalityId, difficulty, archetype] of agentSeats) {
+    await deps.repos.agents.putSeat({
+      leagueId: league.id,
+      teamId,
+      agentId: agentIdFor(league.id, teamId),
+      config: { personalityId, difficulty, archetype },
+      version: 1,
+      updatedAt: at,
+      updatedBy: `user#${options.owner.sub}`
+    });
+  }
   await seedNflSchedule(deps.reference);
   await startSeasonSchedule(deps, league);
   await deps.repos.lineups.put([

@@ -13,6 +13,7 @@
  * - `list`: a list of strings
  * - `claims`: waiver awards, `[{ teamId, player, cost?, bid? }]` (the FAAB paid, else the bid)
  * - `points`: a number with at most two decimals
+ * - `changes`: agent seat changes, `[{ field, from, to }]` ("AI difficulty from All-Pro to Rookie")
  */
 
 /** One way to say it. A guarded alternative is used only when `when` returns true. */
@@ -131,6 +132,14 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
       '{team:teamId} left the league.'
     ]
   },
+  // Agent seat changes after the draft are announced, so a commissioner who also plays can't
+  // quietly weaken the AI teams they face.
+  'Agent Seat Changed': {
+    text: [
+      "The commissioner changed {team:teamId}'s {changes:changes}.",
+      "The commissioner changed {team:teamId}'s AI manager."
+    ]
+  },
   'Settings Changed': {
     text: [
       'The commissioner changed league settings: {list:changedPaths}.',
@@ -212,6 +221,16 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
       return typeof value === 'number' && Number.isFinite(value)
         ? String(Math.round(value * 100) / 100)
         : null;
+    case 'changes':
+      return list(value, (change) => {
+        if (change === null || typeof change !== 'object') return null;
+        const c = change as Detail;
+        const field = text(c.field);
+        const from = text(c.from);
+        const to = text(c.to);
+        if (field === null || from === null || to === null) return null;
+        return `${SEAT_FIELD_LABELS[field] ?? field} from ${from} to ${to}`;
+      });
     case 'claims':
       return list(value, (claim) => {
         if (claim === null || typeof claim !== 'object') return null;
@@ -226,6 +245,14 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
       return null;
   }
 }
+
+/** How an agent seat field reads in a chat line. */
+export const SEAT_FIELD_LABELS: Readonly<Record<string, string>> = {
+  difficulty: 'AI difficulty',
+  archetype: 'AI strategy',
+  model: 'AI decision model',
+  personality: 'AI personality'
+};
 
 const PLACEHOLDER = /\{(?:([a-z]+):)?([A-Za-z0-9_.]+)\}/g;
 

@@ -258,6 +258,22 @@ export const EVENT_DETAIL_SCHEMAS = {
     name: z.string().describe('The person’s display name.')
   }),
   'Member Left': z.object({ leagueId: id, userId: id, teamId: id, reason: z.enum(['left', 'removed']) }),
+  'Agent Seat Changed': z.object({
+    leagueId: id,
+    teamId: id,
+    changedBy: z.string().describe('Principal key of whoever made the change (`user#<sub>`).'),
+    phase: z.string(),
+    version: z.number().int().min(1),
+    changes: z
+      .array(
+        z.object({
+          field: z.enum(['difficulty', 'archetype', 'model', 'personality']),
+          from: z.string().describe('Display name before the change.'),
+          to: z.string().describe('Display name after the change.')
+        })
+      )
+      .min(1)
+  }),
   'Settings Changed': z.object({
     leagueId: id,
     changedPaths: z.array(z.string()),

@@ -247,6 +247,7 @@ describe('executeOperation', () => {
     const playoffs = league({ phase: 'playoffs' });
     const actor = resolveActor(playoffs, [], USER);
     expect(leagueAllowedActions(testRegistry.operations, playoffs, actor, new Date(START))).toEqual([
+      'configure_agent_seat',
       'pick_player',
       'post_message',
       'rename_team',

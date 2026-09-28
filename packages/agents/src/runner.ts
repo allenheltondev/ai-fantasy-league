@@ -3,6 +3,8 @@ import {
   estimateCostUsd,
   getModel,
   resolveAgentConfig,
+  summarizeMemory,
+  type MemoryEvent,
   type ModelKey,
   type ReasoningEffort,
   type ResearchAccess
@@ -20,8 +22,9 @@ import {
 import type { AgentActionRequested } from './events.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
+import { MEMORY_BUDGETS, memoryForPrompt, tableMemoryStore, type AgentMemoryStore } from './memory.js';
 import { isModelUnavailable, type ModelClient } from './model.js';
-import { MEMORY_NOTE_MAX, MEMORY_NOTES_KEPT, assembleSystemPrompt } from './prompt.js';
+import { MEMORY_NOTE_MAX, assembleSystemPrompt } from './prompt.js';
 import type {
   BaseDecision,
   PreparedTask,
@@ -41,7 +44,8 @@ import { ToolBox, keyPrefix } from './tools.js';
  *    is spent; otherwise the model, trying each model in the tier's chain.
  * 4. On a model timeout or failure, fall back to the kind's deterministic behavior.
  * 5. Record everything (#45): trigger, tools called, final action, reasoning summary, latency,
- *    tokens and estimated cost per model; add the weekly rollups; keep the agent's memory note.
+ *    tokens and estimated cost per model; add the weekly rollups; update the agent's memory (#44):
+ *    its decision, its note, and whatever the kind adds (a chat snapshot).
  */
 
 export interface RunnerDeps {
@@ -52,6 +56,8 @@ export interface RunnerDeps {
   killSwitch: KillSwitch;
   /** Wall-clock budget for the model part of a task. */
   modelTimeoutMs?: number;
+  /** Where agent memory lives; defaults to the league table. */
+  memory?: AgentMemoryStore;
 }
 
 /** How long a crashed run blocks a retry of the same task. */
@@ -149,9 +155,43 @@ export async function runAgentAction(
     );
   }
 
+  const memoryStore = deps.memory ?? tableMemoryStore(services.repos.agents);
+  const remember = async (outcome: TaskOutcome, note?: string) => {
+    const events: MemoryEvent[] = [];
+    // Chat summaries come from reading other people's messages: never kept as the agent's own record.
+    if (kind.modelRole === 'decision' && outcome.action !== 'none') {
+      events.push({
+        type: 'decision',
+        kind: kind.kind,
+        action: outcome.action,
+        summary: outcome.summary,
+        at: clock.now().toISOString()
+      });
+    }
+    if (note !== undefined && note.trim().length > 0 && kind.modelRole === 'decision') {
+      events.push({ type: 'note', text: note.trim().slice(0, MEMORY_NOTE_MAX) });
+    }
+    events.push(...(outcome.memory ?? []));
+    if (events.length === 0) return;
+    try {
+      await memoryStore.remember(league.id, seat.agentId, events);
+    } catch (error) {
+      // Memory is best effort: a failed write never undoes or fails the decision.
+      log.warn('agent memory write failed', { error });
+    }
+  };
+  const deterministic: PreparedTask = {
+    ...prepared,
+    fallback: async () => {
+      const outcome = await prepared.fallback();
+      await remember(outcome);
+      return outcome;
+    }
+  };
+
   const gate = await modeGate(deps, league);
   if (gate !== null) {
-    return runFallback(deps, { ...base, week }, started, prepared, system, gate);
+    return runFallback(deps, { ...base, week }, started, deterministic, system, gate);
   }
 
   const modelTools = new ToolBox({
@@ -163,12 +203,18 @@ export async function runAgentAction(
     actionsPerTrigger: config.levers.actionsPerTrigger,
     idempotencyPrefix: prefix
   });
-  const memory = await services.repos.agents.getMemory(league.id, seat.agentId);
+  const [memory, teams] = await Promise.all([
+    memoryStore.load(league.id, seat.agentId),
+    services.repos.teams.list(league.id)
+  ]);
   const systemPrompt = assembleSystemPrompt({
     config,
     league,
     teamId: seat.teamId,
-    memory,
+    memory: summarizeMemory(memoryForPrompt(memory, kind.modelRole), {
+      tokenBudget: MEMORY_BUDGETS[config.levers.reasoningEffort],
+      teamName: (id) => teams.find((t) => t.id === id)?.name ?? id
+    }),
     task: { title: kind.title, instructions: prepared.instructions }
   });
   const chain: ModelKey[] = kind.modelRole === 'chat' ? config.models.chat : config.models.decision;
@@ -229,14 +275,7 @@ export async function runAgentAction(
           true
         );
       }
-      if (result.decision.memoryNote !== undefined && result.decision.memoryNote.trim().length > 0) {
-        await services.repos.agents.appendMemory(
-          league.id,
-          seat.agentId,
-          result.decision.memoryNote.trim().slice(0, MEMORY_NOTE_MAX),
-          MEMORY_NOTES_KEPT
-        );
-      }
+      await remember(outcome, result.decision.memoryNote);
       return finish(
         deps,
         { ...base, week },
@@ -261,7 +300,7 @@ export async function runAgentAction(
         deps,
         { ...base, week },
         started,
-        prepared,
+        deterministic,
         system,
         timedOut ? 'timeout' : 'model_error',
         modelTools,
@@ -274,7 +313,7 @@ export async function runAgentAction(
     deps,
     { ...base, week },
     started,
-    prepared,
+    deterministic,
     system,
     'models_unavailable',
     modelTools,

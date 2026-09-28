@@ -338,6 +338,92 @@ describe('StandingsPage', () => {
     expect(await screen.findByText('No standings yet')).toBeInTheDocument();
   });
 
+  it('ranks the models playing the league next to the standings', async () => {
+    const record = { wins: 2, losses: 0, ties: 0, winRate: 1, pointsFor: 250.5, costUsd: 0.4 };
+    open('/leagues/L1/standings', {
+      getStandings: vi.fn(async () => standings),
+      getModelLeaderboard: vi.fn(async () => ({
+        throughWeek: 2,
+        teams: [],
+        models: [
+          {
+            ...record,
+            modelKey: 'claude-opus-5',
+            modelName: 'Claude Opus 5',
+            provider: 'anthropic',
+            teams: 1,
+            bestRank: 1,
+            pointsForPerTeam: 250.5,
+            costPerWinUsd: 0.2
+          },
+          {
+            ...record,
+            wins: 0,
+            losses: 2,
+            winRate: 0,
+            costUsd: 0,
+            modelKey: 'human',
+            modelName: 'Human',
+            provider: null,
+            teams: 1,
+            bestRank: 2,
+            pointsForPerTeam: 200,
+            costPerWinUsd: null
+          }
+        ]
+      }))
+    });
+    const table = await screen.findByRole('table', { name: 'Model power rankings' });
+    expect(screen.getByRole('heading', { name: 'Which model wins the league?' })).toBeInTheDocument();
+    const rows = within(table).getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('1Claude Opus 512-0100%250.5$0.40$0.20');
+    expect(rows[2]).toHaveTextContent('2Human10-20%200.0––');
+  });
+
+  it('shows ties, tiny costs, and a league with no final week in the model rankings', async () => {
+    const model = {
+      wins: 1,
+      losses: 0,
+      ties: 1,
+      winRate: 0.75,
+      pointsFor: 200,
+      costUsd: 0.004,
+      modelKey: 'nova-micro',
+      modelName: 'Amazon Nova Micro',
+      provider: 'amazon',
+      teams: 1,
+      bestRank: 1,
+      pointsForPerTeam: 200,
+      costPerWinUsd: 0.004
+    };
+    open('/leagues/L1/standings', {
+      getStandings: vi.fn(async () => standings),
+      getModelLeaderboard: vi.fn(async () => ({
+        throughWeek: null,
+        teams: [],
+        models: [model, { ...model, modelKey: 'nova-lite', winRate: null, costUsd: 0, costPerWinUsd: null }]
+      }))
+    });
+    const table = await screen.findByRole('table', { name: 'Model power rankings' });
+    expect(within(table).getByText(/No games final yet/)).toBeInTheDocument();
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent(
+      '1Amazon Nova Micro11-0-175%200.0<$0.01<$0.01'
+    );
+    expect(within(table).getAllByRole('row')[2]).toHaveTextContent('1-0-1–200.0$0.00–');
+  });
+
+  it('hides the model rankings in a league without agents or when they fail to load', async () => {
+    open('/leagues/L1/standings', {
+      getStandings: vi.fn(async () => standings),
+      getModelLeaderboard: vi.fn(async () => {
+        throw refused(403, 'FORBIDDEN', 'No.', 'Join.');
+      })
+    });
+    await screen.findByRole('table', { name: 'Standings' });
+    await waitFor(() => expect(screen.queryByText('Loading model rankings…')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('model-leaderboard')).not.toBeInTheDocument();
+  });
+
   it('shows errors', async () => {
     open('/leagues/L1/standings', {
       getStandings: vi.fn(async () => {

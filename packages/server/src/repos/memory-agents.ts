@@ -1,3 +1,4 @@
+import { emptyMemory, type AgentLeagueMemory } from '@fantasy/core';
 import {
   staleSeat,
   type AgentRepository,
@@ -18,7 +19,7 @@ interface TaskSlot {
 export class InMemoryAgentRepository implements AgentRepository {
   readonly #seats = new Map<string, AgentSeatRecord>();
   readonly #history = new Map<string, AgentSeatRecord[]>();
-  readonly #memory = new Map<string, string[]>();
+  readonly #memory = new Map<string, AgentLeagueMemory>();
   readonly #tasks = new Map<string, TaskSlot>();
   readonly #usage = new Map<string, AgentUsageRow>();
   readonly #state = new Map<string, AgentTriggerState>();
@@ -48,15 +49,19 @@ export class InMemoryAgentRepository implements AgentRepository {
     return (this.#history.get(`${leagueId}\u0000${teamId}`) ?? []).slice(0, limit).map(clone);
   }
 
-  async getMemory(leagueId: string, agentId: string): Promise<string[]> {
-    return [...(this.#memory.get(`${leagueId}\u0000${agentId}`) ?? [])];
+  async getMemory(leagueId: string, agentId: string): Promise<AgentLeagueMemory> {
+    return clone(this.#memory.get(`${leagueId}\u0000${agentId}`) ?? emptyMemory());
   }
 
-  async appendMemory(leagueId: string, agentId: string, note: string, max: number): Promise<string[]> {
+  async updateMemory(
+    leagueId: string,
+    agentId: string,
+    update: (memory: AgentLeagueMemory) => AgentLeagueMemory
+  ): Promise<AgentLeagueMemory> {
     const id = `${leagueId}\u0000${agentId}`;
-    const notes = [...(this.#memory.get(id) ?? []), note].slice(-max);
-    this.#memory.set(id, notes);
-    return [...notes];
+    const next = update(clone(this.#memory.get(id) ?? emptyMemory()));
+    this.#memory.set(id, clone(next));
+    return clone(next);
   }
 
   async claimTask(input: { taskId: string; now: Date; lockUntil: Date }): Promise<AgentTaskClaim> {

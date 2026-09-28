@@ -48,7 +48,7 @@
       "get": {
         "operationId": "get_agent_catalog",
         "summary": "The agent presets: personalities, difficulties, strategies, and models",
-        "description": "Lists every choice configure_agent_seat accepts: the personality presets (with a bio and avatar seed), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name. Pass `suggest` (1-20) to also get that many varied seat configs (no repeated personality, difficulties and strategies spread evenly), the same mix randomize_agent_seats would write; the same `seed` gives the same mix. Reading the catalog changes nothing.",
+        "description": "Lists every choice configure_agent_seat accepts: the personality presets (with a bio and avatar seed), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name. Pass `suggest` (1-24) to also get that many varied seat configs (no repeated personality, difficulties and strategies spread evenly), the same mix randomize_agent_seats would write; the same `seed` gives the same mix. Reading the catalog changes nothing.",
         "tags": [
           "agents"
         ],
@@ -60,9 +60,9 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 20
+              "maximum": 24
             },
-            "description": "How many suggested seat configs to return (1-20)."
+            "description": "How many suggested seat configs to return (1-24)."
           },
           {
             "name": "seed",
@@ -114,7 +114,11 @@
                                   "chill-surfer",
                                   "chef-de-roster",
                                   "lucky-charm",
-                                  "nature-narrator"
+                                  "nature-narrator",
+                                  "drill-sergeant",
+                                  "poet-laureate",
+                                  "startup-founder",
+                                  "grumpy-ref"
                                 ]
                               },
                               "displayName": {
@@ -204,12 +208,27 @@
                               },
                               "description": {
                                 "type": "string"
+                              },
+                              "waiverAggressiveness": {
+                                "type": "number",
+                                "description": "0 rarely claims, 1 claims every week and bids big."
+                              },
+                              "tradeFrequency": {
+                                "type": "number",
+                                "description": "Trade appetite: 0 only answers offers, 1 proposes constantly."
+                              },
+                              "riskTolerance": {
+                                "type": "number",
+                                "description": "0 benches anyone with an injury tag, 1 ignores injury tags."
                               }
                             },
                             "required": [
                               "id",
                               "displayName",
-                              "description"
+                              "description",
+                              "waiverAggressiveness",
+                              "tradeFrequency",
+                              "riskTolerance"
                             ],
                             "additionalProperties": false
                           }
@@ -295,7 +314,11 @@
                                           "chill-surfer",
                                           "chef-de-roster",
                                           "lucky-charm",
-                                          "nature-narrator"
+                                          "nature-narrator",
+                                          "drill-sergeant",
+                                          "poet-laureate",
+                                          "startup-founder",
+                                          "grumpy-ref"
                                         ],
                                         "description": "Personality preset id."
                                       },
@@ -1306,7 +1329,8 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 40,
-                    "description": "Team name, 1-40 characters, unique in the league."
+                    "pattern": "^[^\\p{Cc}\\p{Cf}]*$",
+                    "description": "Team name, 1-40 characters on one line (no control characters), unique in the league."
                   }
                 }
               }
@@ -2069,7 +2093,8 @@
                     "description": "Your team's name (default \"<your name>'s Team\").",
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 40
+                    "maxLength": 40,
+                    "pattern": "^[^\\p{Cc}\\p{Cf}]*$"
                   },
                   "settings": {
                     "type": "object",
@@ -3225,7 +3250,7 @@
       "get": {
         "operationId": "get_agent_activity",
         "summary": "Review the league's agents: recent decisions and model spend",
-        "description": "Commissioner only. Lists recent agent tasks, newest first: what triggered each one, the tools it called, its final action, a short reasoning summary, latency, and tokens and estimated cost per model. Also returns the week's estimated spend against the league's weekly ceiling; when the ceiling is exceeded (or the global kill switch is on), agents use deterministic fallbacks instead of models. Filter to one team with `teamId`; pick a past week with `week`. Costs are estimates from the model catalog, not billing data. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
+        "description": "Commissioner only. Lists recent agent tasks, newest first: what triggered each one, the tools it called, its final action, a short reasoning summary, latency, and tokens and estimated cost per model. Also returns the week's estimated spend against the league's weekly ceiling (per agent, with each agent's allowance from its difficulty) and whether the global kill switch is engaged; when the ceiling is exceeded or the kill switch is on, agents use deterministic fallbacks instead of models. Filter to one team with `teamId`; pick a past week with `week`. Costs are estimates from the model catalog, not billing data. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
         "tags": [
           "agents"
         ],
@@ -3490,6 +3515,20 @@
                                   },
                                   "agentId": {
                                     "type": "string"
+                                  },
+                                  "teamId": {
+                                    "description": "The team the agent plays; null for a seat that no longer exists.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "allowanceUsd": {
+                                    "description": "This agent's share of the ceiling, from its difficulty; null for a seat that no longer exists.",
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -3497,7 +3536,9 @@
                                   "inputTokens",
                                   "outputTokens",
                                   "tasks",
-                                  "agentId"
+                                  "agentId",
+                                  "teamId",
+                                  "allowanceUsd"
                                 ],
                                 "additionalProperties": false
                               }
@@ -3545,11 +3586,31 @@
                           ],
                           "additionalProperties": false,
                           "description": "Estimated agent model spend for one league week. Prices are estimates, not billing data."
+                        },
+                        "killSwitch": {
+                          "type": "object",
+                          "properties": {
+                            "configured": {
+                              "type": "boolean",
+                              "description": "False when this deployment has no kill switch parameter."
+                            },
+                            "engaged": {
+                              "type": "boolean",
+                              "description": "True while every agent is in deterministic mode (no model calls). Unreadable counts as engaged."
+                            }
+                          },
+                          "required": [
+                            "configured",
+                            "engaged"
+                          ],
+                          "additionalProperties": false,
+                          "description": "The global agent kill switch, set by the operators (not per league)."
                         }
                       },
                       "required": [
                         "tasks",
-                        "budget"
+                        "budget",
+                        "killSwitch"
                       ],
                       "additionalProperties": false
                     },
@@ -3683,7 +3744,7 @@
       "put": {
         "operationId": "configure_agent_seat",
         "summary": "Set the personality, difficulty, and strategy of an agent seat",
-        "description": "Commissioner only, before the draft (league phase \"setup\"). Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor). Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite. Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED after the draft starts; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids or out-of-range levers.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup.",
+        "description": "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat. Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor). Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite. Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids or out-of-range levers.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup, drafting, regular_season, playoffs.",
         "tags": [
           "agents"
         ],
@@ -3774,7 +3835,11 @@
                                     "chill-surfer",
                                     "chef-de-roster",
                                     "lucky-charm",
-                                    "nature-narrator"
+                                    "nature-narrator",
+                                    "drill-sergeant",
+                                    "poet-laureate",
+                                    "startup-founder",
+                                    "grumpy-ref"
                                   ],
                                   "description": "Personality preset id."
                                 },
@@ -4160,7 +4225,11 @@
                       "chill-surfer",
                       "chef-de-roster",
                       "lucky-charm",
-                      "nature-narrator"
+                      "nature-narrator",
+                      "drill-sergeant",
+                      "poet-laureate",
+                      "startup-founder",
+                      "grumpy-ref"
                     ],
                     "description": "Personality preset id."
                   },
@@ -4311,7 +4380,10 @@
           }
         },
         "x-phases": [
-          "setup"
+          "setup",
+          "drafting",
+          "regular_season",
+          "playoffs"
         ]
       },
       "get": {
@@ -4383,7 +4455,11 @@
                                     "chill-surfer",
                                     "chef-de-roster",
                                     "lucky-charm",
-                                    "nature-narrator"
+                                    "nature-narrator",
+                                    "drill-sergeant",
+                                    "poet-laureate",
+                                    "startup-founder",
+                                    "grumpy-ref"
                                   ]
                                 },
                                 "displayName": {
@@ -4491,7 +4567,11 @@
                                             "chill-surfer",
                                             "chef-de-roster",
                                             "lucky-charm",
-                                            "nature-narrator"
+                                            "nature-narrator",
+                                            "drill-sergeant",
+                                            "poet-laureate",
+                                            "startup-founder",
+                                            "grumpy-ref"
                                           ],
                                           "description": "Personality preset id."
                                         },
@@ -4759,7 +4839,11 @@
                                               "chill-surfer",
                                               "chef-de-roster",
                                               "lucky-charm",
-                                              "nature-narrator"
+                                              "nature-narrator",
+                                              "drill-sergeant",
+                                              "poet-laureate",
+                                              "startup-founder",
+                                              "grumpy-ref"
                                             ],
                                             "description": "Personality preset id."
                                           },
@@ -5147,7 +5231,11 @@
                                       "chill-surfer",
                                       "chef-de-roster",
                                       "lucky-charm",
-                                      "nature-narrator"
+                                      "nature-narrator",
+                                      "drill-sergeant",
+                                      "poet-laureate",
+                                      "startup-founder",
+                                      "grumpy-ref"
                                     ],
                                     "description": "Personality preset id."
                                   },
@@ -12839,6 +12927,371 @@
         "x-mutation": true
       }
     },
+    "/api/v1/leagues/{leagueId}/model-leaderboard": {
+      "get": {
+        "operationId": "get_model_leaderboard",
+        "summary": "Which model wins the league: standings and cost by model",
+        "description": "Joins every team's standing (rank, record, win rate, points for) with the model that plays it: an agent seat's primary decision model, or \"human\" for a person. Then rolls the same numbers up per model, best win rate first, with estimated model spend and spend per win. Use it for \"model power rankings\" posts and to compare how model families value players. Standings are as of the last final week; costs are estimates from the model catalog, not billing data. Any league member can read it. Errors: FORBIDDEN if you are not in the league; LEAGUE_NOT_FOUND for an unknown league.",
+        "tags": [
+          "agents",
+          "season"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "throughWeek": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Last week included, or null when no week is final yet."
+                        },
+                        "teams": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "seatType": {
+                                "type": "string",
+                                "enum": [
+                                  "agent",
+                                  "human"
+                                ]
+                              },
+                              "rank": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "modelKey": {
+                                "type": "string",
+                                "description": "The primary decision model, or \"human\" for a person."
+                              },
+                              "modelName": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "personality": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "difficulty": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "wins": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "losses": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "ties": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "winRate": {
+                                "description": "(wins + ties / 2) / games, 0 to 1; null before any game is final.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pointsFor": {
+                                "type": "number"
+                              },
+                              "costUsd": {
+                                "type": "number",
+                                "description": "Estimated model spend this season (0 for people)."
+                              }
+                            },
+                            "required": [
+                              "teamId",
+                              "teamName",
+                              "seatType",
+                              "rank",
+                              "modelKey",
+                              "modelName",
+                              "provider",
+                              "personality",
+                              "difficulty",
+                              "wins",
+                              "losses",
+                              "ties",
+                              "winRate",
+                              "pointsFor",
+                              "costUsd"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "One entry per team, in standings order."
+                        },
+                        "models": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "modelKey": {
+                                "type": "string"
+                              },
+                              "modelName": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "teams": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "bestRank": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "pointsForPerTeam": {
+                                "type": "number"
+                              },
+                              "costPerWinUsd": {
+                                "description": "Estimated spend per win; null without a win or for people.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "wins": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "losses": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "ties": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "winRate": {
+                                "description": "(wins + ties / 2) / games, 0 to 1; null before any game is final.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "pointsFor": {
+                                "type": "number"
+                              },
+                              "costUsd": {
+                                "type": "number",
+                                "description": "Estimated model spend this season (0 for people)."
+                              }
+                            },
+                            "required": [
+                              "modelKey",
+                              "modelName",
+                              "provider",
+                              "teams",
+                              "bestRank",
+                              "pointsForPerTeam",
+                              "costPerWinUsd",
+                              "wins",
+                              "losses",
+                              "ties",
+                              "winRate",
+                              "pointsFor",
+                              "costUsd"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "One entry per model (and one for people), best first."
+                        }
+                      },
+                      "required": [
+                        "throughWeek",
+                        "teams",
+                        "models"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/playoffs": {
       "get": {
         "operationId": "get_playoff_bracket",
@@ -16006,7 +16459,8 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 40,
-                    "description": "Team name, 1-40 characters, unique in the league."
+                    "pattern": "^[^\\p{Cc}\\p{Cf}]*$",
+                    "description": "Team name, 1-40 characters on one line (no control characters), unique in the league."
                   }
                 },
                 "required": [

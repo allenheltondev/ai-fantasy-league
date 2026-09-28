@@ -28,10 +28,11 @@ async function setup(phase: LeaguePhase = 'setup') {
     teamCount: 4,
     overrides: { phase, week: phase === 'setup' ? null : 5 }
   });
+  const events = new InMemoryEventPublisher();
   const services = createServices({
     clock: new FixedClock(START),
     repos,
-    events: new InMemoryEventPublisher(),
+    events,
     log: silentLogger
   });
   let n = 0;
@@ -47,7 +48,7 @@ async function setup(phase: LeaguePhase = 'setup') {
     });
     return result;
   };
-  return { repos, run };
+  return { repos, run, services, events };
 }
 
 describe('agent seat operations', () => {
@@ -116,14 +117,21 @@ describe('agent seat operations', () => {
     expect(noLeague.body).toMatchObject({ error: { code: 'LEAGUE_NOT_FOUND' } });
   });
 
-  it('is commissioner-only, human-only, and pre-draft only', async () => {
+  it('is commissioner-only, human-only, and closed once the season is complete', async () => {
     const { run } = await setup();
     const other = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT }, OTHER);
     expect(other.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
     const agent = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT }, AGENT);
     expect(agent.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
-    const drafting = await setup('drafting');
-    const late = await drafting.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    const midSeason = await setup('regular_season');
+    const change = await midSeason.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT
+    });
+    expect(change.body).toMatchObject({ data: { seat: { version: 1 } } });
+    const complete = await setup('complete');
+    const late = await complete.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
     expect(late.body).toMatchObject({ error: { code: 'PHASE_NOT_ALLOWED' } });
     const bad = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team 2!', ...SEAT });
     expect(bad.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
@@ -131,6 +139,60 @@ describe('agent seat operations', () => {
     expect(human.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
     const ghost = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-9', ...SEAT });
     expect(ghost.body).toMatchObject({ error: { code: 'TEAM_NOT_FOUND' } });
+  });
+
+  it('announces post-draft changes that weaken or strengthen an agent, but not setup edits', async () => {
+    const pre = await setup();
+    await pre.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await pre.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'rookie'
+    });
+    expect(pre.events.events.filter((e) => e.detailType === 'Agent Seat Changed')).toEqual([]);
+
+    const mid = await setup('regular_season');
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'rookie',
+      archetype: 'balanced'
+    });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'rookie',
+      archetype: 'balanced',
+      personalityId: 'stats-nerd',
+      advanced: { modelOverride: 'claude-opus-5' }
+    });
+    const announced = mid.events.events.filter((e) => e.detailType === 'Agent Seat Changed');
+    expect(announced.map((e) => e.detail)).toEqual([
+      {
+        leagueId: 'lg-1',
+        teamId: 'team-2',
+        changedBy: 'user#user-123',
+        phase: 'regular_season',
+        version: 3,
+        changes: [
+          { field: 'difficulty', from: 'All-Pro', to: 'Rookie' },
+          { field: 'archetype', from: 'Win Now', to: 'Balanced' },
+          { field: 'model', from: 'Claude Sonnet 5', to: 'Amazon Nova Micro' }
+        ]
+      },
+      expect.objectContaining({
+        version: 4,
+        changes: [
+          { field: 'model', from: 'Amazon Nova Micro', to: 'Claude Opus 5' },
+          { field: 'personality', from: 'Hype Man', to: 'The Spreadsheet' }
+        ]
+      })
+    ]);
   });
 
   it('randomizes seats deterministically from a seed', async () => {
@@ -198,7 +260,7 @@ describe('agent seat operations', () => {
           spentUsd: 0.5,
           remainingUsd: 0,
           exceeded: true,
-          byAgent: [{ agentId: 'lg-1.team-2', costUsd: 0.5, tasks: 2 }],
+          byAgent: [{ agentId: 'lg-1.team-2', teamId: 'team-2', allowanceUsd: 0.5, costUsd: 0.5, tasks: 2 }],
           byModel: [{ modelKey: 'nova-lite' }, { modelKey: 'nova-pro' }]
         }
       }
@@ -212,11 +274,113 @@ describe('agent seat operations', () => {
     expect((await leagueBudget(repos.agents, league5!)).week).toBe(5);
   });
 
+  it('ranks models by win rate with standings and season cost (members only)', async () => {
+    const { run, repos } = await setup('regular_season');
+    const put = (teamId: string, difficulty: 'hall_of_famer' | 'rookie') =>
+      repos.agents.putSeat({
+        leagueId: 'lg-1',
+        teamId,
+        agentId: `lg-1.${teamId}`,
+        config: { personalityId: 'hype-man', difficulty, archetype: 'balanced' },
+        version: 1,
+        updatedAt: START,
+        updatedBy: 'user#user-123'
+      });
+    await put('team-2', 'hall_of_famer');
+    await put('team-3', 'rookie');
+    const empty = await run('get_model_leaderboard', { leagueId: 'lg-1' }, MEMBER);
+    expect(empty.body).toMatchObject({
+      data: {
+        throughWeek: null,
+        models: expect.arrayContaining([expect.objectContaining({ winRate: null })])
+      }
+    });
+
+    const row = (teamId: string, rank: number, wins: number, losses: number, pointsFor: number) => ({
+      teamId,
+      rank,
+      wins,
+      losses,
+      ties: 0,
+      gamesPlayed: wins + losses,
+      winPct: wins / (wins + losses),
+      pointsFor,
+      pointsAgainst: 400,
+      streak: null,
+      tiebreakerOverNext: null
+    });
+    await repos.schedule.putStandings({
+      leagueId: 'lg-1',
+      week: 4,
+      rows: [
+        row('team-2', 1, 4, 0, 520),
+        row('team-1', 2, 2, 2, 450),
+        row('team-4', 3, 2, 2, 430),
+        row('team-3', 4, 0, 4, 380)
+      ],
+      computedAt: START
+    });
+    const usage = { leagueId: 'lg-1', modelKey: 'claude-opus-5', inputTokens: 1, outputTokens: 1, tasks: 1 };
+    await repos.agents.addUsage({ ...usage, week: 1, agentId: 'lg-1.team-2', costUsd: 0.4 });
+    await repos.agents.addUsage({ ...usage, week: 5, agentId: 'lg-1.team-2', costUsd: 0.4 });
+    await repos.agents.addUsage({
+      ...usage,
+      week: 3,
+      agentId: 'lg-1.team-3',
+      modelKey: 'nova-micro',
+      costUsd: 0.01
+    });
+
+    const result = await run('get_model_leaderboard', { leagueId: 'lg-1' }, MEMBER);
+    const data = (result.body as { data: { throughWeek: number; teams: unknown[]; models: unknown[] } }).data;
+    expect(data.throughWeek).toBe(4);
+    expect(data.teams[0]).toMatchObject({
+      teamId: 'team-2',
+      seatType: 'agent',
+      modelKey: 'claude-opus-5',
+      provider: 'anthropic',
+      personality: 'Hype Man',
+      difficulty: 'Hall of Famer',
+      winRate: 1,
+      costUsd: 0.8
+    });
+    expect(data.models).toEqual([
+      expect.objectContaining({
+        modelKey: 'claude-opus-5',
+        teams: 1,
+        wins: 4,
+        costPerWinUsd: 0.2,
+        bestRank: 1
+      }),
+      expect.objectContaining({
+        modelKey: 'human',
+        modelName: 'Human',
+        teams: 2,
+        winRate: 0.5,
+        pointsForPerTeam: 440,
+        costUsd: 0,
+        costPerWinUsd: null
+      }),
+      expect.objectContaining({ modelKey: 'nova-micro', winRate: 0, costPerWinUsd: null, bestRank: 4 })
+    ]);
+    const outsider = await run('get_model_leaderboard', { leagueId: 'lg-1' }, OTHER);
+    expect(outsider.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
+  });
+
+  it('shows the commissioner the kill switch state', async () => {
+    const { run, services } = await setup('regular_season');
+    const off = await run('get_agent_activity', { leagueId: 'lg-1' });
+    expect(off.body).toMatchObject({ data: { killSwitch: { configured: false, engaged: false } } });
+    services.agentKillSwitch = { engaged: async () => true };
+    const on = await run('get_agent_activity', { leagueId: 'lg-1' });
+    expect(on.body).toMatchObject({ data: { killSwitch: { configured: true, engaged: true } } });
+  });
+
   it('lists the catalog and suggests varied seats from a seed', async () => {
     const { run } = await setup();
     const plain = await run('get_agent_catalog', {}, OTHER);
     const catalog = (plain.body as { data: Record<string, unknown[]> }).data;
-    expect(catalog.personalities).toHaveLength(20);
+    expect(catalog.personalities).toHaveLength(24);
     expect(catalog.difficulties).toHaveLength(5);
     expect(catalog.archetypes).toHaveLength(8);
     expect(catalog.modelTiers).toEqual(['micro', 'lite', 'standard', 'advanced', 'frontier']);
@@ -235,7 +399,7 @@ describe('agent seat operations', () => {
     expect(b.body).toEqual(a.body);
     const fresh = await run('get_agent_catalog', { suggest: 2 });
     expect(fresh.body).toMatchObject({ data: { suggestion: { seed: expect.any(String) } } });
-    const tooMany = await run('get_agent_catalog', { suggest: 21 });
+    const tooMany = await run('get_agent_catalog', { suggest: 25 });
     expect(tooMany.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
   });
 });

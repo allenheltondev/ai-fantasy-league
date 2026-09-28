@@ -4,6 +4,7 @@ import { useLeagueApi } from '../../api/league';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { HistoryPanel } from './HistoryPanel';
+import { ModelLeaderboardPanel } from './ModelLeaderboardPanel';
 import { PlayoffsPanel } from './PlayoffsPanel';
 
 const VIEWS = [
@@ -89,5 +90,10 @@ function StandingsTable() {
       </table>
     );
   }
-  return body;
+  return (
+    <div className="space-y-6">
+      {body}
+      <ModelLeaderboardPanel leagueId={leagueId} />
+    </div>
+  );
 }

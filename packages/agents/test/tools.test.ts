@@ -173,7 +173,7 @@ describe('prompt assembly', () => {
       '# Your league',
       'week 5',
       '4 teams',
-      '# Your notes',
+      '# What you remember',
       'Team 3 owes me one.',
       '# Ground rules',
       '# Current task: Set your lineup',

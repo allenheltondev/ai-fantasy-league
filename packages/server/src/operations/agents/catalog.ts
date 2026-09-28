@@ -35,7 +35,7 @@ export const getAgentCatalog = defineOperation({
   summary: 'The agent presets: personalities, difficulties, strategies, and models',
   description: [
     'Lists every choice configure_agent_seat accepts: the personality presets (with a bio and avatar seed), the difficulty tiers (with the model tier each one decides with), the strategy archetypes, the model tiers, and the catalog models an Advanced model override may name.',
-    'Pass `suggest` (1-20) to also get that many varied seat configs (no repeated personality, difficulties and strategies spread evenly), the same mix randomize_agent_seats would write; the same `seed` gives the same mix. Reading the catalog changes nothing.'
+    `Pass \`suggest\` (1-${MAX_RANDOM_SEATS}) to also get that many varied seat configs (no repeated personality, difficulties and strategies spread evenly), the same mix randomize_agent_seats would write; the same \`seed\` gives the same mix. Reading the catalog changes nothing.`
   ].join(' '),
   tags: ['agents'],
   mutation: false,
@@ -69,7 +69,14 @@ export const getAgentCatalog = defineOperation({
       })
     ),
     archetypes: z.array(
-      z.object({ id: z.enum(ARCHETYPES), displayName: z.string(), description: z.string() })
+      z.object({
+        id: z.enum(ARCHETYPES),
+        displayName: z.string(),
+        description: z.string(),
+        waiverAggressiveness: z.number().describe('0 rarely claims, 1 claims every week and bids big.'),
+        tradeFrequency: z.number().describe('Trade appetite: 0 only answers offers, 1 proposes constantly.'),
+        riskTolerance: z.number().describe('0 benches anyone with an injury tag, 1 ignores injury tags.')
+      })
     ),
     modelTiers: z.array(z.enum(MODEL_TIERS)).describe('Weakest to strongest.'),
     models: z.array(
@@ -104,8 +111,16 @@ export const getAgentCatalog = defineOperation({
         };
       }),
       archetypes: ARCHETYPES.map((id) => {
-        const { displayName, description } = STRATEGY_ARCHETYPES[id];
-        return { id, displayName, description };
+        const { displayName, description, waiverAggressiveness, tradeFrequency, valuation } =
+          STRATEGY_ARCHETYPES[id];
+        return {
+          id,
+          displayName,
+          description,
+          waiverAggressiveness,
+          tradeFrequency,
+          riskTolerance: valuation.riskTolerance
+        };
       }),
       modelTiers: [...MODEL_TIERS],
       models: tieredModels(),

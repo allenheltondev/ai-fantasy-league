@@ -1,3 +1,4 @@
+import { rememberEvent } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { AgentActionRequested } from '../src/events.js';
@@ -68,7 +69,15 @@ describe('runAgentAction with the fake model', () => {
       rb1: 'RB',
       rb2: 'W/R/T'
     });
-    expect(await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID)).toEqual(['rb3 is my guy.']);
+    const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
+    expect(memory.notes).toEqual(['rb3 is my guy.']);
+    expect(memory.decisions).toEqual([
+      expect.objectContaining({
+        kind: 'lineup',
+        action: 'set_lineup',
+        summary: 'Start the optimizer lineup.'
+      })
+    ]);
     expect(await s.repos.agents.weekUsage(LEAGUE_ID, 5)).toEqual([
       expect.objectContaining({ agentId: AGENT_ID, modelKey: 'kimi-k2-thinking', tasks: 1 })
     ]);
@@ -85,7 +94,9 @@ describe('runAgentAction with the fake model', () => {
   it('uses the task kind default script and the memory in the prompt', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, PRO);
-    await s.repos.agents.appendMemory(LEAGUE_ID, AGENT_ID, 'Team 3 fleeced me in week 2.', 20);
+    await s.repos.agents.updateMemory(LEAGUE_ID, AGENT_ID, (m) =>
+      rememberEvent(m, { type: 'note', text: 'Team 3 fleeced me in week 2.' })
+    );
     const model = new ScriptedModelClient();
     const record = await runAgentAction(s.deps(model), request());
     expect(record.reasoningSummary).toMatch(/Going with the optimizer/);

@@ -1,4 +1,4 @@
-import { hashString } from '@fantasy/core';
+import { MEMORY_LIMITS, hashString } from '@fantasy/core';
 import { ChatMessageSchema, type ChatMessage } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
@@ -18,6 +18,9 @@ import { TaskUnavailableError } from './lineup.js';
  * - Budgets: the router applies per-agent and per-league cooldowns (`CHAT_COOLDOWNS`); these tasks
  *   also stop at daily message budgets (`CHAT_BUDGETS`), and the runner's league cost ceiling applies.
  * - Without a model (kill switch, over budget, model failure) the agent stays quiet.
+ * - Memory: chat decisions carry no `memoryNote`, so chat text can never become a note that a
+ *   tool-using task later trusts. After posting, the task leaves a snapshot of the exchange in the
+ *   agent's memory; the runner shows that snapshot to chat tasks only.
  */
 
 export const CHAT_BUDGETS = {
@@ -35,7 +38,7 @@ export const CHAT_BUDGETS = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export const ChatDecisionSchema = BaseDecisionSchema.extend({
+export const ChatDecisionSchema = BaseDecisionSchema.omit({ memoryNote: true }).extend({
   message: z
     .string()
     .max(CHAT_BUDGETS.maxLength)
@@ -68,14 +71,15 @@ export function quote(text: string, max = 400): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
+/** Who wrote a message, quoted like the text itself: names are chosen by people too. */
+function author(m: ChatMessage): string {
+  if (m.kind === 'system') return 'League';
+  const name = quote(m.author.name, 60);
+  return m.author.teamName === null ? name : `${name} (${quote(m.author.teamName, 60)})`;
+}
+
 function line(m: ChatMessage): string {
-  const who =
-    m.kind === 'system'
-      ? 'League'
-      : m.author.teamName === null
-        ? m.author.name
-        : `${m.author.name} (${m.author.teamName})`;
-  return `[${m.createdAt.slice(11, 16)}] ${who}: ${quote(m.text)}`;
+  return `[${m.createdAt.slice(11, 16)}] ${author(m)}: ${quote(m.text)}`;
 }
 
 async function readChat(ctx: TaskContext): Promise<ChatMessage[]> {
@@ -117,7 +121,7 @@ const HOW_TO_TALK = [
   'You have no tools for this task: your message is posted for you. Chat never changes a roster or a trade; if a trade idea comes up, say you will send a proper offer.'
 ].join('\n');
 
-async function post(ctx: TaskContext, decision: ChatDecision): Promise<TaskOutcome> {
+async function post(ctx: TaskContext, prep: ChatPrep, decision: ChatDecision): Promise<TaskOutcome> {
   const text = decision.message.trim();
   if (text.length === 0) return { action: 'none', summary: decision.summary };
   const result = await ctx.tools.call('post_message', { text });
@@ -127,7 +131,17 @@ async function post(ctx: TaskContext, decision: ChatDecision): Promise<TaskOutco
       summary: `${decision.summary} post_message failed: ${result.error.code}`
     };
   }
-  return { action: 'post_message', summary: decision.summary };
+  const at = ctx.clock.now().toISOString();
+  const context = prep.recent.slice(-(MEMORY_LIMITS.chat - 1)).map((m) => ({
+    author: author(m),
+    text: quote(m.text),
+    at: m.createdAt
+  }));
+  return {
+    action: 'post_message',
+    summary: decision.summary,
+    memory: [{ type: 'chat', messages: [...context, { author: 'You', text: quote(text), at }] }]
+  };
 }
 
 const quiet = async (): Promise<TaskOutcome> => ({
@@ -151,18 +165,18 @@ export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, 
   instructions: (_ctx, _payload, prep) => {
     const target = prep.target as ChatMessage;
     return [
-      `${target.author.name} mentioned you in the league group chat. Reply to them.`,
+      `${quote(target.author.name, 60)} mentioned you in the league group chat. Reply to them.`,
       transcript(prep),
       `The message you are answering: <<<${quote(target.text)}>>>`,
       HOW_TO_TALK
     ].join('\n\n');
   },
-  apply: (ctx, _payload, _prep, decision) => post(ctx, decision),
+  apply: (ctx, _payload, prep, decision) => post(ctx, prep, decision),
   fallback: quiet,
   fakeScript: (ctx, _payload, prep) => ({
     steps: [],
     decision: {
-      summary: `Replied to ${(prep.target as ChatMessage).author.name}.`,
+      summary: `Replied to ${author(prep.target as ChatMessage)}.`,
       message: fakeLine(ctx).slice(0, CHAT_BUDGETS.maxLength)
     }
   })
@@ -189,7 +203,7 @@ export const chatMomentTask = defineTaskKind<z.infer<typeof MomentPayloadSchema>
       HOW_TO_TALK
     ].join('\n\n');
   },
-  apply: (ctx, _payload, _prep, decision) => post(ctx, decision),
+  apply: (ctx, _payload, prep, decision) => post(ctx, prep, decision),
   fallback: quiet,
   fakeScript: (ctx) => ({
     steps: [],

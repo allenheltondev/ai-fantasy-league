@@ -2,6 +2,7 @@ import {
   PlayerStatusSchema,
   PositionSchema,
   RosterSlotSchema,
+  lineupProjection,
   optimizeLineup,
   validateLineup,
   type LineupContext,
@@ -15,7 +16,9 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
 
 /**
  * Lineup task: the optimizer proposes, the model confirms or suggests swaps, and the optimizer's
- * lineup is the fallback. Triggered by `Lineup Lock Approaching` (scheduled before each game
+ * lineup is the fallback. The optimizer sees projections discounted by injury status and the
+ * archetype's risk tolerance (`lineupProjection`), so a win-now manager benches a questionable
+ * player a gut-feel homer would start. Triggered by `Lineup Lock Approaching` (scheduled before each game
  * window) and when news or a status change hits a rostered player.
  *
  * It works through the real season operations, with the agent's own principal:
@@ -179,7 +182,13 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
       Object.keys(games).length === 0
         ? { previousLineup: current }
         : { games, now: ctx.clock.now(), previousLineup: current };
-    const optimized = optimizeLineup(settingsFor(ctx), roster, projections, context);
+    const riskTolerance = ctx.config.valuation.riskTolerance ?? 0.5;
+    const adjusted: Record<string, number> = {};
+    for (const p of rosterData.players) {
+      const pts = projections[p.player.id];
+      if (pts !== undefined) adjusted[p.player.id] = lineupProjection(pts, p.status, riskTolerance);
+    }
+    const optimized = optimizeLineup(settingsFor(ctx), roster, adjusted, context);
     return { week: rosterData.week, roster, current, projections, context, optimized };
   },
   instructions(_ctx, payload, prep) {
