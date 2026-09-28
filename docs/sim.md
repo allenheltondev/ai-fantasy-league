@@ -95,7 +95,7 @@ nflverse's player file has no team defense rows. DEF lines are derived as follow
 
 | Moment | When |
 |---|---|
-| Projections, trending, player snapshot for week W | 24h after week W−1's last kickoff (week 1: 3 days before its first kickoff) |
+| Projections, trending, player snapshot for week W | 6h after week W−1's last kickoff, once Monday night is final and before that day's 08:00 UTC waiver run (week 1: 3 days before its first kickoff) |
 | Draft (the league's first week only) | 2h after that week's projections |
 | `waiver_run` for week W | 30h after week W−1's last kickoff (week 1: 1 day before its first kickoff) |
 | Injury designations for week W | 2h before week W's first kickoff |

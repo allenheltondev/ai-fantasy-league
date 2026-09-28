@@ -13,8 +13,11 @@ export const GAME_DURATION_MS = 4 * HOUR_MS;
  * can never disagree.
  */
 export const MOMENT_OFFSETS = {
-  /** Projections and the player snapshot for week W: 24h after week W-1's last kickoff (Tuesday evening ET). */
-  projectionsAfterPreviousLastKickoffMs: 24 * HOUR_MS,
+  /**
+   * Projections and the player snapshot for week W: 6h after week W-1's last kickoff (early Tuesday
+   * UTC, once Monday night is final), so they are known before that day's waiver run (08:00 UTC).
+   */
+  projectionsAfterPreviousLastKickoffMs: 6 * HOUR_MS,
   /** Week 1 (no previous week): three days before the first kickoff. */
   projectionsBeforeFirstKickoffMs: 3 * DAY_MS,
   /** Waivers for week W run 30h after week W-1's last kickoff (early Wednesday morning ET). */

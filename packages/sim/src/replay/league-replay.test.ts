@@ -65,6 +65,8 @@ describe('replayLeague: the real league on the simulated clock', () => {
     expect(report.agents.totals.byKind.draft_pick).toBe(7 * 16);
     expect(report.agents.totals.byKind.lineup).toBeGreaterThan(0);
     expect(report.agents.totals.byKind.waivers).toBeGreaterThan(0);
+    // The weekly waiver look comes after the new week's projections, so agents find pickups.
+    expect(report.transactions.length).toBeGreaterThan(0);
     expect(report.agents.totals.costUsd).toBeGreaterThan(0);
     expect(Object.keys(report.agents.byModel).length).toBeGreaterThan(0);
     expect(report.decisions).toHaveLength(report.agents.totals.tasks);

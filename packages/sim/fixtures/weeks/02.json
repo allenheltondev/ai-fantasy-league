@@ -765,7 +765,7 @@
     "SEA": { "gp": 1, "pts_allow": 17, "sack": 3, "int": 2, "def_st_td": 1, "yds_allow": 267 }
   },
   "projections": {
-    "capturedAt": "2025-09-10T00:15:00.000Z",
+    "capturedAt": "2025-09-09T06:15:00.000Z",
     "lines": {
       "17": {
         "fga": 2,
@@ -2880,7 +2880,7 @@
     }
   },
   "trending": {
-    "capturedAt": "2025-09-10T00:15:00.000Z",
+    "capturedAt": "2025-09-09T06:15:00.000Z",
     "add": [
       { "playerId": "5870", "count": 510 },
       { "playerId": "4984", "count": 491 },
@@ -2904,6 +2904,6 @@
       { "playerId": "8146", "count": 241 }
     ]
   },
-  "playersCapturedAt": "2025-09-10T00:15:00.000Z",
+  "playersCapturedAt": "2025-09-09T06:15:00.000Z",
   "injuriesCapturedAt": "2025-09-11T22:15:00.000Z"
 }
