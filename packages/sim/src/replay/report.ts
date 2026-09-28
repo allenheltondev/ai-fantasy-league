@@ -1,4 +1,4 @@
-import type { LeagueSettings, StandingsRow } from '@fantasy/core';
+import { FIXED_ROOM_IDS, matchupRoomId, type LeagueSettings, type StandingsRow } from '@fantasy/core';
 import type {
   AgentTaskRecord,
   InMemoryEventPublisher,
@@ -98,7 +98,8 @@ export interface LeagueReplayReport {
     byStatus: Record<string, number>;
     vetoVotes: number;
   };
-  chat: { messages: number; byKind: Record<string, number> };
+  /** Messages by author kind, and by room: each fixed room by id, then all `matchup` and `dm` rooms. */
+  chat: { messages: number; byKind: Record<string, number>; byRoom: Record<string, number> };
   events: {
     delivered: Record<string, number>;
     deferredReleased: number;
@@ -138,22 +139,36 @@ function add(t: AgentTotals, task: AgentTaskRecord, usage?: AgentTaskRecord['usa
 const sorted = <T>(record: Record<string, T>): Record<string, T> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
-async function chatCounts(services: Services, leagueId: string): Promise<LeagueReplayReport['chat']> {
+async function chatCounts(services: Services, league: League): Promise<LeagueReplayReport['chat']> {
   const byKind: Record<string, number> = {};
+  const byRoom: Record<string, number> = {};
   let messages = 0;
-  let cursor: string | undefined;
-  do {
-    const page = await services.repos.chat.list(leagueId, {
-      limit: 100,
-      ...(cursor === undefined ? {} : { cursor })
-    });
-    for (const m of page.messages) {
-      messages++;
-      byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
-    }
-    cursor = page.nextCursor ?? undefined;
-  } while (cursor !== undefined);
-  return { messages, byKind: sorted(byKind) };
+  const matchups = await services.repos.schedule.listMatchups(league.id);
+  const teams = await services.repos.teams.list(league.id);
+  const dms = new Set<string>();
+  for (const team of teams)
+    for (const id of await services.repos.chat.dmRooms(league.id, team.id)) dms.add(id);
+  const rooms: [string, string][] = [
+    ...FIXED_ROOM_IDS.map((id): [string, string] => [id, id]),
+    ...matchups.map((m): [string, string] => [matchupRoomId(league.season, m.week, m.id), 'matchup']),
+    ...[...dms].map((id): [string, string] => [id, 'dm'])
+  ];
+  for (const [roomId, label] of rooms) {
+    let cursor: string | undefined;
+    do {
+      const page = await services.repos.chat.list(league.id, roomId, {
+        limit: 100,
+        ...(cursor === undefined ? {} : { cursor })
+      });
+      for (const m of page.messages) {
+        messages++;
+        byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
+        byRoom[label] = (byRoom[label] ?? 0) + 1;
+      }
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+  }
+  return { messages, byKind: sorted(byKind), byRoom: sorted(byRoom) };
 }
 
 export async function buildLeagueReport(input: {
@@ -293,7 +308,7 @@ export async function buildLeagueReport(input: {
       byStatus: sorted(byStatus),
       vetoVotes: offers.reduce((n, o) => n + o.trade.vetoVotes.length, 0)
     },
-    chat: await chatCounts(input.services, league.id),
+    chat: await chatCounts(input.services, league),
     events: {
       delivered: sorted(input.loopStats.delivered),
       deferredReleased: input.loopStats.released,
@@ -376,6 +391,8 @@ export function renderLeagueReport(report: LeagueReplayReport): string {
       )}); veto votes ${report.trades.vetoVotes}. Chat messages: ${report.chat.messages} (${Object.entries(
       report.chat.byKind
     )
+      .map(([k, n]) => `${k} ${n}`)
+      .join(', ')}; by room: ${Object.entries(report.chat.byRoom)
       .map(([k, n]) => `${k} ${n}`)
       .join(', ')}).`,
     '',

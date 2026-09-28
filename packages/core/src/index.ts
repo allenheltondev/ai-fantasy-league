@@ -33,6 +33,7 @@ export * from './agents/index.js';
 export * from './chat/mentions.js';
 export * from './chat/moderation.js';
 export * from './chat/system-messages.js';
+export * from './chat/rooms.js';
 export * from './season/cycle.js';
 export * from './outlook/outlook.js';
 export * from './scoring/validate.js';

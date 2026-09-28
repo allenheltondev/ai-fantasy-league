@@ -69,7 +69,9 @@ export const ERROR_STATUS = {
   TRADE_NOT_IN_REVIEW: 409,
   VOTE_NOT_ALLOWED: 409,
   // Chat
-  MESSAGE_BLOCKED: 400
+  MESSAGE_BLOCKED: 400,
+  ROOM_NOT_FOUND: 404,
+  ROOM_ARCHIVED: 409
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_STATUS;

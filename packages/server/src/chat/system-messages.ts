@@ -1,4 +1,10 @@
-import { renderSystemMessage, SYSTEM_MESSAGE_TEMPLATES } from '@fantasy/core';
+import {
+  matchupRoomId,
+  renderMatchupRoomLine,
+  renderSystemMessage,
+  SYSTEM_MESSAGE_TEMPLATES,
+  systemMessageRoute
+} from '@fantasy/core';
 import { eventDetail, type BusEvent } from '../events/bus.js';
 import { EVENT_SOURCE } from '../events/publisher.js';
 import type { Services } from '../context.js';
@@ -6,8 +12,11 @@ import { phaseFlags } from '../league/phase.js';
 import type { ChatMessage } from './model.js';
 
 /**
- * System chat messages (issue #70): league events announced in the group chat, from the template
- * map in `@fantasy/core` (`SYSTEM_MESSAGE_TEMPLATES`).
+ * System chat messages (issue #70): league events announced in chat, from the template map in
+ * `@fantasy/core` (`SYSTEM_MESSAGE_TEMPLATES`). Each goes to the room the routing table
+ * (`SYSTEM_MESSAGE_ROUTES`, #144) names; a week going final also posts one line, the game's score,
+ * to each of the week's matchup rooms (`sys-<event id>-<matchup id>`), and a close game's line is
+ * a moment for that room.
  *
  * Idempotent per event: the message id is `sys-<event id>` and its time is the event's time, so a
  * redelivered event hits the same key and the conditional put stores nothing. Only a first delivery
@@ -16,7 +25,7 @@ import type { ChatMessage } from './model.js';
  */
 
 export type SystemMessageOutcome =
-  | { status: 'posted'; message: ChatMessage; moment: boolean }
+  | { status: 'posted'; message: ChatMessage; moment: boolean; matchupMessages: ChatMessage[] }
   | { status: 'duplicate'; messageId: string }
   | { status: 'skipped'; reason: 'not_ours' | 'no_template' | 'no_league' | 'nothing_to_say' | 'stale' };
 
@@ -61,22 +70,26 @@ async function post(
   const rendered = renderSystemMessage(detailType, detail, { teamName: (id) => names.get(id) ?? null });
   if (rendered === null) return { status: 'skipped', reason: 'nothing_to_say' };
 
+  const route = systemMessageRoute(detailType);
+  const createdAt = eventTime(event, services.clock.now());
+  const system = { kind: 'system', author: { teamId: null, teamName: null, name: 'League' } } as const;
   const message: ChatMessage = {
     id: `sys-${event.id}`,
     leagueId: league.id,
-    kind: 'system',
-    author: { teamId: null, teamName: null, name: 'League' },
+    roomId: route.room,
+    ...system,
     text: rendered.text,
     mentionedTeamIds: [],
     event: { detailType, eventId: event.id },
     ...(rendered.players.length === 0 ? {} : { players: rendered.players }),
-    createdAt: eventTime(event, services.clock.now())
+    createdAt
   };
   if (!(await services.repos.chat.put(message))) return { status: 'duplicate', messageId: message.id };
-  await services.events.publish('Chat Message Posted', { leagueId: league.id, message });
+  await announce(services, message);
   if (rendered.moment) {
     await services.events.publish('Chat Moment', {
       leagueId: league.id,
+      roomId: message.roomId,
       moment: rendered.text,
       messageId: message.id,
       sourceEventType: detailType,
@@ -84,5 +97,57 @@ async function post(
       ...(rendered.subjectTeamId === null ? {} : { teamId: rendered.subjectTeamId })
     });
   }
-  return { status: 'posted', message, moment: rendered.moment };
+
+  const matchupMessages: ChatMessage[] = [];
+  const week = typeof detail.week === 'number' ? detail.week : null;
+  const lines =
+    route.matchupRooms === true && week !== null && Array.isArray(detail.matchups) ? detail.matchups : [];
+  // At most one close game per week is a moment: the closest.
+  let closest: { message: ChatMessage; margin: number; teamIds: string[] } | null = null;
+  for (const raw of lines) {
+    const line = (raw ?? {}) as Record<string, unknown>;
+    if (
+      typeof line.matchupId !== 'string' ||
+      typeof line.homeTeamId !== 'string' ||
+      typeof line.awayTeamId !== 'string'
+    )
+      continue;
+    const text = renderMatchupRoomLine(detailType, line, { teamName: (id) => names.get(id) ?? null });
+    if (text === null) continue;
+    const roomMessage: ChatMessage = {
+      ...message,
+      id: `sys-${event.id}-${line.matchupId}`,
+      roomId: matchupRoomId(league.season, week as number, line.matchupId),
+      text: text.text
+    };
+    delete roomMessage.players;
+    if (!(await services.repos.chat.put(roomMessage))) continue;
+    await announce(services, roomMessage);
+    matchupMessages.push(roomMessage);
+    const margin = Math.abs(Number(line.homeScore) - Number(line.awayScore));
+    if (text.moment && (closest === null || margin < closest.margin)) {
+      closest = { message: roomMessage, margin, teamIds: [line.homeTeamId, line.awayTeamId] };
+    }
+  }
+  if (closest !== null) {
+    await services.events.publish('Chat Moment', {
+      leagueId: league.id,
+      roomId: closest.message.roomId,
+      moment: closest.message.text,
+      messageId: closest.message.id,
+      sourceEventType: detailType,
+      sourceEventId: event.id,
+      teamIds: closest.teamIds
+    });
+  }
+  return { status: 'posted', message, moment: rendered.moment, matchupMessages };
+}
+
+function announce(services: Pick<Services, 'events'>, message: ChatMessage): Promise<void> {
+  return services.events.publish('Chat Message Posted', {
+    leagueId: message.leagueId,
+    roomId: message.roomId,
+    teamIds: null,
+    message
+  });
 }

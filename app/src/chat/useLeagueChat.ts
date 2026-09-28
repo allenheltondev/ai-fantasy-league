@@ -18,6 +18,8 @@ const RENEW_EARLY_MS = 60_000;
 const PAGE = 50;
 const DEFAULT_POLL_SECONDS = 5;
 const MAX_TIMER_MS = 2_147_483_647;
+/** The room this view shows: get_chat and post_message default to it. */
+const ROOM = 'trash-talk';
 
 /**
  * Loads a league's chat and keeps it current: live through Momento when the API vends a token,
@@ -69,7 +71,10 @@ export function useLeagueChat(leagueId: string, api: ChatApi, connect: Connect):
       if (info === null || target === null) return poll(info?.pollIntervalSeconds ?? DEFAULT_POLL_SECONDS);
       try {
         const unsubscribe = await connect(target, {
-          onChat: (message) => add([message]),
+          // The league topic carries every room; this view shows one.
+          onChat: (message) => {
+            if ((message.roomId ?? ROOM) === ROOM) add([message]);
+          },
           onError: () => {
             disconnect();
             if (!stopped) poll(info.pollIntervalSeconds);

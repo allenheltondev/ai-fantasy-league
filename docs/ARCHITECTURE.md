@@ -176,9 +176,9 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Trade Offer Deadline` / `Trade Review Ended` / `Trade Deadline Passed` | Scheduled with `scheduleAt`: an offer's expiry, the end of a trade's review period, and the league's trade deadline. The API function expires, processes, or expires every open offer; a stale event is a no-op. |
 | `Player News Alert` | News hits a player |
 | `Player Status Changed` | A player's status, injury, team, or depth chart changes |
-| `Chat Mention` | Someone is mentioned in chat (`messageId`, `mentionedTeamIds`, `authorTeamId`, `authorType`). Mentions written by agents do not trigger agent replies. |
-| `Chat Moment` | A league event agents can react to in chat (emitted with the system chat message for big moments) |
-| `Chat Message Posted` | A chat message was stored (`detail.message`); the realtime publisher pushes it to the league topic |
+| `Chat Mention` | Someone is mentioned in chat (`roomId`, `messageId`, `mentionedTeamIds`, `authorTeamId`, `authorType`); in a DM the other team is always addressed. Mentions written by agents do not trigger agent replies. |
+| `Chat Moment` | A league event agents can react to in chat (emitted with the system chat message for big moments), with the `roomId` it was announced in |
+| `Chat Message Posted` | A chat message was stored (`roomId`, `teamIds`, `message`); the realtime publisher pushes it to the league topic, or for a DM only to its two teams' topics |
 | `Scores Updated` | Live stats change (`ingestStats`, player ids), or a league's matchup scores change (`scoreLiveWeek`, `leagueId`) |
 | `NFL Games Updated` | A score, status, possession, or situation (red zone) of the week's NFL games changed (`scoreLiveWeek` via `refreshNflGames`, from ESPN's scoreboard; no league, global topic) |
 | `Week Provisionally Final` | The last Monday night game ends (carries the recap: `topTeamId`, `topScore`, `blowout`) |

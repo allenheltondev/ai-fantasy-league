@@ -18,6 +18,7 @@ function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     id: 'm1',
     leagueId: 'lg-1',
+    roomId: 'trash-talk',
     kind: 'user',
     author: { teamId: 'team-1', teamName: 'A', name: 'Alice' },
     text: 'hi',
@@ -32,8 +33,14 @@ describe('chat model', () => {
   it('round-trips cursors and rejects foreign ones', () => {
     const key = messageSortKey(message());
     expect(key).toBe(`MSG#${START}#m1`);
-    expect(decodeCursor(encodeCursor(key))).toBe(key);
-    expect(decodeCursor(encodeCursor('LEAGUE#x'))).toBeNull();
+    expect(decodeCursor(encodeCursor(key), 'trash-talk')).toBe(key);
+    expect(decodeCursor(encodeCursor(key), 'draft')).toBeNull();
+    expect(decodeCursor(encodeCursor('LEAGUE#x'), 'trash-talk')).toBeNull();
+    const draftKey = messageSortKey(message({ roomId: 'draft' }));
+    expect(draftKey).toBe(`ROOM#draft#MSG#${START}#m1`);
+    expect(decodeCursor(encodeCursor(draftKey), 'draft')).toBe(draftKey);
+    expect(decodeCursor(encodeCursor(draftKey), 'trash-talk')).toBeNull();
+    expect(decodeCursor(encodeCursor('ROOM#draft#MSG#nohash'), 'draft')).toBeNull();
     expect(authorKey(message())).toBe('user#team-1');
     expect(
       authorKey(message({ kind: 'system', author: { teamId: null, teamName: null, name: 'League' } }))
@@ -48,14 +55,22 @@ describe('chat model', () => {
       );
     }
     expect(await repos.chat.put(message({ id: 'm0', createdAt: '2026-10-04T15:00:00.000Z' }))).toBe(false);
-    const first = await repos.chat.list('lg-1', { limit: 2 });
+    const first = await repos.chat.list('lg-1', 'trash-talk', { limit: 2 });
     expect(first.messages.map((m) => m.id)).toEqual(['m4', 'm3']);
-    const rest = await repos.chat.list('lg-1', { limit: 5, cursor: first.nextCursor ?? '' });
+    const rest = await repos.chat.list('lg-1', 'trash-talk', { limit: 5, cursor: first.nextCursor ?? '' });
     expect(rest).toEqual({
       messages: [expect.objectContaining({ id: 'm2' }), expect.anything(), expect.anything()],
       nextCursor: null
     });
-    expect(await repos.chat.list('other', { limit: 5 })).toEqual({ messages: [], nextCursor: null });
+    expect(await repos.chat.list('other', 'trash-talk', { limit: 5 })).toEqual({
+      messages: [],
+      nextCursor: null
+    });
+    expect(await repos.chat.list('lg-1', 'draft', { limit: 5 })).toEqual({ messages: [], nextCursor: null });
+    expect(await repos.chat.summary('other', 'draft', null)).toEqual({ lastMessageAt: null, unreadCount: 0 });
+    expect(await repos.chat.activity('other', START)).toEqual([]);
+    expect(await repos.chat.dmRooms('other', 'team-1')).toEqual([]);
+    expect(await repos.chat.readState('other', 'user#u1')).toEqual({});
   });
 });
 
@@ -133,8 +148,10 @@ describe('postSystemMessage', () => {
       message: { createdAt: START, kind: 'system' }
     });
     expect(events.events.map((e) => e.detailType)).toEqual(['Chat Message Posted', 'Chat Moment']);
+    expect(outcome).toMatchObject({ message: { roomId: 'trades' }, matchupMessages: [] });
     expect(events.events[1]?.detail).toEqual({
       leagueId: 'lg-1',
+      roomId: 'trades',
       moment: 'Trade complete between Team 1 and Team 2.',
       messageId: 'sys-evt-9',
       sourceEventType: 'Trade Processed',
@@ -152,6 +169,77 @@ describe('postSystemMessage', () => {
     expect(events.events.map((e) => e.detailType)).toEqual(['Chat Message Posted']);
     await postSystemMessage(services, { ...bus('Draft Completed', { leagueId: 'lg-1' }), id: 'evt-10' });
     expect(events.events[2]?.detail).not.toHaveProperty('teamId');
+  });
+
+  it('posts a week final to the league room and one line to each matchup room', async () => {
+    const { services, events, repos } = await setup();
+    const line = (matchupId: string, homeScore: number, awayScore: number) => ({
+      matchupId,
+      homeTeamId: 'team-1',
+      awayTeamId: 'team-2',
+      homeScore,
+      awayScore,
+      status: 'final'
+    });
+    const detail = {
+      leagueId: 'lg-1',
+      week: 5,
+      topTeamId: 'team-1',
+      topScore: 120,
+      blowout: null,
+      matchups: [
+        line('W05-1', 120, 118.5),
+        line('W05-2', 90, 89),
+        line('W05-3', 100, 50),
+        null,
+        { matchupId: 'x' }
+      ]
+    };
+    const outcome = await postSystemMessage(services, bus('Week Provisionally Final', detail));
+    if (outcome.status !== 'posted') throw new Error('expected a message');
+    expect(outcome.message).toMatchObject({ id: 'sys-evt-9', roomId: 'league' });
+    expect(outcome.matchupMessages.map((m) => [m.id, m.roomId, m.text])).toEqual([
+      ['sys-evt-9-W05-1', 'm-2026-W05-W05-1', 'Final (provisional): Team 1 120, Team 2 118.5.'],
+      ['sys-evt-9-W05-2', 'm-2026-W05-W05-2', 'Final (provisional): Team 1 90, Team 2 89.'],
+      ['sys-evt-9-W05-3', 'm-2026-W05-W05-3', 'Final (provisional): Team 1 100, Team 2 50.']
+    ]);
+    // The league moment, then one moment for the closest game only, in its room.
+    const moments = events.events.filter((e) => e.detailType === 'Chat Moment').map((e) => e.detail);
+    expect(moments).toEqual([
+      expect.objectContaining({ roomId: 'league', messageId: 'sys-evt-9' }),
+      expect.objectContaining({
+        roomId: 'm-2026-W05-W05-2',
+        messageId: 'sys-evt-9-W05-2',
+        teamIds: ['team-1', 'team-2'],
+        moment: 'Final (provisional): Team 1 90, Team 2 89.'
+      })
+    ]);
+    expect((await repos.chat.list('lg-1', 'm-2026-W05-W05-2', { limit: 5 })).messages).toHaveLength(1);
+
+    // Redelivered: nothing new anywhere.
+    const count = events.events.length;
+    expect(await postSystemMessage(services, bus('Week Provisionally Final', detail))).toEqual({
+      status: 'duplicate',
+      messageId: 'sys-evt-9'
+    });
+    expect(events.events).toHaveLength(count);
+
+    // Official: no moments in matchup rooms.
+    await postSystemMessage(services, {
+      ...bus('Week Official Final', { ...detail, recap: 'No stat corrections changed a score.' }),
+      id: 'evt-11'
+    });
+    expect(events.events.slice(count).map((e) => e.detailType)).toEqual(Array(4).fill('Chat Message Posted'));
+    // A matchup room already holding its line (a retried run) is skipped quietly.
+    await repos.chat.put(message({ id: 'sys-evt-12-W05-1', roomId: 'm-2026-W05-W05-1', createdAt: START }));
+    const retried = await postSystemMessage(services, {
+      ...bus('Week Official Final', { ...detail, recap: 'r' }, { time: START }),
+      id: 'evt-12'
+    });
+    expect(retried.status === 'posted' && retried.matchupMessages.map((m) => m.id)).toEqual([
+      'sys-evt-12-W05-2',
+      'sys-evt-12-W05-3'
+    ]);
   });
 
   it('skips what it cannot or should not announce', async () => {

@@ -15,6 +15,7 @@ function human(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     id: 'm-human',
     leagueId: LEAGUE_ID,
+    roomId: 'trash-talk',
     kind: 'user',
     author: { teamId: 'team-1', teamName: "Allen's Team", name: 'Allen' },
     text: '@Team 2 your lineup is held together with tape.',
@@ -57,7 +58,9 @@ async function chatSetup() {
   const s = await setup();
   await s.seat(AGENT_TEAM, SEAT);
   const agentPosts = async () =>
-    (await s.repos.chat.list(LEAGUE_ID, { limit: 100 })).messages.filter((m) => m.kind === 'agent');
+    (await s.repos.chat.list(LEAGUE_ID, 'trash-talk', { limit: 100 })).messages.filter(
+      (m) => m.kind === 'agent'
+    );
   return { ...s, agentPosts };
 }
 

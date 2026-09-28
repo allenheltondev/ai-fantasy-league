@@ -13,6 +13,8 @@ export interface ChatPlayer {
 export interface ChatMessage {
   id: string;
   leagueId: string;
+  /** The room (#144); absent only on messages from before rooms. */
+  roomId?: string;
   kind: 'user' | 'agent' | 'system';
   author: { teamId: string | null; teamName: string | null; name: string };
   text: string;

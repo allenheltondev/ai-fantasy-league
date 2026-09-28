@@ -32,6 +32,7 @@ function chat(overrides: Partial<StoredChatMessage>): StoredChatMessage {
   return {
     id: 'm-1',
     leagueId: LEAGUE_ID,
+    roomId: 'trash-talk',
     kind: 'user',
     author: { teamId: 'team-1', teamName: "Allen's Team", name: 'Allen' },
     text: '@Team 2 hi',

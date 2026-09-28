@@ -227,7 +227,7 @@ describe('reading leagues', () => {
         phase: 'setup',
         week: null,
         flags: { waiversOpen: false, preLock: false, tradeDeadlinePassed: false },
-        allowedActions: ['leave_league', 'post_message', 'rename_team']
+        allowedActions: ['leave_league', 'mark_room_read', 'post_message', 'rename_team']
       }
     });
     const state = data<Record<string, unknown>>(await bob.get('/leagues/lg-r/state'));
@@ -236,7 +236,7 @@ describe('reading leagues', () => {
       phase: 'setup',
       youAreCommissioner: false,
       yourTeam: { id: 'team-2', ownerUserId: 'bob' },
-      allowedActions: ['leave_league', 'post_message', 'rename_team'],
+      allowedActions: ['leave_league', 'mark_room_read', 'post_message', 'rename_team'],
       deadlines: { startWeek: 1, regularSeasonEndWeek: 14, playoffWeeks: [15, 16, 17], tradeDeadlineWeek: 11 }
     });
     expect(state.teams).toHaveLength(8);
@@ -694,7 +694,7 @@ describe('membership changes', () => {
       });
     expect((await call('team-6', 'Circuit Breakers', 'agent-rename-1')).body).toMatchObject({
       data: { team: { name: 'Circuit Breakers' } },
-      league: { allowedActions: ['post_message', 'rename_team'] }
+      league: { allowedActions: ['mark_room_read', 'post_message', 'rename_team'] }
     });
     expect((await call('team-7', 'Takeover', 'agent-rename-2')).body).toMatchObject({
       error: { code: 'FORBIDDEN' }
