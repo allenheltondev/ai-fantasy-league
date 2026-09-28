@@ -42,7 +42,7 @@ export function NflGamesStrip({ data, featured }: { data: NflGamesData; featured
       <h3 id="nfl-games-heading" className="font-semibold">
         NFL games · week {data.week}
       </h3>
-      <ul className="flex snap-x gap-3 overflow-x-auto pb-2 sm:grid sm:grid-cols-2 sm:overflow-visible lg:grid-cols-4">
+      <ul className="relative flex snap-x gap-3 overflow-x-auto pb-2 sm:grid sm:grid-cols-2 sm:overflow-visible lg:grid-cols-4">
         {orderGames(data.games, featured).map((game) => (
           <li
             key={game.gameId ?? `${game.awayTeam}@${game.homeTeam}`}

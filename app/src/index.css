@@ -207,3 +207,57 @@
     transition: none;
   }
 }
+
+/*
+ * Design-system fix: `.drawer[data-side]` (z-index 89) outranks `.drawer-modal` (z-index 91) on
+ * specificity, so a modal drawer sat under its own scrim (z-index 90) and the scrim took every tap
+ * meant for the panel. Restated with enough specificity to win, for every drawer in the app.
+ */
+.drawer.drawer-modal[data-side] {
+  z-index: 91;
+}
+
+/*
+ * Phones (#138).
+ *
+ * The design system's base.css sets `overflow-x: hidden` on both html and body. That hides content
+ * that runs past the screen instead of letting anyone reach it (how the AI manager cards "ran off"
+ * a phone), and because both boxes clip, body becomes its own scroll container and every
+ * `position: sticky` in the app (the wizard's actions, the rules editor's save bar) stops sticking.
+ * Nothing here should be wider than the screen (e2e/mobile.pw.ts guards that), so let the page
+ * overflow honestly.
+ */
+html,
+body {
+  overflow-x: visible;
+}
+
+/* index.html opts into the full screen (viewport-fit=cover); keep content clear of a landscape notch. */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/*
+ * base.css gives phones 16px form text (so iOS Safari does not zoom in on focus) and 44px tap
+ * targets on bare elements; the component classes below outrank those element selectors with
+ * their own smaller sizes, and Tailwind's preflight (loaded after it) sizes every bare field at
+ * 100% of a small-text parent, so restate them at the same breakpoint.
+ */
+@media (max-width: 768px) {
+  .input,
+  select,
+  textarea,
+  input:not([type='checkbox']):not([type='radio']) {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .segmented-control-option {
+    min-height: 44px;
+  }
+  /* The toast's × sets `min-height: auto` inline, so only !important reaches it. */
+  .toast > button[aria-label='Dismiss notification'] {
+    min-width: 44px;
+    min-height: 44px !important;
+  }
+}

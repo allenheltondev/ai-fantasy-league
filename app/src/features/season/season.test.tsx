@@ -134,6 +134,12 @@ describe('RosterPage', () => {
     const rb = screen.getByTestId('roster-row-rb1');
     expect(within(rb).getByText('Out')).toBeInTheDocument();
     expect(within(rb).getByText(/RB · FA$/)).toBeInTheDocument();
+    // On a phone each row is a card: the numbers carry their column names.
+    expect(
+      within(rb)
+        .getAllByRole('cell')
+        .map((cell) => cell.dataset.label ?? null)
+    ).toEqual([null, null, null, 'Proj', 'Pts', null]);
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Move WR2' }), 'WR');
     expect(await screen.findByText('WR2 is on bye.')).toBeInTheDocument();
@@ -372,6 +378,14 @@ describe('StandingsPage', () => {
     const table = await screen.findByRole('table', { name: 'Standings' });
     expect(within(table).getByText('Through week 2')).toBeInTheDocument();
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent("1Alice's Team2-0250.50200.00W2");
+    // On a phone each row is a card: the numbers carry their column names, the header row hides.
+    const first = within(table).getAllByRole('row')[1]!;
+    expect(
+      within(first)
+        .getAllByRole('cell')
+        .map((cell) => cell.dataset.label ?? null)
+    ).toEqual([null, null, null, 'PF', 'PA', 'Streak']);
+    expect(table.querySelector('thead')).toHaveClass('max-sm:sr-only');
   });
 
   it('says when no week is final yet', async () => {

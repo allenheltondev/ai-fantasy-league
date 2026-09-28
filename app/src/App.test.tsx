@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { safeReturnPath } from './auth/AuthScreens';
 import { activeNavId, displayName } from './layout/AppLayout';
 import { LEAGUE_SECTIONS } from './routes/pages';
@@ -86,6 +86,24 @@ describe('signed in', () => {
     expect(await screen.findByTestId('league-section-draft')).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Trades' }));
     expect(await screen.findByTestId('league-section-trades')).toBeInTheDocument();
+  });
+
+  it('scrolls the section nav to the current section (it is one sideways row on a phone)', async () => {
+    // jsdom has no scrollIntoView (the nav skips it then, as the other tests show); stand one in.
+    const scrolled: string[] = [];
+    const scrollIntoView = vi.fn(function (this: Element) {
+      scrolled.push(this.textContent ?? '');
+    });
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      signInAs(ALICE);
+      renderApp('/leagues/L1/settings');
+      expect(await screen.findByTestId('league-section-settings')).toBeInTheDocument();
+      expect(scrolled).toContain('Settings');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
   });
 
   it('shows not found for an unknown path', async () => {
