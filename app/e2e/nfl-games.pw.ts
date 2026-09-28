@@ -169,7 +169,11 @@ async function stubApi(page: Page) {
 
 declare global {
   interface Window {
-    __pushFantasyEvent?: (event: { detailType: string; leagueId: string | null }) => void;
+    __pushFantasyEvent?: (event: {
+      detailType: string;
+      leagueId: string | null;
+      detail?: Record<string, unknown>;
+    }) => void;
     __fantasyTopics?: string[];
   }
 }

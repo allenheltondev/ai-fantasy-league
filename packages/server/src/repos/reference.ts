@@ -11,6 +11,7 @@ import type {
   TrendingEntry,
   TrendingType
 } from '@fantasy/data';
+import type { ScoringEventKind } from '@fantasy/core';
 import type { Player } from '../players/model.js';
 
 /**
@@ -96,6 +97,28 @@ export interface StatsRepository {
   putLines(lines: readonly StoredStatLine[]): Promise<void>;
   /** One player's lines across weeks, oldest first, optionally for one season. */
   getPlayerHistory(playerId: string, season?: number): Promise<StoredStatLine[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Scoring log (#162): each change to a player's week line, shared by every league
+// ---------------------------------------------------------------------------
+
+/** One scoring event: the player's whole line after a change (core `ScoringEvent`). */
+export interface StoredScoringEvent {
+  season: number;
+  week: number;
+  playerId: string;
+  /** When the change was seen (the stat line's `updatedAt`). */
+  at: string;
+  kind: ScoringEventKind;
+  stats: Record<string, number>;
+}
+
+export interface ScoringLogRepository {
+  /** Stores events; an event is keyed by season, week, player, and time, so a rewrite is harmless. */
+  put(events: readonly StoredScoringEvent[]): Promise<void>;
+  /** Every event of these players in a week, oldest first (one query per player). */
+  listPlayers(season: number, week: number, playerIds: readonly string[]): Promise<StoredScoringEvent[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +242,7 @@ export interface ReferenceStore {
   schedule: NflScheduleRepository;
   nflGames: NflGamesRepository;
   stats: StatsRepository;
+  scoringLog: ScoringLogRepository;
   projections: ProjectionRepository;
   seasons: SeasonLinesRepository;
   trending: TrendingRepository;

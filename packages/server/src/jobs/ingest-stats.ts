@@ -1,7 +1,7 @@
-import type { Clock } from '@fantasy/core';
+import { isScoringChange, type Clock, type ScoringEventKind } from '@fantasy/core';
 import { deepEqual, isInGameWindow, type StatLine } from '@fantasy/data';
 import type { PlayerDirectory } from '../players/directory.js';
-import type { StoredStatLine } from '../repos/reference.js';
+import type { StoredScoringEvent, StoredStatLine } from '../repos/reference.js';
 import { STATS_GAME_DURATION_MS } from '../season/window.js';
 import { skipped, type JobDeps, type JobResult } from './deps.js';
 
@@ -28,7 +28,8 @@ export function inUniverse<T extends { playerId: string }>(
  * Live stats (every 2 minutes, but only does work inside a game window). Reads the stored NFL state
  * and that week's stored schedule (two cheap reads) and returns early outside a window. Inside one
  * it pulls the week's stat lines, writes only the lines that changed to `STATS#<season>#W05`, and
- * emits `Scores Updated` with those player ids.
+ * emits `Scores Updated` with those player ids. Each change is also a scoring log event (#162,
+ * `SCORELOG#<season>#W05`), written before the lines so a failed run is retried and never loses one.
  */
 export async function ingestStats(
   deps: Pick<JobDeps, 'provider' | 'reference' | 'events' | 'directory' | 'log'>,
@@ -54,6 +55,8 @@ export async function ingestStats(
   const changed: StoredStatLine[] = inUniverse(fetched, ids)
     .filter((line) => !sameLine(previous.get(line.playerId), line))
     .map((line) => ({ ...line, updatedAt }));
+  const events = scoringEvents(previous, changed, 'live');
+  await deps.reference.scoringLog.put(events);
   await deps.reference.stats.putLines(changed);
   if (changed.length > 0) {
     await deps.events.publish('Scores Updated', {
@@ -68,8 +71,32 @@ export async function ingestStats(
     season: state.season,
     week: state.week,
     fetched: fetched.length,
-    changed: changed.length
+    changed: changed.length,
+    events: events.length
   };
+}
+
+/**
+ * The scoring log events for the lines about to be stored: every changed line where a stat other
+ * than Sleeper's precomputed points, games, or snaps moved (core `isScoringChange`). A player's first
+ * line of the week counts against an empty line. The event keeps the whole new line; each league
+ * scores it against the player's previous event at read time.
+ */
+export function scoringEvents(
+  previous: ReadonlyMap<string, StoredStatLine>,
+  changed: readonly StoredStatLine[],
+  kind: ScoringEventKind
+): StoredScoringEvent[] {
+  return changed
+    .filter((line) => isScoringChange(previous.get(line.playerId)?.stats, line.stats))
+    .map((line) => ({
+      season: line.season,
+      week: line.week,
+      playerId: line.playerId,
+      at: line.updatedAt,
+      kind,
+      stats: line.stats
+    }));
 }
 
 /** Whether a stored line already matches a fetched one (team and stats). */

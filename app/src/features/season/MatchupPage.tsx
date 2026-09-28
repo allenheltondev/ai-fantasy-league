@@ -1,17 +1,24 @@
+import { useState } from 'react';
 import { useParams } from 'react-router';
 import { EmptyState, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
-import type { MatchupData, MatchupLineup, MatchupSide, RedZoneTeam } from '../../api/types';
+import type { MatchupData, MatchupLineup, MatchupSide, RedZoneTeam, ScoringLogEntry } from '../../api/types';
 import { ManagerTag } from '../../components/AgentAvatar';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
-import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
+import {
+  connectMomentoEvents,
+  useLiveEvents,
+  type EventConnect,
+  type LeagueEvent
+} from '../../realtime/leagueEvents';
 import { AnimatedNumber, DeltaFloater } from '../../motion/AnimatedNumber';
 import { useCelebrateOnce } from '../../motion/celebration';
 import { Confetti } from '../../motion/Confetti';
 import { LoadingSkeleton } from '../../motion/decor';
 import { MatchupOutlookPanel } from './MatchupOutlookPanel';
 import { NflGamesStrip } from './NflGamesStrip';
+import { mergeEntries, ScoringLog } from './ScoringLog';
 import { RedZoneChip, redZoneClass, redZoneFor, usePrefersReducedMotion } from './RedZone';
 import { isStarter } from './slots';
 
@@ -41,13 +48,22 @@ const STATUS_LABEL = { scheduled: 'Upcoming', in_progress: 'Live', final: 'Final
 export function MatchupPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
+  // The scoring log (#162): entries pushed with `Scores Updated`, and a bump to reload its newest page.
+  const [pushed, setPushed] = useState<{ matchupId: string; entries: ScoringLogEntry[] }[]>([]);
+  const [logVersion, setLogVersion] = useState(0);
   const live = useLiveEvents({
     leagueId,
     types: MATCHUP_EVENTS,
     global: true,
     realtime: api.getRealtime,
     connect,
-    onEvent: (event) => (event.detailType === NFL_GAMES_EVENT ? nfl.reload() : loaded.reload())
+    onEvent: (event) => {
+      if (event.detailType === NFL_GAMES_EVENT) return nfl.reload();
+      const logs = pushedLog(event);
+      if (logs.length > 0) setPushed((current) => [...current, ...logs]);
+      else setLogVersion((v) => v + 1);
+      loaded.reload();
+    }
   });
   const loaded = useLoad(
     () => api.getMatchup(leagueId),
@@ -103,6 +119,16 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
             leading={leader === matchup.away.teamId}
           />
         </div>
+        <ScoringLog
+          leagueId={leagueId}
+          matchupId={matchup.id}
+          myTeamId={loaded.data.teamId}
+          sides={[matchup.home, matchup.away]}
+          redZone={redZone}
+          pushed={mergeEntries(...pushed.filter((p) => p.matchupId === matchup.id).map((p) => p.entries))}
+          version={logVersion}
+          pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
+        />
         {nfl.data !== null && <NflGamesStrip data={nfl.data} featured={startedTeams(loaded.data)} />}
       </div>
     );
@@ -117,6 +143,29 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
       />
     </div>
   );
+}
+
+/**
+ * The scoring log entries a `Scores Updated` push carries (#162), per matchup. The detail is the
+ * server's; anything malformed is dropped rather than shown.
+ */
+export function pushedLog(event: LeagueEvent): { matchupId: string; entries: ScoringLogEntry[] }[] {
+  const logs = event.detail?.scoringLog;
+  if (!Array.isArray(logs)) return [];
+  return logs.flatMap((log: unknown) => {
+    if (typeof log !== 'object' || log === null) return [];
+    const { matchupId, entries } = log as { matchupId?: unknown; entries?: unknown };
+    if (typeof matchupId !== 'string' || !Array.isArray(entries)) return [];
+    const valid = entries.filter(
+      (e: unknown): e is ScoringLogEntry =>
+        typeof e === 'object' &&
+        e !== null &&
+        typeof (e as ScoringLogEntry).id === 'string' &&
+        typeof (e as ScoringLogEntry).points === 'number' &&
+        typeof (e as ScoringLogEntry).player?.id === 'string'
+    );
+    return valid.length > 0 ? [{ matchupId, entries: valid }] : [];
+  });
 }
 
 /** The NFL teams of the viewer's started players, whose games lead the strip. */

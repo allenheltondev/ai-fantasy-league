@@ -26,7 +26,9 @@ import {
   type SeasonLinesRepository,
   type NflGamesRepository,
   type NflScheduleRepository,
+  type ScoringLogRepository,
   type StatsRepository,
+  type StoredScoringEvent,
   type StoredNflWeek,
   type StoredNflState,
   type StoredSeasonSchedule,
@@ -45,6 +47,8 @@ export const NEWS_TTL_MS = 90 * DAY_MS;
 export const TRENDING_TTL_MS = 30 * DAY_MS;
 /** A week's live games are only read during and just after that week. */
 export const NFL_GAMES_TTL_MS = 14 * DAY_MS;
+/** Scoring log events outlive their season (a week 1 event lasts past the Super Bowl), then expire. */
+export const SCORING_LOG_TTL_MS = 200 * DAY_MS;
 
 const statMap = z.record(z.string(), z.number());
 
@@ -114,6 +118,15 @@ const StatLineSchema = z.object({
   team: z.string().optional(),
   stats: statMap,
   updatedAt: z.string()
+});
+
+const ScoringEventSchema = z.object({
+  season: z.number(),
+  week: z.number(),
+  playerId: z.string(),
+  at: z.string(),
+  kind: z.enum(['live', 'correction']),
+  stats: statMap
 });
 
 const ProjectionLineSchema = z.object({
@@ -361,6 +374,47 @@ export class DynamoStatsRepository implements StatsRepository {
           : { ':pk': `PLAYERSTATS#${playerId}`, ':season': `${season}#` }
     });
     return items.map((item) => StatLineSchema.parse(item));
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+/** `SCORELOG#2026#W05`: the week's events for every player, `PLAYER#<id>#<at>` in time order. */
+export const scoringLogPk = (season: number, week: number) => `SCORELOG#${season}#${weekKey(week)}`;
+const scoringLogPlayerPrefix = (playerId: string) => `PLAYER#${playerId}#`;
+
+export class DynamoScoringLogRepository implements ScoringLogRepository {
+  constructor(private readonly table: TableContext) {}
+
+  async put(events: readonly StoredScoringEvent[]): Promise<void> {
+    // A batch may not hold one key twice; the last copy of an event wins.
+    const byKey = new Map(events.map((e) => [`${e.season}#${e.week}#${e.playerId}#${e.at}`, e]));
+    await batchPut(
+      this.table,
+      [...byKey.values()].map((e) => ({
+        pk: scoringLogPk(e.season, e.week),
+        sk: `${scoringLogPlayerPrefix(e.playerId)}${e.at}`,
+        ...e,
+        ttl: epochSeconds(new Date(Date.parse(e.at) + SCORING_LOG_TTL_MS))
+      }))
+    );
+  }
+
+  async listPlayers(
+    season: number,
+    week: number,
+    playerIds: readonly string[]
+  ): Promise<StoredScoringEvent[]> {
+    const pk = scoringLogPk(season, week);
+    const perPlayer = await Promise.all(
+      [...new Set(playerIds)].sort().map((id) =>
+        queryAll(this.table, {
+          KeyConditionExpression: 'pk = :pk AND begins_with(sk, :player)',
+          ExpressionAttributeValues: { ':pk': pk, ':player': scoringLogPlayerPrefix(id) }
+        })
+      )
+    );
+    return perPlayer.flat().map((item) => ScoringEventSchema.parse(item));
   }
 }
 
@@ -656,6 +710,7 @@ export function createDynamoReferenceStore(table: TableContext): ReferenceStore 
     schedule: new DynamoNflScheduleRepository(table),
     nflGames: new DynamoNflGamesRepository(table),
     stats: new DynamoStatsRepository(table),
+    scoringLog: new DynamoScoringLogRepository(table),
     projections: new DynamoProjectionRepository(table),
     seasons: new DynamoSeasonLinesRepository(table),
     trending: new DynamoTrendingRepository(table),

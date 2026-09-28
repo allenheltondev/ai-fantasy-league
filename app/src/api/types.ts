@@ -273,6 +273,32 @@ export interface MatchupData {
   lineups: { home: MatchupLineup; away: MatchupLineup } | null;
 }
 
+/** One change in a matchup's scoring log (get_scoring_log, #162). */
+export interface ScoringLogEntry {
+  /** `<at>#<playerId>`: unique per matchup, and sorts in time order. */
+  id: string;
+  at: string;
+  kind: 'live' | 'correction';
+  teamId: string;
+  teamName: string;
+  slot: string;
+  starter: boolean;
+  player: PlayerRef;
+  changes: { stat: string; delta: number }[];
+  summary: string;
+  points: number;
+  touchdown: boolean;
+}
+
+/** get_scoring_log (#162): one page of a matchup's scoring log, newest first. */
+export interface ScoringLogData {
+  week: number;
+  teamId: string;
+  matchupId: string | null;
+  entries: ScoringLogEntry[];
+  nextCursor: string | null;
+}
+
 /** One NFL game as it stands (get_nfl_games, #132). Team codes are Sleeper's (`WAS`, `LAR`). */
 export interface NflGame {
   gameId: string | null;

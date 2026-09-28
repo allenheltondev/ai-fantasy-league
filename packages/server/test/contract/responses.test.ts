@@ -323,6 +323,24 @@ beforeAll(async () => {
     games: [redZoneGame('2026_01_DAL_PHI'), liveGame('2026_01_LAR_SF', { gameKey: null })],
     updatedAt: h.clock.now().toISOString()
   });
+  await h.services.data.reference.scoringLog.put([
+    {
+      season: 2026,
+      week: 1,
+      playerId: 'fx-cmc',
+      at: '2026-09-13T17:30:00.000Z',
+      kind: 'live',
+      stats: { rush_yd: 18, rush_td: 1 }
+    },
+    {
+      season: 2026,
+      week: 1,
+      playerId: 'fx-cmc',
+      at: '2026-09-17T15:00:00.000Z',
+      kind: 'correction',
+      stats: { rush_yd: 16, rush_td: 1 }
+    }
+  ]);
   await seedDraftContractLeague(h.repos);
   await seedContractWaivers(h.repos);
   await seedContractTrades(h.repos);

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
 import { PlayerRefSchema } from '../players/model.js';
 import { NflGameSchema, RedZoneTeamSchema } from '../season/nfl-games.js';
+import { ScoringLogEntrySchema } from '../season/scoring-log.js';
 import type { EventDetail, FantasyEventType } from './publisher.js';
 
 /**
@@ -266,6 +267,12 @@ export const EVENT_DETAIL_SCHEMAS = {
       season: z.number().int(),
       week,
       matchups: z.array(ScoreLineSchema),
+      scoringLog: z
+        .array(z.object({ matchupId: id, entries: z.array(ScoringLogEntrySchema) }))
+        .optional()
+        .describe(
+          'Recent scoring log entries (#162) of the matchups whose score changed, newest first, bench included; the same entries get_scoring_log serves, so a client merges them by id.'
+        ),
       updatedAt: iso
     }),
     z.object({ season: z.number().int(), week: z.number().int(), playerIds: z.array(id), updatedAt: iso })

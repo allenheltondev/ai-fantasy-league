@@ -1,0 +1,11 @@
+/*
+ * The scoring log (#162). A touchdown gets the success tint and a left bar, the same shape as the
+ * red-zone highlight (redZone.css) in the success colour, so the two read as one family: "near a
+ * score" and "scored". The bar never animates; a new entry's pop comes from `motion-pop`, which
+ * reduced motion turns off.
+ */
+.scoring-log-td {
+  background-color: rgb(var(--success-500) / 0.08);
+  border-color: rgb(var(--success-500) / 0.6);
+  box-shadow: inset 3px 0 0 rgb(var(--success-500));
+}

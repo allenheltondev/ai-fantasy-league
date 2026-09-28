@@ -8,6 +8,7 @@ export * from './rules/frozen.js';
 export * from './scoring/settings.js';
 export * from './scoring/engine.js';
 export * from './scoring/season.js';
+export * from './scoring/log.js';
 export * from './rules/result.js';
 export * from './schedule/random.js';
 export * from './schedule/schedule.js';
