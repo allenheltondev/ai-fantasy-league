@@ -35,6 +35,35 @@ function flowState(state: unknown): FlowState {
   return out;
 }
 
+/**
+ * Where to go once signed in. Router state carries it between the auth screens, and it is also kept
+ * for the tab's session, so a sign-up that loses the router state (a reload while fetching the
+ * confirmation code, a detour through another screen) still lands back on the invite or page that
+ * sent the visitor here.
+ */
+export const RETURN_KEY = 'fantasy:return-to';
+
+function useReturnPath(): string | undefined {
+  const { from } = flowState(useLocation().state);
+  try {
+    if (from !== undefined) {
+      sessionStorage.setItem(RETURN_KEY, from);
+      return from;
+    }
+    return sessionStorage.getItem(RETURN_KEY) ?? undefined;
+  } catch {
+    return from;
+  }
+}
+
+function forgetReturnPath(): void {
+  try {
+    sessionStorage.removeItem(RETURN_KEY);
+  } catch {
+    // Nothing stored.
+  }
+}
+
 /** Only same-app paths are valid post-sign-in destinations. */
 export function safeReturnPath(from: string | undefined): string {
   if (!from || !from.startsWith('/') || from.startsWith('//')) return '/';
@@ -54,8 +83,11 @@ export function AuthLogo() {
 function AuthPage({ children }: { children: ReactNode }) {
   const { auth } = useAppConfig();
   const { signedIn } = useAuth();
-  const location = useLocation();
-  if (signedIn) return <Navigate to={safeReturnPath(flowState(location.state).from)} replace />;
+  const from = useReturnPath();
+  if (signedIn) {
+    forgetReturnPath();
+    return <Navigate to={safeReturnPath(from)} replace />;
+  }
   return (
     <main className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-4 py-10">
       {auth === null && (
@@ -73,13 +105,15 @@ function AuthPage({ children }: { children: ReactNode }) {
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { from } = flowState(location.state);
+  const from = useReturnPath();
   return (
     <AuthPage>
       <LoginForm
         logo={<AuthLogo />}
-        onSuccess={() => navigate(safeReturnPath(from), { replace: true })}
+        onSuccess={() => {
+          forgetReturnPath();
+          navigate(safeReturnPath(from), { replace: true });
+        }}
         onNeedsConfirmation={(email, password) =>
           navigate('/signup/confirm', { state: { email, password, from } })
         }
@@ -107,7 +141,8 @@ export function LoginPage() {
 export function SignUpPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { email, password, from } = flowState(location.state);
+  const { email, password } = flowState(location.state);
+  const from = useReturnPath();
   return (
     <AuthPage>
       <SignUpForm
@@ -131,7 +166,8 @@ export function SignUpPage() {
 export function ForgotPasswordPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { email, startAtReset, from } = flowState(location.state);
+  const { email, startAtReset } = flowState(location.state);
+  const from = useReturnPath();
   return (
     <AuthPage>
       <ForgotPasswordForm

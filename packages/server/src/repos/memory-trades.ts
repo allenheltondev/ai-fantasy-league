@@ -24,6 +24,11 @@ export class InMemoryTradeRepository implements TradeRepository {
       .map(clone);
   }
 
+  /** Deletes every trade in a league (the league was deleted). */
+  dropLeague(leagueId: string): void {
+    for (const [id, record] of this.#trades) if (record.leagueId === leagueId) this.#trades.delete(id);
+  }
+
   async update(record: TradeRecord): Promise<TradeRecord> {
     const id = key(record.leagueId, record.trade.tradeId);
     if (this.#trades.get(id)?.version !== record.version) throw staleTrade(record.trade.tradeId);

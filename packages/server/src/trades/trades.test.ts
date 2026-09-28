@@ -118,6 +118,8 @@ describe('trade repository (in memory)', () => {
     expect(await saveTrade(s.repos, record, NOW)).toBeNull();
     vi.spyOn(s.repos.trades, 'update').mockRejectedValueOnce(new Error('down'));
     await expect(saveTrade(s.repos, record, NOW)).rejects.toThrow('down');
+    await s.repos.leagues.delete('lg');
+    expect(await s.repos.trades.list('lg')).toEqual([]);
   });
 });
 

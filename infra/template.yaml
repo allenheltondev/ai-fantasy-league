@@ -82,6 +82,30 @@ Parameters:
       runtime, so realtime simply stays off (the app polls) if it is missing.
 
   # --------------------------------------------------------------------------
+  # CloudFront-only API (#104)
+  # --------------------------------------------------------------------------
+  OriginVerifySecret:
+    Type: AWS::SSM::Parameter::Value<String>
+    NoEcho: true
+    Default: /ai-fantasy-league/origin-verify/current
+    Description: >
+      SSM parameter holding the origin-verify secret. CloudFront sends it to
+      the API's Function URL in the X-Origin-Verify header, and the API
+      refuses (403) any request without it, so the Function URL cannot be
+      called around CloudFront. `make deploy-backend` creates the parameter
+      (openssl rand -hex 32) the first time and passes
+      /<stack>/origin-verify/current; the value then stays the same on every
+      deploy until `make rotate-origin-secret`.
+  OriginVerifySecretPrevious:
+    Type: AWS::SSM::Parameter::Value<String>
+    NoEcho: true
+    Default: /ai-fantasy-league/origin-verify/previous
+    Description: >
+      SSM parameter holding the previous origin-verify secret, which the API
+      still accepts so a rotation has no downtime (the Lambda updates before
+      the distribution, and CloudFront takes minutes to roll out).
+
+  # --------------------------------------------------------------------------
   # Custom domain (Production only)
   # --------------------------------------------------------------------------
   AppDomainName:
@@ -219,6 +243,9 @@ Resources:
           SECRET_ID: !Ref SecretsArn
           # Realtime (#68): get_realtime_token vends subscribe-only Momento tokens.
           MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
+          # #104: requests without CloudFront's X-Origin-Verify header are refused.
+          ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
+          ORIGIN_VERIFY_SECRET_PREVIOUS: !Ref OriginVerifySecretPrevious
           NODE_OPTIONS: --enable-source-maps
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -270,8 +297,9 @@ Resources:
       # The Function URL stays AuthType NONE: CloudFront OAC for Lambda
       # function URLs needs the *viewer* to send an x-amz-content-sha256 body
       # hash on POST/PUT, which a browser cannot do (same finding as
-      # llm-eval-harness). The API itself is the gate: it verifies the Cognito
-      # ID token (aws-jwt-verify) on every route except health and openapi.
+      # llm-eval-harness). The API itself is the gate: it refuses any request
+      # without CloudFront's X-Origin-Verify secret (#104), then verifies the
+      # Cognito ID token (aws-jwt-verify) on every route except health and openapi.
       # AuthType is the literal NONE so SAM emits the public invoke permissions.
       FunctionUrlConfig:
         AuthType: NONE
@@ -607,6 +635,11 @@ Resources:
                 - TLSv1.2
               OriginReadTimeout: 60
               OriginKeepaliveTimeout: 60
+            # Proves the request came through this distribution (#104). A
+            # viewer-sent header of the same name is overwritten.
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Verify
+                HeaderValue: !Ref OriginVerifySecret
         DefaultCacheBehavior:
           TargetOriginId: spa
           ViewerProtocolPolicy: redirect-to-https
@@ -964,8 +997,9 @@ Outputs:
   ApiFunctionUrl:
     Condition: DeployServer
     Description: >
-      The API Lambda's Function URL, for curl-level debugging. The supported
-      front door is AppUrl, where the API is at /api/v1.
+      The API Lambda's Function URL. It refuses direct calls (403) without
+      CloudFront's origin-verify header; the front door is AppUrl, where the
+      API is at /api/v1. The deploy smoke test checks that refusal.
     Value: !GetAtt ApiFunctionUrl.FunctionUrl
   DataJobsFunctionName:
     Condition: DeployServer

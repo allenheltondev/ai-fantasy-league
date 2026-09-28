@@ -5,6 +5,8 @@
 
 import { Link, NavLink, Outlet, useParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
+import { useLeagueApi } from '../api/league';
+import { useLoad } from '../lib/useLoad';
 import { CreateLeagueWizard } from '../features/create/CreateLeagueWizard';
 import { MyLeaguesPage } from '../features/leagues/MyLeaguesPage';
 import { MatchupPage } from '../features/season/MatchupPage';
@@ -35,10 +37,13 @@ export const CreateLeaguePage = CreateLeagueWizard;
 
 export function LeagueLayout() {
   const { leagueId = '' } = useParams();
+  const api = useLeagueApi();
+  // The name only; each section loads (and reports errors for) its own data.
+  const state = useLoad(() => api.getLeagueState(leagueId), leagueId);
   return (
     <section aria-labelledby="league-title" className="space-y-4">
       <h1 id="league-title" className="text-2xl font-semibold">
-        League <span className="font-mono text-base text-muted-foreground">{leagueId}</span>
+        {state.data?.name ?? 'League'}
       </h1>
       <nav aria-label="League sections" className="flex flex-wrap gap-2 border-b border-border pb-2">
         {LEAGUE_SECTIONS.map((section) => (
