@@ -1,7 +1,15 @@
 // Run with: npm run test:scripts
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { activeFoundationModelIds, activeProfileIds, findMissing, formatReport } from './verify-models.mjs';
+import {
+  activeFoundationModelIds,
+  activeProfileIds,
+  findMissing,
+  accessDeniedWarning,
+  formatReport,
+  isListingAccessDenied,
+  sameVendorIds
+} from './verify-models.mjs';
 
 const catalog = [
   { key: 'a', bedrockId: 'us.amazon.nova-lite-v1:0' },
@@ -51,5 +59,34 @@ describe('verify-models', () => {
       ).length,
       0
     );
+  });
+
+  it('suggests available ids from the same vendor for each missing one', () => {
+    const available = [
+      'us.amazon.nova-lite-v1:0',
+      'us.anthropic.claude-sonnet-5-20260801-v1:0',
+      'anthropic.claude-haiku-4-5-20251001-v1:0',
+      'moonshot.kimi-k2-thinking'
+    ];
+    assert.deepEqual(sameVendorIds('us.anthropic.missing-v1', available), [
+      'anthropic.claude-haiku-4-5-20251001-v1:0',
+      'us.anthropic.claude-sonnet-5-20260801-v1:0'
+    ]);
+    const report = formatReport(catalog, findMissing(catalog, available), 'us-east-1', available);
+    assert.match(report, /available anthropic ids: .*us\.anthropic\.claude-sonnet-5-20260801-v1:0/);
+    const none = formatReport(catalog, findMissing(catalog, []), 'us-east-1', []);
+    assert.match(none, /no moonshot ids are available/);
+  });
+
+  it('treats a denied listing call as unverifiable, not as a bad catalog', () => {
+    const denied = Object.assign(new Error('Command failed: aws bedrock list-inference-profiles'), {
+      stderr:
+        'An error occurred (AccessDeniedException) when calling the ListInferenceProfiles operation: ' +
+        'User: arn:aws:sts::1:assumed-role/Deploy/x is not authorized to perform: bedrock:ListInferenceProfiles'
+    });
+    assert.equal(isListingAccessDenied(denied), true);
+    assert.equal(isListingAccessDenied(new Error('network timeout')), false);
+    assert.equal(isListingAccessDenied(new Error('AccessDenied when calling bedrock:InvokeModel')), false);
+    assert.match(accessDeniedWarning(), /^::warning title=Model catalog not verified::/);
   });
 });

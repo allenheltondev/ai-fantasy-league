@@ -151,6 +151,13 @@ domain_override = $(if $(filter undefined,$(origin $(2))),,$(if $($(2)),"$(1)=$(
 deploy-backend:
 	@set -e; \
 	$(resolve_output_fn); \
+	STATUS=$$(aws cloudformation describe-stacks --stack-name $(STACK_NAME) $(REGION_ARG) \
+		--query 'Stacks[0].StackStatus' --output text 2>/dev/null || true); \
+	if [ "$$STATUS" = "ROLLBACK_COMPLETE" ]; then \
+		echo "deploy-backend: stack '$(STACK_NAME)' is ROLLBACK_COMPLETE (its first create failed) -- deleting it so it can be recreated"; \
+		aws cloudformation delete-stack --stack-name $(STACK_NAME) $(REGION_ARG); \
+		aws cloudformation wait stack-delete-complete --stack-name $(STACK_NAME) $(REGION_ARG); \
+	fi; \
 	SERVER_BUILD_DIR=$(SERVER_BUILD_DIR) ./scripts/package-server.sh; \
 	. $(SERVER_BUILD_DIR)/artifact.env; SERVER_KEY="$$ARTIFACT_KEY"; SERVER_ZIP="$$ARTIFACT_ZIP"; \
 	BUCKET=$$(resolve_output ArtifactBucket); \
