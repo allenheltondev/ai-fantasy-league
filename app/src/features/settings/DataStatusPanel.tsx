@@ -95,7 +95,7 @@ export function DataStatusPanel({ leagueId }: { leagueId: string }) {
         <StatTile
           label="Players"
           value={String(players.total)}
-          meta={`${players.byPosition.DEF ?? 0} DEF · ${players.byPosition.K ?? 0} K`}
+          meta={`${players.byPosition.DEF} DEF · ${players.byPosition.K} K`}
         />
         <StatTile
           label="League week"

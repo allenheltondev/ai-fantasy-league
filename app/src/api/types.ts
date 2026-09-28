@@ -501,7 +501,7 @@ export interface DataStatus {
     updatedAt: string;
   } | null;
   league: { season: number; week: number | null };
-  players: { total: number; byPosition: Record<string, number> };
+  players: { total: number; byPosition: Record<'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF', number> };
   weeks: {
     season: number;
     week: number;
