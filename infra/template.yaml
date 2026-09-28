@@ -467,6 +467,15 @@ Resources:
             Input: '{"job":"ingestProjections"}'
             RetryPolicy:
               MaximumRetryAttempts: 1
+        # Last season's stats once per season, this season's projections daily before it starts.
+        SyncSeasonResearch:
+          Type: ScheduleV2
+          Properties:
+            Description: Draft research, last season stats and season projections
+            ScheduleExpression: cron(37 11 * * ? *)
+            Input: '{"job":"syncSeasonResearch"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 1
         IngestTrending:
           Type: ScheduleV2
           Properties:

@@ -93,3 +93,22 @@ export interface ScheduledGame {
 
 /** Bye week per team code for one regular season. */
 export type ByeWeeks = Record<string, number>;
+
+/** One week of a player's season (stats or a projection), compacted to the scoring stat keys. */
+export interface SeasonWeekLine {
+  week: number;
+  stats: StatMap;
+}
+
+/**
+ * A player's whole regular season in one record: last season's weekly stats, or this season's
+ * weekly projections. Scored per league at read time (`seasonPoints` in `@fantasy/core`).
+ */
+export interface PlayerSeasonLines {
+  playerId: string;
+  season: number;
+  /** The team on his latest line, when the source knew it. */
+  team?: string;
+  /** Weeks with a line, in week order. */
+  weeks: SeasonWeekLine[];
+}

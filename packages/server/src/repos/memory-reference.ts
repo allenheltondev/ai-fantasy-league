@@ -1,8 +1,10 @@
 import type {
   ByeWeeks,
   NflState,
+  PlayerSeasonLines,
   ProjectionLine,
   ScheduledGame,
+  SeasonLinesKind,
   Player as SourcePlayer,
   TrendingType
 } from '@fantasy/data';
@@ -16,6 +18,8 @@ import {
   type ProjectionRepository,
   type ProjectionSnapshot,
   type ReferenceStore,
+  type SeasonLinesMeta,
+  type SeasonLinesRepository,
   type NflScheduleRepository,
   type StatsRepository,
   type StoredNflState,
@@ -127,6 +131,33 @@ export class InMemoryProjectionRepository implements ProjectionRepository {
 
 const snapshotId = (s: ProjectionSnapshot) => `${s.season}:${s.week}:${s.capturedAt}`;
 
+export class InMemorySeasonLinesRepository implements SeasonLinesRepository {
+  readonly #meta = new Map<string, SeasonLinesMeta>();
+  readonly #lines = new Map<string, PlayerSeasonLines[]>();
+
+  async getMeta(kind: SeasonLinesKind, season: number): Promise<SeasonLinesMeta | null> {
+    const meta = this.#meta.get(`${kind}:${season}`);
+    return meta === undefined ? null : clone(meta);
+  }
+
+  async put(meta: SeasonLinesMeta, lines: readonly PlayerSeasonLines[]): Promise<void> {
+    this.#lines.set(`${meta.kind}:${meta.season}`, clone([...lines]));
+    this.#meta.set(`${meta.kind}:${meta.season}`, clone(meta));
+  }
+
+  async get(
+    kind: SeasonLinesKind,
+    season: number,
+    playerIds?: readonly string[]
+  ): Promise<PlayerSeasonLines[]> {
+    const wanted = playerIds === undefined ? null : new Set(playerIds);
+    return (this.#lines.get(`${kind}:${season}`) ?? [])
+      .filter((l) => wanted === null || wanted.has(l.playerId))
+      .sort((a, b) => a.playerId.localeCompare(b.playerId))
+      .map(clone);
+  }
+}
+
 export class InMemoryTrendingRepository implements TrendingRepository {
   readonly #snapshots: TrendingSnapshot[] = [];
 
@@ -201,6 +232,7 @@ export function createInMemoryReferenceStore(players: PlayerRepository): Referen
     schedule: new InMemoryNflScheduleRepository(),
     stats: new InMemoryStatsRepository(),
     projections: new InMemoryProjectionRepository(),
+    seasons: new InMemorySeasonLinesRepository(),
     trending: new InMemoryTrendingRepository(),
     news: new InMemoryNewsRepository(),
     playerSync: new InMemoryPlayerSyncRepository(players)

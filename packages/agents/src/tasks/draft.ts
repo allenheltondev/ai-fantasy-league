@@ -54,7 +54,14 @@ const BoardSchema = z.object({
       auto: z.boolean()
     })
   ),
-  bestAvailable: z.array(z.object({ player: PlayerSchema, rank: z.number().nullable() }))
+  bestAvailable: z.array(
+    z.object({
+      player: PlayerSchema,
+      rank: z.number().nullable(),
+      lastSeason: z.object({ ppg: z.number(), games: z.number() }).nullable().optional(),
+      projection: z.object({ points: z.number() }).nullable().optional()
+    })
+  )
 });
 type Board = z.infer<typeof BoardSchema>;
 type Candidate = Board['bestAvailable'][number];
@@ -157,7 +164,10 @@ async function fallbackPick(ctx: TaskContext, prep: DraftPrep, why: string): Pro
 }
 
 function describeCandidate(c: Candidate): string {
-  return `${c.player.name} (${c.player.id}, ${c.player.position}, ${c.player.team ?? 'FA'}, rank ${c.rank ?? 'unranked'})`;
+  const last =
+    c.lastSeason == null ? '' : `, ${c.lastSeason.ppg} PPG last season (${c.lastSeason.games} games)`;
+  const proj = c.projection == null ? '' : `, projected ${c.projection.points} pts`;
+  return `${c.player.name} (${c.player.id}, ${c.player.position}, ${c.player.team ?? 'FA'}, rank ${c.rank ?? 'unranked'}${last}${proj})`;
 }
 
 export const draftTask = defineTaskKind<DraftPayload, DraftDecision, DraftPrep>({
