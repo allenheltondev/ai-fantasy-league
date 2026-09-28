@@ -55,6 +55,8 @@ The server URL is `https://fantasy.readysetcloud.io/api/v1/mcp` (Staging uses it
 
 **Any MCP client.** Point a Streamable HTTP client at the URL and send the `Authorization` header on every request. `packages/server/test/integration/mcp-server.test.ts` shows it with the SDK's `StreamableHTTPClientTransport`.
 
+**The rsc-core MCP host allowlist.** None of the clients above needs it, and neither do our own agents (below). rsc-core's `MCP_ALLOWED_HOSTS` (its `McpAllowedHosts` stack parameter) is an SSRF guard for rsc-core's own chat and task runtime: `create-session` rejects a session whose `mcpServers` point at a host not on the list, and an empty list rejects them all. So it matters only if an rsc-core agent session is meant to use this server as a tool. In that case, add the league host (`fantasy.readysetcloud.io`, or Staging's CloudFront domain) to `McpAllowedHosts` when deploying rsc-core, and have the session forward the person's Cognito ID token (the spec's `authHeader`, or `forwardConnectionToken`), since this server accepts only that person's bearer token. Nothing in this repository creates such a session today.
+
 ## Our own agents
 
 Our agents use the same tool definitions (`toMcpTool` in `packages/server/src/mcp/tools.ts`), bound in process by `packages/agents/src/tools.ts` with their own agent principal. They don't go over HTTP, because agent principals are never accepted from a request.

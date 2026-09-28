@@ -16,7 +16,9 @@ import { recordStandings, scoreLine, scoreWeek } from './scoring.js';
  *
  * Idempotent per league and week: an `OFFICIAL#W05` claim holds the provisional scores, so a run
  * that crashes is taken over later with the same "before" scores and reports the same corrections;
- * a completed week is never finalized again.
+ * a completed week is never finalized again. The claim is completed last, after the events and
+ * the (idempotent) achievement awards (#123), so a run that fails partway is retried whole rather
+ * than losing what it had not yet done: its events are at least once, never lost.
  */
 
 /** A crashed run's claim may be taken over after this long. */
@@ -112,15 +114,6 @@ export async function finalizeOfficialWeek(
   }
 
   const flipped = corrections.filter((c) => c.flipped).length;
-  const done: OfficialWeekRecord = {
-    ...claim,
-    status: 'complete',
-    completedAt: now.toISOString(),
-    corrections: corrections.length,
-    flipped
-  };
-  await deps.repos.history.completeOfficialWeek(done);
-
   for (const { matchup, old, flipped: isFlip } of corrections) {
     const home = matchup.homeScore;
     const away = matchup.awayScore;
@@ -156,6 +149,14 @@ export async function finalizeOfficialWeek(
     officialAt: now.toISOString()
   });
   await awardAchievements(deps, league, awards, now);
+  const done: OfficialWeekRecord = {
+    ...claim,
+    status: 'complete',
+    completedAt: now.toISOString(),
+    corrections: corrections.length,
+    flipped
+  };
+  await deps.repos.history.completeOfficialWeek(done);
   return { leagueId: league.id, week, status: 'official', corrections: corrections.length, flipped };
 }
 

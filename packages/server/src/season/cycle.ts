@@ -9,6 +9,7 @@ import {
 } from '@fantasy/core';
 import type { ScheduledGame } from '@fantasy/data';
 import { ApiError, isApiError } from '../errors.js';
+import { scheduleName } from '../events/schedule-name.js';
 import { STATS_GAME_DURATION_MS } from './window.js';
 import { firstScoringWeek, nextUnlockedWeek, type NflStateSource } from '../league/calendar.js';
 import { isInSeason, transitionPhase } from '../league/phase.js';
@@ -32,6 +33,11 @@ import { recordStandings, scoreLine, updateMatchupScores } from './scoring.js';
 
 /** How long before a game window's first kickoff agents are told lineups are about to lock. */
 export const LOCK_WARNING_LEAD_MS = 60 * 60 * 1000;
+
+/** rsc-core schedule name for a week's lock warning, per game window (1-based). */
+export function lineupLockName(leagueId: string, week: number, window: number): string {
+  return scheduleName('lineup-lock', leagueId, weekKey(week), window);
+}
 
 export type AdvanceOutcome =
   | { leagueId: string; status: 'skipped'; reason: string }
@@ -193,7 +199,7 @@ export async function scheduleLockWarnings(
     if (lockAt <= now.getTime()) continue;
     await deps.events.scheduleAt({
       at: new Date(Math.max(now.getTime(), lockAt - LOCK_WARNING_LEAD_MS)),
-      name: `lineup-lock-${league.id}-${weekKey(week)}-${i + 1}`,
+      name: lineupLockName(league.id, week, i + 1),
       whenPast: 'send',
       event: {
         detailType: 'Lineup Lock Approaching',

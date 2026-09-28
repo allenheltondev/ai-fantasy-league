@@ -14,15 +14,19 @@ export const renameLeague = defineOperation({
   description: 'Test-only mutation. Renames the league. Only allowed before the season starts.',
   mutation: true,
   phases: ['setup', 'drafting'],
-  input: z.object({ leagueId: z.string(), name: z.string().min(1).max(40), fail: z.boolean().optional() }),
+  input: z.object({
+    leagueId: z.string(),
+    name: z.string().min(1).max(40),
+    fail: z.enum(['CONFLICT', 'NOT_YOUR_TURN']).optional()
+  }),
   output: z.object({ id: z.string(), name: z.string() }),
   handler: async (ctx, input) => {
     const league = await ctx.repos.leagues.get(input.leagueId);
     if (league === null) {
       throw new ApiError('LEAGUE_NOT_FOUND', 'No such league.', { fix: 'Use an existing league id.' });
     }
-    if (input.fail === true) {
-      throw new ApiError('CONFLICT', 'Told to fail.', { fix: 'Do not set fail.' });
+    if (input.fail !== undefined) {
+      throw new ApiError(input.fail, 'Told to fail.', { fix: 'Do not set fail.' });
     }
     const updated = await ctx.repos.leagues.update({
       ...league,

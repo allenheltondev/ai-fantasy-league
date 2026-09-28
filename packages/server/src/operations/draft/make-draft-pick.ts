@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ApiError } from '../../errors.js';
 import { actorTeam, assertAction } from '../../league/phase.js';
 import { requireMember, requireTeamOwner } from '../../league/access.js';
-import { recordPick, requireDraft, secondsLeft } from '../../league/draft.js';
+import { MAX_PICK_REASON, recordPick, requireDraft, secondsLeft } from '../../league/draft.js';
 import { LeagueIdSchema, TeamIdSchema } from '../../league/views.js';
 import { playerSelectorShape, PlayerRefSchema, toPlayerRef } from '../../players/model.js';
 import { defineOperation } from '../../registry/operation.js';
@@ -26,6 +26,15 @@ export const makeDraftPick = defineOperation({
     leagueId: LeagueIdSchema,
     teamId: TeamIdSchema.optional().describe('Your team id. Defaults to the team you manage.'),
     pick: z.number().int().min(1).optional().describe('The overall pick number you are making.'),
+    reason: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_PICK_REASON)
+      .optional()
+      .describe(
+        'Optional: one or two sentences on why you made this pick. The league sees it in the draft recap, and in chat when the pick is notable.'
+      ),
     ...playerSelectorShape
   }),
   output: z.object({
@@ -61,7 +70,8 @@ export const makeDraftPick = defineOperation({
       teamId: team.id,
       player,
       auto: false,
-      expectedPick: input.pick
+      expectedPick: input.pick,
+      reason: input.reason
     });
     const next = currentPick(outcome.record.state);
     return {

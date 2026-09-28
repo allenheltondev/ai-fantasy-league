@@ -6917,6 +6917,20 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "adp": {
+                                "description": "The player's consensus rank when he was picked.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "reason": {
+                                "description": "Why the team made the pick, in its own words.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
@@ -6926,10 +6940,319 @@
                               "teamId",
                               "player",
                               "auto",
-                              "madeAt"
+                              "madeAt",
+                              "adp",
+                              "reason"
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "recap": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "steals": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "overall": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Pick number across the whole draft, from 1."
+                                      },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "teamId": {
+                                        "type": "string"
+                                      },
+                                      "teamName": {
+                                        "type": "string"
+                                      },
+                                      "player": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "adp": {
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "value": {
+                                        "description": "Picks after ADP: positive for a steal, negative for a reach.",
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "overall",
+                                      "round",
+                                      "teamId",
+                                      "teamName",
+                                      "player",
+                                      "adp",
+                                      "value",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "The biggest steals by ADP, best first."
+                                },
+                                "reaches": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "overall": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Pick number across the whole draft, from 1."
+                                      },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "teamId": {
+                                        "type": "string"
+                                      },
+                                      "teamName": {
+                                        "type": "string"
+                                      },
+                                      "player": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "adp": {
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "value": {
+                                        "description": "Picks after ADP: positive for a steal, negative for a reach.",
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "overall",
+                                      "round",
+                                      "teamId",
+                                      "teamName",
+                                      "player",
+                                      "adp",
+                                      "value",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "The biggest reaches by ADP, biggest first."
+                                },
+                                "agentPicks": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "overall": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Pick number across the whole draft, from 1."
+                                      },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "teamId": {
+                                        "type": "string"
+                                      },
+                                      "teamName": {
+                                        "type": "string"
+                                      },
+                                      "player": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "adp": {
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "value": {
+                                        "description": "Picks after ADP: positive for a steal, negative for a reach.",
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "overall",
+                                      "round",
+                                      "teamId",
+                                      "teamName",
+                                      "player",
+                                      "adp",
+                                      "value",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "Each agent team's first pick, with its reasoning."
+                                }
+                              },
+                              "required": [
+                                "steals",
+                                "reaches",
+                                "agentPicks"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Once the draft is complete: its steals, reaches, and the agents' first picks. Null until then."
                         },
                         "rosters": {
                           "type": "array",
@@ -7075,6 +7398,7 @@
                         "yourNextPick",
                         "yourNeeds",
                         "picks",
+                        "recap",
                         "rosters",
                         "bestAvailable"
                       ],
@@ -7754,6 +8078,12 @@
                     "minimum": 1,
                     "maximum": 9007199254740991
                   },
+                  "reason": {
+                    "description": "Optional: one or two sentences on why you made this pick. The league sees it in the draft recap, and in chat when the pick is notable.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 280
+                  },
                   "playerId": {
                     "description": "The player id. Preferred when you have it; wins if `player` is also given.",
                     "type": "string",
@@ -8281,6 +8611,20 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "adp": {
+                                "description": "The player's consensus rank when he was picked.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "reason": {
+                                "description": "Why the team made the pick, in its own words.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
@@ -8290,10 +8634,319 @@
                               "teamId",
                               "player",
                               "auto",
-                              "madeAt"
+                              "madeAt",
+                              "adp",
+                              "reason"
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "recap": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "steals": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "overall": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Pick number across the whole draft, from 1."
+                                      },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "teamId": {
+                                        "type": "string"
+                                      },
+                                      "teamName": {
+                                        "type": "string"
+                                      },
+                                      "player": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "adp": {
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "value": {
+                                        "description": "Picks after ADP: positive for a steal, negative for a reach.",
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "overall",
+                                      "round",
+                                      "teamId",
+                                      "teamName",
+                                      "player",
+                                      "adp",
+                                      "value",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "The biggest steals by ADP, best first."
+                                },
+                                "reaches": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "overall": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Pick number across the whole draft, from 1."
+                                      },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "teamId": {
+                                        "type": "string"
+                                      },
+                                      "teamName": {
+                                        "type": "string"
+                                      },
+                                      "player": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "adp": {
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "value": {
+                                        "description": "Picks after ADP: positive for a steal, negative for a reach.",
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "overall",
+                                      "round",
+                                      "teamId",
+                                      "teamName",
+                                      "player",
+                                      "adp",
+                                      "value",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "The biggest reaches by ADP, biggest first."
+                                },
+                                "agentPicks": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "overall": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Pick number across the whole draft, from 1."
+                                      },
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "teamId": {
+                                        "type": "string"
+                                      },
+                                      "teamName": {
+                                        "type": "string"
+                                      },
+                                      "player": {
+                                        "type": "object",
+                                        "properties": {
+                                          "id": {
+                                            "type": "string",
+                                            "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                          },
+                                          "name": {
+                                            "type": "string",
+                                            "description": "Full display name."
+                                          },
+                                          "team": {
+                                            "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "position": {
+                                            "type": "string",
+                                            "enum": [
+                                              "QB",
+                                              "RB",
+                                              "WR",
+                                              "TE",
+                                              "K",
+                                              "DEF"
+                                            ],
+                                            "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "name",
+                                          "team",
+                                          "position"
+                                        ],
+                                        "additionalProperties": false,
+                                        "description": "A player reference: always id, name, team, and position."
+                                      },
+                                      "adp": {
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "value": {
+                                        "description": "Picks after ADP: positive for a steal, negative for a reach.",
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "overall",
+                                      "round",
+                                      "teamId",
+                                      "teamName",
+                                      "player",
+                                      "adp",
+                                      "value",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "Each agent team's first pick, with its reasoning."
+                                }
+                              },
+                              "required": [
+                                "steals",
+                                "reaches",
+                                "agentPicks"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Once the draft is complete: its steals, reaches, and the agents' first picks. Null until then."
                         },
                         "rosters": {
                           "type": "array",
@@ -8439,6 +9092,7 @@
                         "yourNextPick",
                         "yourNeeds",
                         "picks",
+                        "recap",
                         "rosters",
                         "bestAvailable"
                       ],

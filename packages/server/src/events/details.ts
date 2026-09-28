@@ -1,4 +1,4 @@
-import { ACHIEVEMENT_IDS, TRADE_STATUSES } from '@fantasy/core';
+import { ACHIEVEMENT_IDS, NOTABLE_PICK_KINDS, TRADE_STATUSES } from '@fantasy/core';
 import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
 import { PlayerRefSchema } from '../players/model.js';
@@ -74,6 +74,24 @@ export const TradeEventDetailSchema = z.object({
 });
 export type TradeEventDetail = z.infer<typeof TradeEventDetailSchema>;
 
+const RecapEntrySchema = z.object({
+  overall: z.number().int().min(1),
+  round: z.number().int().min(1),
+  teamId: id,
+  playerId: id,
+  adp: z.number().nullable().describe("The player's consensus rank when picked."),
+  value: z.number().nullable().describe('Picks after ADP: positive for a steal, negative for a reach.'),
+  reason: z.string().nullable().describe('Why the team made the pick, in its own words.')
+});
+
+/** The draft recap (core `draftRecap`): the biggest steals and reaches, and each agent's first pick. */
+export const DraftRecapSchema = z.object({
+  picks: z.number().int(),
+  steals: z.array(RecapEntrySchema),
+  reaches: z.array(RecapEntrySchema),
+  agentPicks: z.array(RecapEntrySchema).describe("Each agent team's first pick with its reasoning.")
+});
+
 export const EVENT_DETAIL_SCHEMAS = {
   'League Created': z.object({
     leagueId: id,
@@ -101,14 +119,36 @@ export const EVENT_DETAIL_SCHEMAS = {
     overall: z.number().int().min(1),
     round: z.number().int().min(1),
     pick: z.number().int().min(1),
-    auto: z.boolean()
+    auto: z.boolean(),
+    adp: z.number().nullable().optional().describe("The player's consensus rank when picked."),
+    notable: z
+      .enum(NOTABLE_PICK_KINDS)
+      .nullable()
+      .optional()
+      .describe('A steal or reach by ADP, or an agent seat’s first-round pick (core `notablePick`).'),
+    reason: z.string().nullable().optional().describe('Why the team made the pick (an agent’s reasoning).')
   }),
   'Draft Completed': z.object({
     leagueId: id,
     picks: z.number().int(),
     rounds: z.number().int(),
     week,
-    completedAt: iso
+    completedAt: iso,
+    recap: DraftRecapSchema.optional(),
+    recapText: z.string().optional().describe('The recap as one chat line (core `formatDraftRecap`).')
+  }),
+  'Draft Paused': z.object({
+    leagueId: id,
+    pick: z.number().int().min(1).nullable(),
+    secondsLeft: z.number().int().nullable().describe('Seconds the team on the clock keeps for the resume.'),
+    pausedAt: iso
+  }),
+  'Draft Resumed': z.object({
+    leagueId: id,
+    pick: z.number().int().min(1).nullable(),
+    deadline: iso,
+    secondsLeft: z.number().int(),
+    resumedAt: iso
   }),
   'Draft Pick Deadline': z.object({ leagueId: id, pick: z.number().int().min(1), deadline: iso }),
   'Week Rolled Over': z.union([

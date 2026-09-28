@@ -10,6 +10,7 @@ import {
 import { ApiError, isApiError, type ErrorCode } from '../errors.js';
 import type { TradeEventDetail } from '../events/details.js';
 import type { FantasyEventType } from '../events/publisher.js';
+import { scheduleName } from '../events/schedule-name.js';
 import { toPlayerRef, type PlayerRef } from '../players/model.js';
 import type { League, Repos } from '../repos/types.js';
 import type { TradeRecord } from '../repos/trades.js';
@@ -139,9 +140,11 @@ export async function publishTradeEvent(
   await deps.events.publish(type, tradeEventDetail(league, record, refs, extra));
 }
 
-export const offerExpiryName = (leagueId: string, tradeId: string) => `trade-expiry-${leagueId}-${tradeId}`;
-export const reviewEndName = (leagueId: string, tradeId: string) => `trade-review-${leagueId}-${tradeId}`;
-export const tradeDeadlineName = (leagueId: string) => `trade-deadline-${leagueId}`;
+export const offerExpiryName = (leagueId: string, tradeId: string) =>
+  scheduleName('trade-expiry', leagueId, tradeId);
+export const reviewEndName = (leagueId: string, tradeId: string) =>
+  scheduleName('trade-review', leagueId, tradeId);
+export const tradeDeadlineName = (leagueId: string) => scheduleName('trade-deadline', leagueId);
 
 export async function scheduleOfferExpiry(
   deps: Pick<TradeDeps, 'events'>,

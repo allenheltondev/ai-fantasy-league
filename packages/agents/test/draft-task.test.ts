@@ -40,9 +40,18 @@ describe('draft_pick task', () => {
       finalAction: 'make_draft_pick',
       reasoningSummary: 'Elite WR, as planned.'
     });
+    // The model's reasoning goes with the pick: the recap and the notable-pick chat line show it.
     expect(await picks(s)).toEqual([
-      expect.objectContaining({ overall: 1, teamId: 'team-2', playerId: 'fx-jjefferson', auto: false })
+      expect.objectContaining({
+        overall: 1,
+        teamId: 'team-2',
+        playerId: 'fx-jjefferson',
+        auto: false,
+        reason: 'Elite WR, as planned.'
+      })
     ]);
+    const made = s.events.events.filter((e) => e.detailType === 'Draft Pick Made').at(-1);
+    expect(made?.detail).toMatchObject({ notable: 'first_round', reason: 'Elite WR, as planned.' });
     const prompt = model.transcript[0]?.systemPrompt ?? '';
     expect(prompt).toContain('Strategy: Zero RB');
     expect(prompt).toContain('You are on the clock: round 1, pick 1');
