@@ -127,6 +127,7 @@ has a 90-day `ttl`.
 | NFL schedule | `NFLSCHED#<season>#W05` | `GAME#<kickoff>#<gameId>` | none | Per-player lineup locks at kickoff, and the game windows for live scoring. A flexed game leaves a stale copy under its old kickoff; reads keep the most recently synced copy of each game id. |
 | Season schedule | `NFLSCHED#<season>` | `SEASON` | none | Bye weeks, game count, and when the schedule was synced. |
 | Live NFL games | `NFLGAMES#<season>` | `W05` | none | The latest read of ESPN's scoreboard for the week (scores, status, possession, red zone), replaced on every live-scoring run. Possession and the red zone are only served while the read is under 10 minutes old. 14-day `ttl`. |
+| Scoring plays (#164) | `NFLPLAYS#<season>#W05` | `GAME#<espnId>` | none | One game's scoring plays from ESPN's summary (description, kind, team, period, clock, score after), read by live scoring when the game's score moves. Each play keeps `seenAt`, the first read that had it, which the scoring log matches entries against. 14-day `ttl`, like the live NFL games. |
 | Scoring log event (#162) | `SCORELOG#<season>#W05` | `PLAYER#<playerId>#<at>` | none | The player's whole stat line after each change the live stats job (or the official final's corrections, `kind = correction`) saw. Stored once for every league; a matchup's log queries each lineup player's prefix and scores the events with the league's rules at read time (core `scorePlayerEvents`: score(after) − score(previous event), so a player's entries sum to his week score). Lines where only Sleeper's precomputed points, games, or snaps moved are not events. `ttl` 200 days, past the season. |
 
 ### Operational records
@@ -168,7 +169,7 @@ has a 90-day `ttl`.
 | Process trade | Version-checked `TRADE#` stamp, then ordered idempotent writes: `OWN#` locks, both `TEAM#` rosters, `WAIVERWIRE#` drops, `TXN#`, the week's `LINEUP#`, and finally `TRADE#` (no transactions) |
 | Waiver processing job | GSI2 `LEAGUEPHASE#regular_season` and `#playoffs`, then per league: put `WAIVERRUN#<day>`, query `WAIVER#` and `WAIVERWIRE#`, write teams, claims, and `TXN#` |
 | Scoring job | Query `STATS#<season>#W05`, then the week's lineups and matchups |
-| `get_scoring_log` | Query `MATCHUP#W05#`, both lineups, then one `begins_with(PLAYER#<id>#)` query per lineup player on `SCORELOG#<season>#W05`; paged in memory (newest first, cursor = the last entry's `<at>#<playerId>`) |
+| `get_scoring_log` | Query `MATCHUP#W05#`, both lineups, then one `begins_with(PLAYER#<id>#)` query per lineup player on `SCORELOG#<season>#W05`; paged in memory (newest first, cursor = the last entry's `<at>#<playerId>`); plus one query on `NFLPLAYS#<season>#W05` when an entry is a touchdown or a made field goal (#164) |
 | Season jobs (live scoring, weekly cycle) | GSI2 queries `LEAGUEPHASE#regular_season` and `LEAGUEPHASE#playoffs` |
 | Idempotent replay | GetItem or conditional put on `IDEMP#…` |
 | Audit by league or actor | Query `AUDIT#LEAGUE#id`, or GSI2 `AUDIT#PRINCIPAL#…` |
@@ -178,6 +179,6 @@ has a 90-day `ttl`.
 - One table keeps IAM, backups, and transactions (which need a single table in practice) simple, and a whole league can be moved or deleted by partition.
 - A league partition holds the whole season's history. With at most 12 teams that is a few thousand items, far below any partition limit. Write throughput per league is tiny, and DynamoDB adaptive capacity covers the bursts (draft night, waiver processing).
 - The player name index costs one warm-up read per container every 10 minutes. It is eventually consistent with the sync job, which is fine for data that refreshes once or twice a day. `PlayerDirectory.invalidate()` exists for a sync that must be seen immediately.
-- The in-process DynamoDB used by tests and local dev (dynalite) supports this whole design, except `TransactWriteItems`, which the transactional repositories will need an in-memory fallback or a DynamoDB Local job to test.
+- Tests and local development use DynamoDB Local (`docker compose up -d dynamodb`) so roster and ownership writes exercise `TransactWriteItems`. Each harness uses an isolated table.
 - The league lifecycle therefore uses ordered conditional writes instead of transactions. Creating a league writes the teams and the creator's membership before `META`, so nothing is visible until the league item exists. Joining claims the seat (version check), then adds the membership (`attribute_not_exists`), then counts the invite use (version check), and undoes the earlier writes if a later one loses a race.
 - Infra must create the table exactly as `tableDefinition()` describes (key names, `GSI1` and `GSI2` with `ALL` projection) and enable TTL on `ttl`.

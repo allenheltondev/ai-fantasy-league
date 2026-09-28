@@ -35,9 +35,9 @@ export type RosterRow = {
 };
 
 /** A legal Yahoo-default roster: 15 players, currently with a weak lineup. */
-export function roster(): RosterRow[] {
+export function roster(teamId = AGENT_TEAM): RosterRow[] {
   const p = (playerId: string, pos: string, slot: string, pts: number, status = 'active'): RosterRow => ({
-    playerId,
+    playerId: teamId === AGENT_TEAM ? playerId : `${teamId}-${playerId}`,
     name: playerId.toUpperCase(),
     positions: [pos],
     status,
@@ -159,19 +159,21 @@ export async function setup(
  */
 async function seedResearch(repos: Repos, services: Services): Promise<void> {
   await repos.players.putMany(
-    roster().map((r) => ({
-      id: r.playerId,
-      name: r.name,
-      firstName: r.name,
-      lastName: r.name,
-      team: r.nflTeam,
-      position: r.positions[0] as Player['position'],
-      status: 'active',
-      injuryStatus: r.status === 'out' ? 'Out' : null,
-      aliases: [],
-      rank: null,
-      updatedAt: START
-    }))
+    [AGENT_TEAM, 'team-3']
+      .flatMap((teamId) => roster(teamId))
+      .map((r) => ({
+        id: r.playerId,
+        name: r.name,
+        firstName: r.name,
+        lastName: r.name,
+        team: r.nflTeam,
+        position: r.positions[0] as Player['position'],
+        status: 'active',
+        injuryStatus: r.status === 'out' ? 'Out' : null,
+        aliases: [],
+        rank: null,
+        updatedAt: START
+      }))
   );
   const season = league().season;
   const week = league().week ?? 5;
@@ -202,18 +204,18 @@ async function seedResearch(repos: Repos, services: Services): Promise<void> {
 /** The kickoff of every rostered player's game in week 5 (after START, so nobody is locked). */
 export const SF_KICKOFF = '2026-10-04T20:25:00.000Z';
 
-/** team-2 and team-3 roster `roster()`, with its (weak) lineup saved for the current week. */
+/** Each team has distinct players, with a weak lineup saved for the current week. */
 async function seedRosters(repos: Repos, l: League): Promise<void> {
   for (const teamId of [AGENT_TEAM, 'team-3']) {
     const team = await repos.teams.get(l.id, teamId);
     if (team === null) continue;
-    await repos.teams.update({ ...team, roster: roster().map((r) => r.playerId) });
+    await repos.teams.update({ ...team, roster: roster(teamId).map((r) => r.playerId) });
     await repos.lineups.put([
       {
         leagueId: l.id,
         teamId,
         week: l.week ?? 5,
-        entries: roster().map((r) => ({ playerId: r.playerId, slot: r.slot as RosterSlot })),
+        entries: roster(teamId).map((r) => ({ playerId: r.playerId, slot: r.slot as RosterSlot })),
         updatedAt: START,
         updatedBy: 'user#seed'
       }

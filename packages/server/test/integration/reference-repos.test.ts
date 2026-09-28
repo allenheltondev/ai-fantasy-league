@@ -1,10 +1,14 @@
 import type { PlayerSeasonLines, ProjectionLine } from '@fantasy/data';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import { toProfile } from '../../src/players/profile.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
-import { createDynamoReferenceStore, SCORING_LOG_TTL_MS } from '../../src/repos/dynamo/reference.js';
+import {
+  createDynamoReferenceStore,
+  NFL_GAMES_TTL_MS,
+  SCORING_LOG_TTL_MS
+} from '../../src/repos/dynamo/reference.js';
 import { createInMemoryReferenceStore } from '../../src/repos/memory-reference.js';
 import type {
   NewsItem,
@@ -19,7 +23,7 @@ import { liveGame, redZoneGame } from '../support/season.js';
 
 /**
  * The reference repositories' behavioral contract (stats, projections with as-of reads, trending,
- * news, schedule, NFL state, player sync), run against DynamoDB (dynalite) and in-memory.
+ * news, schedule, NFL state, player sync), run against DynamoDB (DynamoDB Local) and in-memory.
  * Each test uses fresh keys (a new season or player ids) so both backends can share one table.
  */
 
@@ -39,7 +43,7 @@ const backends: [string, Backend][] = [
     }
   ],
   [
-    'DynamoDB (dynalite)',
+    'DynamoDB (DynamoDB Local)',
     () => ({ repos: createDynamoRepos(table), reference: createDynamoReferenceStore(table) })
   ]
 ];
@@ -318,6 +322,43 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
     expect(await reference.nflGames.get(season, 5)).toBeNull();
   });
 
+  it("stores each game's scoring plays and lists the week's back", async () => {
+    const { reference } = make();
+    const season = nextSeason();
+    expect(await reference.nflPlays.listWeek(season, 4)).toEqual([]);
+    const game = (espnId: string, text: string) => ({
+      season,
+      week: 4,
+      espnId,
+      gameKey: null,
+      homeScore: 7,
+      awayScore: null,
+      plays: [
+        {
+          id: `${espnId}-1`,
+          kind: 'touchdown' as const,
+          typeText: null,
+          text,
+          period: 1,
+          clock: null,
+          team: 'PHI',
+          awayScore: 0,
+          homeScore: 7,
+          seenAt: '2026-10-04T17:20:00.000Z'
+        }
+      ],
+      updatedAt: '2026-10-04T17:20:00.000Z'
+    });
+    await reference.nflPlays.put(game('402', 'Saquon Barkley 3 Yd Run'));
+    await reference.nflPlays.put(game('401', 'A.J. Brown 31 Yd pass from Jalen Hurts'));
+    await reference.nflPlays.put({ ...game('402', 'Saquon Barkley 4 Yd Run'), week: 5 });
+    const replaced = { ...game('401', 'A.J. Brown 30 Yd pass from Jalen Hurts'), homeScore: 14 };
+    await reference.nflPlays.put(replaced);
+    const week = await reference.nflPlays.listWeek(season, 4);
+    expect(week.map((g) => g.espnId)).toEqual(['401', '402']);
+    expect(week[0]).toEqual(replaced);
+  });
+
   it('writes the NFL state only over the state the caller read', async () => {
     const { reference } = make();
     const current = await reference.nflState.get();
@@ -362,6 +403,27 @@ describe('DynamoDB scoring log', () => {
       })
     );
     expect(item.Item?.ttl).toBe(Date.parse('2099-10-04T17:00:00.000Z') / 1000 + SCORING_LOG_TTL_MS / 1000);
+  });
+});
+
+describe('DynamoDB scoring plays', () => {
+  it('keys a game under the week and expires it like the NFL games', async () => {
+    const reference = createDynamoReferenceStore(table);
+    const updatedAt = '2099-10-04T17:00:00.000Z';
+    await reference.nflPlays.put({
+      season: 2099,
+      week: 5,
+      espnId: '401',
+      gameKey: null,
+      homeScore: 3,
+      awayScore: 0,
+      plays: [],
+      updatedAt
+    });
+    const item = await table.doc.send(
+      new GetCommand({ TableName: table.tableName, Key: { pk: 'NFLPLAYS#2099#W05', sk: 'GAME#401' } })
+    );
+    expect(item.Item?.ttl).toBe(Date.parse(updatedAt) / 1000 + NFL_GAMES_TTL_MS / 1000);
   });
 });
 

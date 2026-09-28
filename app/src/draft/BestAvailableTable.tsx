@@ -12,6 +12,7 @@ export interface BestAvailableTableProps {
   q: string;
   onQuery(q: string): void;
   isQueued(playerId: string): boolean;
+  queueReady?: boolean;
   onQueue(player: PlayerRef): void;
   /** True while you are on the clock. */
   canDraft: boolean;
@@ -143,7 +144,7 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={props.isQueued(player.id)}
+                        disabled={props.queueReady === false || props.isQueued(player.id)}
                         onClick={() => props.onQueue(player)}
                         aria-label={`Queue ${player.name}`}
                       >

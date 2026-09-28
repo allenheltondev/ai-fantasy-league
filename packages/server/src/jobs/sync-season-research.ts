@@ -25,7 +25,7 @@ export function seasonLinesHash(lines: readonly PlayerSeasonLines[]): string {
  * Draft research data (daily). Last season's weekly stats are final, so they are pulled once when
  * a new season begins (again only while the stored pull is missing weeks). This season's weekly
  * projections are pulled every day in the preseason and offseason, and once in-season if none are
- * stored yet. Each set is one `SEASON#<kind>#<season>` partition, rewritten only when it changed.
+ * stored yet or the stored pull is missing weeks. Each set is one `SEASON#<kind>#<season>` partition, rewritten only when it changed.
  */
 export async function syncSeasonResearch(
   deps: Pick<JobDeps, 'provider' | 'reference' | 'directory' | 'log'>,
@@ -75,7 +75,7 @@ export async function syncSeasonResearch(
   );
   const preseason = state.seasonType === 'pre' || state.seasonType === 'off' || season > state.season;
   sets.push(
-    projectionMeta === null || preseason
+    projectionMeta === null || projectionMeta.weeks.length < LAST_NFL_WEEK || preseason
       ? await refresh('projections', season, projectionMeta)
       : { kind: 'projections', season, stored: false, reason: 'in_season' }
   );

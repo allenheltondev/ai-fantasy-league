@@ -6,6 +6,7 @@ import type {
   Player,
   ProjectionLine,
   ScheduledGame,
+  ScoringPlay,
   StatLine,
   TrendingEntry,
   TrendingType
@@ -58,4 +59,9 @@ export interface DataProvider {
     asOf: Date,
     games?: readonly ScheduledGame[]
   ): Promise<LiveGame[]>;
+  /**
+   * One game's scoring plays with their descriptions (#164), by the game's ESPN id (`LiveGame`
+   * `espnId`), in game order. Only a live source has it, like `getLiveGames`.
+   */
+  getScoringPlays?(espnId: string, asOf: Date): Promise<ScoringPlay[]>;
 }

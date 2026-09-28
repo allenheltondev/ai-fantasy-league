@@ -95,6 +95,9 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
 
   useEffect(() => {
     let cancelled = false;
+    setReady(false);
+    setPlayers([]);
+    setError(null);
     void (async () => {
       try {
         let queue = (await api<ServerDraftQueue>(path)).data;
@@ -108,11 +111,12 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
           ).data;
         }
         forgetLocalQueue(leagueId);
-        if (!cancelled) setPlayers(refs(queue));
+        if (!cancelled) {
+          setPlayers(refs(queue));
+          setReady(true);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load your queue.');
-      } finally {
-        if (!cancelled) setReady(true);
       }
     })();
     return () => {
@@ -121,6 +125,7 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
   }, [api, path, leagueId]);
 
   const update = (change: (current: PlayerRef[]) => PlayerRef[]) => {
+    if (!ready) return;
     const next = change(players);
     if (next === players) return;
     setPlayers(next);

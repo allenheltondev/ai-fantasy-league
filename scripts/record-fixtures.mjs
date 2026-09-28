@@ -8,6 +8,7 @@
 //   node scripts/record-fixtures.mjs --nflverse      # only nflverse (works from the dev sandbox)
 //   node scripts/record-fixtures.mjs --season 2025 --weeks 1,2 --out /tmp/fixtures
 //   node scripts/record-fixtures.mjs --scoring --weeks 1,2     # scoring validation sets (below)
+//   node scripts/record-fixtures.mjs --espn-summary 401772901  # only one ESPN game summary (#164)
 //
 // --scoring records the scoring validation sets (#30) instead: every player's weekly stat line with
 // the source's own fantasy points, trimmed to the scoring stat keys.
@@ -71,7 +72,8 @@ const { values } = parseArgs({
     out: { type: 'string', default: 'packages/data/fixtures' },
     sleeper: { type: 'boolean', default: false },
     nflverse: { type: 'boolean', default: false },
-    scoring: { type: 'boolean', default: false }
+    scoring: { type: 'boolean', default: false },
+    'espn-summary': { type: 'string' }
   }
 });
 const season = Number(values.season);
@@ -266,7 +268,25 @@ async function recordScoringNflverse() {
   console.log(`nflverse scoring: ${kept.length - 1} rows, ${cols.length} columns -> ${dir}`);
 }
 
-if (values.scoring) {
+/**
+ * One game's ESPN summary, trimmed to the parts the scoring plays read (#164):
+ * fixtures/espn/summary_<event id>.json. site.api.espn.com is public but not reachable from the dev
+ * sandbox.
+ */
+async function recordEspnSummary(eventId) {
+  if (!/^\d+$/.test(eventId)) throw new Error(`--espn-summary takes an ESPN event id, got ${eventId}`);
+  const dir = join(out, 'espn');
+  mkdirSync(dir, { recursive: true });
+  const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${eventId}`;
+  const body = JSON.parse(await get(url));
+  const kept = { header: body.header, scoringPlays: body.scoringPlays ?? [] };
+  writeJson(join(dir, `summary_${eventId}.json`), kept);
+  console.log(`espn summary ${eventId}: ${kept.scoringPlays.length} scoring plays -> ${dir}`);
+}
+
+if (values['espn-summary'] !== undefined) {
+  await recordEspnSummary(values['espn-summary']);
+} else if (values.scoring) {
   if (doNflverse) await recordScoringNflverse();
   if (doSleeper) await recordScoringSleeper();
 } else {

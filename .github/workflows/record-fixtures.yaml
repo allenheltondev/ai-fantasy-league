@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      espn_event:
+        description: Also record ESPN's game summary (scoring plays) for this ESPN event id (optional, uploaded only)
+        required: false
+        type: string
+        default: ''
       push_branch:
         description: Commit the recorded Sleeper fixtures to a fixtures/run-<run id> branch
         required: false
@@ -77,6 +82,13 @@ jobs:
           SEASON: ${{ inputs.season }}
           WEEKS: ${{ inputs.scoring_weeks }}
         run: node scripts/record-fixtures.mjs --scoring --sleeper --season "$SEASON" --weeks "$WEEKS" --out recorded/fixtures
+      - name: Record an ESPN game summary
+        # The scoring plays fixture (#164), hand-written until a live payload is recorded.
+        if: ${{ inputs.espn_event != '' }}
+        continue-on-error: true
+        env:
+          ESPN_EVENT: ${{ inputs.espn_event }}
+        run: node scripts/record-fixtures.mjs --espn-summary "$ESPN_EVENT" --out recorded/fixtures
       - name: Check news feeds
         # A feed outage must not lose the recorded fixtures.
         continue-on-error: true
@@ -87,6 +99,7 @@ jobs:
           name: recorded-fixtures-${{ github.run_id }}
           path: |
             recorded/fixtures/sleeper/
+            recorded/fixtures/espn/
             recorded/news-feeds-report.json
           if-no-files-found: error
           retention-days: 14

@@ -9,7 +9,7 @@ import { as, data, errorCode, type Caller } from '../support/league-client.js';
 import { ALICE, BOB, CAROL, seedLeague } from '../support/leagues.js';
 
 /**
- * The scheduled draft over HTTP (dynalite): setting, moving, and clearing `draft.scheduledAt`
+ * The scheduled draft over HTTP (DynamoDB Local): setting, moving, and clearing `draft.scheduledAt`
  * schedules, moves, and cancels the start and its reminder; the start handler starts the draft,
  * refuses (and says why in chat) while a seat is open, and ignores stale fires; a manual start
  * supersedes the schedule; and the lobby shows who is in the draft room.
@@ -51,7 +51,7 @@ beforeAll(async () => {
 });
 afterAll(() => h.close());
 
-describe('scheduled draft (dynalite)', () => {
+describe('scheduled draft (DynamoDB Local)', () => {
   let first: string;
 
   it('schedules the start and a reminder ten minutes before, stored in UTC', async () => {
@@ -218,7 +218,7 @@ describe('scheduled draft (dynalite)', () => {
   });
 });
 
-describe('draft lobby (dynalite)', () => {
+describe('draft lobby (DynamoDB Local)', () => {
   const LOBBY = 'lg-lobby';
   const lobby = (caller: Caller) => caller.post(`/leagues/${LOBBY}/draft/lobby`);
   interface Lobby {

@@ -1,5 +1,5 @@
 import type { EspnClient } from '../espn/client.js';
-import { normalizeScoreboard } from '../espn/normalize.js';
+import { normalizeScoreboard, normalizeScoringPlays } from '../espn/normalize.js';
 import type { NflverseClient } from '../nflverse/client.js';
 import {
   applyCrosswalk,
@@ -24,6 +24,7 @@ import type {
   Player,
   ProjectionLine,
   ScheduledGame,
+  ScoringPlay,
   StatLine,
   TrendingEntry,
   TrendingType
@@ -32,7 +33,10 @@ import type {
 export interface LiveProviderOptions {
   sleeper: SleeperClient;
   nflverse: NflverseClient;
-  /** ESPN's scoreboard, for live games (scores, possession, red zone). Without it `getLiveGames` returns []. */
+  /**
+   * ESPN's scoreboard, for live games (scores, possession, red zone), and game summaries (scoring
+   * plays). Without it `getLiveGames` and `getScoringPlays` return [].
+   */
   espn?: EspnClient;
   /** Fill missing/incorrect `gsisId`s from the dynastyprocess ID map (one ~2.6 MB fetch). Default true. */
   crosswalk?: boolean;
@@ -144,5 +148,12 @@ export class LiveDataProvider implements DataProvider {
         )
     ]);
     return normalizeScoreboard(board, { games: schedule, asOf });
+  }
+
+  /** ESPN's game summary: the game's scoring plays with their descriptions (#164). */
+  async getScoringPlays(espnId: string, _asOf: Date): Promise<ScoringPlay[]> {
+    const espn = this.#options.espn;
+    if (espn === undefined) return [];
+    return normalizeScoringPlays(await espn.summary(espnId));
   }
 }

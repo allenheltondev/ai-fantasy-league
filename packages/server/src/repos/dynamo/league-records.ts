@@ -71,6 +71,19 @@ export const LeagueRecordSchema = z.object({
   commissionerName: z.string(),
   createdBy: z.string(),
   scheduleSeed: z.string(),
+  draftStartup: z
+    .object({
+      by: z.string(),
+      at: z.string().optional(),
+      leaseUntil: z.string().optional(),
+      owner: z.string().optional()
+    })
+    .nullable()
+    .optional(),
+  pendingRollover: z
+    .object({ fromWeek: z.number().int(), at: iso, priorityOrder: z.array(z.string()).optional() })
+    .nullable()
+    .optional(),
   deadlines: z.object({
     draftStartsAt: iso.nullable(),
     nextLineupLockAt: iso.nullable(),
@@ -95,6 +108,7 @@ export const TeamRecordSchema = z.object({
   draftSlot: z.number(),
   faabRemaining: z.number(),
   waiverPriority: z.number(),
+  waiverPriorityResetKey: z.string().optional(),
   roster: z.array(z.string()),
   occupiedSince: iso.optional(),
   createdAt: iso,

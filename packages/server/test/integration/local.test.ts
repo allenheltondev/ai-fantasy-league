@@ -4,7 +4,7 @@ import { localClock, localVerifier, startLocalServer } from '../../src/local.js'
 import { silentLogger } from '../../src/log.js';
 
 describe('local dev server', () => {
-  it('serves the API on dynalite with fixture players and dev sign-in', async () => {
+  it('serves the API on DynamoDB Local with fixture players and dev sign-in', async () => {
     const local = await startLocalServer({
       port: 0,
       env: { FANTASY_LOCAL_AUTH: '1' },

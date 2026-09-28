@@ -620,13 +620,14 @@ describe('draft room motion', () => {
     renderDraft(api);
     const alert = await screen.findByText(/You are on the clock!/);
     expect(alert.closest('.motion-attention')).not.toBeNull();
-    expect(document.title).toBe('Your pick! · Fantasy');
+    // The title badge is set in an effect, which can flush after the alert renders.
+    await waitFor(() => expect(document.title).toBe('Your pick! · Fantasy'));
 
     await user.click(screen.getByRole('button', { name: "Draft Ja'Marr Chase" }));
     expect(await screen.findByText("You drafted Ja'Marr Chase!")).toBeInTheDocument();
     expect(screen.getByTestId('confetti')).toBeInTheDocument();
     expect(await screen.findByText(/The draft is complete/)).toBeInTheDocument();
-    expect(document.title).toBe('Fantasy');
+    await waitFor(() => expect(document.title).toBe('Fantasy'));
   });
 
   it('flips new picks onto the board, but not the ones already made', async () => {

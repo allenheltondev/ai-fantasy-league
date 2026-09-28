@@ -343,10 +343,10 @@ async function voteLeague(): Promise<Setup> {
   const s = await setup();
   for (const teamId of [AGENT_TEAM, 'team-3', 'team-4']) await s.seat(teamId, CAUTIOUS);
   const rosters: Record<string, string[]> = {
-    'team-1': ['rb3', 'wr5'],
     [AGENT_TEAM]: roster()
       .map((r) => r.playerId)
       .filter((id) => !['rb3', 'rb4', 'wr4', 'wr5'].includes(id)),
+    'team-1': ['rb3', 'wr5'],
     'team-3': ['rb4', 'wr4'],
     'team-4': []
   };

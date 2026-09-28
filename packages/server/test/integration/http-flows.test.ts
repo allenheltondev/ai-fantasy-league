@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHarness, league, type Harness } from '../support/harness.js';
 import { signIdToken } from '../support/tokens.js';
 
-/** Full HTTP flows through the Hono app against dynalite, with real token verification. */
+/** Full HTTP flows through the Hono app against DynamoDB Local, with real token verification. */
 let h: Harness;
 beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
@@ -10,7 +10,7 @@ beforeAll(async () => {
 });
 afterAll(() => h.close());
 
-describe('HTTP flows (dynalite)', () => {
+describe('HTTP flows (DynamoDB Local)', () => {
   it('health needs no sign-in', async () => {
     const res = await h.request('/api/v1/health', { token: null });
     expect(res).toMatchObject({

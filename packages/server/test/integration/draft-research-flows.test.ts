@@ -7,7 +7,7 @@ import { as, data, errorCode, type Caller } from '../support/league-client.js';
 import { ALICE, BOB, CAROL, seedLeague } from '../support/leagues.js';
 
 /**
- * Draft research (#136) over HTTP (dynalite): the board's last-season, projection, bye, and
+ * Draft research (#136) over HTTP (DynamoDB Local): the board's last-season, projection, bye, and
  * injury fields and its sorts; the player card; the depth view; and who may read them.
  */
 

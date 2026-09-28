@@ -72,7 +72,7 @@ export {
   type NotificationRepository,
   type StoredNotification
 } from './notifications/model.js';
-export type { BusEvent } from './events/bus.js';
+export { canonicalEvent, type BusEvent } from './events/bus.js';
 export * from './events/loop.js';
 export { serverSubscribers } from './events/subscribers.js';
 export { JOB_SCHEDULE_EXPRESSIONS, nextRunFn, recurringJobs, seasonJobs } from './jobs/schedules.js';

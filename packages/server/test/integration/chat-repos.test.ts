@@ -1,7 +1,7 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../../src/chat/model.js';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
 import type { Repos } from '../../src/repos/types.js';
@@ -15,7 +15,7 @@ afterAll(() => table.close());
 /** The chat repository's contract (rooms, #144), run against both implementations. */
 const backends: [string, () => Repos][] = [
   ['in-memory', () => createInMemoryRepos()],
-  ['DynamoDB (dynalite)', () => createDynamoRepos(table)]
+  ['DynamoDB (DynamoDB Local)', () => createDynamoRepos(table)]
 ];
 
 let counter = 0;

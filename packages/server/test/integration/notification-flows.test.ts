@@ -11,7 +11,7 @@ import { ALICE, BOB, CAROL } from '../support/leagues.js';
 import { seedSeasonLeague } from '../support/waivers.js';
 
 /**
- * The notification inbox (#165) end to end over the REST adapter and dynalite: a trade offer
+ * The notification inbox (#165) end to end over the REST adapter and DynamoDB Local: a trade offer
  * becomes an item in the other person's inbox (never an AI manager's), the summary shows it and the
  * offer waiting, a redelivered event stores nothing, the relay pushes the new item to that team's
  * topic alone, and marking delivered, read one by one, and read all move the counts.

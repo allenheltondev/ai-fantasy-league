@@ -9,7 +9,7 @@ import { ALICE, BOB, CAROL } from '../support/leagues.js';
 import { seedSeasonLeague } from '../support/waivers.js';
 
 /**
- * Trades end to end over the REST adapter and dynalite: preview, propose, counter, accept, league
+ * Trades end to end over the REST adapter and DynamoDB Local: preview, propose, counter, accept, league
  * review with veto votes, processing (rosters, locks, transactions, lineups), expiry, withdraw,
  * reject, the deadline, commissioner review, voiding, the lock wait, and the lopsided guard.
  * Rosters are 3 active spots (QB, RB, BN).

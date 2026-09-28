@@ -338,6 +338,7 @@ export function DraftPage({
                 q={q}
                 onQuery={setQ}
                 isQueued={queue.has}
+                queueReady={queue.ready}
                 onQueue={queue.add}
                 canDraft={mine}
                 picking={picking}
@@ -428,6 +429,7 @@ export function DraftPage({
             player={card}
             onClose={() => setCard(null)}
             queued={queue.has(card.id)}
+            queueReady={queue.ready}
             onQueue={queue.add}
             canDraft={mine && !drafted.has(card.id)}
             picking={picking === card.id}

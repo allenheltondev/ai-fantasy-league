@@ -1,14 +1,17 @@
 import {
   frozenLineup,
   isStarterSlot,
+  matchScoringPlay,
   RosterSlotSchema,
   scorePlayerEvents,
-  type RosterSlot
+  wantsPlay,
+  type RosterSlot,
+  type ScoringPlayCandidate
 } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
-import { PlayerRefSchema, toPlayerRef, type PlayerRef } from '../players/model.js';
-import type { StoredScoringEvent } from '../repos/reference.js';
+import { PlayerRefSchema, toPlayerRef, type Player, type PlayerRef } from '../players/model.js';
+import type { ReferenceStore, StoredScoringEvent } from '../repos/reference.js';
 import type { League, Matchup, Team } from '../repos/types.js';
 import { gamesByTeam, resolveLineup, weekGames, type SeasonDeps } from './lineups.js';
 
@@ -18,6 +21,10 @@ import { gamesByTeam, resolveLineup, weekGames, type SeasonDeps } from './lineup
  * of the players in either lineup and scores them with the league's own rules (core
  * `scorePlayerEvents`), so each league's points follow its settings and a player's entries always add
  * up to his week score. Reads are bounded by the two lineups: one query per player.
+ *
+ * Touchdowns and made field goals also get ESPN's play description when exactly one stored scoring
+ * play fits (core `matchScoringPlay`: the player's role and name in the play, his team, and the
+ * time; #164). That costs one more query for the week's plays, and only when an entry wants one.
  */
 
 export const ScoringLogEntrySchema = z.object({
@@ -36,7 +43,19 @@ export const ScoringLogEntrySchema = z.object({
     .describe('The scored stats that changed, as Sleeper stat keys and the amount (after − before).'),
   summary: z.string().describe('The changes in words, e.g. "+1 rec, +18 rec yds, +1 rec TD".'),
   points: z.number().describe("Points the change was worth under this league's scoring (may be negative)."),
-  touchdown: z.boolean().describe('The change includes a touchdown.')
+  touchdown: z.boolean().describe('The change includes a touchdown.'),
+  play: z
+    .object({
+      text: z
+        .string()
+        .describe(
+          'The play as ESPN describes it, e.g. "Travis Kelce 18 Yd pass from Patrick Mahomes (Harrison Butker Kick)".'
+        )
+    })
+    .nullable()
+    .describe(
+      'The scoring play behind a touchdown or a made field goal, when exactly one play in the game fits the player, his team, and the time. Null otherwise (most entries, and whenever the match is not certain).'
+    )
 });
 export type ScoringLogEntry = z.infer<typeof ScoringLogEntrySchema>;
 
@@ -55,7 +74,7 @@ async function logSides(
   teams: readonly Team[],
   matchup: Matchup,
   now: Date
-): Promise<{ sides: LogSide[]; players: Map<string, PlayerRef> }> {
+): Promise<{ sides: LogSide[]; players: Map<string, Player> }> {
   const sideTeams = [matchup.homeTeamId, matchup.awayTeamId].flatMap((id) => {
     const team = teams.find((t) => t.id === id);
     return team === undefined ? [] : [team];
@@ -65,9 +84,7 @@ async function logSides(
     weekGames(deps.reference, league.season, matchup.week)
   ]);
   const ids = new Set(lineups.flatMap((l) => [...l.stored, ...l.entries].map((e) => e.playerId)));
-  const players = new Map(
-    (await deps.repos.players.getMany([...ids])).map((p) => [p.id, toPlayerRef(p)] as const)
-  );
+  const players = new Map((await deps.repos.players.getMany([...ids])).map((p) => [p.id, p] as const));
   const byTeam = gamesByTeam(games);
   const sides = sideTeams.map((team, i) => {
     const lineup = lineups[i] as (typeof lineups)[number];
@@ -117,15 +134,17 @@ export async function matchupScoringLog(
   const events = await deps.reference.scoringLog.listPlayers(league.season, matchup.week, [...owners.keys()]);
   const byPlayer = new Map<string, StoredScoringEvent[]>();
   for (const e of events) byPlayer.set(e.playerId, [...(byPlayer.get(e.playerId) ?? []), e]);
-  const entries: ScoringLogEntry[] = [];
+  const entries: (ScoringLogEntry & { source: Player })[] = [];
   for (const [playerId, playerEvents] of byPlayer) {
     const owner = owners.get(playerId);
-    const player = players.get(playerId);
-    if (owner === undefined || player === undefined) continue;
+    const source = players.get(playerId);
+    if (owner === undefined || source === undefined) continue;
+    const player: PlayerRef = toPlayerRef(source);
     for (const scored of scorePlayerEvents(league.settings, playerEvents)) {
       if (scored.points === 0) continue;
       if (options.since !== undefined && scored.event.at < options.since) continue;
       entries.push({
+        source,
         id: entryId(scored.event.at, playerId),
         at: scored.event.at,
         kind: scored.event.kind,
@@ -137,11 +156,40 @@ export async function matchupScoringLog(
         changes: scored.changes,
         summary: scored.summary,
         points: scored.points,
-        touchdown: scored.touchdown
+        touchdown: scored.touchdown,
+        play: null
       });
     }
   }
-  return entries.sort((a, b) => b.id.localeCompare(a.id));
+  const wanting = entries.filter((e) => e.kind === 'live' && wantsPlay(e.changes, e.player.position));
+  const plays = wanting.length === 0 ? [] : await weekPlays(deps.reference, league.season, matchup.week);
+  if (plays.length > 0) {
+    for (const entry of wanting) {
+      const { name, firstName, lastName, team, position } = entry.source;
+      const play = matchScoringPlay(
+        { at: entry.at, changes: entry.changes, player: { name, firstName, lastName, team, position } },
+        plays
+      );
+      entry.play = play === null ? null : { text: play.text };
+    }
+  }
+  return entries.map(({ source: _source, ...entry }) => entry).sort((a, b) => b.id.localeCompare(a.id));
+}
+
+/**
+ * The week's stored scoring plays (#164). Best effort: descriptions are an extra, so a failed read
+ * leaves every entry without one instead of failing the log.
+ */
+async function weekPlays(
+  reference: Pick<ReferenceStore, 'nflPlays'>,
+  season: number,
+  week: number
+): Promise<ScoringPlayCandidate[]> {
+  try {
+    return (await reference.nflPlays.listWeek(season, week)).flatMap((game) => game.plays);
+  } catch {
+    return [];
+  }
 }
 
 /** `<at>#<playerId>`: sorts by time, then player, and is unique per matchup. */

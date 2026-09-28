@@ -16,7 +16,7 @@ const SMALL_LEAGUE = {
 };
 
 /**
- * Operation behavior over the REST adapter with in-memory repositories. The dynalite flows in
+ * Operation behavior over the REST adapter with in-memory repositories. The DynamoDB Local flows in
  * test/integration/league-flows.test.ts cover the same operations end to end.
  */
 

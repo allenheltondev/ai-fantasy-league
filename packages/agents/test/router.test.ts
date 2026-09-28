@@ -182,11 +182,8 @@ describe('routeEvent', () => {
   it('finds the teams rostering a player in every in-season league', async () => {
     const s = await withSeats();
     const index = leagueRosterIndex(s.services);
-    // The support league is in week 5 of the regular season; team-2 and team-3 roster rb3.
-    expect(await index.teamsWithPlayer('rb3', {})).toEqual([
-      { leagueId: LEAGUE_ID, teamId: 'team-2' },
-      { leagueId: LEAGUE_ID, teamId: 'team-3' }
-    ]);
+    // The support league is in week 5 of the regular season; only team-2 rosters rb3.
+    expect(await index.teamsWithPlayer('rb3', {})).toEqual([{ leagueId: LEAGUE_ID, teamId: 'team-2' }]);
     expect(await index.teamsWithPlayer('nobody', {})).toEqual([]);
     const listed = [{ leagueId: 'lg-x', teamId: 'team-9' }];
     expect(await index.teamsWithPlayer('rb3', { rosteredBy: listed })).toEqual(listed);
@@ -194,7 +191,7 @@ describe('routeEvent', () => {
       { services: s.services, kinds: allKinds, rosterIndex: index },
       event('Player Status Changed', { playerId: 'rb3', status: 'out' }, 'evt-9')
     );
-    expect(decisions.map((d) => d.teamId)).toEqual(['team-2', 'team-3']);
+    expect(decisions.map((d) => d.teamId)).toEqual(['team-2']);
   });
 
   it('answers chat mentions and lets a few agents react to chat moments', async () => {

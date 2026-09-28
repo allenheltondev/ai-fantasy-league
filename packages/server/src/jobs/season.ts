@@ -1,5 +1,7 @@
 import { weekEndsAt, type Clock } from '@fantasy/core';
 import { IdCrosswalk, isInGameWindow, type ScheduledGame } from '@fantasy/data';
+import { resumeDraftStartup } from '../operations/draft/start-draft.js';
+import { createServices } from '../services.js';
 import type { StoredStatLine } from '../repos/reference.js';
 import type { League, Matchup } from '../repos/types.js';
 import { advanceLeague } from '../season/cycle.js';
@@ -68,9 +70,10 @@ function gamesCache(deps: SeasonJobDeps) {
  * retries it (rescoring is idempotent) and the failure is emailed. A league that stays broken
  * therefore sends one failure email per two-minute run during game windows.
  *
- * Each run also refreshes the week's NFL games from ESPN (`refreshNflGames`: scores, possession,
- * the red zone), once per season and week, not per league. That is best effort: it logs a warning
- * on failure and never fails the job.
+ * Each run first refreshes the week's NFL games from ESPN (`refreshNflGames`: scores, possession,
+ * the red zone, and the scoring plays of games whose score moved), once per season and week, not
+ * per league, so the scoring log entries pushed with the scores already carry the play
+ * descriptions. That is best effort: it logs a warning on failure and never fails the job.
  */
 export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
@@ -79,6 +82,7 @@ export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<Jo
   const games = gamesCache(deps);
   const recent = recentPlayersCache(deps, now);
   const weeks = new Map<string, NflWeekTarget>();
+  const scoring: { league: League; week: number }[] = [];
   let live = 0;
   let updated = 0;
   let failed = 0;
@@ -94,18 +98,26 @@ export async function scoreLiveWeek(deps: LiveJobDeps, clock: Clock): Promise<Jo
         games: weekGames,
         live: inWindow
       });
-      if (!inWindow) continue;
-      live++;
-      if (await scoreLeague(deps, league, week, now, recent)) updated++;
+      if (inWindow) scoring.push({ league, week });
     } catch (error) {
       failed++;
       deps.log.error('could not score league', { leagueId: league.id, week, error });
     }
   }
+  // The NFL games first: a scoring play read now is on the log entries pushed below (#164).
   const nflGames: Record<string, number> = {};
   for (const target of weeks.values()) {
     const outcome = await refreshNflGames(deps, target, now);
     nflGames[outcome] = (nflGames[outcome] ?? 0) + 1;
+  }
+  for (const { league, week } of scoring) {
+    live++;
+    try {
+      if (await scoreLeague(deps, league, week, now, recent)) updated++;
+    } catch (error) {
+      failed++;
+      deps.log.error('could not score league', { leagueId: league.id, week, error });
+    }
   }
   if (live === 0) {
     return settle(
@@ -190,12 +202,28 @@ async function liveLogEntries(
  */
 export async function advanceSeason(deps: SeasonJobDeps, clock: Clock): Promise<JobResult> {
   const now = clock.now();
-  const leagues = await listInSeason(deps.repos);
+  const [active, complete, drafting] = await Promise.all([
+    listInSeason(deps.repos),
+    deps.repos.leagues.listByPhase('complete'),
+    deps.repos.leagues.listByPhase('drafting')
+  ]);
+  const leagues = [
+    ...active,
+    ...complete.filter((l) => l.pendingRollover),
+    ...drafting.filter(
+      (l) => l.draftStartup && !(Date.parse(l.draftStartup.leaseUntil ?? '') > now.getTime())
+    )
+  ];
   if (leagues.length === 0) return skipped('no_leagues_in_season');
   const outcomes: Record<string, number> = {};
   let failed = 0;
   for (const league of leagues) {
     try {
+      if (league.draftStartup) {
+        await resumeDraftStartup(createServices({ ...deps, clock }), league);
+        outcomes.draft_recovered = (outcomes.draft_recovered ?? 0) + 1;
+        continue;
+      }
       const outcome = await advanceLeague(deps, league, now);
       outcomes[outcome.status] = (outcomes[outcome.status] ?? 0) + 1;
     } catch (error) {

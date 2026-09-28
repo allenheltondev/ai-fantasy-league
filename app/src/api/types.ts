@@ -288,6 +288,11 @@ export interface ScoringLogEntry {
   summary: string;
   points: number;
   touchdown: boolean;
+  /**
+   * ESPN's description of the touchdown or field goal (#164), when exactly one play fits; null
+   * otherwise. Left out by pushes from before it existed.
+   */
+  play?: { text: string } | null;
 }
 
 /** get_scoring_log (#162): one page of a matchup's scoring log, newest first. */

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startLocalTable, type LocalTable } from '../../src/dev/dynalite.js';
+import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import {
   notificationId,
   notificationLocalKey,
@@ -19,7 +19,7 @@ afterAll(() => table.close());
 /** The notification repository's contract (#165), run against both implementations. */
 const backends: [string, () => Repos][] = [
   ['in-memory', () => createInMemoryRepos()],
-  ['DynamoDB (dynalite)', () => createDynamoRepos(table)]
+  ['DynamoDB (DynamoDB Local)', () => createDynamoRepos(table)]
 ];
 
 let counter = 0;
