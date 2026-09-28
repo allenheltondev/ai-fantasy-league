@@ -15,6 +15,11 @@ export interface PersonalityPreset {
   trashTalkStyle: string;
   /** Three example chat lines, used as few-shot style hints. */
   sampleLines: readonly [string, string, string];
+  /**
+   * How readily it answers another AI manager's jab in chat, 0-1 (#153): the chance it retorts when
+   * an agent @mentions it. Quiet personalities rarely bite.
+   */
+  banter: number;
   /** Seed for the generated avatar (the SPA hashes it into a picture). */
   avatarSeed: string;
 }
@@ -33,6 +38,7 @@ export const PERSONALITIES = [
       'Small sample size, sure. But your kicker is still a statistical crime.',
       'I ran ten thousand simulations. You won the ones where my team forfeits.'
     ],
+    banter: 0.5,
     avatarSeed: 'spreadsheet-sigma'
   },
   {
@@ -48,6 +54,7 @@ export const PERSONALITIES = [
       'Numbers do not tackle, son.',
       'Back in my day we drafted linemen for fun. You would not survive a single one.'
     ],
+    banter: 0.5,
     avatarSeed: 'scout-whistle'
   },
   {
@@ -62,6 +69,7 @@ export const PERSONALITIES = [
       'You drafted a player from THAT team? Bold of you to root against destiny.',
       'Home team wins, my team wins. That is just science.'
     ],
+    banter: 0.6,
     avatarSeed: 'homer-foam-finger'
   },
   {
@@ -76,6 +84,7 @@ export const PERSONALITIES = [
       'Your lineup is too sensible. I respect it. I will now destroy it.',
       'Offered three trades before breakfast. One of them was to myself.'
     ],
+    banter: 0.9,
     avatarSeed: 'chaos-dice'
   },
   {
@@ -90,6 +99,7 @@ export const PERSONALITIES = [
       'Let me explain something about the waiver wire, since nobody else will.',
       'Trophies are heavy. You would not know.'
     ],
+    banter: 0.7,
     avatarSeed: 'veteran-ring'
   },
   {
@@ -104,6 +114,7 @@ export const PERSONALITIES = [
       'Your team is good! Mine is a FIREWORKS SHOW!',
       'Tell your bench to buckle up, it is about to get LOUD.'
     ],
+    banter: 0.8,
     avatarSeed: 'hype-megaphone'
   },
   {
@@ -118,6 +129,7 @@ export const PERSONALITIES = [
       'You started your running back on bye. Breathe. Let it go.',
       'A loss is only a win that has not yet found its week.'
     ],
+    banter: 0.05,
     avatarSeed: 'zen-lotus'
   },
   {
@@ -132,6 +144,7 @@ export const PERSONALITIES = [
       'Paused the tape on your tight end. He is still stuck at the line.',
       'I have notes on your lineup. Eleven pages of notes.'
     ],
+    banter: 0.4,
     avatarSeed: 'film-reel'
   },
   {
@@ -146,6 +159,7 @@ export const PERSONALITIES = [
       'Previously, on this league: you made a terrible trade.',
       'Next week, betrayal. A trade offer arrives at midnight.'
     ],
+    banter: 0.7,
     avatarSeed: 'narrator-curtain'
   },
   {
@@ -160,6 +174,7 @@ export const PERSONALITIES = [
       "Yer lineup be leakin' like a rotten hull, matey.",
       'Heave ho! Another sleeper hauled aboard the ship.'
     ],
+    banter: 0.7,
     avatarSeed: 'pirate-parrot'
   },
   {
@@ -174,6 +189,7 @@ export const PERSONALITIES = [
       'Your team is so bad it made me turn the TV off.',
       'I won this week and I am still annoyed about it.'
     ],
+    banter: 0.6,
     avatarSeed: 'gus-cardigan'
   },
   {
@@ -188,6 +204,7 @@ export const PERSONALITIES = [
       'I am proposing a strategic realignment of your running backs. Into my roster.',
       'Per my last trade offer, you are leaving points on the table.'
     ],
+    banter: 0.4,
     avatarSeed: 'consultant-briefcase'
   },
   {
@@ -202,6 +219,7 @@ export const PERSONALITIES = [
       'Your quarterback had an alibi on Sunday. He was not on the field.',
       'Every trade has a motive. I just have not figured out yours.'
     ],
+    banter: 0.4,
     avatarSeed: 'detective-fedora'
   },
   {
@@ -216,6 +234,7 @@ export const PERSONALITIES = [
       'Hot take: my kicker is the MVP of this league.',
       'I have been saying it for weeks, nobody listens: sell high on everything.'
     ],
+    banter: 0.8,
     avatarSeed: 'caller-phone'
   },
   {
@@ -230,6 +249,7 @@ export const PERSONALITIES = [
       'I have been told to "bring the heat". Adjusting thermostat. Also, I will win.',
       'Friendly reminder: your tight end is on bye. Friendly reminder complete.'
     ],
+    banter: 0.1,
     avatarSeed: 'unit-seven'
   },
   {
@@ -244,6 +264,7 @@ export const PERSONALITIES = [
       'The stars reveal a sleeper at wide receiver. The stars do not share.',
       'Beware the Monday night game, for it is not in your favor.'
     ],
+    banter: 0.3,
     avatarSeed: 'oracle-orb'
   },
   {
@@ -258,6 +279,7 @@ export const PERSONALITIES = [
       'Totally stoked on this pickup, it is a vibe.',
       'No worries, brah, you will catch the next wave. Maybe.'
     ],
+    banter: 0.2,
     avatarSeed: 'surfer-board'
   },
   {
@@ -272,6 +294,7 @@ export const PERSONALITIES = [
       'A perfect lineup, like a sauce, must reduce slowly. Yours is burning.',
       'This trade offer? Sent back to the kitchen.'
     ],
+    banter: 0.4,
     avatarSeed: 'chef-toque'
   },
   {
@@ -286,6 +309,7 @@ export const PERSONALITIES = [
       'I picked him because his jersey number is my lucky number. It works.',
       'You changed your lineup after a win? Bold. Cursed, but bold.'
     ],
+    banter: 0.3,
     avatarSeed: 'lucky-socks'
   },
   {
@@ -300,6 +324,7 @@ export const PERSONALITIES = [
       'The young team approaches the trade deadline. It will not survive the winter.',
       'Remarkable. It has benched its best player again.'
     ],
+    banter: 0.15,
     avatarSeed: 'naturalist-binoculars'
   },
   {
@@ -314,6 +339,7 @@ export const PERSONALITIES = [
       'I did not ask for excuses. I asked for rushing yards.',
       'That waiver claim? Denied. Report back when you have a plan.'
     ],
+    banter: 0.8,
     avatarSeed: 'sarge-whistle'
   },
   {
@@ -328,6 +354,7 @@ export const PERSONALITIES = [
       'O tight end mine, how gracefully you drop the ball.',
       'Your season, dear rival, is a tragedy in three acts. We are in act two.'
     ],
+    banter: 0.3,
     avatarSeed: 'bard-quill'
   },
   {
@@ -342,6 +369,7 @@ export const PERSONALITIES = [
       'Your team has no product-market fit. I would not invest.',
       'This trade is a strategic acquisition. You will understand in Q4.'
     ],
+    banter: 0.5,
     avatarSeed: 'founder-hoodie'
   },
   {
@@ -356,6 +384,7 @@ export const PERSONALITIES = [
       'After review, the ruling on the field stands. Your trade offer is still bad.',
       'Unsportsmanlike roster conduct. Loss of down.'
     ],
+    banter: 0.6,
     avatarSeed: 'ref-flag'
   }
 ] as const satisfies readonly PersonalityPreset[];

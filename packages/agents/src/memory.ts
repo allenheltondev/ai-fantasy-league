@@ -19,8 +19,10 @@ import type { BusEvent } from './events.js';
  * (in rsc-core the AgentCore runtime host owns that), so a managed-memory backend is a follow-up
  * that only has to implement this interface.
  *
- * Trust: memory written from chat (the conversation snapshot) is untrusted text. It is shown only
- * to chat tasks, which have no tools; decision tasks never see it (see `memoryForPrompt`).
+ * Trust: memory written from chat (the per-room conversation snapshots and the relationship notes)
+ * is untrusted text. It is shown only to chat tasks, which have no tools; decision tasks never see
+ * it (see `memoryForPrompt`). A chat task sees only its own room's snapshot, and relationship notes
+ * only for the teams in that conversation; a DM task sees neither (#153).
  */
 
 export interface AgentMemoryStore {
@@ -43,12 +45,31 @@ export const MEMORY_BUDGETS: Readonly<Record<ReasoningEffort, number>> = {
   high: MEMORY_TOKEN_BUDGET * 2
 };
 
+/** Where a chat task talks: the room, whether it is a DM, and the other teams in the conversation. */
+export interface ChatMemoryScope {
+  roomId: string;
+  dm: boolean;
+  teamIds: readonly string[];
+}
+
 /**
- * The memory a task may see. Tool-using (decision) tasks never get the chat snapshot: chat is text
- * other people wrote, and it must not reach a task that can change a roster.
+ * The memory a task may see. Tool-using (decision) tasks never get chat snapshots or relationship
+ * notes: that is text other people wrote (or the model wrote after reading it), and it must not
+ * reach a task that can change a roster. A chat task gets only its room's snapshot and the notes
+ * about the teams in the conversation; in a DM, or without a scope, neither.
  */
-export function memoryForPrompt(memory: AgentLeagueMemory, role: 'decision' | 'chat'): AgentLeagueMemory {
-  return role === 'chat' ? memory : { ...memory, chat: [] };
+export function memoryForPrompt(
+  memory: AgentLeagueMemory,
+  role: 'decision' | 'chat',
+  scope?: ChatMemoryScope
+): AgentLeagueMemory {
+  if (role !== 'chat' || scope === undefined || scope.dm)
+    return { ...memory, chatRooms: [], relationships: [] };
+  return {
+    ...memory,
+    chatRooms: memory.chatRooms.filter((r) => r.roomId === scope.roomId),
+    relationships: memory.relationships.filter((r) => scope.teamIds.includes(r.teamId))
+  };
 }
 
 /** League events that write agent memory. The router function receives them with its triggers. */

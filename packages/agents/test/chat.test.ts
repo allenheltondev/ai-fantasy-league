@@ -69,7 +69,12 @@ describe('chat_reply with the fake model', () => {
     const model = new ScriptedModelClient();
     const record = await runAgentAction(s.deps(model), request('chat_reply', { messageId: 'm-human' }));
     expect(record).toMatchObject({ status: 'completed', finalAction: 'post_message', kind: 'chat_reply' });
-    expect(record.toolsCalled.map((c) => c.name)).toEqual(['list_chat_rooms', 'get_chat', 'post_message']);
+    expect(record.toolsCalled.map((c) => c.name)).toEqual([
+      'list_chat_rooms',
+      'get_chat',
+      'get_chat_context',
+      'post_message'
+    ]);
     const [posted] = await s.agentPosts();
     expect(posted).toMatchObject({ kind: 'agent', author: { teamId: AGENT_TEAM } });
     expect(posted?.text.length).toBeGreaterThan(0);
@@ -197,6 +202,11 @@ describe('chat budgets', () => {
     expect(() => checkBudget({ agentRemaining: 0, leagueRemaining: 3 })).toThrow('chat_budget_agent');
     expect(() => checkBudget({ agentRemaining: 1, leagueRemaining: 1 })).not.toThrow();
     expect(() => checkBudget(null)).not.toThrow();
+    // A retort to another agent also needs the league's banter budget.
+    expect(() => checkBudget({ agentRemaining: 1, leagueRemaining: 1, banterRemaining: 0 }, true)).toThrow(
+      'chat_budget_banter'
+    );
+    expect(() => checkBudget({ agentRemaining: 1, leagueRemaining: 1, banterRemaining: 0 })).not.toThrow();
   });
 });
 

@@ -45,6 +45,12 @@ export { handleLeagueEvent, isBusEvent, type LeagueBusEvent } from './events/han
 export { handleDraftDeadline, type DeadlineOutcome } from './league/draft.js';
 export * from './chat/model.js';
 export { ChatRoomSchema, type ChatRoom } from './chat/rooms.js';
+export {
+  ChatContextPackSchema,
+  CONTEXT_LIMITS,
+  type ChatContextPack,
+  type TradeLine
+} from './chat/context.js';
 export type { TradeRecord, TradeRepository } from './repos/trades.js';
 export { scheduleTradeDeadline, tradeEventDetail } from './trades/lifecycle.js';
 export { handleTradeTimer, TRADE_TIMER_EVENTS } from './trades/handlers.js';

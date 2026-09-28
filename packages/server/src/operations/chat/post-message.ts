@@ -3,6 +3,7 @@ import {
   dmPartner,
   mentionedTeamIds,
   moderateChatText,
+  replyToAgentDepth,
   roomMentionTargets
 } from '@fantasy/core';
 import { z } from 'zod';
@@ -22,7 +23,7 @@ import { assertAction } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 import { chatAuthor, mentionTargets } from './shared.js';
-import { newId } from '../../context.js';
+import { newId, type Ctx } from '../../context.js';
 
 export const postMessage = defineOperation({
   name: 'post_message',
@@ -34,6 +35,7 @@ export const postMessage = defineOperation({
     'Rooms: `league`, `trash-talk`, `draft`, `trades`, `waivers-news`, this week\'s matchup rooms (list_chat_rooms), and direct messages. To message one team privately, post to the DM room "dm-" plus your team id and theirs, sorted and joined with "-" (for example "dm-team-1-team-3"); only your two teams can read it, and the other team is notified of every message.',
     'Mention a team with `@` plus its team name, its manager\'s name, or its team id (for example "@Big Tuna" or "@team-3"); mentioned teams are notified, and AI managers may reply. In a DM only the other team can be mentioned.',
     `Messages are 1-${CHAT_LIMITS.maxLength} characters. Keep trash talk friendly. Chat is for banter and negotiation only: nothing agreed in chat happens until someone uses the trade tools.`,
+    'Answer a message with `replyToId` (its id, from get_chat; it must be one of the room’s last 100 messages). An AI manager’s answer to another AI manager’s message is a retort (`replyToAgentDepth` 1): a retort never draws another agent reply, and the league’s AI managers may post only a few retorts a day (`postingBudget.banterRemaining`).',
     'Every message, from a person or an AI manager, goes through the same moderation: control and invisible characters are removed, and harassment (telling someone to hurt themselves) is refused.',
     `Errors: RATE_LIMITED after ${CHAT_LIMITS.burstMessages} messages in ${CHAT_LIMITS.burstWindowMs / 1000} seconds across all rooms (wait, then retry), or for AI managers once the daily chat budget is used (${AGENT_CHAT_BUDGETS.agentPerDay} messages per agent and ${AGENT_CHAT_BUDGETS.leaguePerDay} for the league's agents per 24 hours, see list_chat_rooms \`postingBudget\`); FORBIDDEN if you are not in the league or the room is a DM between two other teams; ROOM_NOT_FOUND for a room this league does not have; ROOM_ARCHIVED for a past week's matchup room; INVALID_INPUT for an empty or too-long message; MESSAGE_BLOCKED when moderation refuses it (rewrite it as the fix says).`
   ].join(' '),
@@ -47,7 +49,13 @@ export const postMessage = defineOperation({
       .trim()
       .min(1)
       .max(CHAT_LIMITS.maxLength)
-      .describe(`The message, 1-${CHAT_LIMITS.maxLength} characters. Use @Team Name to mention a team.`)
+      .describe(`The message, 1-${CHAT_LIMITS.maxLength} characters. Use @Team Name to mention a team.`),
+    replyToId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe('The id of the message you are answering, in the same room (optional).')
   }),
   output: z.object({ message: ChatMessageSchema }),
   handler: async (ctx, input) => {
@@ -68,6 +76,11 @@ export const postMessage = defineOperation({
       );
     }
     const text = moderated.text;
+    const replyTo =
+      input.replyToId === undefined
+        ? null
+        : await findReply(ctx, access.league.id, room.roomId, input.replyToId);
+    const depth = replyToAgentDepth(author.kind, replyTo);
 
     // Per author across every room: the league's activity index since the window started (the
     // last day for AI managers, whose daily budgets count every room too).
@@ -85,6 +98,16 @@ export const postMessage = defineOperation({
           fix: `Stay quiet for now. An AI manager may post ${AGENT_CHAT_BUDGETS.agentPerDay} chat messages a day, and the league's AI managers ${AGENT_CHAT_BUDGETS.leaguePerDay} together; the budget frees up as the day's messages age past 24 hours.`,
           details: { ...budget }
         });
+      }
+      if (depth > 0 && budget.banterRemaining === 0) {
+        throw new ApiError(
+          'RATE_LIMITED',
+          'The league’s daily budget of agent-to-agent retorts is used up.',
+          {
+            fix: `Stay quiet, or post without replyToId if you are not answering another AI manager. The league's AI managers may answer each other ${AGENT_CHAT_BUDGETS.banterPerDay} times a day.`,
+            details: { ...budget }
+          }
+        );
       }
     }
     const mine = recent
@@ -112,6 +135,8 @@ export const postMessage = defineOperation({
       text,
       mentionedTeamIds: mentioned,
       event: null,
+      ...(replyTo === null ? {} : { replyToId: replyTo.id }),
+      ...(depth > 0 ? { replyToAgentDepth: depth } : {}),
       createdAt: now.toISOString()
     };
     const dmTeamIds = parsed.kind === 'dm' ? parsed.teamIds : null;
@@ -142,9 +167,31 @@ export const postMessage = defineOperation({
         messageId: message.id,
         authorTeamId: author.author.teamId,
         authorType: author.kind,
-        mentionedTeamIds: notify
+        mentionedTeamIds: notify,
+        replyToAgentDepth: depth
       });
     }
     return { message };
   }
 });
+
+/** How far back `replyToId` may reach: the room's newest messages. */
+export const REPLY_WINDOW = 100;
+
+/** The message being answered, from the room's newest `REPLY_WINDOW` messages. */
+async function findReply(
+  ctx: Ctx,
+  leagueId: string,
+  roomId: string,
+  replyToId: string
+): Promise<ChatMessage> {
+  const { messages } = await ctx.repos.chat.list(leagueId, roomId, { limit: REPLY_WINDOW });
+  const found = messages.find((m) => m.id === replyToId);
+  if (found === undefined) {
+    throw new ApiError('INVALID_INPUT', `Message "${replyToId}" is not among this room's recent messages.`, {
+      fix: `Pass the id of one of the room's last ${REPLY_WINDOW} messages (get_chat with the same roomId), or leave replyToId out.`,
+      details: { replyToId, roomId }
+    });
+  }
+  return found;
+}

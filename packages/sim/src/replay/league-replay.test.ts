@@ -99,6 +99,11 @@ describe('replayLeague: the real league on the simulated clock', () => {
     expect(report.chat.byRoom.league).toBeGreaterThan(0);
     expect(report.chat.byRoom.matchup).toBeGreaterThan(0);
     expect(Object.values(report.chat.byRoom).reduce((a, b) => a + b, 0)).toBe(report.chat.messages);
+    // Agent chat by room (#153), and retorts never outnumber agent messages.
+    expect(Object.values(report.chat.agentByRoom).reduce((a, b) => a + b, 0)).toBe(
+      report.chat.byKind.agent ?? 0
+    );
+    expect(report.chat.retorts).toBeLessThanOrEqual(report.chat.byKind.agent ?? 0);
     expect(report.timings.map((t) => t.label)).toEqual(['draft', 'regular', 'regular', 'playoffs']);
 
     const markdown = renderLeagueReport(report);
