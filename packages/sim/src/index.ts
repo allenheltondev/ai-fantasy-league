@@ -20,3 +20,7 @@ export * from './runner/settings.js';
 export * from './runner/invariants.js';
 export * from './runner/run-season.js';
 export * from './runner/summary.js';
+export * from './replay/checks.js';
+export * from './replay/human.js';
+export * from './replay/league-replay.js';
+export * from './replay/report.js';
