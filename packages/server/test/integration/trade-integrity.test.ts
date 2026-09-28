@@ -6,6 +6,7 @@ import { silentLogger } from '../../src/log.js';
 import { registry } from '../../src/operations/index.js';
 import { invokeTool } from '../../src/registry/invoke.js';
 import type { League } from '../../src/repos/types.js';
+import { reviewEndName, tradeDeadlineName } from '../../src/trades/lifecycle.js';
 import { createHarness, START, type Harness } from '../support/harness.js';
 import { as, data, errorCode, type Caller } from '../support/league-client.js';
 import { ALICE, BOB, CAROL } from '../support/leagues.js';
@@ -134,7 +135,7 @@ describe('the trade deadline', () => {
     expect((await h.repos.leagues.get('lg-dl'))?.deadlines.tradeDeadlineAt).toBe(WEEK_12);
     expect(eventsOf('Schedule Event').at(-1)?.detail).toMatchObject({
       at: WEEK_12,
-      name: 'trade-deadline-lg-dl',
+      name: tradeDeadlineName('lg-dl'),
       event: { detailType: 'Trade Deadline Passed', detail: { deadlineWeek: 12, deadlineAt: WEEK_12 } }
     });
 
@@ -327,7 +328,7 @@ describe('a no-review trade that fails partway', () => {
     expect(failed.status).toBe(500);
     expect(eventsOf('Schedule Event').at(-1)?.detail).toMatchObject({
       at: START,
-      name: `trade-review-lg-nr-${offer.id}`,
+      name: reviewEndName('lg-nr', offer.id),
       event: { detailType: 'Trade Review Ended', detail: { tradeId: offer.id } }
     });
     const stuck = await h.repos.trades.get('lg-nr', offer.id);
