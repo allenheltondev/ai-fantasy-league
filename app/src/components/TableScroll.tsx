@@ -31,7 +31,7 @@ export function TableScroll({ label, children }: { label: string; children: Reac
     <div className="relative min-w-0" data-testid="table-scroll" data-scrolls={scrolls}>
       <div
         ref={ref}
-        className="overflow-x-auto overscroll-x-contain"
+        className="relative overflow-x-auto overscroll-x-contain"
         {...(scrolls ? { role: 'region', 'aria-label': `${label} (scrolls sideways)`, tabIndex: 0 } : {})}
       >
         {children}

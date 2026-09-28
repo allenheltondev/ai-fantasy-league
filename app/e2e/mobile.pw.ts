@@ -26,6 +26,49 @@ const VIEWPORTS = [
 
 const SEASON_WHO = 'season-e2e';
 
+const nflGame = (away: string, home: string, extra: Record<string, unknown>) => ({
+  gameId: `2026_01_${away}_${home}`,
+  homeTeam: home,
+  awayTeam: away,
+  homeScore: 14,
+  awayScore: 10,
+  kickoff: '2026-09-13T17:00:00.000Z',
+  state: 'in',
+  status: '8:32 - 2nd',
+  period: 2,
+  clock: '8:32',
+  possessionTeam: null,
+  isRedZone: false,
+  downDistance: null,
+  fieldPosition: null,
+  yardsToGoal: null,
+  ...extra
+});
+
+/** A busy Sunday for the live matchup: final, not started, a drive, and a red-zone trip. */
+const NFL_GAMES = [
+  nflGame('KC', 'JAX', { state: 'post', status: 'Final', clock: null, homeScore: 24, awayScore: 27 }),
+  nflGame('LAR', 'SF', {
+    state: 'pre',
+    status: '9/13 - 4:25 PM EDT',
+    homeScore: null,
+    awayScore: null,
+    period: null,
+    clock: null
+  }),
+  nflGame('WAS', 'NYG', { possessionTeam: 'WAS', downDistance: '1st & 10 at WAS 35', yardsToGoal: 65 }),
+  nflGame('BUF', 'MIA', {
+    possessionTeam: 'BUF',
+    isRedZone: true,
+    downDistance: '3rd & Goal at MIA 4',
+    fieldPosition: 'MIA 4',
+    yardsToGoal: 4
+  }),
+  nflGame('CIN', 'CLE', {}),
+  nflGame('DET', 'GB', {}),
+  nflGame('ATL', 'NO', {})
+];
+
 interface Offender {
   element: string;
   x: number;
@@ -60,7 +103,7 @@ function measure(width: number): Measurement {
   const visible = (el: Element): boolean => {
     const style = getComputedStyle(el);
     if (style.visibility === 'hidden' || style.display === 'none') return false;
-    if (el.closest('[inert], [aria-hidden="true"], .sr-only')) return false;
+    if (el.closest('[inert], [aria-hidden="true"]')) return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
@@ -336,10 +379,27 @@ for (const viewport of VIEWPORTS) {
         body.data.matchup.away.score = 101.25;
         await route.fulfill({ response, json: body });
       });
+      // And the week's NFL games live, with Buffalo (Josh Allen) in the red zone (#132).
+      await page.route(/\/api\/v1\/leagues\/demo-season\/nfl-games(\?|$)/, (route) =>
+        route.fulfill({
+          json: {
+            data: {
+              season: 2026,
+              week: 1,
+              games: NFL_GAMES,
+              redZone: [{ team: 'BUF', downDistance: '3rd & Goal at MIA 4', fieldPosition: 'MIA 4' }],
+              updatedAt: '2026-09-13T18:30:00.000Z'
+            },
+            league: null,
+            warnings: []
+          }
+        })
+      );
       await page.goto('/leagues/demo-season/matchup');
       await expect(
         page.getByRole('region', { name: `${SEASON_WHO}'s Team` }).getByTestId(/^score-/)
       ).toHaveText(/\d+\.\d\d/);
+      await expect(page.getByText('3rd & Goal at MIA 4').first()).toBeVisible();
       await expectFits(page, 'matchup (live)');
       await context.close();
     });
