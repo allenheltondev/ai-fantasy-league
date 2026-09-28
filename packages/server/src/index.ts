@@ -52,4 +52,3 @@ export { relayEvent, RELAYED_EVENTS, TEAM_ONLY_EVENTS } from './realtime/relay.j
 export type { BusEvent } from './events/bus.js';
 export { newsAlertDetail } from './jobs/ingest-news.js';
 export { statusChangedDetail } from './jobs/sync-players.js';
-export { processLeagueWaivers } from './waivers/process.js';
