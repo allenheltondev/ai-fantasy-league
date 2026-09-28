@@ -1,10 +1,14 @@
 import { useParams } from 'react-router';
-import { EmptyState, LoadingPage, StatusBadge } from '@readysetcloud/ui';
+import { EmptyState, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { MatchupData, MatchupLineup, MatchupSide, RedZoneTeam } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
+import { AnimatedNumber, DeltaFloater } from '../../motion/AnimatedNumber';
+import { useCelebrateOnce } from '../../motion/celebration';
+import { Confetti } from '../../motion/Confetti';
+import { LoadingSkeleton } from '../../motion/decor';
 import { MatchupOutlookPanel } from './MatchupOutlookPanel';
 import { NflGamesStrip } from './NflGamesStrip';
 import { RedZoneChip, redZoneClass, redZoneFor, usePrefersReducedMotion } from './RedZone';
@@ -62,7 +66,7 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
     body = loaded.error ? (
       <ApiErrorAlert error={loaded.error} />
     ) : (
-      <LoadingPage text="Loading your matchup…" />
+      <LoadingSkeleton label="Loading your matchup…" rows={6} />
     );
   } else if (loaded.data.matchup === null || loaded.data.lineups === null) {
     body = (
@@ -73,17 +77,30 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
     );
   } else {
     const { matchup, lineups } = loaded.data;
+    const leader = leadingTeam(matchup);
     body = (
       <div className="space-y-4">
         <p className="flex items-center gap-2 text-muted-foreground">
           Week {loaded.data.week}
           <StatusBadge tone={matchup.status === 'in_progress' ? 'success' : 'neutral'}>
+            {matchup.status === 'in_progress' && <span className="motion-live-dot mr-1" aria-hidden="true" />}
             {STATUS_LABEL[matchup.status]}
           </StatusBadge>
         </p>
+        <WinCelebration leagueId={leagueId} data={loaded.data} />
         <div className="grid gap-4 md:grid-cols-2">
-          <Side side={matchup.home} lineup={lineups.home} redZone={redZone} />
-          <Side side={matchup.away} lineup={lineups.away} redZone={redZone} />
+          <Side
+            side={matchup.home}
+            lineup={lineups.home}
+            redZone={redZone}
+            leading={leader === matchup.home.teamId}
+          />
+          <Side
+            side={matchup.away}
+            lineup={lineups.away}
+            redZone={redZone}
+            leading={leader === matchup.away.teamId}
+          />
         </div>
         {nfl.data !== null && <NflGamesStrip data={nfl.data} featured={startedTeams(loaded.data)} />}
       </div>
@@ -110,23 +127,56 @@ function startedTeams(data: MatchupData): Set<string> {
   );
 }
 
+type Matchup = NonNullable<MatchupData['matchup']>;
+
+/** The team ahead once scoring starts, or null before kickoff and on a tie. */
+export function leadingTeam(matchup: Matchup): string | null {
+  const { home, away } = matchup;
+  if (matchup.status === 'scheduled' || home.score === null || away.score === null) return null;
+  if (home.score === away.score) return null;
+  return home.score > away.score ? home.teamId : away.teamId;
+}
+
+/**
+ * The first time you open a final you won: confetti and a banner. The banner stays for the visit;
+ * the confetti never shows again in this browser (and never under reduced motion).
+ */
+function WinCelebration({ leagueId, data }: { leagueId: string; data: MatchupData }) {
+  const matchup = data.matchup;
+  const won = matchup !== null && matchup.status === 'final' && leadingTeam(matchup) === data.teamId;
+  const celebrate = useCelebrateOnce(won ? `win:${leagueId}:${matchup.id}` : null);
+  if (!celebrate) return null;
+  return (
+    <>
+      <p role="status" className="motion-pop text-lg font-semibold text-success-700">
+        You won week {data.week}!
+      </p>
+      <Confetti size="burst" />
+    </>
+  );
+}
+
 function Side({
   side,
   lineup,
-  redZone
+  redZone,
+  leading
 }: {
   side: MatchupSide;
   lineup: MatchupLineup;
   redZone: readonly RedZoneTeam[];
+  leading: boolean;
 }) {
   const reducedMotion = usePrefersReducedMotion();
   return (
-    <section aria-label={side.teamName} className="rounded-lg border border-border p-4">
+    <section
+      aria-label={side.teamName}
+      data-leading={leading || undefined}
+      className={`motion-side rounded-lg border border-border p-4${leading ? ' motion-leader' : ''}`}
+    >
       <h3 className="flex items-baseline justify-between font-semibold">
         <span>{side.teamName}</span>
-        <span className="text-2xl" data-testid={`score-${side.teamId}`}>
-          {(side.score ?? 0).toFixed(2)}
-        </span>
+        <AnimatedNumber className="text-2xl" data-testid={`score-${side.teamId}`} value={side.score ?? 0} />
       </h3>
       <table className="mt-2 w-full text-sm">
         <tbody>
@@ -146,7 +196,10 @@ function Side({
                     {zone !== null && <RedZoneChip zone={zone} />}
                   </td>
                   <td className="text-right text-muted-foreground">{p.projectedPoints ?? '–'}</td>
-                  <td className="w-16 text-right">{p.points ?? '–'}</td>
+                  <td className="relative w-16 text-right">
+                    {p.points ?? '–'}
+                    <DeltaFloater value={p.points} />
+                  </td>
                 </tr>
               );
             })}

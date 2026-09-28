@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RealtimeInfo } from '../chat/api';
+import { parseChatItem } from '../chat/realtime';
 
 /**
  * Live league events over Momento Topics, for pages that refresh when something happens (the draft
@@ -15,6 +16,10 @@ export interface LeagueEvent {
   detailType: string;
   /** Null for events on the global topic. */
   leagueId: string | null;
+  /** The bus event id, when relayed: the same event can arrive on the league and the team topic. */
+  eventId?: string;
+  /** The event detail as relayed (packages/server/src/events/details.ts), for toasts. */
+  detail?: Record<string, unknown>;
 }
 
 export interface EventTarget {
@@ -47,15 +52,46 @@ export function eventTarget(info: RealtimeInfo, global: boolean): EventTarget | 
 /** The league event in a topic item, or null for chat messages and anything malformed. */
 export function parseEventItem(raw: string): LeagueEvent | null {
   try {
-    const value = JSON.parse(raw) as { type?: unknown; detailType?: unknown; leagueId?: unknown };
+    const value = JSON.parse(raw) as {
+      type?: unknown;
+      detailType?: unknown;
+      leagueId?: unknown;
+      eventId?: unknown;
+      detail?: unknown;
+    };
     if (value.type !== 'event' || typeof value.detailType !== 'string') return null;
     return {
       detailType: value.detailType,
-      leagueId: typeof value.leagueId === 'string' ? value.leagueId : null
+      leagueId: typeof value.leagueId === 'string' ? value.leagueId : null,
+      ...(typeof value.eventId === 'string' ? { eventId: value.eventId } : {}),
+      ...(isRecord(value.detail) ? { detail: value.detail } : {})
     };
   } catch {
     return null;
   }
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
+/** Chat messages ride the league topic as `{ type: 'chat' }`; they surface as this event type. */
+export const CHAT_EVENT = 'Chat Message Posted';
+
+/**
+ * A topic item as a league event: relayed events as they are, and chat messages as a `CHAT_EVENT`
+ * whose detail holds the message (for mention toasts). Null for anything else.
+ */
+export function parseTopicItem(raw: string): LeagueEvent | null {
+  const event = parseEventItem(raw);
+  if (event !== null) return event;
+  const message = parseChatItem(raw);
+  return message === null
+    ? null
+    : {
+        detailType: CHAT_EVENT,
+        leagueId: typeof message.leagueId === 'string' ? message.leagueId : null,
+        eventId: message.id,
+        detail: { message }
+      };
 }
 
 declare global {
@@ -79,7 +115,7 @@ export const connectMomentoEvents: EventConnect = async (target, handlers) => {
   for (const topic of target.topics) {
     const subscription = await client.subscribe(target.cacheName, topic, {
       onItem: (item) => {
-        const event = parseEventItem(item.valueString());
+        const event = parseTopicItem(item.valueString());
         if (event !== null) handlers.onEvent(event);
       },
       onError: () => handlers.onError()
