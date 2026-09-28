@@ -289,7 +289,7 @@ export async function buildLeagueReport(input: {
     violations,
     notes: [
       'Trades are not replayed yet: no trade task kind or trade operations exist. Replays should cover them once they merge.',
-      'The playoff bracket is the season cycle’s minimal pairing (#78 builds the full bracket); the champion is derived from the stored playoff games with core `advanceBracket`.'
+      'The champion is the one the league stored with its playoff bracket; the replay checks it against the stored playoff games replayed through core `advanceBracket`.'
     ]
   };
 }

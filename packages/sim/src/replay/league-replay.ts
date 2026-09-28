@@ -100,6 +100,7 @@ export const REPLAY_JOBS: readonly JobName[] = [
   'ingestTrending',
   'advanceSeason',
   'scoreLiveWeek',
+  'officialFinal',
   'processWaivers'
 ];
 
@@ -197,6 +198,7 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   const human = new HumanStandIn(HUMAN, 'team-1', run, services);
   const model = options.model ?? new ScriptedModelClient();
   const finals = new Map<number, number>();
+  const officials = new Map<number, number>();
   const checks = new Map<number, ReplayCheck[]>();
   let league: League | null = null;
   const weekFinal = async (event: BusEvent): Promise<void> => {
@@ -211,6 +213,13 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
       await checkNoFutureData(reference, season, week, teamKickoffs(archive), audit.takeFuture())
     ]);
   };
+  // Thursday's official final may correct scores: the standings must still match the games.
+  const weekOfficial = async (event: BusEvent): Promise<void> => {
+    const { week } = event.detail as { week: number };
+    officials.set(week, (officials.get(week) ?? 0) + 1);
+    const standings = await checkStandings(repos, (league as League).id);
+    if (!standings.ok) checks.get(week)?.push(standings);
+  };
   const loop = new EventLoop({
     publisher: events,
     clock,
@@ -218,7 +227,8 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
       ...serverSubscribers(services),
       ...agentSubscribers(inProcessAgentDeps(services, model)),
       human.subscriber(),
-      { name: 'replay-audit', detailTypes: ['Week Provisionally Final'], handle: weekFinal }
+      { name: 'replay-audit', detailTypes: ['Week Provisionally Final'], handle: weekFinal },
+      { name: 'replay-audit-official', detailTypes: ['Week Official Final'], handle: weekOfficial }
     ],
     jobs: recurringJobs(jobDeps, clock, REPLAY_JOBS, options.jobCadences),
     log
@@ -272,11 +282,11 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     }
   ];
 
-  // The season: every week runs until its stat corrections are in (the week is long final by then).
+  // The season: every week runs past its Thursday official final (15:00 UTC, after stat corrections).
   for (const week of playedWeeks) {
     const t0 = performance.now();
     const delivered = totalDelivered(loop);
-    await loop.runUntil(new Date(momentOf(week).correctionsAt));
+    await loop.runUntil(new Date(momentOf(week).correctionsAt + OFFICIAL_MARGIN_MS));
     timings.push({
       week,
       label: weeks.value.playoffs.includes(week) ? 'playoffs' : 'regular',
@@ -295,6 +305,21 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
 
   const final = (await repos.leagues.get(league.id)) as League;
   const standings = (await repos.schedule.latestStandings(final.id))?.rows ?? [];
+  // Every week goes official exactly once, and the stored champion is the one the games give.
+  for (const week of playedWeeks) {
+    const n = officials.get(week) ?? 0;
+    if (n !== 1) addViolation(checks, week, 'week_scored_once', `week ${week} went official ${n} times`);
+  }
+  const champion = (await repos.history.getPlayoffs(final.id))?.championTeamId ?? null;
+  const fromGames = await championOf(services, final, standings, weeks.value.playoffs);
+  if (champion !== fromGames) {
+    addViolation(
+      checks,
+      playedWeeks.at(-1) as number,
+      'standings_match',
+      `the stored champion is ${champion}, but the playoff games give ${fromGames}`
+    );
+  }
   return buildLeagueReport({
     seed,
     season,
@@ -309,7 +334,7 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     failures,
     checks,
     standings,
-    champion: await championOf(services, final, standings, weeks.value.playoffs),
+    champion,
     timings,
     dataAccess: {
       reads: audit.reads,
@@ -319,6 +344,26 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     model: model.name,
     wallMs: Math.round(performance.now() - started)
   });
+}
+
+/** How far past a week's stat-correction moment (Thursday 12:15 UTC or so) it runs: past the 15:00 official final. */
+const OFFICIAL_MARGIN_MS = 12 * 3_600_000;
+
+/** Records a violation found after a week's checks ran. */
+export function addViolation(
+  checks: Map<number, ReplayCheck[]>,
+  week: number,
+  name: ReplayInvariant,
+  message: string
+): void {
+  const list = checks.get(week) ?? [];
+  const found = list.find((c) => c.name === name);
+  if (found === undefined) list.push({ name, ok: false, violations: [message] });
+  else {
+    found.ok = false;
+    found.violations.push(message);
+  }
+  checks.set(week, list);
 }
 
 const NO_NEWS: JobDeps['news'] = {

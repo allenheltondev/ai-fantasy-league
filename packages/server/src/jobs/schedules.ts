@@ -20,15 +20,18 @@ export const JOB_SCHEDULE_EXPRESSIONS: Record<JobName, string> = {
   ingestNews: 'rate(15 minutes)',
   scoreLiveWeek: 'rate(2 minutes)',
   advanceSeason: 'rate(15 minutes)',
+  officialFinal: 'cron(0 15 ? * THU,FRI *)',
   processWaivers: 'cron(0 8 * * ? *)'
 };
 
 const UNIT_MS: Record<string, number> = { minute: 60_000, hour: 3_600_000, day: 86_400_000 };
 const DAY_MS = 86_400_000;
+const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 /**
- * The next run strictly after a moment, for the two expression forms the template uses:
- * `rate(N unit)` (aligned to the epoch) and a daily `cron(M H[,H...] * * ? *)` in UTC.
+ * The next run strictly after a moment, for the expression forms the template uses: `rate(N unit)`
+ * (aligned to the epoch), a daily `cron(M H[,H...] * * ? *)`, and a weekly
+ * `cron(M H[,H...] ? * DAY[,DAY...] *)`, all in UTC.
  */
 export function nextRunFn(expression: string): (after: Date) => Date {
   const rate = /^rate\((\d+) (minute|hour|day)s?\)$/.exec(expression);
@@ -36,9 +39,13 @@ export function nextRunFn(expression: string): (after: Date) => Date {
     const every = Number(rate[1]) * (UNIT_MS[rate[2] as string] as number);
     return (after) => new Date((Math.floor(after.getTime() / every) + 1) * every);
   }
-  const cron = /^cron\((\d+) (\d+(?:,\d+)*) \* \* \? \*\)$/.exec(expression);
+  const cron =
+    /^cron\((\d+) (\d+(?:,\d+)*) (?:\* \* \?|\? \* ((?:SUN|MON|TUE|WED|THU|FRI|SAT)(?:,(?:SUN|MON|TUE|WED|THU|FRI|SAT))*)) \*\)$/.exec(
+      expression
+    );
   if (cron !== null) {
     const minute = Number(cron[1]);
+    const days = cron[3] === undefined ? null : new Set(cron[3].split(',').map((d) => WEEKDAYS.indexOf(d)));
     const hours = (cron[2] as string)
       .split(',')
       .map(Number)
@@ -46,13 +53,14 @@ export function nextRunFn(expression: string): (after: Date) => Date {
     return (after) => {
       const t = after.getTime();
       const day = Math.floor(t / DAY_MS) * DAY_MS;
-      for (const offset of [0, DAY_MS]) {
+      for (let offset = 0; offset <= 7 * DAY_MS; offset += DAY_MS) {
+        if (days !== null && !days.has(new Date(day + offset).getUTCDay())) continue;
         for (const hour of hours) {
           const at = day + offset + hour * 3_600_000 + minute * 60_000;
           if (at > t) return new Date(at);
         }
       }
-      /* v8 ignore next -- a daily cron always has a run within two days */
+      /* v8 ignore next -- a daily or weekly cron always has a run within eight days */
       throw new Error(`No run found for ${expression}`);
     };
   }

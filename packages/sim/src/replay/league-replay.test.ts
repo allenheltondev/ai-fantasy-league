@@ -12,7 +12,7 @@ import { replaySettings } from '../runner/settings.js';
 import { fixtureArchive } from '../../test/helpers.js';
 import { SimulationError } from '../runner/run-season.js';
 import { REPLAY_INVARIANTS } from './checks.js';
-import { championOf, readAudit, replayLeague } from './league-replay.js';
+import { addViolation, championOf, readAudit, replayLeague } from './league-replay.js';
 import { renderLeagueReport, type LeagueReplayReport } from './report.js';
 
 /**
@@ -32,6 +32,7 @@ function expectClean(report: LeagueReplayReport, weeks: number[]): void {
     expect(w.matchups.every((m) => m.homeScore !== null && m.awayScore !== null)).toBe(true);
   }
   expect(report.events.delivered['Week Provisionally Final']).toBe(weeks.length);
+  expect(report.events.delivered['Week Official Final']).toBe(weeks.length);
 }
 
 describe('replayLeague: the real league on the simulated clock', () => {
@@ -118,6 +119,20 @@ describe('replayLeague: the real league on the simulated clock', () => {
         settings: { ...settings, schedule: { startWeek: 3, regularSeasonEndWeek: 2 } }
       })
     ).rejects.toThrow(SimulationError);
+  });
+
+  it('adds late findings to a week, joining a check of the same name', () => {
+    const checks = new Map([
+      [1, [{ name: 'week_scored_once' as const, ok: true, violations: [] as string[] }]]
+    ]);
+    addViolation(checks, 1, 'week_scored_once', 'went official 0 times');
+    addViolation(checks, 1, 'standings_match', 'champion differs');
+    addViolation(checks, 2, 'standings_match', 'x');
+    expect(checks.get(1)).toEqual([
+      { name: 'week_scored_once', ok: false, violations: ['went official 0 times'] },
+      { name: 'standings_match', ok: false, violations: ['champion differs'] }
+    ]);
+    expect(checks.get(2)).toEqual([{ name: 'standings_match', ok: false, violations: ['x'] }]);
   });
 
   it('audits every archive read and reports each future read once', async () => {

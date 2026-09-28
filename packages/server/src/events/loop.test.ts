@@ -220,6 +220,11 @@ describe('job schedules', () => {
       '2025-09-01T10:00:00.000Z'
     );
     expect(nextRunFn('rate(2 days)')(new Date('2025-09-01T09:00:00.000Z')).getTime() % 172_800_000).toBe(0);
+    const thuFri = nextRunFn('cron(0 15 ? * THU,FRI *)');
+    // 2025-09-01 is a Monday.
+    expect(thuFri(new Date('2025-09-01T00:00:00.000Z')).toISOString()).toBe('2025-09-04T15:00:00.000Z');
+    expect(thuFri(new Date('2025-09-04T15:00:00.000Z')).toISOString()).toBe('2025-09-05T15:00:00.000Z');
+    expect(thuFri(new Date('2025-09-05T16:00:00.000Z')).toISOString()).toBe('2025-09-11T15:00:00.000Z');
     expect(() => nextRunFn('cron(0 8 * * MON *)')).toThrow(/Unsupported/);
   });
 

@@ -15,8 +15,10 @@ import { checkFaabConserved, checkNoSharedPlayers, checkRostersValid } from '../
  * - `rosters_valid`: every team's lineup for the week validates and fits the active roster limit;
  * - `no_shared_players`: no player is on two rosters;
  * - `faab_conserved`: budget minus awarded bids equals what each team has left, never negative;
- * - `week_scored_once`: the week went final exactly once, with every matchup final and scored;
- * - `standings_match`: the stored standings equal the records the final matchups give;
+ * - `week_scored_once`: the week went provisionally final exactly once, with every matchup final and
+ *   scored, and official (Thursday) exactly once;
+ * - `standings_match`: the stored standings equal the records the final matchups give (also after
+ *   the official final), and the stored champion is the one the playoff games give;
  * - `no_future_data`: nothing reached the league before it existed (the as-of guard's audit, stat
  *   lines stored before their game ended, projections captured after kickoff).
  */
