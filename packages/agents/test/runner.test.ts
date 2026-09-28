@@ -288,7 +288,7 @@ describe('runAgentAction with the fake model', () => {
 
   describe('skips', () => {
     it.each([
-      ['unknown_kind', { kind: 'trade_response' }],
+      ['unknown_kind', { kind: 'not_a_kind' }],
       ['no_agent_seat', { teamId: 'team-3' }],
       ['no_agent_seat', { agentId: 'someone-else' }],
       ['league_not_found', { leagueId: 'nope' }]

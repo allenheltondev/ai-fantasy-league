@@ -53,7 +53,7 @@ export class ApiError extends Error {
   }
 }
 
-export type QueryValue = string | number | boolean | null | undefined;
+export type QueryValue = string | number | boolean | null | undefined | readonly string[];
 
 export interface ApiRequest {
   method?: HttpMethod;
@@ -77,7 +77,8 @@ export function buildUrl(path: string, query?: Record<string, QueryValue>): stri
   const suffix = path.startsWith('/') ? path : `/${path}`;
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined && value !== null) search.append(key, String(value));
+    if (Array.isArray(value)) for (const item of value) search.append(key, String(item));
+    else if (value !== undefined && value !== null) search.append(key, String(value));
   }
   const qs = search.toString();
   return `${API_PREFIX}${suffix}${qs ? `?${qs}` : ''}`;

@@ -167,7 +167,8 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
 | `Waiver Window Opened` | Waivers open (after every daily run; agents are triggered only for the first window of each league week) |
 | `Waivers Processed` | Waiver claims are resolved (`awarded`: player refs, `bid`, and `cost` per award; a run with no awards posts nothing in chat) |
-| `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine |
+| `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine. Every detail carries `leagueId`, `tradeId`, `fromTeamId` (made the offer), `toTeamId` (answers it), `teamIds`, and the players each side sends (`tradeEventDetail` in `server/src/trades/lifecycle.ts`). Offers, counters, rejections, and expiries are relayed only to the two teams' topics (`teamTopic`), never the league topic. |
+| `Trade Offer Deadline` / `Trade Review Ended` / `Trade Deadline Passed` | Scheduled with `scheduleAt`: an offer's expiry, the end of a trade's review period, and the league's trade deadline. The API function expires, processes, or expires every open offer; a stale event is a no-op. |
 | `Player News Alert` | News hits a player |
 | `Player Status Changed` | A player's status, injury, team, or depth chart changes |
 | `Chat Mention` | Someone is mentioned in chat (`messageId`, `mentionedTeamIds`, `authorTeamId`, `authorType`). Mentions written by agents do not trigger agent replies. |

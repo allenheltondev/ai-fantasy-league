@@ -1,6 +1,6 @@
 import { nextKickoff } from '@fantasy/core';
 import type { Principal } from '../auth/principal.js';
-import { ApiError } from '../errors.js';
+import { ApiError, type ErrorCode } from '../errors.js';
 import { LEAGUE_PHASES, type League, type LeaguePhase, type Team } from '../repos/types.js';
 
 /**
@@ -162,8 +162,8 @@ export interface ActionRule {
   roleFix: string;
   /** Roles that may not act even when they also hold an allowed role. */
   deny?: { roles: readonly LeagueRole[]; message: string; fix: string };
-  /** A sub-phase flag that must have this value. */
-  flag?: { name: keyof PhaseFlags; value: boolean; message: string; fix: string };
+  /** A sub-phase flag that must have this value. The error code defaults to PHASE_NOT_ALLOWED. */
+  flag?: { name: keyof PhaseFlags; value: boolean; message: string; fix: string; code?: ErrorCode };
 }
 
 const ALL: readonly LeaguePhase[] = LEAGUE_PHASES;
@@ -238,6 +238,11 @@ export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
   counter_trade: tradeRule(),
   respond_to_trade: tradeRule(),
   withdraw_trade: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
+  vote_trade: {
+    phases: ['regular_season'],
+    roles: ['member', 'agent', 'commissioner'],
+    roleFix: 'Only teams in this league (or the commissioner) can review trades.'
+  },
   post_message: { phases: ALL, roles: ['member', 'agent', 'commissioner'], roleFix: PLAYER_FIX }
 };
 
@@ -250,7 +255,8 @@ function tradeRule(): ActionRule {
       name: 'tradeDeadlinePassed',
       value: false,
       message: 'The trade deadline has passed.',
-      fix: 'Trades are closed for the rest of the season; improve your roster through waivers instead.'
+      fix: 'Trades are closed for the rest of the season; improve your roster through waivers instead.',
+      code: 'TRADE_DEADLINE_PASSED'
     }
   };
 }
@@ -278,7 +284,7 @@ export function actionError(
   }
   if (!rule.phases.includes(league.phase)) return phaseError(action, league.phase, rule.phases);
   if (rule.flag !== undefined && phaseFlags(league, now)[rule.flag.name] !== rule.flag.value) {
-    return new ApiError('PHASE_NOT_ALLOWED', rule.flag.message, {
+    return new ApiError(rule.flag.code ?? 'PHASE_NOT_ALLOWED', rule.flag.message, {
       fix: rule.flag.fix,
       details: { phase: league.phase, flag: rule.flag.name }
     });

@@ -101,6 +101,27 @@ describe('renderSystemMessage', () => {
       subjectTeamId: null,
       players: []
     });
+    const teams = { fromTeamId: 'team-1', toTeamId: 'team-2' };
+    const players = { fromPlayers: [{ name: 'A' }], toPlayers: [{ name: 'C' }] };
+    expect(render('Trade Accepted', { ...teams, ...players, review: 'none' })?.text).toBe(
+      'Robo Ballers accepted a trade with Allen FC: A for C.'
+    );
+    expect(render('Trade Accepted', { ...teams, review: 'none' })?.text).toBe(
+      'Robo Ballers accepted a trade with Allen FC.'
+    );
+    expect(render('Trade Accepted', { ...teams, ...players, review: 'league_vote' })?.text).toBe(
+      'Robo Ballers accepted a trade with Allen FC: A for C. It is under review.'
+    );
+    expect(render('Trade Vetoed', { ...teams, voided: true, reason: 'A was dropped.' })?.text).toBe(
+      'The trade between Allen FC and Robo Ballers was cancelled: A was dropped.'
+    );
+    expect(render('Trade Vetoed', { ...teams, review: 'commissioner' })?.text).toBe(
+      'The commissioner vetoed the trade between Allen FC and Robo Ballers.'
+    );
+    expect(render('Trade Vetoed', teams)?.text).toBe(
+      'The league vetoed the trade between Allen FC and Robo Ballers.'
+    );
+    expect(render('Trade Deadline Passed', { deadlineWeek: 11 })).toMatchObject({ moment: true });
   });
 
   it('renders week results and stat corrections', () => {

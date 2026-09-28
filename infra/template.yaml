@@ -276,6 +276,8 @@ Resources:
       # "Draft Pick Deadline" through the rsc-core deferred-event scheduler. At
       # the deadline this function autopicks if the pick is still open; a
       # deadline for a pick already made is a no-op (packages/server/src/events/handlers.ts).
+      # Trade timers (#65, #79) work the same way: offer expiry, the end of a
+      # trade's review period, and the league's trade deadline.
       Events:
         DraftPickDeadline:
           Type: EventBridgeRule
@@ -286,6 +288,9 @@ Resources:
                 - fantasy
               detail-type:
                 - Draft Pick Deadline
+                - Trade Offer Deadline
+                - Trade Review Ended
+                - Trade Deadline Passed
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
@@ -917,6 +922,7 @@ Resources:
                 - Trade Accepted
                 - Trade Processed
                 - Trade Vetoed
+                - Trade Deadline Passed
                 - Week Provisionally Final
                 - Week Official Final
                 - Stat Correction Applied

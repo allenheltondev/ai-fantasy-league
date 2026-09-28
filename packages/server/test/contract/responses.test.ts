@@ -5,6 +5,7 @@ import { registry } from '../../src/operations/index.js';
 import { DRAFT_CASES, seedDraftContractLeague } from '../support/contract-draft.js';
 import { CHAT_CASES } from '../support/contract-chat.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
+import { seedContractTrades, TRADE_CASES } from '../support/contract-trades.js';
 import { seedContractWaivers, WAIVER_CASES } from '../support/contract-waivers.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 import { seedLeague } from '../support/leagues.js';
@@ -154,6 +155,7 @@ const CASES: Record<string, Case[]> = {
   ],
   ...DRAFT_CASES,
   ...WAIVER_CASES,
+  ...TRADE_CASES,
   ...CHAT_CASES,
   configure_agent_seat: [
     {
@@ -270,6 +272,7 @@ beforeAll(async () => {
   );
   await seedDraftContractLeague(h.repos);
   await seedContractWaivers(h.repos);
+  await seedContractTrades(h.repos);
   await seedLeague(h.repos, { id: 'lg-1', owners: [{ sub: 'user-123', name: 'Allen' }], teamCount: 4 });
 });
 afterAll(() => h.close());
