@@ -39,6 +39,7 @@ interface Partition {
   lineups: Map<string, Lineup>;
   draft: DraftRecord | null;
   draftQueues: Map<string, DraftQueueRecord>;
+  lobby: Map<string, string>;
 }
 
 export class InMemoryLeagueStore {
@@ -56,7 +57,8 @@ export class InMemoryLeagueStore {
         standings: new Map(),
         lineups: new Map(),
         draft: null,
-        draftQueues: new Map()
+        draftQueues: new Map(),
+        lobby: new Map()
       };
       this.#partitions.set(leagueId, partition);
     }
@@ -308,6 +310,14 @@ export class InMemoryDraftRepository implements DraftRepository {
 
   async putQueue(queue: DraftQueueRecord): Promise<void> {
     this.store.partition(queue.leagueId).draftQueues.set(queue.teamId, clone(queue));
+  }
+
+  async checkIn(leagueId: string, memberKey: string, at: string): Promise<void> {
+    this.store.partition(leagueId).lobby.set(memberKey, at);
+  }
+
+  async lobby(leagueId: string): Promise<Record<string, string>> {
+    return Object.fromEntries(this.store.partition(leagueId).lobby);
   }
 }
 

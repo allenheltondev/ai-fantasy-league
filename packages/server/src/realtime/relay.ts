@@ -26,6 +26,8 @@ export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Draft Completed',
   'Draft Paused',
   'Draft Resumed',
+  'Draft Starting Soon',
+  'Draft Start Blocked',
   'Waivers Processed',
   'Trade Accepted',
   'Trade Processed',

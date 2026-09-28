@@ -1,7 +1,7 @@
 import { postSystemMessage, SYSTEM_MESSAGE_EVENTS } from '../chat/system-messages.js';
 import type { Services } from '../context.js';
 import { TRADE_TIMER_EVENTS } from '../trades/handlers.js';
-import { handleLeagueEvent } from './handlers.js';
+import { DRAFT_SCHEDULE_EVENTS, handleLeagueEvent } from './handlers.js';
 import type { EventSubscriber } from './loop.js';
 
 /**
@@ -15,7 +15,7 @@ export function serverSubscribers(services: Services): EventSubscriber[] {
   return [
     {
       name: 'league-timers',
-      detailTypes: ['Draft Pick Deadline', ...TRADE_TIMER_EVENTS],
+      detailTypes: ['Draft Pick Deadline', ...DRAFT_SCHEDULE_EVENTS, ...TRADE_TIMER_EVENTS],
       handle: (event) => handleLeagueEvent(services, event)
     },
     {

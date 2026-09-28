@@ -18,6 +18,7 @@ import { ApiError } from '../../errors.js';
 import { requireCommissioner } from '../../league/access.js';
 import { nextUnlockedWeek } from '../../league/calendar.js';
 import { announceTurn } from '../../league/draft.js';
+import { cancelDraftSchedule } from '../../league/draft-schedule.js';
 import { assertAction, transitionPhase } from '../../league/phase.js';
 import { startSeasonSchedule } from '../../league/schedule.js';
 import { settingsError } from '../../league/settings.js';
@@ -36,6 +37,7 @@ export const startDraft = defineOperation({
     'Starts the snake draft: the league moves from setup to drafting, the regular-season schedule is generated, and the first team is on the clock. Each team gets `settings.draft.pickSeconds` per pick; when the clock runs out, autopick picks for them.',
     "Round-1 order is the seats' draft slots, unless you pass `order` (every team id once) or `randomizeOrder: true`.",
     "Every seat must be taken: open human seats return SEATS_NOT_FILLED (invite someone, or make the seat an agent seat with set_seat_type). Agent seats without a configured agent get a random one. If the league's start week has already kicked off, the league starts with the next open week instead (a START_WEEK_MOVED warning).",
+    'If the draft is scheduled (`settings.draft.scheduledAt`), it starts by itself at that time; calling this starts it now instead and cancels the scheduled start.',
     'Only the commissioner can call this, and only in setup. Starting a draft twice returns PHASE_NOT_ALLOWED.'
   ].join(' '),
   tags: ['draft'],
@@ -55,91 +57,129 @@ export const startDraft = defineOperation({
   output: DraftBoardSchema,
   handler: async (ctx, input) => {
     const access = await requireCommissioner(ctx, input.leagueId);
-    const now = ctx.clock.now();
-    assertAction('start_draft', access.league, access.actor, now);
-    const { teams } = access;
-    const warnings: Warning[] = [];
-    const league = access.league;
-    if (teams.length !== league.settings.teamCount) {
-      throw new ApiError(
-        'CONFLICT',
-        `The league has ${teams.length} seats but its settings say ${league.settings.teamCount} teams.`,
-        {
-          fix: `Set teamCount to ${teams.length} with update_league_settings (or add seats) so every seat drafts.`
-        }
-      );
-    }
-    const open = teams.filter((t) => t.seatType === 'human' && t.ownerUserId === null);
-    if (open.length > 0) {
-      throw new ApiError(
-        'SEATS_NOT_FILLED',
-        `${open.length} human seat(s) are still open: ${open.map((t) => t.name).join(', ')}.`,
-        {
-          fix: 'Invite people to those seats (create_invite) and wait for them to join, or turn them into agent seats with set_seat_type, then start the draft.',
-          details: { openTeamIds: open.map((t) => t.id) }
-        }
-      );
-    }
-    const settings = await playableSettings(ctx, league, now, warnings);
-    const order = draftOrder(teams, input.order, input.randomizeOrder, `${league.id}:${now.toISOString()}`);
-    const created = createDraft({
-      teamIds: order,
-      rounds: draftRoundsFor(settings),
-      pickSeconds: settings.draft.pickSeconds
+    assertAction('start_draft', access.league, access.actor, ctx.clock.now());
+    const started = await startLeagueDraft(ctx, {
+      league: access.league,
+      teams: access.teams,
+      order: input.order,
+      randomize: input.randomizeOrder,
+      by: principalKey(ctx.principal)
     });
-    /* v8 ignore next -- the order has every team once and settings are valid, so createDraft cannot fail */
-    if (!created.ok) throw settingsError(created.issues);
-
-    // The draft item first (attribute_not_exists guards a double start), then the league. A start
-    // interrupted between the two is finished by the next call, which finds the draft already made.
-    const at = now.toISOString();
-    const existing = await ctx.repos.drafts.get(league.id);
-    let record: DraftRecord;
-    if (existing === null) {
-      record = {
-        leagueId: league.id,
-        state: created.value,
-        status: 'in_progress',
-        startedAt: at,
-        deadline: (deadlineFor(created.value, now) as Date).toISOString(),
-        pausedRemainingSeconds: null,
-        completedAt: null,
-        updatedAt: at,
-        version: 1
-      };
-      await ctx.repos.drafts.create(record);
-    } else {
-      record = await restart(ctx, existing, now);
-    }
-
-    const updated = await ctx.repos.leagues.update({
-      ...transitionPhase(league, 'drafting', now),
-      settings,
-      deadlines: { ...league.deadlines, draftStartsAt: record.startedAt }
-    });
-    await startSeasonSchedule(ctx, updated);
-    await renumberSlots(ctx, teams, record.state.teamIds, now);
-    const filled = await fillAgentSeats(ctx, league.id, teams);
-    if (filled > 0) {
-      warnings.push({
-        code: 'AGENT_SEATS_FILLED',
-        message: `${filled} agent seat(s) had no agent configured and got a random one (see get_agent_seat).`
-      });
-    }
-    await announceTurn(ctx, record);
     const board = await buildBoard(ctx, {
-      record,
-      teams: await ctx.repos.teams.list(league.id),
-      settings,
+      record: started.record,
+      teams: await ctx.repos.teams.list(access.league.id),
+      settings: started.settings,
       yourTeamId: access.actor.kind === 'user' ? (access.actor.team?.id ?? null) : null,
       query: {}
     });
-    return withWarnings(board, warnings);
+    return withWarnings(board, started.warnings);
   }
 });
 
+/** What the draft start needs: a request context, or the scheduled start's services. */
+export type StartDraftDeps = Pick<Ctx, 'repos' | 'events' | 'clock' | 'log' | 'data'>;
+
+export interface StartedDraft {
+  record: DraftRecord;
+  settings: LeagueSettings;
+  warnings: Warning[];
+}
+
+/**
+ * Starts a league's draft: the one path behind `start_draft` and the scheduled start
+ * (`handleDraftStartScheduled`). Checks every seat is taken, moves a start week that has kicked
+ * off, creates the draft, moves the league to drafting, builds the schedule, fills agent seats,
+ * cancels any scheduled start, and puts the first team on the clock. `by` is who started it
+ * (`user#<sub>` or `system`).
+ */
+export async function startLeagueDraft(
+  deps: StartDraftDeps,
+  input: {
+    league: League;
+    teams: readonly Team[];
+    order?: readonly string[] | undefined;
+    randomize: boolean;
+    by: string;
+  }
+): Promise<StartedDraft> {
+  const ctx = deps;
+  const { league, teams } = input;
+  const now = ctx.clock.now();
+  const warnings: Warning[] = [];
+  if (teams.length !== league.settings.teamCount) {
+    throw new ApiError(
+      'CONFLICT',
+      `The league has ${teams.length} seats but its settings say ${league.settings.teamCount} teams.`,
+      {
+        fix: `Set teamCount to ${teams.length} with update_league_settings (or add seats) so every seat drafts.`
+      }
+    );
+  }
+  const open = teams.filter((t) => t.seatType === 'human' && t.ownerUserId === null);
+  if (open.length > 0) {
+    throw new ApiError(
+      'SEATS_NOT_FILLED',
+      `${open.length} human seat(s) are still open: ${open.map((t) => t.name).join(', ')}.`,
+      {
+        fix: 'Invite people to those seats (create_invite) and wait for them to join, or turn them into agent seats with set_seat_type, then start the draft.',
+        details: { openTeamIds: open.map((t) => t.id) }
+      }
+    );
+  }
+  const settings = await playableSettings(ctx, league, now, warnings);
+  const order = draftOrder(teams, input.order, input.randomize, `${league.id}:${now.toISOString()}`);
+  const created = createDraft({
+    teamIds: order,
+    rounds: draftRoundsFor(settings),
+    pickSeconds: settings.draft.pickSeconds
+  });
+  /* v8 ignore next -- the order has every team once and settings are valid, so createDraft cannot fail */
+  if (!created.ok) throw settingsError(created.issues);
+
+  // The draft item first (attribute_not_exists guards a double start), then the league. A start
+  // interrupted between the two is finished by the next call, which finds the draft already made.
+  const at = now.toISOString();
+  const existing = await ctx.repos.drafts.get(league.id);
+  let record: DraftRecord;
+  if (existing === null) {
+    record = {
+      leagueId: league.id,
+      state: created.value,
+      status: 'in_progress',
+      startedAt: at,
+      deadline: (deadlineFor(created.value, now) as Date).toISOString(),
+      pausedRemainingSeconds: null,
+      completedAt: null,
+      updatedAt: at,
+      version: 1
+    };
+    await ctx.repos.drafts.create(record);
+  } else {
+    record = await restart(ctx, existing, now);
+  }
+
+  const updated = await ctx.repos.leagues.update({
+    ...transitionPhase(league, 'drafting', now),
+    settings,
+    deadlines: { ...league.deadlines, draftStartsAt: record.startedAt }
+  });
+  await startSeasonSchedule(ctx, updated);
+  await renumberSlots(ctx, teams, record.state.teamIds, now);
+  const filled = await fillAgentSeats(ctx, league.id, teams, input.by);
+  if (filled > 0) {
+    warnings.push({
+      code: 'AGENT_SEATS_FILLED',
+      message: `${filled} agent seat(s) had no agent configured and got a random one (see get_agent_seat).`
+    });
+  }
+  // A manual start supersedes a scheduled one.
+  await cancelDraftSchedule(ctx, league.id);
+  await announceTurn(ctx, record);
+  return { record, settings, warnings };
+}
+
 /** A draft left by an interrupted start: its clock restarts now. */
-async function restart(ctx: Ctx, record: DraftRecord, now: Date): Promise<DraftRecord> {
+async function restart(ctx: StartDraftDeps, record: DraftRecord, now: Date): Promise<DraftRecord> {
   const at = now.toISOString();
   return ctx.repos.drafts.update({
     ...record,
@@ -154,7 +194,7 @@ async function restart(ctx: Ctx, record: DraftRecord, now: Date): Promise<DraftR
  * next open week (issue #85), and must still come before the trade deadline.
  */
 async function playableSettings(
-  ctx: Ctx,
+  ctx: StartDraftDeps,
   league: League,
   now: Date,
   warnings: Warning[]
@@ -209,7 +249,7 @@ function draftOrder(
 
 /** Draft slots follow the round-1 order, so the league views show it. */
 async function renumberSlots(
-  ctx: Ctx,
+  ctx: StartDraftDeps,
   teams: readonly Team[],
   order: readonly string[],
   now: Date
@@ -222,7 +262,12 @@ async function renumberSlots(
 }
 
 /** Gives every agent seat without a configured agent a random one, so every agent team drafts. */
-async function fillAgentSeats(ctx: Ctx, leagueId: string, teams: readonly Team[]): Promise<number> {
+async function fillAgentSeats(
+  ctx: StartDraftDeps,
+  leagueId: string,
+  teams: readonly Team[],
+  by: string
+): Promise<number> {
   const configured = new Set((await ctx.repos.agents.listSeats(leagueId)).map((s) => s.teamId));
   const missing = teams.filter(
     (t) => t.seatType === 'agent' && t.ownerUserId === null && !configured.has(t.id)
@@ -236,7 +281,7 @@ async function fillAgentSeats(ctx: Ctx, leagueId: string, teams: readonly Team[]
       config: configs[i] as AgentSeatConfig,
       version: 1,
       updatedAt: ctx.clock.now().toISOString(),
-      updatedBy: principalKey(ctx.principal)
+      updatedBy: by
     });
   }
   return missing.length;

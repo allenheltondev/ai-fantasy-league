@@ -8,6 +8,7 @@ import { useLoad } from '../../lib/useLoad';
 import { PHASE_LABELS } from '../leagues/MyLeaguesPage';
 import { AgentManagers } from './AgentManagers';
 import { AiActivityPanel } from './AiActivityPanel';
+import { DraftSchedulePanel } from './DraftSchedulePanel';
 import { InvitesPanel } from './InvitesPanel';
 import { RulesEditor } from './RulesEditor';
 import { SeatHistoryPanel } from './SeatHistoryPanel';
@@ -128,6 +129,20 @@ export function SettingsPage() {
                     openHumanSeats={league.teams.filter((t) => t.open && t.seatType === 'human').length}
                     canCreate={can('create_invite')}
                     canRevoke={can('revoke_invite')}
+                  />
+                </CardBody>
+              </Card>
+            </Section>
+          )}
+          {league.phase === 'setup' && (
+            <Section id="draft-time" title="Draft time">
+              <Card>
+                <CardBody>
+                  <DraftSchedulePanel
+                    key={league.version}
+                    league={league}
+                    canEdit={state.youAreCommissioner && can('update_league_settings')}
+                    onSaved={loaded.reload}
                   />
                 </CardBody>
               </Card>

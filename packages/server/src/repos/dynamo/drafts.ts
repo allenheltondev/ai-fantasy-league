@@ -2,13 +2,19 @@ import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { draftExists, staleDraft } from '../errors.js';
 import type { DraftQueueRecord, DraftRecord, DraftRepository } from '../types.js';
 import {
+  draftLobbyKey,
   DraftQueueRecordSchema,
   draftQueueKey,
   DraftRecordSchema,
   draftKey,
-  ENTITY
+  ENTITY,
+  leaguePk
 } from './league-records.js';
-import { isConditionalCheckFailure, type TableContext } from './table.js';
+import { queryAll } from './query.js';
+import { isConditionalCheckFailure, TABLE_KEYS, type TableContext } from './table.js';
+
+/** A lobby check-in expires from the table a day later; the lobby only counts recent ones anyway. */
+const LOBBY_TTL_SECONDS = 24 * 60 * 60;
 
 const draftItem = (draft: DraftRecord) => ({ ...draftKey(draft.leagueId), entity: ENTITY.draft, ...draft });
 
@@ -78,5 +84,28 @@ export class DynamoDraftRepository implements DraftRepository {
         Item: { ...draftQueueKey(queue.leagueId, queue.teamId), entity: ENTITY.draftQueue, ...queue }
       })
     );
+  }
+
+  async checkIn(leagueId: string, memberKey: string, at: string): Promise<void> {
+    await this.table.doc.send(
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: {
+          ...draftLobbyKey(leagueId, memberKey),
+          entity: ENTITY.draftLobby,
+          memberKey,
+          at,
+          [TABLE_KEYS.ttl]: Math.floor(Date.parse(at) / 1000) + LOBBY_TTL_SECONDS
+        }
+      })
+    );
+  }
+
+  async lobby(leagueId: string): Promise<Record<string, string>> {
+    const items = await queryAll(this.table, {
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': leaguePk(leagueId), ':prefix': 'DRAFTLOBBY#' }
+    });
+    return Object.fromEntries(items.map((item) => [String(item.memberKey), String(item.at)]));
   }
 }

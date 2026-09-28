@@ -7,7 +7,6 @@ import {
   CardBody,
   CardHeader,
   CardTitle,
-  EmptyState,
   ErrorState,
   Input,
   Select,
@@ -28,6 +27,7 @@ import {
   type DraftRecap,
   type DraftRecapEntry
 } from './board';
+import { DraftLobby } from './DraftLobby';
 import { useDraftQueue } from './queue';
 
 export interface DraftPageProps {
@@ -56,7 +56,10 @@ export const DRAFT_EVENTS = [
   'Draft Completed',
   // The commissioner froze or restarted the clock: reload so the countdown stops or restarts now.
   'Draft Paused',
-  'Draft Resumed'
+  'Draft Resumed',
+  // Before the draft: the lobby's reminder and a scheduled start that could not happen.
+  'Draft Starting Soon',
+  'Draft Start Blocked'
 ] as const;
 
 const STATUS = {
@@ -84,6 +87,8 @@ export function DraftPage({
   const [tick, setTick] = useState(now);
   // Your own pick just went in: a burst of confetti and a line naming the player.
   const [myPick, setMyPick] = useState<{ name: string; n: number } | null>(null);
+  // Bumped by lobby events, so the lobby checks in again at once.
+  const [lobbyRefresh, setLobbyRefresh] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -103,7 +108,12 @@ export function DraftPage({
     types: DRAFT_EVENTS,
     realtime,
     connect,
-    onEvent: () => void load()
+    onEvent: (event) => {
+      if (event.detailType === 'Draft Starting Soon' || event.detailType === 'Draft Start Blocked') {
+        setLobbyRefresh((n) => n + 1);
+      }
+      void load();
+    }
   });
   const interval = live === 'live' ? livePollMs : pollMs;
 
@@ -151,7 +161,14 @@ export function DraftPage({
       loadError === null ? (
         <p className="text-muted-foreground">Loading the draft board…</p>
       ) : loadError.code === 'DRAFT_NOT_STARTED' ? (
-        <EmptyState title="The draft has not started" description={loadError.fix} />
+        <DraftLobby
+          api={api}
+          leagueId={leagueId}
+          queue={queue}
+          now={now}
+          refresh={lobbyRefresh}
+          onStarted={() => void load()}
+        />
       ) : (
         <ErrorState message={loadError.message} action={{ label: 'Try again', onClick: () => void load() }} />
       );
