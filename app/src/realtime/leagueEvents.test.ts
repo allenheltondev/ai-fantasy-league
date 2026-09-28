@@ -54,6 +54,15 @@ describe('league event helpers', () => {
   it('builds a target only from a complete token', () => {
     expect(eventTarget(INFO, false)).toEqual({ token: 't', cacheName: 'c', topics: ['fantasy.league.L1'] });
     expect(eventTarget(INFO, true)?.topics).toEqual(['fantasy.league.L1', 'fantasy.global']);
+    const withTeam = { ...INFO, topics: { ...INFO.topics!, team: 'fantasy.team.L1.team-1' } };
+    expect(eventTarget(withTeam, true)?.topics).toEqual([
+      'fantasy.league.L1',
+      'fantasy.team.L1.team-1',
+      'fantasy.global'
+    ]);
+    expect(eventTarget({ ...INFO, topics: { ...INFO.topics!, team: null } }, false)?.topics).toEqual([
+      'fantasy.league.L1'
+    ]);
     expect(eventTarget({ ...INFO, enabled: false }, false)).toBeNull();
     expect(eventTarget({ ...INFO, token: null }, false)).toBeNull();
     expect(eventTarget({ ...INFO, cacheName: null }, false)).toBeNull();
