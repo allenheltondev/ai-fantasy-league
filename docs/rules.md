@@ -165,7 +165,7 @@ Validation also enforces these limits:
 | Review | `league_vote` (options: `commissioner`, `none`) |
 | Review period | 2 days |
 | Veto votes needed | `null`, which uses the Yahoo rule: ⌈teamCount / 3⌉, capped at the teams not in the trade (8 teams → 3, 10 or 12 teams → 4) |
-| Trade deadline | Week 11 (no trades process once week 11 kicks off) |
+| Trade deadline | Week 11 (no trades can be proposed or accepted once week 11 kicks off; trades already accepted still complete) |
 | Offer expiry | 48 hours, or at the next lineup lock if that comes first |
 
 We are **not certain** of the veto threshold. Our understanding is that Yahoo vetoes a trade when about a third of the league votes against it. The commissioner can set an exact number with `trades.vetoVotes`.
@@ -314,7 +314,7 @@ proposed ─┬─ countered   (the counter is a new proposed trade; counterOf/c
 - Only the responder can counter, accept, or reject. Only the proposer can withdraw.
 - **Validation** runs at proposal, at acceptance, and again at processing. It checks four things:
   - The players are still on the listed rosters.
-  - The trade deadline: no trade processes after the deadline week, or in that week once its first game kicks off.
+  - The trade deadline (at proposal and acceptance only): no trade can be proposed or accepted after the deadline week, or in that week once its first game kicks off. As on Yahoo, a trade accepted before the deadline still processes when its review ends, even after the deadline.
   - Locked players: a player whose game has kicked off this week can't be traded or dropped.
   - The active roster limit after the swap. At proposal, the responder's overflow is only a warning (`RESPONDER_MUST_DROP`), because the responder picks its drops when it accepts.
 - **Expiry:** `expiresAt` is the earlier of `offerExpiryHours` and the next lineup lock (when `expireAtNextLineupLock` is on).
@@ -331,7 +331,7 @@ proposed ─┬─ countered   (the counter is a new proposed trade; counterOf/c
 - **Expiry.** An offer expires `offerExpiryHours` after it is made, or at the next lineup lock (the next kickoff) when `expireAtNextLineupLock` is on, whichever comes first, and never later than the trade deadline. The rsc-core scheduler fires `Trade Offer Deadline` at that time; an offer already answered ignores it.
 - **Review.** An accepted trade goes into review for `reviewPeriodDays` (`league_vote` or `commissioner`) and `Trade Review Ended` processes it at the end, unless it was vetoed. With review `none` it processes as soon as it is accepted.
 - **Locked players wait (Yahoo).** A player whose game has kicked off this week can't be offered or accepted in a trade. If a player in an accepted trade locks before the trade processes (for example, the commissioner approves on Sunday afternoon), the trade waits: processing is rescheduled for when the week's locks release (the end of the week's last game, retried every 30 minutes until the league rolls over). Lineups therefore never change under a locked player. When the trade processes, the players join their new teams' benches, and the current week's saved lineups are reconciled with the new rosters.
-- **Deadline.** Once the deadline week's first game kicks off, `propose_trade`, `counter_trade`, and `respond_to_trade` fail with `TRADE_DEADLINE_PASSED`, and `Trade Deadline Passed` (scheduled when the season starts) expires every open offer. A trade still in review at the deadline fails processing validation and is cancelled (`vetoed` with a `voidReason`).
+- **Deadline.** Once the deadline week's first game kicks off, `propose_trade`, `counter_trade`, and `respond_to_trade` fail with `TRADE_DEADLINE_PASSED`, and `Trade Deadline Passed` (scheduled when the season starts) expires every open offer. Only offers still pending at the deadline expire: a trade accepted before it completes when its review ends, as on Yahoo.
 - **Invalidated trades.** A trade whose player left a roster in the meantime (a drop, a waiver move, or another trade) is re-checked when it is accepted and when it processes: acceptance fails with a fix, and processing cancels it.
 - **Processing** moves each player's ownership lock (`OWN#`) to his new team, rewrites both rosters, puts the drops on waivers, and records one `trade` transaction per player received (and a `drop` for each drop). It is idempotent: a crashed run finishes on the next delivery without charging or moving anyone twice.
 - **Lopsided agent trades.** An offer between two AI teams that `tradeValue` calls lopsided is refused (`TRADE_LOPSIDED`).

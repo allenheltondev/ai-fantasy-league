@@ -421,6 +421,43 @@ describe('agents, the lopsided guard, and the deadline', () => {
   });
 });
 
+describe('trades accepted before the deadline', () => {
+  it('still complete when their review ends after the deadline (Yahoo)', async () => {
+    await seedSeasonLeague(h.repos, {
+      id: 'lg-td',
+      owners: [ALICE, BOB, CAROL],
+      rosters: { 'team-1': ['fx-jallen'], 'team-2': ['fx-mahomes'], 'team-3': ['fx-hurts'] },
+      overrides: { week: 11 }
+    });
+    const offer = trade(
+      await alice.post('/leagues/lg-td/trades', {
+        withTeamId: 'team-2',
+        send: ['fx-jallen'],
+        receive: ['fx-mahomes']
+      })
+    );
+    const accepted = trade(
+      await bob.post(`/leagues/lg-td/trades/${offer.id}/respond`, { response: 'accept' })
+    );
+    expect(accepted.status).toBe('in_review');
+    const league = await h.repos.leagues.get('lg-td');
+    if (league === null) throw new Error('league');
+    await h.repos.leagues.update({ ...league, week: 12 });
+    expect(
+      errorCode(await alice.post('/leagues/lg-td/trades', { withTeamId: 'team-3', send: ['fx-jallen'] }))
+    ).toBe('TRADE_DEADLINE_PASSED');
+    expect(await timer('Trade Deadline Passed', { leagueId: 'lg-td' })).toMatchObject({
+      outcome: { expired: 0 }
+    });
+    h.clock.set(accepted.reviewEndsAt as string);
+    expect((await timer('Trade Review Ended', { leagueId: 'lg-td', tradeId: offer.id })).outcome).toBe(
+      'processed'
+    );
+    expect(await roster('team-1', 'lg-td')).toEqual(['fx-mahomes']);
+    h.clock.set(START);
+  });
+});
+
 describe('review settings and locks', () => {
   async function reviewLeague(id: string, review: 'none' | 'commissioner') {
     await seedSeasonLeague(h.repos, {
