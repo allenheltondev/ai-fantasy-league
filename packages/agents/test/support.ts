@@ -1,4 +1,4 @@
-import { FixedClock, type AgentSeatConfig } from '@fantasy/core';
+import { FixedClock, type AgentSeatConfig, yahooDefaultSettings } from '@fantasy/core';
 import {
   ApiError,
   InMemoryEventPublisher,
@@ -8,8 +8,10 @@ import {
   createRegistry,
   createServices,
   defineOperation,
+  newTeam,
   operations,
   type League,
+  type Player,
   type Registry,
   type Repos,
   type Services
@@ -65,7 +67,11 @@ export function roster(): RosterRow[] {
   ];
 }
 
-/** Stand-ins for the lineup stream's operations, with the contract the lineup task expects. */
+/**
+ * Stand-ins for the season-loop operations the lineup task needs (get_roster, set_lineup), with
+ * the contract the lineup task expects. Research tools (get_projections, get_news, ...) are the real
+ * operations, fed by `seedResearch`.
+ */
 export function fakeLineupOps(state: {
   rosters: Map<string, RosterRow[]>;
   lineups: { teamId: string; lineup: unknown }[];
@@ -85,31 +91,6 @@ export function fakeLineupOps(state: {
     input: z.object({ leagueId: z.string(), teamId: z.string(), week: z.number().int().optional() }),
     output: z.object({ week: z.number().int(), roster: z.array(z.record(z.string(), z.unknown())) }),
     handler: async (_ctx, input) => ({ week: 5, roster: state.rosters.get(input.teamId) ?? [] })
-  });
-  const getProjections = defineOperation({
-    name: 'get_projections',
-    method: 'GET',
-    path: '/leagues/{leagueId}/projections',
-    summary: 'Get projections (test)',
-    description: 'Test research tool.',
-    mutation: false,
-    input: z.object({ leagueId: z.string(), week: z.number().int(), playerIds: z.array(z.string()) }),
-    output: z.object({ projections: z.array(z.object({ playerId: z.string(), points: z.number() })) }),
-    handler: async (_ctx, input) => ({
-      projections: input.playerIds.filter((id) => id === 'rb3').map((playerId) => ({ playerId, points: 30 }))
-    })
-  });
-  const getNews = defineOperation({
-    name: 'get_news',
-    method: 'GET',
-    path: '/players/news',
-    summary: 'Get news (test)',
-    description: 'Test research tool gated by news access.',
-    tags: ['research:news'],
-    mutation: false,
-    input: z.object({ playerId: z.string().optional() }),
-    output: z.object({ items: z.array(z.string()) }),
-    handler: async () => ({ items: ['Practiced in full.'] })
   });
   const setLineup = defineOperation({
     name: 'set_lineup',
@@ -131,7 +112,7 @@ export function fakeLineupOps(state: {
       return { ok: true };
     }
   });
-  return [getRoster, getProjections, getNews, setLineup];
+  return [getRoster, setLineup];
 }
 
 export interface Setup {
@@ -154,10 +135,14 @@ export function league(overrides: Partial<League> = {}): League {
     id: LEAGUE_ID,
     name: 'Test League',
     season: 2026,
-    phase: 'pre_lock',
+    phase: 'regular_season',
     week: 5,
-    commissionerSub: 'user-123',
-    teamCount: 4,
+    settings: yahooDefaultSettings(4),
+    commissionerId: 'user-123',
+    commissionerName: 'Allen',
+    createdBy: 'user-123',
+    scheduleSeed: 'seed-1',
+    deadlines: { draftStartsAt: null, nextLineupLockAt: null, nextWaiverRunAt: null, tradeDeadlineAt: null },
     createdAt: START,
     updatedAt: START,
     version: 1,
@@ -169,11 +154,12 @@ export async function setup(
   options: { withLineupOps?: boolean; league?: Partial<League> } = {}
 ): Promise<Setup> {
   const repos = createInMemoryRepos();
-  await repos.leagues.create(league(options.league));
+  await seedLeague(repos, league(options.league));
   const clock = new FixedClock(START);
   const events = new InMemoryEventPublisher();
   const logs: string[] = [];
   const services = createServices({ clock, repos, events, log: createLogger({ sink: (l) => logs.push(l) }) });
+  await seedResearch(repos, services);
   const state = {
     rosters: new Map([
       [AGENT_TEAM, roster()],
@@ -214,4 +200,48 @@ export async function setup(
       });
     }
   };
+}
+
+/** The roster's players in the player directory, and a projection snapshot where only rb3 projects. */
+async function seedResearch(repos: Repos, services: Services): Promise<void> {
+  await repos.players.putMany(
+    roster().map((r) => ({
+      id: r.playerId,
+      name: r.name,
+      firstName: r.name,
+      lastName: r.name,
+      team: r.nflTeam,
+      position: r.positions[0] as Player['position'],
+      status: 'active',
+      injuryStatus: r.status === 'out' ? 'Out' : null,
+      aliases: [],
+      rank: null,
+      updatedAt: START
+    }))
+  );
+  const season = league().season;
+  const week = league().week ?? 5;
+  // 300 rushing yards is 30 points under any preset, enough for rb3 to start over rb2.
+  await services.data.reference.projections.putSnapshot(
+    { season, week, capturedAt: '2026-10-01T12:00:00.000Z', hash: 'agents-test', count: 1 },
+    [{ playerId: 'rb3', season, week, stats: { rush_yd: 300 } }]
+  );
+}
+
+/** The league with its four teams: team-1 is the commissioner's (a person); team-2..team-4 are agent seats. */
+async function seedLeague(repos: Repos, l: League): Promise<void> {
+  await repos.leagues.create(l);
+  const now = new Date(START);
+  const teams = [1, 2, 3, 4].map((slot) =>
+    newTeam({
+      leagueId: l.id,
+      id: `team-${slot}`,
+      draftSlot: slot,
+      settings: l.settings,
+      now,
+      ...(slot === 1 ? { owner: { userId: 'user-123', name: 'Allen', teamName: "Allen's Team" } } : {})
+    })
+  );
+  await repos.teams.create(teams);
+  await repos.members.add({ leagueId: l.id, userId: 'user-123', teamId: 'team-1', joinedAt: START });
 }

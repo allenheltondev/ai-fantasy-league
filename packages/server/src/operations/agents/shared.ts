@@ -10,44 +10,44 @@ import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import type { AgentSeatRecord } from '../../repos/agents.js';
-import type { League } from '../../repos/types.js';
+import {
+  requireCommissioner as requireLeagueCommissioner,
+  requireMember,
+  requireTeam,
+  type LeagueAccess
+} from '../../league/access.js';
+import type { Team } from '../../repos/types.js';
 
-/**
- * Shared pieces of the agent seat operations: guards and response views.
- *
- * TODO(#23): replace `requireCommissioner` and `TeamIdSchema` with the league-membership guards
- * (requireCommissioner and friends) once they land on main, and check that `teamId` is a seat in
- * the league that no human has claimed.
- */
+/** Shared pieces of the agent seat operations: guards and response views. */
 
 export const TeamIdSchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]{1,64}$/)
   .describe('The team (seat) id in this league.');
 
-export async function loadLeague(ctx: Ctx, leagueId: string): Promise<League> {
-  const league = await ctx.repos.leagues.get(leagueId);
-  if (league === null) {
-    throw new ApiError('LEAGUE_NOT_FOUND', `League "${leagueId}" does not exist.`, {
-      fix: 'Check the leagueId. Your leagues are listed by the league operations.'
-    });
-  }
-  return league;
+/** Only the league's commissioner, via the league-membership guards (#23). */
+export async function requireCommissioner(ctx: Ctx, leagueId: string): Promise<LeagueAccess> {
+  return requireLeagueCommissioner(ctx, leagueId);
 }
 
-export function isCommissioner(ctx: Ctx, league: League): boolean {
-  return ctx.principal.type === 'user' && ctx.principal.sub === league.commissionerSub;
+/** Members of the league (people and the league's own agents). */
+export async function requireMemberAccess(ctx: Ctx, leagueId: string): Promise<LeagueAccess> {
+  return requireMember(ctx, leagueId);
 }
 
-/** Minimal local guard until #23 lands: only the league's commissioner (a signed-in person). */
-export async function requireCommissioner(ctx: Ctx, leagueId: string): Promise<League> {
-  const league = await loadLeague(ctx, leagueId);
-  if (!isCommissioner(ctx, league)) {
-    throw new ApiError('FORBIDDEN', 'Only the league commissioner can do this.', {
-      fix: 'Ask the commissioner of this league to make the change.'
+export function isCommissioner(access: LeagueAccess): boolean {
+  return access.actor.kind === 'user' && access.actor.isCommissioner;
+}
+
+/** The team must exist in the league and be played by an agent (no human has claimed it). */
+export function requireAgentSeat(access: LeagueAccess, teamId: string): Team {
+  const team = requireTeam(access, teamId);
+  if (team.seatType !== 'agent') {
+    throw new ApiError('INVALID_INPUT', `Team "${teamId}" is a human seat, not an agent seat.`, {
+      fix: 'Pick a team whose seat type is agent, or turn this seat into an agent seat with set_seat_type first.'
     });
   }
-  return league;
+  return team;
 }
 
 export const PublicSeatSchema = z

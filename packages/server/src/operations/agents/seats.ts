@@ -12,7 +12,8 @@ import {
   TeamIdSchema,
   commissionerSeat,
   isCommissioner,
-  loadLeague,
+  requireAgentSeat,
+  requireMemberAccess,
   publicSeat,
   requireCommissioner
 } from './shared.js';
@@ -73,7 +74,8 @@ export const configureAgentSeat = defineOperation({
   }),
   output: z.object({ seat: CommissionerSeatSchema }),
   handler: async (ctx, input) => {
-    await requireCommissioner(ctx, input.leagueId);
+    const access = await requireCommissioner(ctx, input.leagueId);
+    requireAgentSeat(access, input.teamId);
     const { leagueId, teamId, expectedVersion, ...config } = input;
     const record = await writeSeat(
       ctx,
@@ -95,7 +97,7 @@ export const randomizeAgentSeatsOperation = defineOperation({
     'Commissioner only, before the draft (league phase "setup").',
     'Gives each listed team a different personality, and spreads difficulties and strategies evenly across them.',
     'The same `seed` always produces the same seats; leave it out for a fresh mix. Existing configs for those teams are replaced (as new versions).',
-    'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED after the draft starts; INVALID_INPUT for duplicate team ids or more teams than the league allows.'
+    'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED after the draft starts; INVALID_INPUT for duplicate team ids, human seats, or more teams than the league allows; TEAM_NOT_FOUND for a team that is not in the league.'
   ].join(' '),
   tags: ['agents'],
   mutation: true,
@@ -113,12 +115,15 @@ export const randomizeAgentSeatsOperation = defineOperation({
   }),
   output: z.object({ seed: z.string(), seats: z.array(CommissionerSeatSchema) }),
   handler: async (ctx, input) => {
-    const league = await requireCommissioner(ctx, input.leagueId);
-    if (input.teamIds.length > league.teamCount) {
-      throw new ApiError('INVALID_INPUT', `This league has ${league.teamCount} teams.`, {
-        fix: `List at most ${league.teamCount} team ids.`
+    const access = await requireCommissioner(ctx, input.leagueId);
+    const { league } = access;
+    const teamCount = league.settings.teamCount;
+    if (input.teamIds.length > teamCount) {
+      throw new ApiError('INVALID_INPUT', `This league has ${teamCount} teams.`, {
+        fix: `List at most ${teamCount} team ids.`
       });
     }
+    for (const teamId of input.teamIds) requireAgentSeat(access, teamId);
     const seed = input.seed ?? `${league.id}:${ctx.clock.now().toISOString()}`;
     const configs = randomizeAgentSeats(input.teamIds.length, seed);
     const seats = [];
@@ -136,9 +141,9 @@ export const getAgentSeat = defineOperation({
   path: '/leagues/{leagueId}/agents/{teamId}',
   summary: 'See which agent plays a team',
   description: [
-    "Returns an agent seat's public persona (personality and difficulty), which anyone can see.",
+    "Returns an agent seat's public persona (personality and difficulty), which every league member can see.",
     'The commissioner also gets the full config, its version, the effective model and lever settings, and the change history.',
-    'Errors: NOT_FOUND when the team has no agent config; LEAGUE_NOT_FOUND for an unknown league.'
+    'Errors: FORBIDDEN if you are not in the league; NOT_FOUND when the team has no agent config; LEAGUE_NOT_FOUND for an unknown league.'
   ].join(' '),
   tags: ['agents'],
   mutation: false,
@@ -151,14 +156,15 @@ export const getAgentSeat = defineOperation({
       .describe('Only for the commissioner; null for everyone else.')
   }),
   handler: async (ctx, input) => {
-    const league = await loadLeague(ctx, input.leagueId);
+    const access = await requireMemberAccess(ctx, input.leagueId);
+    const { league } = access;
     const record = await ctx.repos.agents.getSeat(league.id, input.teamId);
     if (record === null) {
       throw new ApiError('NOT_FOUND', `Team ${input.teamId} has no agent config.`, {
         fix: 'The commissioner sets one with configure_agent_seat or randomize_agent_seats.'
       });
     }
-    if (!isCommissioner(ctx, league)) return { seat: publicSeat(record), commissioner: null };
+    if (!isCommissioner(access)) return { seat: publicSeat(record), commissioner: null };
     const history = await ctx.repos.agents.seatHistory(league.id, input.teamId);
     return {
       seat: publicSeat(record),

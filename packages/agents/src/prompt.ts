@@ -1,4 +1,4 @@
-import { yahooDefaultSettings, type LeagueSettings, type ResolvedAgentConfig } from '@fantasy/core';
+import type { LeagueSettings, ResolvedAgentConfig } from '@fantasy/core';
 import type { League } from '@fantasy/server';
 
 /**
@@ -12,9 +12,9 @@ export const MEMORY_NOTES_KEPT = 20;
 
 export interface PromptInput {
   config: ResolvedAgentConfig;
-  league: Pick<League, 'id' | 'name' | 'phase' | 'week' | 'teamCount'>;
+  league: Pick<League, 'id' | 'name' | 'phase' | 'week' | 'settings'>;
   teamId: string;
-  /** League settings when known; Yahoo defaults for the league's team count otherwise. */
+  /** Overrides the league's stored settings (tests and what-if prompts). */
   settings?: LeagueSettings;
   memory: readonly string[];
   task: { title: string; instructions: string };
@@ -47,7 +47,7 @@ function fence(text: string): string {
 
 export function assembleSystemPrompt(input: PromptInput): string {
   const { config, league, teamId } = input;
-  const settings = input.settings ?? yahooDefaultSettings(league.teamCount);
+  const settings = input.settings ?? league.settings;
   const sections = [
     `# Who you are\n${config.prompt.persona}`,
     config.prompt.customFlavor === null

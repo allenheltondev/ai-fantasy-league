@@ -1,5 +1,5 @@
-import { leagueExists, staleLeague } from './errors.js';
 import { InMemoryAgentRepository } from './memory-agents.js';
+import { createInMemoryLeagueRepos } from './memory-league.js';
 import type { Player, Position } from '../players/model.js';
 import type {
   AuditEntry,
@@ -8,8 +8,6 @@ import type {
   IdempotencyBeginInput,
   IdempotencyBeginResult,
   IdempotencyRepository,
-  League,
-  LeagueRepository,
   PlayerRepository,
   Repos,
   StoredResponse
@@ -123,34 +121,12 @@ export class InMemoryPlayerRepository implements PlayerRepository {
   }
 }
 
-export class InMemoryLeagueRepository implements LeagueRepository {
-  readonly #leagues = new Map<string, League>();
-
-  async get(leagueId: string): Promise<League | null> {
-    const league = this.#leagues.get(leagueId);
-    return league === undefined ? null : clone(league);
-  }
-
-  async create(league: League): Promise<void> {
-    if (this.#leagues.has(league.id)) throw leagueExists(league.id);
-    this.#leagues.set(league.id, clone(league));
-  }
-
-  async update(league: League): Promise<League> {
-    const stored = this.#leagues.get(league.id);
-    if (stored === undefined || stored.version !== league.version) throw staleLeague(league.id);
-    const next = { ...clone(league), version: league.version + 1 };
-    this.#leagues.set(league.id, next);
-    return clone(next);
-  }
-}
-
 export function createInMemoryRepos(options: { players?: readonly Player[] } = {}): Repos {
   return {
     idempotency: new InMemoryIdempotencyRepository(),
     audit: new InMemoryAuditRepository(),
     players: new InMemoryPlayerRepository(options.players ?? []),
-    leagues: new InMemoryLeagueRepository(),
+    ...createInMemoryLeagueRepos(),
     agents: new InMemoryAgentRepository()
   };
 }

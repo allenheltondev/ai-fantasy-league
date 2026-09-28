@@ -1,0 +1,9 @@
+[
+  { "source": "ESPN", "url": "https://www.espn.com/espn/rss/nfl/news" },
+  { "source": "CBS Sports", "url": "https://www.cbssports.com/rss/headlines/nfl/" },
+  { "source": "Yahoo Sports", "url": "https://sports.yahoo.com/nfl/rss/" },
+  { "source": "ProFootballTalk", "url": "https://profootballtalk.nbcsports.com/feed/" },
+  { "source": "Pro Football Rumors", "url": "https://www.profootballrumors.com/feed" },
+  { "source": "The New York Times", "url": "https://rss.nytimes.com/services/xml/rss/nyt/ProFootball.xml" },
+  { "source": "The Guardian", "url": "https://www.theguardian.com/sport/nfl/rss" }
+]

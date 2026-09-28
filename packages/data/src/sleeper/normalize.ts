@@ -27,6 +27,9 @@ const INJURY_STATUS: Record<string, InjuryStatus> = {
   na: 'NA'
 };
 
+/** Sleeper's `search_rank` for players it does not rank. */
+export const UNRANKED = 9_999_999;
+
 function clean(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -76,6 +79,9 @@ export function normalizePlayer(raw: SleeperPlayer): Player {
   if (typeof raw.age === 'number') player.age = raw.age;
   if (typeof raw.years_exp === 'number') player.yearsExp = raw.years_exp;
   if (Number.isFinite(jersey)) player.number = jersey;
+  if (typeof raw.search_rank === 'number' && raw.search_rank > 0 && raw.search_rank < UNRANKED) {
+    player.searchRank = raw.search_rank;
+  }
   return player;
 }
 

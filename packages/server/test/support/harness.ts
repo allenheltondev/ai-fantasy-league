@@ -1,4 +1,4 @@
-import { FixedClock } from '@fantasy/core';
+import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
 import type { Hono } from 'hono';
 import { createCognitoVerifier } from '../../src/auth/verifier.js';
 import type { Services } from '../../src/context.js';
@@ -9,6 +9,7 @@ import { silentLogger } from '../../src/log.js';
 import { fixturePlayers } from '../../src/players/fixtures.js';
 import type { Registry } from '../../src/registry/registry.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
+import { createDynamoReferenceStore } from '../../src/repos/dynamo/reference.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
 import type { League, Repos } from '../../src/repos/types.js';
 import { createServices } from '../../src/services.js';
@@ -44,8 +45,12 @@ export function league(overrides: Partial<League> = {}): League {
     season: 2026,
     phase: 'setup',
     week: null,
-    commissionerSub: 'user-123',
-    teamCount: 8,
+    settings: yahooDefaultSettings(8),
+    commissionerId: 'user-123',
+    commissionerName: 'Allen',
+    createdBy: 'user-123',
+    scheduleSeed: 'seed-1',
+    deadlines: { draftStartsAt: null, nextLineupLockAt: null, nextWaiverRunAt: null, tradeDeadlineAt: null },
     createdAt: START,
     updatedAt: START,
     version: 1,
@@ -68,7 +73,13 @@ export async function createHarness(
   }
   const clock = new FixedClock(START);
   const events = new InMemoryEventPublisher();
-  const services = createServices({ clock, repos, events, log: silentLogger });
+  const services = createServices({
+    clock,
+    repos,
+    events,
+    log: silentLogger,
+    ...(table === null ? {} : { reference: createDynamoReferenceStore(table) })
+  });
   const registry = options.registry ?? testRegistry;
   const verifier = createCognitoVerifier({ userPoolId: USER_POOL_ID, clientId: CLIENT_ID, jwks });
   const app = createApp({ registry, services, verifier });

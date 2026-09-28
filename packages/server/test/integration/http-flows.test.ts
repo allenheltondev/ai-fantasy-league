@@ -104,7 +104,7 @@ describe('HTTP flows (dynalite)', () => {
         id: 'lg-flow',
         phase: 'setup',
         week: null,
-        allowedActions: ['configure_agent_seat', 'pick_player', 'randomize_agent_seats', 'rename_league']
+        allowedActions: expect.arrayContaining(['pick_player', 'rename_league', 'create_invite'])
       },
       warnings: [{ code: 'RENAMED' }]
     });

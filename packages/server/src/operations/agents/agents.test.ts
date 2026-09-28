@@ -1,6 +1,7 @@
 import { FixedClock } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
-import { league, START } from '../../../test/support/harness.js';
+import { START } from '../../../test/support/harness.js';
+import { seedLeague } from '../../../test/support/leagues.js';
 import { agentPrincipal, type Principal } from '../../auth/principal.js';
 import { createContext } from '../../context.js';
 import { InMemoryEventPublisher } from '../../events/publisher.js';
@@ -14,12 +15,19 @@ import { budgetWeek, leagueBudget } from './budget.js';
 
 const COMMISH: Principal = { type: 'user', sub: 'user-123', email: null, name: 'Commish' };
 const OTHER: Principal = { type: 'user', sub: 'user-999', email: null, name: 'Other' };
+const MEMBER: Principal = { type: 'user', sub: 'user-777', email: null, name: 'Member' };
 const AGENT = agentPrincipal({ agentId: 'lg-1.team-2', teamId: 'team-2', leagueId: 'lg-1' });
 const SEAT = { personalityId: 'hype-man', difficulty: 'all_pro', archetype: 'win_now' };
 
 async function setup(phase: LeaguePhase = 'setup') {
   const repos = createInMemoryRepos();
-  await repos.leagues.create(league({ phase, teamCount: 4, week: phase === 'setup' ? null : 5 }));
+  await seedLeague(repos, {
+    id: 'lg-1',
+    // team-1: the commissioner; team-4: another person; team-2 and team-3: agent seats.
+    owners: [{ sub: 'user-123', name: 'Commish' }, null, null, { sub: 'user-777', name: 'Member' }],
+    teamCount: 4,
+    overrides: { phase, week: phase === 'setup' ? null : 5 }
+  });
   const services = createServices({
     clock: new FixedClock(START),
     repos,
@@ -95,9 +103,11 @@ describe('agent seat operations', () => {
         commissioner: { current: { version: 1 }, history: [{ version: 1 }] }
       }
     });
-    const other = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-2' }, OTHER);
-    expect(other.body).toMatchObject({ data: { commissioner: null } });
-    expect(JSON.stringify(other.body)).not.toContain('win_now');
+    const member = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-2' }, MEMBER);
+    expect(member.body).toMatchObject({ data: { commissioner: null } });
+    expect(JSON.stringify(member.body)).not.toContain('win_now');
+    const outsider = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-2' }, OTHER);
+    expect(outsider.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
     const agent = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-2' }, AGENT);
     expect(agent.body).toMatchObject({ data: { commissioner: null } });
     const missing = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-3' });
@@ -117,28 +127,32 @@ describe('agent seat operations', () => {
     expect(late.body).toMatchObject({ error: { code: 'PHASE_NOT_ALLOWED' } });
     const bad = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team 2!', ...SEAT });
     expect(bad.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
+    const human = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-4', ...SEAT });
+    expect(human.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
+    const ghost = await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-9', ...SEAT });
+    expect(ghost.body).toMatchObject({ error: { code: 'TEAM_NOT_FOUND' } });
   });
 
   it('randomizes seats deterministically from a seed', async () => {
     const { run } = await setup();
     const a = await run('randomize_agent_seats', {
       leagueId: 'lg-1',
-      teamIds: ['t1', 't2', 't3'],
+      teamIds: ['team-2', 'team-3'],
       seed: 'fixed'
     });
     expect(a.status).toBe(200);
     const data = (a.body as { data: { seed: string; seats: { config: { personalityId: string } }[] } }).data;
     expect(data.seed).toBe('fixed');
-    expect(new Set(data.seats.map((s) => s.config.personalityId)).size).toBe(3);
+    expect(new Set(data.seats.map((s) => s.config.personalityId)).size).toBe(2);
     const b = await run('randomize_agent_seats', {
       leagueId: 'lg-1',
-      teamIds: ['t1', 't2', 't3'],
+      teamIds: ['team-2', 'team-3'],
       seed: 'fixed'
     });
     const again = (b.body as typeof a.body & { data: typeof data }).data;
     expect(again.seats.map((s) => s.config)).toEqual(data.seats.map((s) => s.config));
-    expect(again.seats.map((s) => (s as unknown as { version: number }).version)).toEqual([2, 2, 2]);
-    const unseeded = await run('randomize_agent_seats', { leagueId: 'lg-1', teamIds: ['t4'] });
+    expect(again.seats.map((s) => (s as unknown as { version: number }).version)).toEqual([2, 2]);
+    const unseeded = await run('randomize_agent_seats', { leagueId: 'lg-1', teamIds: ['team-3'] });
     expect(unseeded.body).toMatchObject({ data: { seed: `lg-1:${START}` } });
     const tooMany = await run('randomize_agent_seats', {
       leagueId: 'lg-1',
@@ -147,10 +161,12 @@ describe('agent seat operations', () => {
     expect(tooMany.body).toMatchObject({
       error: { code: 'INVALID_INPUT', message: 'This league has 4 teams.' }
     });
+    const withHuman = await run('randomize_agent_seats', { leagueId: 'lg-1', teamIds: ['team-2', 'team-4'] });
+    expect(withHuman.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
   });
 
   it('reports activity and the weekly budget to the commissioner', async () => {
-    const { run, repos } = await setup('pre_lock');
+    const { run, repos } = await setup('regular_season');
     await repos.agents.putSeat({
       leagueId: 'lg-1',
       teamId: 'team-2',
@@ -191,8 +207,8 @@ describe('agent seat operations', () => {
     expect(past.body).toMatchObject({ data: { budget: { week: 4, spentUsd: 0, exceeded: false } } });
     const denied = await run('get_agent_activity', { leagueId: 'lg-1' }, OTHER);
     expect(denied.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
-    expect(budgetWeek(league())).toBe(0);
     const league5 = await repos.leagues.get('lg-1');
+    expect(budgetWeek({ ...league5!, week: null })).toBe(0);
     expect((await leagueBudget(repos.agents, league5!)).week).toBe(5);
   });
 });

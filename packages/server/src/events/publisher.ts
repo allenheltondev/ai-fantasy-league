@@ -33,7 +33,10 @@ export type FantasyEventType =
   | 'Week Provisionally Final'
   | 'Week Official Final'
   | 'Stat Correction Applied'
-  | 'Agent Action Requested';
+  | 'Agent Action Requested'
+  | 'Member Joined'
+  | 'Member Left'
+  | 'Settings Changed';
 
 export type EventDetail = Record<string, unknown>;
 

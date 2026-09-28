@@ -45,7 +45,9 @@ describe('generateOpenApi', () => {
       ['position', 'query'],
       ['team', 'query'],
       ['limit', 'query'],
-      ['detail', 'query']
+      ['detail', 'query'],
+      ['leagueId', 'query'],
+      ['availability', 'query']
     ]);
     expect(doc.paths['/api/v1/health']?.get?.security).toEqual([]);
   });
@@ -72,15 +74,40 @@ describe('generateMcpTools', () => {
   });
 
   it('covers the production registry', () => {
-    expect(generateMcpTools(registry).map((t) => t.name)).toEqual([
-      'configure_agent_seat',
-      'get_agent_activity',
-      'get_agent_seat',
-      'get_health',
-      'get_me',
-      'get_player',
-      'randomize_agent_seats',
-      'search_players'
-    ]);
+    const names = generateMcpTools(registry).map((t) => t.name);
+    expect([...names].sort()).toEqual(registry.operations.map((op) => op.name).sort());
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'get_health',
+        'get_me',
+        'get_player',
+        'search_players',
+        'get_projections',
+        'get_trending_players',
+        'get_news',
+        'create_league',
+        'create_invite',
+        'delete_league',
+        'get_invite',
+        'get_league',
+        'get_league_state',
+        'get_matchup',
+        'get_standings',
+        'join_league',
+        'leave_league',
+        'list_invites',
+        'list_my_leagues',
+        'remove_member',
+        'rename_team',
+        'revoke_invite',
+        'set_seat_type',
+        'transfer_commissioner',
+        'update_league_settings',
+        'configure_agent_seat',
+        'randomize_agent_seats',
+        'get_agent_seat',
+        'get_agent_activity'
+      ])
+    );
   });
 });

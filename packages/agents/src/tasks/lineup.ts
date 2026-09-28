@@ -4,7 +4,6 @@ import {
   RosterSlotSchema,
   optimizeLineup,
   validateLineup,
-  yahooDefaultSettings,
   type LineupEntry,
   type OptimizedLineup,
   type RosterPlayer
@@ -22,7 +21,7 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  * with a clear reason until those operations exist):
  * - `get_roster({ leagueId, teamId, week? })` → `{ week, roster: [{ playerId, name?, positions,
  *   status, nflTeam, slot, projectedPoints? }] }`
- * - `get_projections({ leagueId, week, playerIds })` → `{ projections: [{ playerId, points }] }`
+ * - `get_projections({ leagueId, season, week, playerIds })` → `{ projections: [{ player: { id }, points }] }`
  *   (optional; falls back to `projectedPoints` on the roster)
  * - `set_lineup({ leagueId, teamId, week, lineup: [{ playerId, slot }] })`
  */
@@ -44,8 +43,9 @@ const RosterEntrySchema = z.object({
   projectedPoints: z.number().optional()
 });
 const RosterDataSchema = z.object({ week: z.number().int().optional(), roster: z.array(RosterEntrySchema) });
+/** The part of `get_projections`' response the lineup task reads. */
 const ProjectionsDataSchema = z.object({
-  projections: z.array(z.object({ playerId: z.string(), points: z.number() }))
+  projections: z.array(z.object({ player: z.object({ id: z.string() }), points: z.number() }))
 });
 
 const LineupPayloadSchema = z.object({
@@ -81,8 +81,7 @@ function dataOf(envelope: Envelope, tool: string): unknown {
 }
 
 function settingsFor(ctx: TaskContext) {
-  // TODO: use the league's stored settings once leagues persist them.
-  return yahooDefaultSettings(ctx.league.teamCount);
+  return ctx.league.settings;
 }
 
 function sameLineup(a: readonly LineupEntry[], b: readonly LineupEntry[]): boolean {
@@ -173,12 +172,13 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
       if (p.projectedPoints !== undefined) projections[p.playerId] = p.projectedPoints;
     if (week !== undefined) {
       const response = await ctx.tools.call('get_projections', {
+        season: ctx.league.season,
         week,
         playerIds: roster.map((p) => p.playerId)
       });
       if (!('error' in response)) {
         const parsed = ProjectionsDataSchema.safeParse(response.data);
-        if (parsed.success) for (const p of parsed.data.projections) projections[p.playerId] = p.points;
+        if (parsed.success) for (const p of parsed.data.projections) projections[p.player.id] = p.points;
       }
     }
     const current = rosterData.roster.map((p) => ({ playerId: p.playerId, slot: p.slot }));

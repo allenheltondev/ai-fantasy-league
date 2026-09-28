@@ -78,6 +78,11 @@ export class PlayerDirectory {
     });
   }
 
+  /** Every indexed player (the cached index). News tagging scans text against it. */
+  all(): Promise<Player[]> {
+    return this.#loadIndex();
+  }
+
   /** Drops the cached index, e.g. after a player sync. */
   invalidate(): void {
     this.#index = null;

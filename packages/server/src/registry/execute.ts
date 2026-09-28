@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import { principalKey, type Principal } from '../auth/principal.js';
 import type { Ctx } from '../context.js';
 import { ApiError, internalError, isApiError } from '../errors.js';
+import { leagueAllowedActions, phaseError, phaseFlags, resolveActor } from '../league/phase.js';
 import type { AuditEntry, League } from '../repos/types.js';
 import type { Envelope, LeagueStatus, SuccessEnvelope } from './envelope.js';
 import { OperationResult, type AnyOperation, type AuthRequirement } from './operation.js';
@@ -96,7 +97,7 @@ export async function executeOperation(request: ExecuteRequest): Promise<Execute
       claim = { scope, key };
     }
 
-    const returned = await op.handler({ ...ctx, log }, input);
+    const returned = await op.handler({ ...ctx, log, registry: request.registry }, input);
     const result = returned instanceof OperationResult ? returned : new OperationResult(returned, []);
     const data = validateOutput(op, result.data, log);
     const body: SuccessEnvelope = {
@@ -199,32 +200,26 @@ async function requireLeague(ctx: Ctx, leagueId: string): Promise<League> {
 
 function checkPhase(op: AnyOperation, league: League): void {
   if (op.phases === undefined || op.phases.includes(league.phase)) return;
-  throw new ApiError(
-    'PHASE_NOT_ALLOWED',
-    `${op.name} is not allowed while the league is in "${league.phase}".`,
-    {
-      fix: `Wait until the league is in one of: ${op.phases.join(', ')}. The response's league.allowedActions lists what you can do now.`,
-      details: { phase: league.phase, allowedPhases: op.phases }
-    }
-  );
+  throw phaseError(op.name, league.phase, op.phases);
 }
 
-/** The operations a caller may run in a league right now: league mutations allowed in its phase. */
-export function allowedActions(registry: Registry, league: League): string[] {
-  return registry.operations
-    .filter((op) => op.mutation && op.pathParams.includes('leagueId'))
-    .filter((op) => op.phases === undefined || op.phases.includes(league.phase))
-    .map((op) => op.name);
-}
-
+/** The league block of the envelope: phase, week, sub-phase flags, and what this caller may do now. */
 async function leagueStatus(registry: Registry, ctx: Ctx, leagueId: string): Promise<LeagueStatus | null> {
   const league = await ctx.repos.leagues.get(leagueId);
   if (league === null) return null;
+  const teams = await ctx.repos.teams.list(leagueId);
+  const now = ctx.clock.now();
   return {
     id: league.id,
     phase: league.phase,
     week: league.week,
-    allowedActions: allowedActions(registry, league)
+    flags: phaseFlags(league, now),
+    allowedActions: leagueAllowedActions(
+      registry.operations,
+      league,
+      resolveActor(league, teams, ctx.principal),
+      now
+    )
   };
 }
 

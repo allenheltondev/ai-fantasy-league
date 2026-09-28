@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "season": 2025,
+  "weeks": [1, 2, 3, 4],
+  "provenance": {
+    "sources": [
+      "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv",
+      "https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_2025.csv",
+      "https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_2024.csv",
+      "https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_2025.csv",
+      "https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_2024.csv",
+      "https://raw.githubusercontent.com/dynastyprocess/data/master/files/db_playerids.csv",
+      "https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_2025.csv",
+      "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_2025.csv"
+    ],
+    "projectionMethod": "Synthetic projections (historical Sleeper projections are unavailable). For week W, each stat is the weighted mean of the player's actual lines in his last 6 games played before week W (weight 0.8^i for the game i places back), blended with his prior-season per-game average weighted as (4 - W) games in weeks 1-3. A player with no current-season game yet uses the prior-season average alone; a player with neither gets no projection. Players whose team is on bye or who have no team get none. Only weeks before W are read, and the snapshot is captured before week W's first kickoff, so projections are strictly pre-kickoff.",
+    "defenseMethod": "DEF lines: pts_allow = the opponent final score from the nflverse schedule. With nflverse stats_team_week (release \"stats_team\"): sack = def_sacks, int = def_interceptions, fum_rec = fumble_recovery_opp, def_td = def_tds, def_st_td = special_teams_tds, safe = def_safeties, blk_kick = def_punt_blocks + def_fg_blocks + def_pat_blocks, def_2pt = def_2pt_made, yds_allow = the opponent's passing_yards + sack_yards_lost + rushing_yards. Without that file only pts_allow is set.",
+    "notes": [
+      "Player statuses come only from injury designations (Questionable, Doubtful, Out) and reserve (IR) lists; injury designations are visible from 2 hours before the week's first kickoff, which is up to about two days before Sunday teams' final reports.",
+      "A player's team for week W comes from his stat line that week, else the weekly roster, else his last known team.",
+      "Players without a Sleeper id keep their GSIS id as their player id."
+    ]
+  },
+  "fixture": true
+}

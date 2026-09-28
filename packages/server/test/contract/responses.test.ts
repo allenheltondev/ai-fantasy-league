@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
-import { createHarness, league, type Harness, type RequestOptions } from '../support/harness.js';
+import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
+import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
+import { seedLeague } from '../support/leagues.js';
+import { RESEARCH_LEAGUE_ID, seedReferenceData } from '../support/reference-seed.js';
 import { signIdToken } from '../support/tokens.js';
 
 const OTHER_USER = signIdToken({ sub: 'someone-else' });
@@ -53,10 +56,44 @@ const CASES: Record<string, Case[]> = {
     { label: 'not found', path: '/api/v1/players/lookup?playerId=nope', status: 404 },
     { label: 'no selector', path: '/api/v1/players/lookup', status: 400 }
   ],
+  get_projections: [
+    { label: 'one player', path: '/api/v1/projections?player=cmc', status: 200 },
+    { label: 'position, detail', path: '/api/v1/projections?position=WR&detail=true', status: 200 },
+    {
+      label: 'several ids, league scoring',
+      path: `/api/v1/projections?playerIds=fx-chase&playerIds=fx-bijan&leagueId=${RESEARCH_LEAGUE_ID}`,
+      status: 200
+    },
+    { label: 'no projections yet', path: '/api/v1/projections?season=2026&week=9', status: 200 },
+    { label: 'unknown league', path: '/api/v1/projections?leagueId=nope', status: 404 },
+    { label: 'invalid week', path: '/api/v1/projections?week=30', status: 400 }
+  ],
+  get_trending_players: [
+    { label: 'adds', path: '/api/v1/players/trending', status: 200 },
+    {
+      label: 'week lookback by position',
+      path: '/api/v1/players/trending?lookbackHours=100&position=RB',
+      status: 200
+    },
+    { label: 'no drops yet', path: '/api/v1/players/trending?type=drop', status: 200 },
+    { label: 'invalid limit', path: '/api/v1/players/trending?limit=500', status: 400 }
+  ],
+  get_news: [
+    { label: 'league-wide', path: '/api/v1/news', status: 200 },
+    { label: 'player, detail', path: '/api/v1/news?player=mccaffrey&detail=true', status: 200 },
+    { label: 'team', path: '/api/v1/news?team=BUF', status: 200 },
+    {
+      label: 'since after until',
+      path: '/api/v1/news?since=2026-09-10T00:00:00Z&until=2026-09-09T00:00:00Z',
+      status: 400
+    },
+    { label: 'unknown player', path: '/api/v1/news?playerId=nope', status: 404 }
+  ],
+  ...LEAGUE_CASES,
   configure_agent_seat: [
     {
       label: 'commissioner',
-      path: '/api/v1/leagues/lg-1/agents/team-1',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
       init: {
         body: { ...SEAT, advanced: { customFlavor: 'Loves kickers.' } },
         idempotencyKey: 'contract-cfg-1'
@@ -65,13 +102,13 @@ const CASES: Record<string, Case[]> = {
     },
     {
       label: 'not commissioner',
-      path: '/api/v1/leagues/lg-1/agents/team-1',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
       init: { body: SEAT, idempotencyKey: 'contract-cfg-2', token: OTHER_USER },
       status: 403
     },
     {
       label: 'stale version',
-      path: '/api/v1/leagues/lg-1/agents/team-1',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
       init: { body: { ...SEAT, expectedVersion: 0 }, idempotencyKey: 'contract-cfg-3' },
       status: 409
     }
@@ -80,7 +117,7 @@ const CASES: Record<string, Case[]> = {
     {
       label: 'seeded',
       path: '/api/v1/leagues/lg-1/agents/randomize',
-      init: { body: { teamIds: ['team-2', 'team-3'], seed: 'contract' }, idempotencyKey: 'contract-rnd-1' },
+      init: { body: { teamIds: ['team-3', 'team-4'], seed: 'contract' }, idempotencyKey: 'contract-rnd-1' },
       status: 200
     },
     {
@@ -91,8 +128,13 @@ const CASES: Record<string, Case[]> = {
     }
   ],
   get_agent_seat: [
-    { label: 'commissioner', path: '/api/v1/leagues/lg-1/agents/team-1', status: 200 },
-    { label: 'public', path: '/api/v1/leagues/lg-1/agents/team-1', init: { token: OTHER_USER }, status: 200 },
+    { label: 'commissioner', path: '/api/v1/leagues/lg-1/agents/team-2', status: 200 },
+    {
+      label: 'not a member',
+      path: '/api/v1/leagues/lg-1/agents/team-2',
+      init: { token: OTHER_USER },
+      status: 403
+    },
     { label: 'no seat', path: '/api/v1/leagues/lg-1/agents/team-9', status: 404 }
   ],
   get_agent_activity: [
@@ -144,7 +186,9 @@ function responseSchema(responses: Record<string, Json>, status: number): unknow
 let h: Harness;
 beforeAll(async () => {
   h = await createHarness({ backend: 'dynamo' });
-  await h.repos.leagues.create(league());
+  await seedReferenceData(h.services, h.repos);
+  await seedContractLeagues(h.repos);
+  await seedLeague(h.repos, { id: 'lg-1', owners: [{ sub: 'user-123', name: 'Allen' }], teamCount: 4 });
 });
 afterAll(() => h.close());
 

@@ -26,7 +26,7 @@ export const getAgentActivity = defineOperation({
   }),
   output: z.object({ tasks: z.array(AgentTaskRecordSchema), budget: LeagueBudgetSchema }),
   handler: async (ctx, input) => {
-    const league = await requireCommissioner(ctx, input.leagueId);
+    const { league } = await requireCommissioner(ctx, input.leagueId);
     const [tasks, budget] = await Promise.all([
       ctx.repos.agents.listTasks(league.id, { teamId: input.teamId, limit: input.limit }),
       leagueBudget(ctx.repos.agents, league, input.week)
