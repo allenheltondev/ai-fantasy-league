@@ -2,6 +2,7 @@ import { ACHIEVEMENT_IDS, NOTABLE_PICK_KINDS, TRADE_STATUSES } from '@fantasy/co
 import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
 import { PlayerRefSchema } from '../players/model.js';
+import { NflGameSchema, RedZoneTeamSchema } from '../season/nfl-games.js';
 import type { EventDetail, FantasyEventType } from './publisher.js';
 
 /**
@@ -249,6 +250,13 @@ export const EVENT_DETAIL_SCHEMAS = {
     }),
     z.object({ season: z.number().int(), week: z.number().int(), playerIds: z.array(id), updatedAt: iso })
   ]),
+  'NFL Games Updated': z.object({
+    season: z.number().int(),
+    week: z.number().int(),
+    games: z.array(NflGameSchema).describe('Every game of the week, as `get_nfl_games` serves them.'),
+    redZone: z.array(RedZoneTeamSchema).describe('The teams with the ball inside the opponent’s 20.'),
+    updatedAt: iso
+  }),
   'Week Provisionally Final': z.object({
     leagueId: id,
     season: z.number().int(),

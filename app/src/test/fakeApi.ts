@@ -267,6 +267,7 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       throw new Error('setLineup is not faked in this test');
     }),
     getMatchup: vi.fn(async () => ({ week: 1, teamId: 'team-1', matchup: null, lineups: null })),
+    getNflGames: vi.fn(async () => ({ season: 2026, week: 1, games: [], redZone: [], updatedAt: null })),
     getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] })),
     getModelLeaderboard: vi.fn(async () => ({ throughWeek: null, teams: [], models: [] })),
     getAgentActivity: vi.fn(async () => ({

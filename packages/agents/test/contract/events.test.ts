@@ -280,6 +280,44 @@ describe('event contract: the weekly cycle', () => {
     expect(scores.routed).toEqual([]);
   });
 
+  it('NFL Games Updated (from live scoring) goes to the global topic only', async () => {
+    const s = await scoredWeek();
+    s.clock.set('2026-10-04T21:00:00.000Z');
+    // ESPN's read of the week: SF driving at the LAR 7.
+    const provider = {
+      getLiveGames: async (_season: number, _week: number, asOf: Date, games: { gameId: string }[]) =>
+        games.map((g) => ({
+          gameKey: g.gameId,
+          espnId: '401772904',
+          homeTeam: 'SF',
+          awayTeam: 'LAR',
+          homeScore: 10,
+          awayScore: 7,
+          kickoff: SF_KICKOFF,
+          state: 'in',
+          status: '8:32 - 2nd',
+          period: 2,
+          clock: '8:32',
+          possessionTeam: 'SF',
+          isRedZone: true,
+          downDistance: '2nd & 4 at LAR 7',
+          fieldPosition: 'LAR 7',
+          yardsToGoal: 7,
+          updatedAt: asOf.toISOString()
+        }))
+    };
+    await JOBS.scoreLiveWeek({ ...jobDeps(s), provider } as unknown as JobDeps, s.clock);
+    const games = await consume(s.services, delivered(last(s.events.events, 'NFL Games Updated')));
+    expect(games.event.detail).toMatchObject({
+      season: 2026,
+      week: 5,
+      redZone: [{ team: 'SF', downDistance: '2nd & 4 at LAR 7', fieldPosition: 'LAR 7' }]
+    });
+    expect(games.relay.topics).toEqual(['fantasy.global']);
+    expect(games.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+    expect(games.routed).toEqual([]);
+  });
+
   it('Week Provisionally Final announces the top score and the biggest blowout', async () => {
     const s = await scoredWeek();
     s.clock.set('2026-10-06T12:00:00.000Z');
@@ -992,6 +1030,7 @@ describe('event contract coverage', () => {
       'Agent Budget Exceeded',
       'Chat Message Posted',
       'Scores Updated',
+      'NFL Games Updated',
       'Week Official Final',
       'Stat Correction Applied',
       'Season Completed',

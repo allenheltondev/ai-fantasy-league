@@ -20,8 +20,10 @@ import {
   type ProjectionRepository,
   type ProjectionSnapshot,
   type ReferenceStore,
+  type NflGamesRepository,
   type NflScheduleRepository,
   type StatsRepository,
+  type StoredNflWeek,
   type StoredNflState,
   type StoredSeasonSchedule,
   type StoredStatLine,
@@ -37,6 +39,8 @@ const DAY_MS = 86_400_000;
 /** News and trending snapshots expire; stats, projections, and the schedule are kept for replays. */
 export const NEWS_TTL_MS = 90 * DAY_MS;
 export const TRENDING_TTL_MS = 30 * DAY_MS;
+/** A week's live games are only read during and just after that week. */
+export const NFL_GAMES_TTL_MS = 14 * DAY_MS;
 
 const statMap = z.record(z.string(), z.number());
 
@@ -62,6 +66,34 @@ const GameSchema = z.object({
   status: z.enum(['scheduled', 'final']),
   homeScore: z.number().optional(),
   awayScore: z.number().optional()
+});
+
+const nullableString = z.string().nullable();
+const nullableNumber = z.number().nullable();
+const LiveGameSchema = z.object({
+  gameKey: nullableString,
+  espnId: z.string(),
+  homeTeam: nullableString,
+  awayTeam: nullableString,
+  homeScore: nullableNumber,
+  awayScore: nullableNumber,
+  kickoff: nullableString,
+  state: z.enum(['pre', 'in', 'post']),
+  status: nullableString,
+  period: nullableNumber,
+  clock: nullableString,
+  possessionTeam: nullableString,
+  isRedZone: z.boolean(),
+  downDistance: nullableString,
+  fieldPosition: nullableString,
+  yardsToGoal: nullableNumber,
+  updatedAt: z.string()
+});
+const NflWeekSchema = z.object({
+  season: z.number(),
+  week: z.number(),
+  games: z.array(LiveGameSchema),
+  updatedAt: z.string()
 });
 
 const SeasonScheduleSchema = z.object({
@@ -234,6 +266,37 @@ export class DynamoNflScheduleRepository implements NflScheduleRepository {
       new GetCommand({ TableName: this.table.tableName, Key: scheduleSeasonKey(season) })
     );
     return result.Item === undefined ? null : SeasonScheduleSchema.parse(result.Item);
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+export const nflGamesKey = (season: number, week: number) => ({
+  pk: `NFLGAMES#${season}`,
+  sk: weekKey(week)
+});
+
+export class DynamoNflGamesRepository implements NflGamesRepository {
+  constructor(private readonly table: TableContext) {}
+
+  async get(season: number, week: number): Promise<StoredNflWeek | null> {
+    const result = await this.table.doc.send(
+      new GetCommand({ TableName: this.table.tableName, Key: nflGamesKey(season, week) })
+    );
+    return result.Item === undefined ? null : NflWeekSchema.parse(result.Item);
+  }
+
+  async put(week: StoredNflWeek): Promise<void> {
+    await this.table.doc.send(
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: {
+          ...nflGamesKey(week.season, week.week),
+          ...week,
+          ttl: epochSeconds(new Date(Date.parse(week.updatedAt) + NFL_GAMES_TTL_MS))
+        }
+      })
+    );
   }
 }
 
@@ -509,6 +572,7 @@ export function createDynamoReferenceStore(table: TableContext): ReferenceStore 
   return {
     nflState: new DynamoNflStateRepository(table),
     schedule: new DynamoNflScheduleRepository(table),
+    nflGames: new DynamoNflGamesRepository(table),
     stats: new DynamoStatsRepository(table),
     projections: new DynamoProjectionRepository(table),
     trending: new DynamoTrendingRepository(table),
