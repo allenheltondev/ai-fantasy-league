@@ -589,40 +589,6 @@ Resources:
       Value: 'off'
       Description: Global agent kill switch. "on" puts every agent into deterministic mode.
 
-  # Model access, scoped to the catalog in packages/core/src/agents/models.ts:
-  # the us.* inference profiles in this region, plus the foundation models
-  # they route to (any US region, hence the region wildcard). Converse and
-  # ConverseStream authorize as InvokeModel / InvokeModelWithResponseStream.
-  # packages/agents/test/infra.test.ts fails when the catalog and this list drift.
-  AgentBedrockPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Condition: DeployServer
-    Properties:
-      Description: Invoke the agent model catalog's Bedrock models and inference profiles
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - bedrock:InvokeModel
-              - bedrock:InvokeModelWithResponseStream
-            Resource:
-              - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-micro-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-2-lite-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-pro-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-v1
-              - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-opus-5-v1
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-micro-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-lite-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-pro-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/moonshot.kimi-k2-thinking
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-5-v1
-              - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-opus-5-v1
-
   # Maps league events to "Agent Action Requested" for the affected agent
   # teams, with cooldowns (packages/agents/src/router.ts).
   AgentRouterFunction:
@@ -708,7 +674,36 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - DynamoDBCrudPolicy:
             TableName: !Ref FantasyTable
-        - !Ref AgentBedrockPolicy
+        # Model access, scoped to the catalog in packages/core/src/agents/models.ts:
+        # the us.* inference profiles in this region, plus the foundation models
+        # they route to (any US region, hence the region wildcard). Converse and
+        # ConverseStream authorize as InvokeModel / InvokeModelWithResponseStream.
+        # Inline rather than a managed policy: the deploy role can create roles
+        # but not standalone IAM policies.
+        # packages/agents/test/infra.test.ts fails when the catalog and this list drift.
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-micro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-2-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-pro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-opus-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-micro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-pro-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/moonshot.kimi-k2-thinking
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-5-v1
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-opus-5-v1
+            # End of agent Bedrock access
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow

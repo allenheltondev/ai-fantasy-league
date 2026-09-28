@@ -18,7 +18,7 @@ function section(start: string, end: string): string {
 }
 
 describe('agent infrastructure', () => {
-  const policy = section('  AgentBedrockPolicy:', '  AgentRouterFunction:');
+  const policy = section('        # Model access, scoped to the catalog', '# End of agent Bedrock access');
 
   it('grants every catalog model and inference profile', () => {
     for (const m of MODEL_CATALOG) {
@@ -41,7 +41,8 @@ describe('agent infrastructure', () => {
     const task = section('  AgentTaskFunction:', 'End of agent platform section');
     expect(task).toContain('Handler: agent-task.handler');
     expect(task).toContain('- Agent Action Requested');
-    expect(task).toContain('!Ref AgentBedrockPolicy');
+    expect(task).toContain(policy);
+    expect(template).not.toContain('AWS::IAM::ManagedPolicy');
     expect(task).toContain('AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter');
   });
 });
