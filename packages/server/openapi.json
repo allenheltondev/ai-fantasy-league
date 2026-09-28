@@ -6952,6 +6952,19 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               }
                             },
                             "required": [
@@ -6963,7 +6976,8 @@
                               "auto",
                               "madeAt",
                               "adp",
-                              "reason"
+                              "reason",
+                              "bye"
                             ],
                             "additionalProperties": false
                           }
@@ -7452,7 +7466,6 @@
                                 ]
                               },
                               "bye": {
-                                "description": "Bye week this season, or null when unknown.",
                                 "anyOf": [
                                   {
                                     "type": "integer",
@@ -7462,10 +7475,11 @@
                                   {
                                     "type": "null"
                                   }
-                                ]
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               },
                               "injuryStatus": {
-                                "description": "Injury designation such as \"Questionable\" or \"Out\", or null when healthy.",
+                                "description": "Injury designation such as \"Questionable\", \"Out\", or \"IR\"; null when healthy.",
                                 "type": [
                                   "string",
                                   "null"
@@ -7474,7 +7488,9 @@
                             },
                             "required": [
                               "player",
-                              "rank"
+                              "rank",
+                              "bye",
+                              "injuryStatus"
                             ],
                             "additionalProperties": false
                           },
@@ -9031,6 +9047,19 @@
                                   "string",
                                   "null"
                                 ]
+                              },
+                              "bye": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               }
                             },
                             "required": [
@@ -9042,7 +9071,8 @@
                               "auto",
                               "madeAt",
                               "adp",
-                              "reason"
+                              "reason",
+                              "bye"
                             ],
                             "additionalProperties": false
                           }
@@ -9531,7 +9561,6 @@
                                 ]
                               },
                               "bye": {
-                                "description": "Bye week this season, or null when unknown.",
                                 "anyOf": [
                                   {
                                     "type": "integer",
@@ -9541,10 +9570,11 @@
                                   {
                                     "type": "null"
                                   }
-                                ]
+                                ],
+                                "description": "The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent)."
                               },
                               "injuryStatus": {
-                                "description": "Injury designation such as \"Questionable\" or \"Out\", or null when healthy.",
+                                "description": "Injury designation such as \"Questionable\", \"Out\", or \"IR\"; null when healthy.",
                                 "type": [
                                   "string",
                                   "null"
@@ -9553,7 +9583,9 @@
                             },
                             "required": [
                               "player",
-                              "rank"
+                              "rank",
+                              "bye",
+                              "injuryStatus"
                             ],
                             "additionalProperties": false
                           },

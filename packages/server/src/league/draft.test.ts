@@ -365,6 +365,36 @@ describe('get_draft_board', () => {
     await h.repos.drafts.create(record(draftWith([{ ...player('fx-cmc'), id: 'ghost' }])));
     const board = data<{ picks: { player: unknown }[] }>(await as(h, ALICE).get(`/leagues/${L}/draft`));
     expect(board.picks[0]?.player).toEqual({ id: 'ghost', name: 'ghost', team: null, position: 'RB' });
+    expect(board.picks[0]).toMatchObject({ bye: null });
+    await h.close();
+  });
+
+  it('shows bye weeks and injury designations for picks and available players', async () => {
+    const hurt = { ...player('fx-jjefferson'), injuryStatus: 'Questionable' };
+    const pool = fixtureDraftPool.map((p) => (p.id === hurt.id ? hurt : p));
+    const h = await createHarness({ registry, players: pool });
+    await seedLeague(h.repos, { id: L, owners: [ALICE], teamCount: 4, overrides: { phase: 'drafting' } });
+    await h.repos.drafts.create(record(draftWith([player('fx-cmc')])));
+    type Row = { player: { id: string; team: string }; bye: number | null; injuryStatus?: string | null };
+    const read = async () =>
+      data<{ picks: Row[]; bestAvailable: Row[] }>(await as(h, ALICE).get(`/leagues/${L}/draft?limit=50`));
+    // Before the schedule sync there are no byes.
+    expect((await read()).bestAvailable.every((r) => r.bye === null)).toBe(true);
+    const cmc = player('fx-cmc');
+    await h.services.data.reference.schedule.putSeason(
+      2026,
+      [],
+      { [cmc.team!]: 14, [hurt.team!]: 6 },
+      new Date(START)
+    );
+    const board = await read();
+    expect(board.picks[0]).toMatchObject({ player: { id: 'fx-cmc' }, bye: 14 });
+    expect(board.bestAvailable.find((r) => r.player.id === hurt.id)).toMatchObject({
+      bye: 6,
+      injuryStatus: 'Questionable'
+    });
+    const other = board.bestAvailable.find((r) => r.player.team !== cmc.team && r.player.team !== hurt.team);
+    expect(other).toMatchObject({ bye: null, injuryStatus: null });
     await h.close();
   });
 });

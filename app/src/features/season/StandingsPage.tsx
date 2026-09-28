@@ -3,10 +3,14 @@ import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
+import { STACKED_BLOCK, STACKED_HEAD, STACKED_LABEL, STACKED_ROW } from '../../lib/stackedTable';
 import { LoadingSkeleton, stagger } from '../../motion/decor';
 import { HistoryPanel } from './HistoryPanel';
 import { ModelLeaderboardPanel } from './ModelLeaderboardPanel';
 import { PlayoffsPanel } from './PlayoffsPanel';
+
+/** A standings row as a card below `sm`: rank | team | record, then PF | PA | streak. */
+const ROW = `${STACKED_ROW} max-sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_auto]`;
 
 const VIEWS = [
   { id: 'standings', label: 'Standings' },
@@ -64,13 +68,14 @@ function StandingsTable() {
     body = <EmptyState title="No standings yet" description="Standings start once the season does." />;
   } else {
     body = (
-      <table className="w-full text-sm" aria-label="Standings">
-        <caption className="text-left text-muted-foreground">
+      // Below `sm` each team is a card: rank, name and record, then PF, PA and streak.
+      <table className={`w-full text-sm ${STACKED_BLOCK}`} aria-label="Standings">
+        <caption className="text-left text-muted-foreground max-sm:block">
           {loaded.data.throughWeek === null
             ? 'No games final yet'
             : `Through week ${loaded.data.throughWeek}`}
         </caption>
-        <thead>
+        <thead className={STACKED_HEAD}>
           <tr className="text-left text-muted-foreground">
             <th scope="col">#</th>
             <th scope="col">Team</th>
@@ -80,19 +85,25 @@ function StandingsTable() {
             <th scope="col">Streak</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className={STACKED_BLOCK}>
           {loaded.data.standings.map((row, index) => (
             <tr
               key={row.teamId}
-              className={`motion-row ${stagger(index).className}`}
+              className={`motion-row ${stagger(index).className} ${ROW}`}
               style={stagger(index).style}
             >
-              <td>{row.rank}</td>
-              <td>{row.teamName}</td>
-              <td>{row.record}</td>
-              <td>{row.pointsFor.toFixed(2)}</td>
-              <td>{row.pointsAgainst.toFixed(2)}</td>
-              <td>{row.streak ?? '–'}</td>
+              <td className="max-sm:row-span-2 max-sm:self-start max-sm:font-semibold">{row.rank}</td>
+              <td className="break-words max-sm:col-span-2 max-sm:font-medium">{row.teamName}</td>
+              <td className="max-sm:text-right">{row.record}</td>
+              <td data-label="PF" className={`max-sm:col-start-2 ${STACKED_LABEL}`}>
+                {row.pointsFor.toFixed(2)}
+              </td>
+              <td data-label="PA" className={STACKED_LABEL}>
+                {row.pointsAgainst.toFixed(2)}
+              </td>
+              <td data-label="Streak" className={`max-sm:text-right ${STACKED_LABEL}`}>
+                {row.streak ?? '–'}
+              </td>
             </tr>
           ))}
         </tbody>
