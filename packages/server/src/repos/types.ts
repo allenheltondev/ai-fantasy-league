@@ -348,6 +348,10 @@ export interface DraftRepository {
   getQueue(leagueId: string, teamId: string): Promise<DraftQueueRecord | null>;
   /** Replaces the team's draft queue. */
   putQueue(queue: DraftQueueRecord): Promise<void>;
+  /** Records that `memberKey` (a team id, or `commissioner`) has the draft lobby open at `at`. */
+  checkIn(leagueId: string, memberKey: string, at: string): Promise<void>;
+  /** When each member last checked in to the draft lobby. */
+  lobby(leagueId: string): Promise<Record<string, string>>;
 }
 
 export interface Repos {

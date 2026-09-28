@@ -35,6 +35,10 @@ export const lineupKey = (leagueId: string, week: number, teamId: string) => ({
 });
 
 export const draftKey = (leagueId: string) => ({ pk: leaguePk(leagueId), sk: 'DRAFT' });
+export const draftLobbyKey = (leagueId: string, memberKey: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `DRAFTLOBBY#${memberKey}`
+});
 export const draftQueueKey = (leagueId: string, teamId: string) => ({
   pk: leaguePk(leagueId),
   sk: `DRAFTQUEUE#${teamId}`
@@ -50,7 +54,8 @@ export const ENTITY = {
   standings: 'standings',
   lineup: 'lineup',
   draft: 'draft',
-  draftQueue: 'draftQueue'
+  draftQueue: 'draftQueue',
+  draftLobby: 'draftLobby'
 } as const;
 
 const iso = z.string();

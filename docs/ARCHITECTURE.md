@@ -168,6 +168,10 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 | `Draft Completed` | The draft ends (`recap`: steals, reaches, and each agent's first pick with its reasoning, and `recapText` for the chat; core `draftRecap`) |
 | `Draft Paused` / `Draft Resumed` | The commissioner freezes or restarts the pick clock; relayed so open boards stop or restart their countdown |
 | `Draft Pick Deadline` | A pick's clock runs out (scheduled with `scheduleAt`; the API function autopicks if the pick is still open) |
+| `Draft Start Scheduled` | The league's `draft.scheduledAt` arrives (scheduled with `scheduleAt`; the API function starts the draft if the time still holds) |
+| `Draft Reminder Due` | Ten minutes before `draft.scheduledAt` (scheduled; the API function emits `Draft Starting Soon`) |
+| `Draft Starting Soon` | The scheduled draft starts in a few minutes (chat, and relayed to the league topic) |
+| `Draft Start Blocked` | The scheduled start could not happen (e.g. `SEATS_NOT_FILLED`); chat tells the commissioner what to fix |
 | `Week Rolled Over` | A new NFL week starts (`syncNflState`), or a league moves to its next week (the weekly cycle; carries `leagueId`) |
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
 | `Waiver Window Opened` | Waivers open (after every daily run; agents are triggered only for the first window of each league week) |

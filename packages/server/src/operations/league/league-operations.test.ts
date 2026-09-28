@@ -227,7 +227,13 @@ describe('reading leagues', () => {
         phase: 'setup',
         week: null,
         flags: { waiversOpen: false, preLock: false, tradeDeadlinePassed: false },
-        allowedActions: ['leave_league', 'post_message', 'rename_team', 'set_draft_queue']
+        allowedActions: [
+          'check_in_draft_lobby',
+          'leave_league',
+          'post_message',
+          'rename_team',
+          'set_draft_queue'
+        ]
       }
     });
     const state = data<Record<string, unknown>>(await bob.get('/leagues/lg-r/state'));
@@ -236,7 +242,13 @@ describe('reading leagues', () => {
       phase: 'setup',
       youAreCommissioner: false,
       yourTeam: { id: 'team-2', ownerUserId: 'bob' },
-      allowedActions: ['leave_league', 'post_message', 'rename_team', 'set_draft_queue'],
+      allowedActions: [
+        'check_in_draft_lobby',
+        'leave_league',
+        'post_message',
+        'rename_team',
+        'set_draft_queue'
+      ],
       deadlines: { startWeek: 1, regularSeasonEndWeek: 14, playoffWeeks: [15, 16, 17], tradeDeadlineWeek: 11 }
     });
     expect(state.teams).toHaveLength(8);

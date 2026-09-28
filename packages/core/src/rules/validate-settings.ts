@@ -409,6 +409,44 @@ export interface SettingsChangeContext {
   phase: LeaguePhaseForSettings;
   /** Current NFL week, used for deadline changes mid-season. */
   currentWeek?: number;
+  /** Now, from the caller's clock: a new `draft.scheduledAt` must be after it (`checkDraftSchedule`). */
+  now?: Date;
+}
+
+/** How far ahead a draft can be scheduled. */
+export const MAX_DRAFT_SCHEDULE_DAYS = 60;
+/** Minutes before a scheduled draft that the league is reminded. */
+export const DRAFT_REMINDER_MINUTES = 10;
+
+/**
+ * Checks a scheduled draft time: after `now`, and at most `MAX_DRAFT_SCHEDULE_DAYS` ahead. A null
+ * time (the commissioner starts the draft by hand) is always fine.
+ */
+export function checkDraftSchedule(scheduledAt: string | null, now: Date): RuleIssue[] {
+  if (scheduledAt === null) return [];
+  const at = Date.parse(scheduledAt);
+  if (at <= now.getTime()) {
+    return [
+      ruleError(
+        'DRAFT_TIME_IN_PAST',
+        'draft.scheduledAt',
+        `The draft time ${scheduledAt} has already passed.`,
+        `Pick a time after ${now.toISOString()} (ISO 8601 with a time zone, e.g. "2026-09-05T00:00:00Z"), or set draft.scheduledAt to null and start the draft by hand.`
+      )
+    ];
+  }
+  const latest = now.getTime() + MAX_DRAFT_SCHEDULE_DAYS * 86_400_000;
+  if (at > latest) {
+    return [
+      ruleError(
+        'DRAFT_TIME_TOO_FAR',
+        'draft.scheduledAt',
+        `The draft can be scheduled at most ${MAX_DRAFT_SCHEDULE_DAYS} days ahead.`,
+        `Pick a time before ${new Date(latest).toISOString()}.`
+      )
+    ];
+  }
+  return [];
 }
 
 /**
@@ -462,6 +500,9 @@ export function checkSettingsChange(
         );
       }
     }
+  }
+  if (context.now !== undefined && current.draft.scheduledAt !== next.draft.scheduledAt) {
+    issues.push(...checkDraftSchedule(next.draft.scheduledAt, context.now));
   }
   return [...issues, ...validateLeagueSettings(next)];
 }

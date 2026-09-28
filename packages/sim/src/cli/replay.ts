@@ -8,7 +8,7 @@
  *   npm run sim:replay -w @fantasy/sim -- --archive 2025 --start-week 4
  *
  * Options: --archive fixtures|<season>|<dir>, --weeks N, --start-week N, --teams N (default 8),
- * --seed S, --anonymize, --report <file.json>, --markdown <file.md>, --stats-every <minutes>.
+ * --seed S, --anonymize, --scheduled-draft (the draft starts itself at its scheduled time), --report <file.json>, --markdown <file.md>, --stats-every <minutes>.
  */
 import { writeFile } from 'node:fs/promises';
 import { readSimArchive } from '../archive/io.js';
@@ -28,6 +28,7 @@ async function main(): Promise<void> {
     seed: stringArg(args, 'seed', 'replay') as string,
     teamCount: intArg(args, 'teams', 8) as number,
     anonymizePlayers: args.has('anonymize'),
+    scheduledDraft: args.has('scheduled-draft'),
     ...(weeks !== undefined ? { weeks } : {}),
     ...(startWeek !== undefined ? { startWeek } : {}),
     ...(statsEvery !== undefined

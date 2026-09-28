@@ -157,6 +157,21 @@ export const EVENT_DETAIL_SCHEMAS = {
     resumedAt: iso
   }),
   'Draft Pick Deadline': z.object({ leagueId: id, pick: z.number().int().min(1), deadline: iso }),
+  'Draft Start Scheduled': z.object({ leagueId: id, scheduledAt: iso }),
+  'Draft Reminder Due': z.object({ leagueId: id, scheduledAt: iso }),
+  'Draft Starting Soon': z.object({
+    leagueId: id,
+    scheduledAt: iso,
+    minutes: z.number().int().min(1).describe('Minutes until the draft starts.')
+  }),
+  'Draft Start Blocked': z.object({
+    leagueId: id,
+    scheduledAt: iso,
+    commissionerId: id,
+    code: z.string().describe('Why it could not start (the start_draft error code).'),
+    reason: z.string(),
+    fix: z.string().describe('What the commissioner can do about it.')
+  }),
   'Week Rolled Over': z.union([
     z.object({
       leagueId: id,

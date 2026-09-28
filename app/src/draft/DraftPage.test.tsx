@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -114,6 +114,30 @@ afterEach(() => {
   vi.useRealTimers();
   localStorage.clear();
 });
+
+const NOT_STARTED = new ApiError(409, {
+  code: 'DRAFT_NOT_STARTED',
+  message: 'The draft has not started yet.',
+  fix: 'Wait for the commissioner.'
+});
+
+function lobbyView(overrides: Record<string, unknown> = {}) {
+  const teams = [
+    { teamId: 'team-1', teamName: "Allen's Team", seatType: 'human', here: true, lastSeenAt: null },
+    { teamId: 'team-2', teamName: 'The Spreadsheet', seatType: 'agent', here: true, lastSeenAt: null }
+  ];
+  return {
+    phase: 'setup',
+    scheduledAt: null,
+    orderMode: 'slots',
+    serverTime: new Date(NOW).toISOString(),
+    order: teams,
+    teams,
+    commissionerHere: true,
+    canStart: false,
+    ...overrides
+  };
+}
 
 const LIVE_INFO = {
   enabled: true,
@@ -312,18 +336,52 @@ describe('DraftPage', () => {
     expect(screen.getByTestId('cell-1')).toHaveTextContent(/^Christian McCaffrey \(RB\)$/);
   });
 
-  it('explains a draft that has not started', async () => {
-    const notStarted = fakeApi(
-      () =>
-        new ApiError(409, {
-          code: 'DRAFT_NOT_STARTED',
-          message: 'Not yet.',
-          fix: 'Wait for the commissioner.'
-        })
-    );
-    renderDraft(notStarted.api);
-    expect(await screen.findByText('The draft has not started')).toBeInTheDocument();
-    expect(screen.getByText('Wait for the commissioner.')).toBeInTheDocument();
+  it('is a lobby before the draft, and flips to the board when the draft starts', async () => {
+    let onEvent: (event: LeagueEvent) => void = () => undefined;
+    const connect: EventConnect = async (_target, handlers) => {
+      onEvent = handlers.onEvent;
+      return () => undefined;
+    };
+    let started = false;
+    const { api, calls } = fakeApi((path) => {
+      if (path.endsWith('/realtime')) return LIVE_INFO;
+      if (path.endsWith('/draft/lobby'))
+        return lobbyView({ scheduledAt: new Date(NOW + 65_000).toISOString() });
+      if (path === '/players') return { players: [] };
+      return started ? board() : NOT_STARTED;
+    });
+    renderDraft(api, 60_000, connect);
+    expect(await screen.findByTestId('draft-countdown')).toHaveTextContent('1:05');
+    expect(screen.getByRole('list', { name: "Who's here" })).toHaveTextContent("Allen's Team");
+    // A reminder makes the lobby check in again at once.
+    const checkIns = () => calls.filter((c) => c.path.endsWith('/draft/lobby')).length;
+    const before = checkIns();
+    act(() => onEvent({ detailType: 'Draft Starting Soon', leagueId: 'L1' }));
+    await waitFor(() => expect(checkIns()).toBeGreaterThan(before));
+    // The first turn is announced: the board replaces the lobby without a reload.
+    started = true;
+    act(() => onEvent({ detailType: 'Draft Turn Started', leagueId: 'L1' }));
+    expect(await screen.findByText(/is on the clock: round 1, pick 2/)).toBeInTheDocument();
+    expect(screen.queryByTestId('draft-lobby')).not.toBeInTheDocument();
+  });
+
+  it('looks for the board when the countdown runs out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let started = false;
+    const { api } = fakeApi((path) => {
+      if (path.endsWith('/draft/lobby'))
+        return lobbyView({ scheduledAt: new Date(NOW + 3_000).toISOString() });
+      if (path === '/players') return { players: [] };
+      return started ? board() : NOT_STARTED;
+    });
+    const clock = renderDraft(api);
+    expect(await screen.findByTestId('draft-countdown')).toHaveTextContent('0:03');
+    started = true;
+    clock.advance(4_000);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_100);
+    });
+    expect(await screen.findByText(/is on the clock/)).toBeInTheDocument();
   });
 
   it('offers a retry when the board cannot load', async () => {

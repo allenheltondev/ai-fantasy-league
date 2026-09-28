@@ -1750,7 +1750,9 @@
                             },
                             "draft": {
                               "default": {
-                                "pickSeconds": 90
+                                "pickSeconds": 90,
+                                "scheduledAt": null,
+                                "orderMode": "slots"
                               },
                               "type": "object",
                               "properties": {
@@ -1758,10 +1760,33 @@
                                   "type": "integer",
                                   "minimum": 15,
                                   "maximum": 86400
+                                },
+                                "scheduledAt": {
+                                  "default": null,
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "orderMode": {
+                                  "default": "slots",
+                                  "type": "string",
+                                  "enum": [
+                                    "slots",
+                                    "random"
+                                  ]
                                 }
                               },
                               "required": [
-                                "pickSeconds"
+                                "pickSeconds",
+                                "scheduledAt",
+                                "orderMode"
                               ],
                               "additionalProperties": false
                             }
@@ -2941,7 +2966,9 @@
                             },
                             "draft": {
                               "default": {
-                                "pickSeconds": 90
+                                "pickSeconds": 90,
+                                "scheduledAt": null,
+                                "orderMode": "slots"
                               },
                               "type": "object",
                               "properties": {
@@ -2949,10 +2976,33 @@
                                   "type": "integer",
                                   "minimum": 15,
                                   "maximum": 86400
+                                },
+                                "scheduledAt": {
+                                  "default": null,
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "orderMode": {
+                                  "default": "slots",
+                                  "type": "string",
+                                  "enum": [
+                                    "slots",
+                                    "random"
+                                  ]
                                 }
                               },
                               "required": [
-                                "pickSeconds"
+                                "pickSeconds",
+                                "scheduledAt",
+                                "orderMode"
                               ],
                               "additionalProperties": false
                             }
@@ -7952,6 +8002,318 @@
         "x-mutation": false
       }
     },
+    "/api/v1/leagues/{leagueId}/draft/lobby": {
+      "post": {
+        "operationId": "check_in_draft_lobby",
+        "summary": "Check in to the draft room and see who else is there before the draft",
+        "description": "Marks you as present in the draft room (for about 45 seconds) and returns the lobby: when the draft starts (`scheduledAt`, with `serverTime` for the countdown), the round-1 order when it is known, and which managers are here. Agent seats are always here. Call it every 15 seconds while the lobby is open. Once `phase` is `drafting`, read get_draft_board instead. Only members and the commissioner, before or during the draft.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "phase": {
+                          "type": "string",
+                          "enum": [
+                            "setup",
+                            "drafting"
+                          ],
+                          "description": "`drafting` once the draft has started: open the board."
+                        },
+                        "scheduledAt": {
+                          "description": "When the draft starts by itself; null when the commissioner starts it by hand.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orderMode": {
+                          "type": "string",
+                          "enum": [
+                            "slots",
+                            "random"
+                          ]
+                        },
+                        "serverTime": {
+                          "type": "string",
+                          "description": "The server clock now, for an accurate countdown."
+                        },
+                        "order": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "teamId": {
+                                    "type": "string"
+                                  },
+                                  "teamName": {
+                                    "type": "string"
+                                  },
+                                  "seatType": {
+                                    "type": "string",
+                                    "enum": [
+                                      "human",
+                                      "agent"
+                                    ]
+                                  },
+                                  "here": {
+                                    "type": "boolean",
+                                    "description": "In the draft room now. Agent seats are always here."
+                                  },
+                                  "lastSeenAt": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "teamId",
+                                  "teamName",
+                                  "seatType",
+                                  "here",
+                                  "lastSeenAt"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Round-1 order by draft slot; null when it will be shuffled at the start."
+                        },
+                        "teams": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "teamId": {
+                                "type": "string"
+                              },
+                              "teamName": {
+                                "type": "string"
+                              },
+                              "seatType": {
+                                "type": "string",
+                                "enum": [
+                                  "human",
+                                  "agent"
+                                ]
+                              },
+                              "here": {
+                                "type": "boolean",
+                                "description": "In the draft room now. Agent seats are always here."
+                              },
+                              "lastSeenAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "teamId",
+                              "teamName",
+                              "seatType",
+                              "here",
+                              "lastSeenAt"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Every seat and whether its manager is in the draft room."
+                        },
+                        "commissionerHere": {
+                          "type": "boolean"
+                        },
+                        "canStart": {
+                          "type": "boolean",
+                          "description": "True when you may start the draft now (start_draft)."
+                        }
+                      },
+                      "required": [
+                        "phase",
+                        "scheduledAt",
+                        "orderMode",
+                        "serverTime",
+                        "order",
+                        "teams",
+                        "commissionerHere",
+                        "canStart"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/leagues/{leagueId}/draft/pause": {
       "post": {
         "operationId": "pause_draft",
@@ -9301,7 +9663,7 @@
       "post": {
         "operationId": "start_draft",
         "summary": "Start the draft now (commissioner only)",
-        "description": "Starts the snake draft: the league moves from setup to drafting, the regular-season schedule is generated, and the first team is on the clock. Each team gets `settings.draft.pickSeconds` per pick; when the clock runs out, autopick picks for them. Round-1 order is the seats' draft slots, unless you pass `order` (every team id once) or `randomizeOrder: true`. Every seat must be taken: open human seats return SEATS_NOT_FILLED (invite someone, or make the seat an agent seat with set_seat_type). Agent seats without a configured agent get a random one. If the league's start week has already kicked off, the league starts with the next open week instead (a START_WEEK_MOVED warning). Only the commissioner can call this, and only in setup. Starting a draft twice returns PHASE_NOT_ALLOWED.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Starts the snake draft: the league moves from setup to drafting, the regular-season schedule is generated, and the first team is on the clock. Each team gets `settings.draft.pickSeconds` per pick; when the clock runs out, autopick picks for them. Round-1 order is the seats' draft slots, unless you pass `order` (every team id once) or `randomizeOrder: true`. Every seat must be taken: open human seats return SEATS_NOT_FILLED (invite someone, or make the seat an agent seat with set_seat_type). Agent seats without a configured agent get a random one. If the league's start week has already kicked off, the league starts with the next open week instead (a START_WEEK_MOVED warning). If the draft is scheduled (`settings.draft.scheduledAt`), it starts by itself at that time; calling this starts it now instead and cancels the scheduled start. Only the commissioner can call this, and only in setup. Starting a draft twice returns PHASE_NOT_ALLOWED.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "draft"
         ],
@@ -16402,7 +16764,7 @@
       "patch": {
         "operationId": "update_league_settings",
         "summary": "Change league rules (commissioner only)",
-        "description": "Changes league settings. Send only what changes in `changes`, shaped like `settings` from get_league: nested objects merge ({\"scoring\": {\"perStat\": {\"rec\": 1}}} switches to full PPR), arrays replace. Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed; in season, a new `trades.deadlineWeek` moves the deadline to that week’s first kickoff. Pass `expectedVersion` (the `version` from get_league) so you never overwrite a change you have not seen; a mismatch returns CONFLICT. Only the commissioner can call this.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Changes league settings. Send only what changes in `changes`, shaped like `settings` from get_league: nested objects merge ({\"scoring\": {\"perStat\": {\"rec\": 1}}} switches to full PPR), arrays replace. Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed; in season, a new `trades.deadlineWeek` moves the deadline to that week’s first kickoff. Schedule the draft with `draft.scheduledAt` (ISO 8601 with a time zone, in the future, at most 60 days ahead; null to start it by hand) and `draft.orderMode` (`slots` or `random`): at that time the draft starts by itself, and a reminder goes out 10 minutes before. If a human seat is still open then, the draft waits and chat says why. Pass `expectedVersion` (the `version` from get_league) so you never overwrite a change you have not seen; a mismatch returns CONFLICT. Only the commissioner can call this.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues"
         ],
@@ -16777,7 +17139,9 @@
                             },
                             "draft": {
                               "default": {
-                                "pickSeconds": 90
+                                "pickSeconds": 90,
+                                "scheduledAt": null,
+                                "orderMode": "slots"
                               },
                               "type": "object",
                               "properties": {
@@ -16785,10 +17149,33 @@
                                   "type": "integer",
                                   "minimum": 15,
                                   "maximum": 86400
+                                },
+                                "scheduledAt": {
+                                  "default": null,
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "orderMode": {
+                                  "default": "slots",
+                                  "type": "string",
+                                  "enum": [
+                                    "slots",
+                                    "random"
+                                  ]
                                 }
                               },
                               "required": [
-                                "pickSeconds"
+                                "pickSeconds",
+                                "scheduledAt",
+                                "orderMode"
                               ],
                               "additionalProperties": false
                             }
@@ -17505,6 +17892,14 @@
                               ]
                             },
                             "draftStartsAt": {
+                              "description": "When the draft started (once it has).",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "draftScheduledAt": {
+                              "description": "Before the draft: when it starts by itself (`settings.draft.scheduledAt`), or null if the commissioner starts it by hand.",
                               "type": [
                                 "string",
                                 "null"
@@ -17530,6 +17925,7 @@
                             "tradeDeadlineWeek",
                             "tradeDeadlineAt",
                             "draftStartsAt",
+                            "draftScheduledAt",
                             "nextLineupLockAt",
                             "nextWaiverRunAt"
                           ],
@@ -17922,7 +18318,9 @@
                             },
                             "draft": {
                               "default": {
-                                "pickSeconds": 90
+                                "pickSeconds": 90,
+                                "scheduledAt": null,
+                                "orderMode": "slots"
                               },
                               "type": "object",
                               "properties": {
@@ -17930,10 +18328,33 @@
                                   "type": "integer",
                                   "minimum": 15,
                                   "maximum": 86400
+                                },
+                                "scheduledAt": {
+                                  "default": null,
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "orderMode": {
+                                  "default": "slots",
+                                  "type": "string",
+                                  "enum": [
+                                    "slots",
+                                    "random"
+                                  ]
                                 }
                               },
                               "required": [
-                                "pickSeconds"
+                                "pickSeconds",
+                                "scheduledAt",
+                                "orderMode"
                               ],
                               "additionalProperties": false
                             }
@@ -30204,7 +30625,9 @@
                             },
                             "draft": {
                               "default": {
-                                "pickSeconds": 90
+                                "pickSeconds": 90,
+                                "scheduledAt": null,
+                                "orderMode": "slots"
                               },
                               "type": "object",
                               "properties": {
@@ -30212,10 +30635,33 @@
                                   "type": "integer",
                                   "minimum": 15,
                                   "maximum": 86400
+                                },
+                                "scheduledAt": {
+                                  "default": null,
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "orderMode": {
+                                  "default": "slots",
+                                  "type": "string",
+                                  "enum": [
+                                    "slots",
+                                    "random"
+                                  ]
                                 }
                               },
                               "required": [
-                                "pickSeconds"
+                                "pickSeconds",
+                                "scheduledAt",
+                                "orderMode"
                               ],
                               "additionalProperties": false
                             }
