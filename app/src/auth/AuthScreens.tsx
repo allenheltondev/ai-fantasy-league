@@ -15,7 +15,7 @@ import { Alert } from '@readysetcloud/ui';
 import { ForgotPasswordForm, LoginForm, SignUpForm, useAuth } from '@readysetcloud/ui/auth';
 import { useAppConfig } from '../config/ConfigContext';
 
-export const APP_NAME = 'Fantasy';
+export const APP_NAME = 'AI Fantasy Football';
 
 interface FlowState {
   from?: string;

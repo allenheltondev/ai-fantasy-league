@@ -17,7 +17,8 @@ export function RoomChat({
   api,
   connect,
   onOther,
-  onSeen
+  onSeen,
+  panel = false
 }: {
   leagueId: string;
   room: ChatRoom;
@@ -27,6 +28,8 @@ export function RoomChat({
   onOther(message: ChatMessage): void;
   /** Messages in this room were shown (mark it read). */
   onSeen(): void;
+  /** Fill a side panel (the draft room, #170): a small title, and the messages take the height. */
+  panel?: boolean;
 }) {
   const chat = useLeagueChat(leagueId, api, connect, room.roomId, onOther);
   const listRef = useRef<HTMLOListElement>(null);
@@ -46,9 +49,12 @@ export function RoomChat({
   const mentionable = room.kind === 'dm' ? chat.teams.filter((t) => room.teamIds.includes(t.id)) : chat.teams;
 
   return (
-    <section aria-labelledby="chat-title" className="flex min-w-0 flex-col gap-3">
+    <section
+      aria-labelledby="chat-title"
+      className={`flex min-w-0 flex-col ${panel ? 'h-full min-h-0 gap-2' : 'gap-3'}`}
+    >
       <header className="flex min-w-0 items-center justify-between gap-2">
-        <h2 id="chat-title" className="truncate text-xl font-semibold">
+        <h2 id="chat-title" className={`truncate font-semibold ${panel ? 'text-sm' : 'text-xl'}`}>
           {room.title}
         </h2>
         <p className="shrink-0 text-sm text-muted-foreground" data-testid="chat-status">
@@ -62,7 +68,9 @@ export function RoomChat({
       <ol
         ref={listRef}
         aria-label="Chat messages"
-        className="flex max-h-[60vh] min-h-48 flex-col gap-2 overflow-y-auto rounded-md border border-border p-3"
+        className={`flex flex-col gap-2 overflow-y-auto rounded-md border border-border p-3 ${
+          panel ? 'min-h-32 flex-1' : 'max-h-[60vh] min-h-48'
+        }`}
       >
         {chat.messages.length === 0 && chat.status !== 'loading' ? (
           <li className="text-sm text-muted-foreground">

@@ -1,7 +1,11 @@
 import {
   currentPick,
+  likelyGoneBeforeYourPick,
+  OFFENSE_POSITIONS,
   pickSlot,
   picksUntilTurn,
+  positionScarcity,
+  rosterLayout,
   teamPicks,
   unfilledStarterSlots,
   type LeagueSettings,
@@ -9,7 +13,7 @@ import {
 } from '@fantasy/core';
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
-import { draftPool, draftRecapOf, secondsLeft } from '../../league/draft.js';
+import { draftable, draftPool, draftRecapOf, secondsLeft } from '../../league/draft.js';
 import { leagueManagers, teamManager, TeamManagerSchema } from '../../league/managers.js';
 import { SEAT_TYPES, DRAFT_STATUSES, type DraftRecord, type Team } from '../../repos/types.js';
 import { matchPlayers } from '../../players/match.js';
@@ -54,6 +58,12 @@ const ByeSchema = z
   .int()
   .nullable()
   .describe("The player's NFL bye week this season; null when unknown (no schedule yet, or a free agent).");
+
+/** Scarcity counts players among this many best available. */
+export const SCARCITY_TOP = 100;
+/** The likely-gone model looks this deep into the pool, plus the best few at every position (K, DEF). */
+const LIKELY_POOL = 200;
+const LIKELY_PER_POSITION = 5;
 
 export const DraftBoardSchema = z.object({
   status: z.enum(DRAFT_STATUSES).describe('`in_progress`, `paused` (clock frozen), or `complete`.'),
@@ -133,6 +143,42 @@ export const DraftBoardSchema = z.object({
     )
     .describe(
       'Best undrafted players, filtered by `position` and `q` when given, ordered by `sort` (consensus rank by default).'
+    ),
+  yourRoster: z
+    .object({
+      starters: z
+        .array(
+          z.object({
+            slot: z.string().describe('Starting slot, e.g. "RB" or the flex "W/R/T".'),
+            player: PlayerRefSchema.nullable().describe('Who fills it; null while it is empty.')
+          })
+        )
+        .describe('Every starting seat the league uses, filled or empty, most specific slot filled first.'),
+      bench: z
+        .array(PlayerRefSchema)
+        .describe('Drafted players who fit no open starting slot, in pick order.'),
+      benchSize: z.number().int().describe('Picks you get beyond the starting slots (your bench spots).')
+    })
+    .nullable()
+    .optional()
+    .describe('Your drafted roster laid out by slot; null with no team.'),
+  likelyGone: z
+    .array(PlayerRefSchema)
+    .optional()
+    .describe(
+      'Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots. A hint: real drafters reach. Empty with no team or no pick left.'
+    ),
+  scarcity: z
+    .array(
+      z.object({
+        position: PositionSchema,
+        left: z.number().int().describe(`Players at the position among the ${SCARCITY_TOP} best available.`),
+        likelyGone: z.number().int().describe('Of those, how many will likely be gone before your next pick.')
+      })
+    )
+    .optional()
+    .describe(
+      `How deep each position still runs: among the ${SCARCITY_TOP} best available players by consensus rank, how many play it (e.g. 5 TEs), and how many of them will likely be gone before your next pick.`
     )
 });
 export type DraftBoard = z.infer<typeof DraftBoardSchema>;
@@ -228,6 +274,8 @@ export async function buildBoard(
     .slice(0, limit)
     .map((p) => availableEntry(p, research, byeOf(p.id)));
 
+  const undrafted = pool.filter((p: Player) => !drafted.has(p.id));
+  const gone = yourTeamId === null ? [] : likelyGone(state, yourTeamId, undrafted, input.settings);
   const away = yourTeamId === null ? null : picksUntilTurn(state, yourTeamId);
   const next = away === null ? null : pickSlot(state, state.picks.length + 1 + away);
   return {
@@ -273,7 +321,63 @@ export async function buildBoard(
       teamName: name(teamId),
       players: teamPicks(state, teamId).map((p) => ref(p.playerId, p.positions))
     })),
-    bestAvailable: available
+    bestAvailable: available,
+    yourRoster: yourTeamId === null ? null : yourRosterView(state, yourTeamId, input.settings, ref),
+    likelyGone: gone.map((id) => ref(id, [])),
+    scarcity: positionScarcity(
+      undrafted.map(draftable),
+      gone,
+      OFFENSE_POSITIONS,
+      SCARCITY_TOP,
+      // Sleeper ranks no team defense, so none is ever in the top 100: count every one still there.
+      OFFENSE_POSITIONS.filter((pos) => !undrafted.some((p) => p.position === pos && p.rank !== null))
+    )
+  };
+}
+
+/** Who the other teams likely take before your next pick, from the top of the undrafted pool. */
+function likelyGone(
+  state: DraftRecord['state'],
+  teamId: string,
+  undrafted: readonly Player[],
+  settings: LeagueSettings
+): string[] {
+  const deep = undrafted.slice(0, LIKELY_POOL);
+  const seen = new Set(deep.map((p) => p.id));
+  const extra = OFFENSE_POSITIONS.flatMap((position) =>
+    undrafted.filter((p) => p.position === position && !seen.has(p.id)).slice(0, LIKELY_PER_POSITION)
+  );
+  // The pool is in consensus order, so its ids are the rankings.
+  const candidates = [...deep, ...extra];
+  return likelyGoneBeforeYourPick(
+    state,
+    teamId,
+    candidates.map(draftable),
+    undrafted.map((p) => p.id),
+    settings
+  );
+}
+
+function yourRosterView(
+  state: DraftRecord['state'],
+  teamId: string,
+  settings: LeagueSettings,
+  ref: (id: string, positions: readonly string[]) => DraftBoard['picks'][number]['player']
+): NonNullable<DraftBoard['yourRoster']> {
+  const picks = teamPicks(state, teamId);
+  const positions = new Map(picks.map((p) => [p.playerId, p.positions]));
+  const layout = rosterLayout(
+    settings,
+    picks.map((p) => ({ playerId: p.playerId, positions: p.positions }))
+  );
+  const player = (id: string) => ref(id, positions.get(id) ?? []);
+  return {
+    starters: layout.starters.map((s) => ({
+      slot: s.slot,
+      player: s.playerId === null ? null : player(s.playerId)
+    })),
+    bench: layout.bench.map(player),
+    benchSize: Math.max(0, state.rounds - layout.starters.length)
   };
 }
 

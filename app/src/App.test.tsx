@@ -48,7 +48,7 @@ describe('signed in', () => {
     signInAs(ALICE);
     renderApp('/');
     expect(await screen.findByRole('heading', { name: 'My Leagues' })).toBeInTheDocument();
-    expect(screen.getAllByText('Fantasy').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('AI Fantasy Football').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Create League' }).length).toBeGreaterThan(0);
   });
 

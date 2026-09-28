@@ -1,7 +1,14 @@
 import { normalizePlayerStatus, WILL_NOT_PLAY_STATUSES, type Position } from '../rules/positions.js';
 import type { ScheduleSettings } from '../rules/settings.js';
 import { autopick, type DraftablePlayer, type PlayerRankings, type RosterNeeds } from './autopick.js';
-import { currentPick, pickSlot, totalPicks, type DraftPick, type DraftState } from './draft.js';
+import {
+  currentPick,
+  pickSlot,
+  picksUntilTurn,
+  totalPicks,
+  type DraftPick,
+  type DraftState
+} from './draft.js';
 
 /**
  * Draft context: the small, deterministic facts a drafter weighs beyond rank (issue #135). How long
@@ -76,6 +83,71 @@ export function likelyTakenBeforeNextTurn(
     };
   }
   return taken;
+}
+
+/**
+ * Players the other teams will likely take before `teamId` next picks, seen from anyone's seat: when
+ * `teamId` is on the clock, those gone before its following pick (`likelyTakenBeforeNextTurn`);
+ * otherwise, those gone before its upcoming pick. Same consensus-rank model, same caveat: a hint.
+ */
+export function likelyGoneBeforeYourPick(
+  draft: DraftState,
+  teamId: string,
+  available: readonly DraftablePlayer[],
+  rankings: PlayerRankings,
+  needs: RosterNeeds
+): string[] {
+  const clock = currentPick(draft);
+  if (clock === null) return [];
+  if (clock.teamId === teamId) return likelyTakenBeforeNextTurn(draft, teamId, available, rankings, needs);
+  const away = picksUntilTurn(draft, teamId);
+  if (away === null) return [];
+  let state = draft;
+  const taken: string[] = [];
+  for (let i = 0; i < away; i++) {
+    const slot = currentPick(state) as NonNullable<ReturnType<typeof currentPick>>;
+    const choice = autopick(state, available, rankings, needs);
+    if (choice === null) break;
+    taken.push(choice.playerId);
+    state = {
+      ...state,
+      picks: [
+        ...state.picks,
+        { ...slot, playerId: choice.playerId, positions: choice.positions, madeAt: null, auto: true }
+      ]
+    };
+  }
+  return taken;
+}
+
+/** How deep a position still runs: among the best available players, how many play it. */
+export interface PositionScarcity<P extends Position = Position> {
+  position: P;
+  /** Players at the position among the `top` best available (primary position). */
+  left: number;
+  /** Of those, how many will likely be gone before your next pick. */
+  likelyGone: number;
+}
+
+/**
+ * Per position, how many of the `top` best available players (best first) play it, and how many of
+ * those `gone` names. Positions in `positions` order; a position with none left still appears.
+ */
+export function positionScarcity<P extends Position>(
+  available: readonly DraftablePlayer[],
+  gone: readonly string[],
+  positions: readonly P[],
+  top: number,
+  /** Positions counted across the whole pool instead: ones the ranking leaves out (team defenses). */
+  unranked: readonly P[] = []
+): PositionScarcity<P>[] {
+  const best = available.slice(0, Math.max(0, top));
+  const goneSet = new Set(gone);
+  return positions.map((position) => {
+    const from = unranked.includes(position) ? available : best;
+    const at = from.filter((p) => p.positions[0] === position);
+    return { position, left: at.length, likelyGone: at.filter((p) => goneSet.has(p.playerId)).length };
+  });
 }
 
 function placeholder(slot: NonNullable<ReturnType<typeof currentPick>>, teamId: string): DraftPick {

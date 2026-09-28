@@ -10599,6 +10599,224 @@
                             "additionalProperties": false
                           },
                           "description": "Best undrafted players, filtered by `position` and `q` when given, ordered by `sort` (consensus rank by default)."
+                        },
+                        "yourRoster": {
+                          "description": "Your drafted roster laid out by slot; null with no team.",
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "starters": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "slot": {
+                                        "type": "string",
+                                        "description": "Starting slot, e.g. \"RB\" or the flex \"W/R/T\"."
+                                      },
+                                      "player": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string",
+                                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                              },
+                                              "name": {
+                                                "type": "string",
+                                                "description": "Full display name."
+                                              },
+                                              "team": {
+                                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                                "type": [
+                                                  "string",
+                                                  "null"
+                                                ]
+                                              },
+                                              "position": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "QB",
+                                                  "RB",
+                                                  "WR",
+                                                  "TE",
+                                                  "K",
+                                                  "DEF"
+                                                ],
+                                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                              }
+                                            },
+                                            "required": [
+                                              "id",
+                                              "name",
+                                              "team",
+                                              "position"
+                                            ],
+                                            "additionalProperties": false,
+                                            "description": "A player reference: always id, name, team, and position."
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Who fills it; null while it is empty."
+                                      }
+                                    },
+                                    "required": [
+                                      "slot",
+                                      "player"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "Every starting seat the league uses, filled or empty, most specific slot filled first."
+                                },
+                                "bench": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  "description": "Drafted players who fit no open starting slot, in pick order."
+                                },
+                                "benchSize": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991,
+                                  "description": "Picks you get beyond the starting slots (your bench spots)."
+                                }
+                              },
+                              "required": [
+                                "starters",
+                                "bench",
+                                "benchSize"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "likelyGone": {
+                          "description": "Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots. A hint: real drafters reach. Empty with no team or no pick left.",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "Full display name."
+                              },
+                              "team": {
+                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "team",
+                              "position"
+                            ],
+                            "additionalProperties": false,
+                            "description": "A player reference: always id, name, team, and position."
+                          }
+                        },
+                        "scarcity": {
+                          "description": "How deep each position still runs: among the 100 best available players by consensus rank, how many play it (e.g. 5 TEs), and how many of them will likely be gone before your next pick.",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              },
+                              "left": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Players at the position among the 100 best available."
+                              },
+                              "likelyGone": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Of those, how many will likely be gone before your next pick."
+                              }
+                            },
+                            "required": [
+                              "position",
+                              "left",
+                              "likelyGone"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -13674,6 +13892,224 @@
                             "additionalProperties": false
                           },
                           "description": "Best undrafted players, filtered by `position` and `q` when given, ordered by `sort` (consensus rank by default)."
+                        },
+                        "yourRoster": {
+                          "description": "Your drafted roster laid out by slot; null with no team.",
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "starters": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "slot": {
+                                        "type": "string",
+                                        "description": "Starting slot, e.g. \"RB\" or the flex \"W/R/T\"."
+                                      },
+                                      "player": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "id": {
+                                                "type": "string",
+                                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                              },
+                                              "name": {
+                                                "type": "string",
+                                                "description": "Full display name."
+                                              },
+                                              "team": {
+                                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                                "type": [
+                                                  "string",
+                                                  "null"
+                                                ]
+                                              },
+                                              "position": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "QB",
+                                                  "RB",
+                                                  "WR",
+                                                  "TE",
+                                                  "K",
+                                                  "DEF"
+                                                ],
+                                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                              }
+                                            },
+                                            "required": [
+                                              "id",
+                                              "name",
+                                              "team",
+                                              "position"
+                                            ],
+                                            "additionalProperties": false,
+                                            "description": "A player reference: always id, name, team, and position."
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Who fills it; null while it is empty."
+                                      }
+                                    },
+                                    "required": [
+                                      "slot",
+                                      "player"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "Every starting seat the league uses, filled or empty, most specific slot filled first."
+                                },
+                                "bench": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                      },
+                                      "name": {
+                                        "type": "string",
+                                        "description": "Full display name."
+                                      },
+                                      "team": {
+                                        "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "position": {
+                                        "type": "string",
+                                        "enum": [
+                                          "QB",
+                                          "RB",
+                                          "WR",
+                                          "TE",
+                                          "K",
+                                          "DEF"
+                                        ],
+                                        "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "name",
+                                      "team",
+                                      "position"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "A player reference: always id, name, team, and position."
+                                  },
+                                  "description": "Drafted players who fit no open starting slot, in pick order."
+                                },
+                                "benchSize": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991,
+                                  "description": "Picks you get beyond the starting slots (your bench spots)."
+                                }
+                              },
+                              "required": [
+                                "starters",
+                                "bench",
+                                "benchSize"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "likelyGone": {
+                          "description": "Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots. A hint: real drafters reach. Empty with no team or no pick left.",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "Full display name."
+                              },
+                              "team": {
+                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "team",
+                              "position"
+                            ],
+                            "additionalProperties": false,
+                            "description": "A player reference: always id, name, team, and position."
+                          }
+                        },
+                        "scarcity": {
+                          "description": "How deep each position still runs: among the 100 best available players by consensus rank, how many play it (e.g. 5 TEs), and how many of them will likely be gone before your next pick.",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              },
+                              "left": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Players at the position among the 100 best available."
+                              },
+                              "likelyGone": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Of those, how many will likely be gone before your next pick."
+                              }
+                            },
+                            "required": [
+                              "position",
+                              "left",
+                              "likelyGone"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
