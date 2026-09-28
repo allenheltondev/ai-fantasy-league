@@ -100,6 +100,21 @@ describe('advanceLeague', () => {
     // A stat correction flips the first semifinal: its winner in the final is replaced.
     const inFinal = (await repos.leagues.get(league.id)) as League;
     const semi = semis[0] as (typeof semis)[number];
+    await repos.players.putMany([
+      {
+        id: 'fx-opp',
+        name: 'Opp',
+        firstName: 'O',
+        lastName: 'Pp',
+        team: 'KC',
+        position: 'RB',
+        status: 'active',
+        injuryStatus: null,
+        aliases: [],
+        rank: null,
+        updatedAt: '2026-09-01T00:00:00.000Z'
+      }
+    ]);
     await repos.lineups.put([
       {
         leagueId: league.id,
@@ -184,6 +199,40 @@ describe('advanceLeague', () => {
       playerId: 'fx-jallen',
       slot: 'BN'
     });
+  });
+
+  it('resets waiver priority to reverse standings at rollover and records the new week kickoffs', async () => {
+    const { deps, repos, league } = await setup({ week: 2 });
+    await repos.leagues.update({
+      ...league,
+      settings: {
+        ...league.settings,
+        waivers: { ...league.settings.waivers, priorityOrder: 'reverse_standings_weekly' }
+      }
+    });
+    const week1 = (await repos.schedule.listMatchups(league.id)).filter((m) => m.week === 1);
+    await repos.schedule.putMatchups(
+      week1.map((m) => ({ ...m, homeScore: 100, awayScore: 90, status: 'final' }))
+    );
+    await advanceLeague(deps, (await repos.leagues.get(league.id)) as League, afterWeek(2));
+
+    const standings = (await repos.schedule.latestStandings(league.id))!;
+    const worstFirst = [...standings.rows].sort((a, b) => b.rank - a.rank).map((r) => r.teamId);
+    const byPriority = (await repos.teams.list(league.id))
+      .sort((a, b) => a.waiverPriority - b.waiverPriority)
+      .map((t) => t.id);
+    expect(byPriority).toEqual(worstFirst);
+
+    const moved = (await repos.leagues.get(league.id)) as League;
+    expect(moved.deadlines.lineupLocksAt).toHaveLength(4);
+    expect(moved.deadlines.lineupLocksAt?.[0]).toBe(moved.deadlines.nextLineupLockAt);
+  });
+
+  it('leaves waiver priority alone under reverse_draft_continual', async () => {
+    const { deps, repos, league } = await setup();
+    const before = (await repos.teams.list(league.id)).map((t) => [t.id, t.waiverPriority]);
+    await advanceLeague(deps, league, afterWeek(1));
+    expect((await repos.teams.list(league.id)).map((t) => [t.id, t.waiverPriority])).toEqual(before);
   });
 
   it('emits nothing when another run already moved the league', async () => {

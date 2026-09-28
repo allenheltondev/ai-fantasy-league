@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { openRosterSpots, type LineupEntry } from '../rules/lineup.js';
 import { yahooDefaultSettings, type LeagueSettings } from '../rules/settings.js';
-import { resolveWaivers, type WaiverClaim, type WaiverState } from './resolve.js';
+import { resolveWaivers, reverseStandingsOrder, type WaiverClaim, type WaiverState } from './resolve.js';
 
 const base = yahooDefaultSettings(6);
 const PLAYERS = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5'];
@@ -114,5 +114,57 @@ describe('waiver resolution properties', () => {
         expect(r.transactions).toHaveLength(r.awarded.length);
       })
     );
+  });
+
+  it('reverseStandingsOrder lists every team once, worst record first', () => {
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(fc.constantFrom('a', 'b', 'c', 'd', 'e', 'f'), { minLength: 1 }),
+        fc.array(
+          fc.record({ team: fc.constantFrom('a', 'b', 'c', 'x'), rank: fc.integer({ min: 1, max: 8 }) })
+        ),
+        (teamIds, raw) => {
+          const rows = raw.map((r) => ({ teamId: r.team, rank: r.rank }));
+          const order = reverseStandingsOrder(rows, teamIds);
+          expect([...order].sort()).toEqual([...teamIds].sort());
+          const worst = new Map<string, number>();
+          for (const r of rows) worst.set(r.teamId, Math.max(worst.get(r.teamId) ?? 0, r.rank));
+          const ranked = order.filter((id) => worst.has(id));
+          expect(order.slice(0, ranked.length)).toEqual(ranked);
+          for (let i = 1; i < ranked.length; i++) {
+            expect(worst.get(ranked[i - 1] as string)).toBeGreaterThanOrEqual(
+              worst.get(ranked[i] as string) ?? 0
+            );
+          }
+          expect(order.slice(ranked.length)).toEqual(teamIds.filter((id) => !worst.has(id)));
+        }
+      )
+    );
+  });
+
+  it('under the reverse_standings tiebreak, a tied bid goes to the worse team', () => {
+    const settings = { ...base, waivers: { ...base.waivers, faabTiebreak: 'reverse_standings' as const } };
+    const team = { roster: [], faabRemaining: 50 };
+    const claim = (teamId: string) => ({
+      claimId: `c-${teamId}`,
+      teamId,
+      addPlayerId: 'p0',
+      bid: 10,
+      priority: 1,
+      createdAt: '2026-10-01T00:00:00Z'
+    });
+    const r = resolveWaivers(settings, [claim('A'), claim('B')], {
+      teams: { A: team, B: team },
+      priorityOrder: ['A', 'B'],
+      availablePlayerIds: ['p0'],
+      reverseStandings: reverseStandingsOrder(
+        [
+          { teamId: 'A', rank: 1 },
+          { teamId: 'B', rank: 2 }
+        ],
+        ['A', 'B']
+      )
+    });
+    expect(r.awarded.map((a) => a.claim.teamId)).toEqual(['B']);
   });
 });

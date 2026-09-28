@@ -1,17 +1,10 @@
-import {
-  matchupResult,
-  scoreTeamWeek,
-  seasonAchievements,
-  weekAchievements,
-  type LineupEntry,
-  type StatLine
-} from '@fantasy/core';
+import { matchupResult, seasonAchievements, weekAchievements } from '@fantasy/core';
 import type { MatchupScoreSnapshot, OfficialWeekRecord } from '../repos/history.js';
 import type { League, Matchup } from '../repos/types.js';
 import { awardAchievements, type AchievementDeps } from './achievements.js';
-import { resolveWeekLineups, type SeasonDeps } from './lineups.js';
+import type { SeasonDeps } from './lineups.js';
 import { playedGames, rebuildPlayoffs, recordSeasonHistory, writePlayoffGames } from './playoffs.js';
-import { recordStandings, scoreLine } from './scoring.js';
+import { recordStandings, scoreLine, scoreWeek } from './scoring.js';
 
 /**
  * The Thursday official final (#80). Once the stat-correction window has closed, the week's stored
@@ -42,33 +35,6 @@ const snapshot = (m: Matchup): MatchupScoreSnapshot => ({
   homeScore: m.homeScore,
   awayScore: m.awayScore
 });
-
-/**
- * Every team's official score for a past week: the lineup stored for that week as it was played
- * (not reconciled with today's roster, which waivers may have changed since), scored from the
- * stored stats.
- */
-async function officialScores(deps: Pick<SeasonDeps, 'repos' | 'reference'>, league: League, week: number) {
-  const [teams, lines, saved] = await Promise.all([
-    deps.repos.teams.list(league.id),
-    deps.reference.stats.getWeek(league.season, week),
-    deps.repos.lineups.listWeek(league.id, week)
-  ]);
-  const stats: Record<string, StatLine> = {};
-  for (const line of lines) stats[line.playerId] = line.stats;
-  const played = new Map<string, LineupEntry[]>(saved.map((l) => [l.teamId, l.entries]));
-  const fallback = await resolveWeekLineups(
-    deps.repos,
-    teams.filter((t) => !played.has(t.id)),
-    week
-  );
-  for (const [teamId, lineup] of fallback) played.set(teamId, lineup.entries);
-  const scores = new Map<string, number>();
-  for (const [teamId, entries] of played) {
-    scores.set(teamId, scoreTeamWeek(league.settings, entries, stats).points);
-  }
-  return scores;
-}
 
 /** Who won; a tied playoff game goes to the better seed, who is always home. */
 const winnerOf = (home: number | null, away: number | null, playoff: boolean) => {
@@ -106,9 +72,11 @@ export async function finalizeOfficialWeek(
   );
   if (claim === null) return skip('already_official');
 
-  const scores = await officialScores(deps, league, week);
+  // After the week every starter has kicked off, so each is scored from the lineup as played
+  // (frozen at his kickoff), not from today's roster, which waivers may have changed since.
+  const scores = await scoreWeek(deps, league, week, now);
   const before = new Map(claim.provisional.map((p) => [p.matchupId, p]));
-  const scoreOf = (teamId: string) => scores.get(teamId) ?? 0;
+  const scoreOf = (teamId: string) => scores.get(teamId)?.points ?? 0;
   const rescored = stored.map((m) => ({
     ...m,
     homeScore: scoreOf(m.homeTeamId),

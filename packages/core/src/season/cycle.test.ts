@@ -8,12 +8,52 @@ import {
   applyLineupMoves,
   firstKickoff,
   gameWindows,
+  kickoffTimes,
+  nextKickoff,
   nextLeagueWeek,
   playoffBracket,
   playoffMatchups,
   reconcileLineup,
   weekEndsAt
 } from './cycle.js';
+
+describe('kickoffTimes and nextKickoff', () => {
+  const week = [
+    { kickoff: '2026-09-13T17:00:00.000Z', homeTeam: 'NYG', awayTeam: 'DAL' },
+    { kickoff: '2026-09-13T17:00:00.000Z', homeTeam: 'CHI', awayTeam: 'DET' },
+    { kickoff: '2026-09-11T00:15:00.000Z', homeTeam: 'KC', awayTeam: 'BAL' },
+    { kickoff: '2026-09-13T20:25:00.000Z', homeTeam: 'SEA', awayTeam: 'LAR' }
+  ];
+
+  it('lists distinct kickoffs in order and finds the next one still ahead', () => {
+    const kickoffs = kickoffTimes(week);
+    expect(kickoffs).toEqual([
+      '2026-09-11T00:15:00.000Z',
+      '2026-09-13T17:00:00.000Z',
+      '2026-09-13T20:25:00.000Z'
+    ]);
+    expect(nextKickoff(kickoffs, '2026-09-01T00:00:00.000Z')).toBe(kickoffs[0]);
+    expect(nextKickoff(kickoffs, '2026-09-11T00:15:00.000Z')).toBe(kickoffs[1]);
+    expect(nextKickoff(kickoffs, '2026-09-13T20:25:00.000Z')).toBeNull();
+    expect(kickoffTimes([])).toEqual([]);
+  });
+
+  it('nextKickoff is the smallest kickoff after now', () => {
+    const iso = (n: number) => new Date(Date.UTC(2026, 8, 10) + n * 60_000).toISOString();
+    fc.assert(
+      fc.property(
+        fc.array(fc.integer({ min: 0, max: 1000 }), { maxLength: 10 }),
+        fc.integer({ min: -1, max: 1001 }),
+        (offsets, at) => {
+          const after = offsets.filter((o) => o > at);
+          expect(nextKickoff(offsets.map(iso), iso(at))).toBe(
+            after.length === 0 ? null : iso(Math.min(...after))
+          );
+        }
+      )
+    );
+  });
+});
 
 const game = (kickoff: string, homeTeam: string, awayTeam: string) => ({ kickoff, homeTeam, awayTeam });
 

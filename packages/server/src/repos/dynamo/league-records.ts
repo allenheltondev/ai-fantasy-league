@@ -65,7 +65,9 @@ export const LeagueRecordSchema = z.object({
     draftStartsAt: iso.nullable(),
     nextLineupLockAt: iso.nullable(),
     nextWaiverRunAt: iso.nullable(),
-    tradeDeadlineAt: iso.nullable()
+    tradeDeadlineAt: iso.nullable(),
+    lineupLocksAt: z.array(iso).optional(),
+    postDraftWaiversUntil: iso.nullable().optional()
   }),
   createdAt: iso,
   updatedAt: iso,

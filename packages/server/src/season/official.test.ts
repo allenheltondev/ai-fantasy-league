@@ -38,6 +38,11 @@ async function setup(options: { provider?: StubProvider; badgeChest?: boolean } 
   const provider = options.provider ?? new StubProvider();
   const deps = { ...createTestJobDeps({ provider }), badgeChest: options.badgeChest ?? false };
   await seedNflSchedule(deps.reference);
+  // Their NFL teams play every week, so both are locked (and frozen in the lineup) once it ends.
+  await deps.repos.players.putMany([
+    fakePlayer(),
+    { ...fakePlayer(), id: 'fx-opp', name: 'Opp', team: 'KC' }
+  ]);
   await seedSeasonLeague(deps, { id: 'lg-off', owners: [ALICE], overrides: { week: 5 } });
   await deps.repos.lineups.put([
     {
@@ -182,7 +187,7 @@ describe('officialFinal job', () => {
     const { deps } = await setup({ provider });
     await deps.reference.playerSync.upsert([
       {
-        player: (await deps.repos.players.get('fx-cmc')) ?? fakePlayer(),
+        player: fakePlayer(),
         source: sourcePlayer({ id: 'fx-cmc', gsisId: '00-001' })
       }
     ]);
