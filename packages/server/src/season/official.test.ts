@@ -34,7 +34,9 @@ const cmc = (rushYards: number): StatLine & { updatedAt: string } => ({
  * A league in week 5 whose week 4 is provisionally final: team-1 (Alice) scored 10 with fx-cmc's
  * 100 rushing yards and beat its opponent 10-8.
  */
-async function setup(options: { provider?: StubProvider; badgeChest?: boolean } = {}) {
+async function setup(
+  options: { provider?: StubProvider; badgeChest?: boolean; officialWeeks?: number[] } = {}
+) {
   const provider = options.provider ?? new StubProvider();
   const deps = { ...createTestJobDeps({ provider }), badgeChest: options.badgeChest ?? false };
   await seedNflSchedule(deps.reference);
@@ -90,7 +92,23 @@ async function setup(options: { provider?: StubProvider; badgeChest?: boolean } 
     }
   ]);
   await deps.reference.stats.putLines([{ ...cmc(80), playerId: 'fx-opp' }]);
+  // Weeks 1-3 were made official on time, unless a test says otherwise.
+  for (const week of options.officialWeeks ?? [1, 2, 3]) await markOfficial(deps, week);
   return { deps, league, provider, game, opponent };
+}
+
+async function markOfficial(deps: ReturnType<typeof createTestJobDeps>, week: number) {
+  const record = {
+    leagueId: 'lg-off',
+    week,
+    status: 'complete' as const,
+    startedAt: '2026-10-01T00:00:00.000Z',
+    completedAt: '2026-10-01T00:00:00.000Z',
+    provisional: [],
+    corrections: 0,
+    flipped: 0
+  };
+  await deps.repos.history.completeOfficialWeek(record);
 }
 
 const types = (events: { detailType: string }[]) => events.map((e) => e.detailType);
@@ -179,6 +197,25 @@ describe('finalizeOfficialWeek', () => {
       value: 'lg-off'
     });
   });
+
+  it('keeps the week open when awarding achievements fails, so a retry awards them (#123)', async () => {
+    const { deps, league } = await setup();
+    const at = officialTime(4);
+    const history = deps.repos.history;
+    const addAchievements = history.addAchievements.bind(history);
+    history.addAchievements = () => Promise.reject(new Error('throttled'));
+    await expect(finalizeOfficialWeek(deps, league, 4, at)).rejects.toThrow('throttled');
+    expect((await history.getOfficialWeek('lg-off', 4))?.status).toBe('running');
+    expect(await history.listAchievements('lg-off')).toEqual([]);
+
+    history.addAchievements = addAchievements;
+    const later = new Date(at.getTime() + OFFICIAL_CLAIM_STALE_MS + 1000);
+    expect(await finalizeOfficialWeek(deps, league, 4, later)).toMatchObject({ status: 'official' });
+    expect((await history.getOfficialWeek('lg-off', 4))?.status).toBe('complete');
+    expect((await history.listAchievements('lg-off')).map((a) => a.achievementId)).toContain(
+      'weekly-high-score'
+    );
+  });
 });
 
 describe('officialFinal job', () => {
@@ -211,10 +248,12 @@ describe('officialFinal job', () => {
     });
   });
 
-  it("only looks at the week before an in-season league's current one, and recent complete leagues", async () => {
+  it('looks at played weeks of in-season leagues and recent complete leagues, never void weeks', async () => {
     const deps = createTestJobDeps();
     await seedNflSchedule(deps.reference);
     await seedSeasonLeague(deps, { id: 'lg-w1', owners: [ALICE], overrides: { week: 1 } });
+    // Drafted into week 5: weeks 1-4 are void, their matchups never scored.
+    await seedSeasonLeague(deps, { id: 'lg-void', owners: [ALICE], overrides: { week: 5 } });
     await seedSeasonLeague(deps, {
       id: 'lg-old',
       owners: [ALICE],
@@ -225,13 +264,43 @@ describe('officialFinal job', () => {
       owners: [ALICE],
       overrides: { phase: 'complete', week: 4, updatedAt: '2026-10-05T00:00:00.000Z' }
     });
+    for (const id of ['lg-old', 'lg-done']) {
+      const played = (await deps.repos.schedule.listMatchups(id)).filter((m) => m.week <= 4);
+      await deps.repos.schedule.putMatchups(
+        played.map((m): Matchup => ({ ...m, status: 'final', homeScore: 10, awayScore: 8 }))
+      );
+    }
+    for (const week of [1, 2, 3]) {
+      await deps.repos.history.completeOfficialWeek({
+        leagueId: 'lg-done',
+        week,
+        status: 'complete',
+        startedAt: '2026-10-01T00:00:00.000Z',
+        completedAt: '2026-10-01T00:00:00.000Z',
+        provisional: [],
+        corrections: 0,
+        flipped: 0
+      });
+    }
     const at = new FixedClock(officialTime(4));
-    // lg-done's week 4 is due but not final (no scores), so it is skipped after the stats pull.
     (deps.provider as StubProvider).stats = [];
     await deps.reference.playerSync.upsert([
       { player: fakePlayer(), source: sourcePlayer({ id: 'fx-cmc', gsisId: undefined }) }
     ]);
-    expect(await officialFinal(deps, at)).toMatchObject({ status: 'ok', leagues: 1, skipped: 1 });
+    // Only lg-done's week 4: lg-old completed too long ago, and lg-void has no played week.
+    expect(await officialFinal(deps, at)).toMatchObject({ status: 'ok', leagues: 1, weeks: 1, official: 1 });
+    expect((await deps.repos.history.getOfficialWeek('lg-done', 4))?.status).toBe('complete');
+    expect(await deps.repos.history.getOfficialWeek('lg-void', 4)).toBeNull();
+  });
+
+  it('backfills an earlier played week that was never made official, oldest first (#123)', async () => {
+    const { deps } = await setup({ officialWeeks: [1, 3] });
+    (deps.provider as StubProvider).stats = [cmc(100)];
+    const result = await officialFinal(deps, new FixedClock(officialTime(4)));
+    expect(result).toMatchObject({ status: 'ok', leagues: 1, weeks: 2, official: 2, failed: 0 });
+    const finals = deps.events.events.filter((e) => e.detailType === 'Week Official Final');
+    expect(finals.map((e) => (e.detail as { week: number }).week)).toEqual([2, 4]);
+    expect((await deps.repos.history.getOfficialWeek('lg-off', 2))?.status).toBe('complete');
   });
 
   it('skips without leagues, falls back to getWeekStats, and counts failures', async () => {
@@ -241,16 +310,35 @@ describe('officialFinal job', () => {
     });
     const { deps } = await setup();
     (deps.provider as StubProvider).stats = [cmc(100)];
+    const schedule = deps.repos.schedule;
+    const listMatchups = schedule.listMatchups.bind(schedule);
+    // Listing the league's weeks works; reading one week's matchups fails.
     const broken = {
       ...deps,
       repos: {
         ...deps.repos,
-        schedule: { ...deps.repos.schedule, listMatchups: async () => Promise.reject(new Error('down')) }
+        schedule: {
+          ...schedule,
+          listMatchups: async (leagueId: string, week?: number) =>
+            week === undefined ? listMatchups(leagueId) : Promise.reject(new Error('down'))
+        }
       }
     };
-    broken.repos.schedule.latestStandings = deps.repos.schedule.latestStandings.bind(deps.repos.schedule);
+    broken.repos.schedule.latestStandings = schedule.latestStandings.bind(schedule);
     expect(await officialFinal(broken, new FixedClock(officialTime(4)))).toMatchObject({ failed: 1 });
     expect((deps.provider as StubProvider).calls).toContain(`getWeekStats:${SEASON}:4`);
+    // A league whose weeks cannot be listed is counted as a failure too.
+    const down = {
+      ...deps,
+      repos: {
+        ...deps.repos,
+        schedule: { ...schedule, listMatchups: () => Promise.reject(new Error('down')) }
+      }
+    };
+    expect(await officialFinal(down, new FixedClock(officialTime(4)))).toMatchObject({
+      reason: 'no_weeks_to_finalize',
+      failed: 1
+    });
   });
 });
 

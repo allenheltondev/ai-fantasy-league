@@ -303,6 +303,75 @@ describe('DraftPage', () => {
     expect(calls.filter((c) => c.path.endsWith('/draft')).length).toBe(before + 1);
   });
 
+  it('stops the countdown as soon as the commissioner pauses the draft', async () => {
+    let onEvent: (event: LeagueEvent) => void = () => undefined;
+    const connect: EventConnect = async (_target, handlers) => {
+      onEvent = handlers.onEvent;
+      return () => undefined;
+    };
+    let paused = false;
+    const { api } = fakeApi((path) =>
+      path.endsWith('/realtime')
+        ? LIVE_INFO
+        : paused
+          ? board({
+              status: 'paused',
+              onTheClock: { ...board().onTheClock!, deadline: null, secondsLeft: 50 }
+            })
+          : board()
+    );
+    renderDraft(api, 3000, connect);
+    expect(await screen.findByText('Updating live')).toBeInTheDocument();
+    paused = true;
+    act(() => onEvent({ detailType: 'Draft Paused', leagueId: 'L1' }));
+    expect(await screen.findByText(/The commissioner paused the draft/)).toBeInTheDocument();
+    expect(screen.getByTestId('pick-clock')).toHaveTextContent('0:50');
+  });
+
+  it('shows the recap with each AI first pick and its reasoning once the draft is complete', async () => {
+    const entry = {
+      overall: 2,
+      round: 1,
+      teamId: 'team-2',
+      teamName: 'The Spreadsheet',
+      player: ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN'),
+      adp: 1,
+      value: 1,
+      reason: 'Best receiver on the board.'
+    };
+    const { api } = fakeApi(() =>
+      board({
+        status: 'complete',
+        onTheClock: null,
+        picks: [{ ...board().picks[0]!, reason: 'Workhorse back.' }],
+        recap: {
+          steals: [{ ...entry, overall: 14, round: 7, adp: 2, value: 12 }],
+          reaches: [{ ...entry, reason: null, adp: null }],
+          agentPicks: [entry, { ...entry, teamId: 'team-3', teamName: 'Robo', reason: null }]
+        }
+      })
+    );
+    renderDraft(api);
+    const recap = await screen.findByTestId('draft-recap');
+    expect(recap).toHaveTextContent("Steals: The Spreadsheet: Ja'Marr Chase at pick 14 (ADP 2)");
+    expect(recap).toHaveTextContent("Reaches: The Spreadsheet: Ja'Marr Chase at pick 2");
+    const firsts = within(screen.getByRole('list', { name: 'AI first picks' })).getAllByRole('listitem');
+    expect(firsts[0]).toHaveTextContent(
+      "The Spreadsheet took Ja'Marr Chase at pick 2: “Best receiver on the board.”"
+    );
+    expect(firsts[1]).toHaveTextContent(/^Robo took Ja'Marr Chase at pick 2$/);
+    expect(screen.getByTestId('cell-1')).toHaveAttribute('title', 'Workhorse back.');
+  });
+
+  it('shows no recap sections that are empty', async () => {
+    const { api } = fakeApi(() =>
+      board({ status: 'complete', onTheClock: null, recap: { steals: [], reaches: [], agentPicks: [] } })
+    );
+    renderDraft(api);
+    expect(await screen.findByTestId('draft-recap')).toHaveTextContent('');
+    expect(screen.queryByText('Steals:')).not.toBeInTheDocument();
+  });
+
   it('says it is polling when realtime is off', async () => {
     const { api } = fakeApi(() => board());
     renderDraft(api, 3000);

@@ -144,6 +144,94 @@ test.beforeEach(async ({ page }) => {
   }, ID_TOKEN);
 });
 
+test('a finished draft shows the recap with the AI teams reasoning', async ({ page }) => {
+  draftApi(page);
+  const reason = 'Best back on the board, and I will not miss.';
+  const recapEntry = {
+    overall: 1,
+    round: 1,
+    teamId: 'team-2',
+    teamName: 'The Spreadsheet',
+    player: CMC,
+    adp: 1,
+    value: 0,
+    reason
+  };
+  await page.route('**/api/v1/leagues/L1/draft?*', (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          status: 'complete',
+          rounds: 1,
+          pickSeconds: 90,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          order: [
+            { teamId: 'team-2', teamName: 'The Spreadsheet', seatType: 'agent' },
+            { teamId: 'team-1', teamName: "Allen's Team", seatType: 'human' }
+          ],
+          onTheClock: null,
+          yourTeamId: 'team-1',
+          yourNextPick: null,
+          yourNeeds: [],
+          picks: [
+            {
+              overall: 1,
+              round: 1,
+              pick: 1,
+              teamId: 'team-2',
+              player: CMC,
+              auto: false,
+              madeAt: null,
+              adp: 1,
+              reason
+            },
+            {
+              overall: 2,
+              round: 1,
+              pick: 2,
+              teamId: 'team-1',
+              player: LAMB,
+              auto: false,
+              madeAt: null,
+              adp: 14,
+              reason: null
+            }
+          ],
+          recap: {
+            steals: [],
+            reaches: [
+              {
+                ...recapEntry,
+                overall: 2,
+                teamId: 'team-1',
+                teamName: "Allen's Team",
+                player: LAMB,
+                adp: 14,
+                value: -12,
+                reason: null
+              }
+            ],
+            agentPicks: [recapEntry]
+          },
+          rosters: [],
+          bestAvailable: []
+        },
+        league: { id: 'L1', phase: 'regular_season', week: 1, allowedActions: [] },
+        warnings: []
+      }
+    })
+  );
+  await page.goto('/leagues/L1/draft');
+  await expect(page.getByText('The draft is complete. Good luck this season!')).toBeVisible();
+  const recap = page.getByTestId('draft-recap');
+  await expect(recap).toContainText("Reaches: Allen's Team: CeeDee Lamb at pick 2 (ADP 14)");
+  await expect(page.getByRole('list', { name: 'AI first picks' })).toContainText(
+    `The Spreadsheet took Christian McCaffrey at pick 1: “${reason}”`
+  );
+  await expect(page.getByTestId('cell-1')).toHaveAttribute('title', reason);
+});
+
 test('a human on the clock drafts a player from the board', async ({ page }) => {
   const posted = draftApi(page);
   await page.goto('/leagues/L1/draft');

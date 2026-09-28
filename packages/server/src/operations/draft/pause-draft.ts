@@ -1,3 +1,4 @@
+import { currentPick } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../../errors.js';
 import { requireCommissioner } from '../../league/access.js';
@@ -38,6 +39,13 @@ export const pauseDraft = defineOperation({
         deadline: null,
         updatedAt: now.toISOString()
       });
+      // Pushed to open boards (the realtime relay), so their countdowns stop now.
+      await ctx.events.publish('Draft Paused', {
+        leagueId: record.leagueId,
+        pick: currentPick(record.state)?.overall ?? null,
+        secondsLeft: record.pausedRemainingSeconds,
+        pausedAt: now.toISOString()
+      });
     }
     return { status: record.status, deadline: record.deadline, secondsLeft: secondsLeft(record, now) };
   }
@@ -72,6 +80,13 @@ export const resumeDraft = defineOperation({
       pausedRemainingSeconds: null,
       deadline: new Date(now.getTime() + seconds * 1000).toISOString(),
       updatedAt: now.toISOString()
+    });
+    await ctx.events.publish('Draft Resumed', {
+      leagueId: resumed.leagueId,
+      pick: currentPick(resumed.state)?.overall ?? null,
+      deadline: resumed.deadline as string,
+      secondsLeft: seconds,
+      resumedAt: now.toISOString()
     });
     await announceTurn(ctx, resumed);
     return { status: resumed.status, deadline: resumed.deadline, secondsLeft: secondsLeft(resumed, now) };

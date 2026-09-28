@@ -18,6 +18,7 @@ export * from './history/achievements.js';
 export * from './history/moves.js';
 export * from './draft/draft.js';
 export * from './draft/autopick.js';
+export * from './draft/recap.js';
 export * from './time.js';
 export * from './waivers/resolve.js';
 export * from './waivers/period.js';

@@ -26,9 +26,37 @@ export interface DraftBoard {
   yourTeamId: string | null;
   yourNextPick: (DraftSlot & { picksAway: number }) | null;
   yourNeeds: string[];
-  picks: (DraftSlot & { teamId: string; player: PlayerRef; auto: boolean; madeAt: string | null })[];
+  picks: (DraftSlot & {
+    teamId: string;
+    player: PlayerRef;
+    auto: boolean;
+    madeAt: string | null;
+    adp?: number | null;
+    /** Why the team made the pick (an agent's reasoning). */
+    reason?: string | null;
+  })[];
+  /** Once the draft is complete: its steals, reaches, and each agent's first pick. */
+  recap?: DraftRecap | null;
   rosters: { teamId: string; teamName: string; players: PlayerRef[] }[];
   bestAvailable: { player: PlayerRef; rank: number | null }[];
+}
+
+export interface DraftRecapEntry {
+  overall: number;
+  round: number;
+  teamId: string;
+  teamName: string;
+  player: PlayerRef;
+  adp: number | null;
+  /** Picks after ADP: positive for a steal, negative for a reach. */
+  value: number | null;
+  reason: string | null;
+}
+
+export interface DraftRecap {
+  steals: DraftRecapEntry[];
+  reaches: DraftRecapEntry[];
+  agentPicks: DraftRecapEntry[];
 }
 
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;

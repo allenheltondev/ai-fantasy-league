@@ -115,14 +115,14 @@ Every error looks like this:
 - Players always appear as `{ id, name, team, position }`.
 - Any operation that takes a player accepts either `playerId` or `player` (a name). Ambiguous names return `AMBIGUOUS_PLAYER` with a list of candidates.
 - `detail: true` switches compact responses to full ones.
-- Mutations take an `Idempotency-Key` header (for agent tools, the `idempotencyKey` argument). Replays return the stored response.
+- Mutations take an `Idempotency-Key` header (for agent tools, the `idempotencyKey` argument). Replays return the stored response. A 5xx or a `CONFLICT` (a write race) is not stored, so a retry with the same key runs again.
 
 ### Context
 
 Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`. `limits` holds per-deployment limits such as the league quota (`LEAGUE_QUOTA`, default 3 active leagues per creator, and `LEAGUE_QUOTA_ADMINS`, a comma-separated allowlist of subs or emails).
 - **Never** call `Date.now()` or `new Date()` in domain or server code. Use `ctx.clock.now()`. The simulator swaps in its own clock.
 - `ctx.events.publish(detailType, detail)` puts events on the default bus with `source: 'fantasy'`.
-- `ctx.events.scheduleAt(...)` emits the rsc-core `Schedule Event`.
+- `ctx.events.scheduleAt(...)` emits the rsc-core `Schedule Event`. Its `name` becomes an EventBridge Scheduler schedule name (at most 64 characters of `[0-9a-zA-Z-_.]`; rsc-core cuts longer names at 64), so build every name with `scheduleName(...parts)` (`events/schedule-name.ts`), which hashes a long name to a stable short one. The in-memory publisher refuses any other name.
 
 ## Data
 
@@ -163,14 +163,15 @@ Event details are a typed contract: `EVENT_DETAIL_SCHEMAS` (`packages/server/src
 |---|---|
 | `League Created` | A league is created |
 | `Draft Turn Started` | A team is on the clock |
-| `Draft Pick Made` | A pick is made |
-| `Draft Completed` | The draft ends |
+| `Draft Pick Made` | A pick is made (`adp`, the pick's `reason`, and `notable`: a steal or reach by ADP, or an agent's first-round pick, which the chat calls out; core `notablePick`) |
+| `Draft Completed` | The draft ends (`recap`: steals, reaches, and each agent's first pick with its reasoning, and `recapText` for the chat; core `draftRecap`) |
+| `Draft Paused` / `Draft Resumed` | The commissioner freezes or restarts the pick clock; relayed so open boards stop or restart their countdown |
 | `Draft Pick Deadline` | A pick's clock runs out (scheduled with `scheduleAt`; the API function autopicks if the pick is still open) |
 | `Week Rolled Over` | A new NFL week starts (`syncNflState`), or a league moves to its next week (the weekly cycle; carries `leagueId`) |
 | `Lineup Lock Approaching` | A game window is about to lock lineups |
 | `Waiver Window Opened` | Waivers open (after every daily run; agents are triggered only for the first window of each league week) |
 | `Waivers Processed` | Waiver claims are resolved (`awarded`: player refs, `bid`, and `cost` per award; a run with no awards posts nothing in chat) |
-| `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine. Every detail carries `leagueId`, `tradeId`, `fromTeamId` (made the offer), `toTeamId` (answers it), `teamIds`, and the players each side sends (`tradeEventDetail` in `server/src/trades/lifecycle.ts`). Offers, counters, rejections, and expiries are relayed only to the two teams' topics (`teamTopic`), never the league topic. |
+| `Trade Proposed` / `Trade Countered` / `Trade Accepted` / `Trade Rejected` / `Trade Expired` / `Trade Withdrawn` / `Trade Processed` / `Trade Vetoed` | A trade moves through its state machine. Every detail carries `leagueId`, `tradeId`, `fromTeamId` (made the offer), `toTeamId` (answers it), `teamIds`, and the players each side sends (`tradeEventDetail` in `server/src/trades/lifecycle.ts`). Offers, counters, rejections, expiries, and withdrawals are relayed only to the two teams' topics (`teamTopic`), never the league topic. An open offer voided because one of its players changed rosters is a `Trade Expired` with `voided: true` and `reasonCode: PLAYER_MOVED`. |
 | `Trade Offer Deadline` / `Trade Review Ended` / `Trade Deadline Passed` | Scheduled with `scheduleAt`: an offer's expiry, the end of a trade's review period, and the league's trade deadline. The API function expires, processes, or expires every open offer; a stale event is a no-op. |
 | `Player News Alert` | News hits a player |
 | `Player Status Changed` | A player's status, injury, team, or depth chart changes |

@@ -203,6 +203,7 @@ describe('trade history (in-memory transaction log)', () => {
           history: []
         },
         message: null,
+        reply: null,
         createdBy: 'user#alice',
         processingAt: at,
         updatedAt: at,

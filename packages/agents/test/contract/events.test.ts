@@ -658,11 +658,27 @@ describe('event contract: league setup and the draft', () => {
         expect(posted(made).text).toMatch(new RegExp(` drafted ${player.name} \\(round 1, pick 1\\)\\.$`));
         expect(posted(made).players).toEqual([(made.event.detail as { player: unknown }).player]);
         expect(made.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+
+        // The commissioner pauses and resumes the clock: both are pushed to boards and announced.
+        await d.run('pause_draft', { leagueId: d.leagueId });
+        const paused = await consume(d.services, delivered(last(d.events.events, 'Draft Paused')));
+        expect(EVENT_DETAIL_SCHEMAS['Draft Paused'].safeParse(paused.event.detail).success).toBe(true);
+        expect(paused.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+        expect(posted(paused).text).toBe('The commissioner paused the draft at pick 2.');
+        expect(paused.routed).toEqual([]);
+        await d.run('resume_draft', { leagueId: d.leagueId });
+        const resumed = await consume(d.services, delivered(last(d.events.events, 'Draft Resumed')));
+        expect(EVENT_DETAIL_SCHEMAS['Draft Resumed'].safeParse(resumed.event.detail).success).toBe(true);
+        expect(resumed.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+        expect(posted(resumed).text).toBe('The draft is back on: pick 2 is on the clock.');
       }
       if (pick > 100) throw new Error('the draft did not finish');
     }
     const completed = await consume(d.services, delivered(last(d.events.events, 'Draft Completed')));
-    expect(posted(completed).text).toBe('The draft is complete. Good luck this season!');
+    expect(EVENT_DETAIL_SCHEMAS['Draft Completed'].safeParse(completed.event.detail).success).toBe(true);
+    expect(posted(completed).text).toMatch(
+      /^The draft is complete\. Good luck this season! Draft recap: \d+ picks\./
+    );
     expect(completed.chat).toMatchObject({ moment: true });
     expect(completed.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
 
@@ -771,6 +787,30 @@ describe('event contract: trades', () => {
     expect(expired.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
   });
 
+  it('withdrawn offers, and offers voided when a player moves, reach only the two teams', async () => {
+    const s = await tradeLeague();
+    const offer = { leagueId: LEAGUE_ID, withTeamId: 'team-2', send: ['rb3'], receive: ['rb4'] };
+    const taken = offerOf(await run(s, 'propose_trade', offer, ALLEN_IN_SEASON));
+    await run(s, 'withdraw_trade', { leagueId: LEAGUE_ID, tradeId: taken.id }, ALLEN_IN_SEASON);
+    const withdrawn = await consume(s.services, delivered(last(s.events.events, 'Trade Withdrawn')));
+    expect(withdrawn.event.detail).toMatchObject({ tradeId: taken.id, status: 'withdrawn' });
+    expect(withdrawn.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(withdrawn.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+    expect(withdrawn.routed).toEqual([]);
+
+    const stale = offerOf(await run(s, 'propose_trade', offer, ALLEN_IN_SEASON));
+    await run(s, 'drop_player', { leagueId: LEAGUE_ID, playerId: 'rb3' }, ALLEN_IN_SEASON);
+    const voided = await consume(s.services, delivered(last(s.events.events, 'Trade Expired')));
+    expect(voided.event.detail).toMatchObject({
+      tradeId: stale.id,
+      status: 'expired',
+      voided: true,
+      reasonCode: 'PLAYER_MOVED'
+    });
+    expect(voided.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(voided.routed).toEqual([]);
+  });
+
   it('accepted, vetoed, and processed trades are league news with chat lines', async () => {
     const s = await tradeLeague();
     const vetoed = offerOf(
@@ -849,14 +889,22 @@ describe('event contract: trades', () => {
     const s = await tradeLeague();
     const league = await s.repos.leagues.get(LEAGUE_ID);
     if (league === null) throw new Error('league');
-    await scheduleTradeDeadline(
-      { events: s.events },
-      { ...league, deadlines: { ...league.deadlines, tradeDeadlineAt: '2026-11-20T00:20:00.000Z' } }
-    );
+    const deadlineAt = '2026-11-20T00:20:00.000Z';
+    const withDeadline = await s.repos.leagues.update({
+      ...league,
+      deadlines: { ...league.deadlines, tradeDeadlineAt: deadlineAt }
+    });
+    await scheduleTradeDeadline({ events: s.events }, withDeadline);
     const timer = last(s.events.events, 'Schedule Event').detail.event as {
       detailType: string;
       detail: EventDetail;
     };
+    // Delivered before the deadline (it moved later since): nothing to announce yet.
+    expect((await consume(s.services, delivered(timer))).chat).toEqual({
+      status: 'skipped',
+      reason: 'stale'
+    });
+    s.clock.set(deadlineAt);
     const passed = await consume(s.services, delivered(timer));
     expect(posted(passed).text).toBe(
       'The trade deadline has passed. Rosters change only through waivers from here on.'
@@ -873,6 +921,8 @@ describe('event contract coverage', () => {
       'Waivers Processed',
       'Draft Pick Made',
       'Draft Completed',
+      'Draft Paused',
+      'Draft Resumed',
       'Week Provisionally Final',
       'Member Joined',
       'Member Left',
@@ -892,6 +942,7 @@ describe('event contract coverage', () => {
       'Accepted',
       'Rejected',
       'Expired',
+      'Withdrawn',
       'Processed',
       'Vetoed',
       'Offer Deadline',

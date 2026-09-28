@@ -39,6 +39,7 @@ export async function seedTrade(
     leagueId: input.leagueId,
     trade,
     message: null,
+    reply: null,
     createdBy: 'user#seed',
     processingAt: null,
     updatedAt: START,

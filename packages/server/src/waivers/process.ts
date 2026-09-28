@@ -16,6 +16,7 @@ import type { ReferenceStore } from '../repos/reference.js';
 import type { League, Repos, Team } from '../repos/types.js';
 import type { TransactionRecord, WaiverClaimRecord } from '../repos/waivers.js';
 import { resolveWeekLineups, weekLocks } from '../season/lineups.js';
+import { inTradeError, playersInProcessingTrades, voidStaleOffers } from '../trades/lifecycle.js';
 import { acquisitionsThisWeek, changeRoster, leaguePlayers, putOnWaivers } from './rosters.js';
 
 /**
@@ -97,14 +98,21 @@ export async function processLeagueWaivers(
   // Recover awards an interrupted run already applied to the team.
   const recovered: WaiverClaimRecord[] = [];
   const toResolve: WaiverClaimRecord[] = [];
+  const trading = await playersInProcessingTrades(repos, league.id);
   let failed = 0;
   for (const claim of due) {
     const drop = claim.dropPlayerId === null ? undefined : records.get(claim.dropPlayerId);
+    const tradeId = claim.dropPlayerId === null ? undefined : trading.get(claim.dropPlayerId);
     if (claim.awardingRunId !== null && players.ownerOf.get(claim.addPlayerId) === claim.teamId) {
       recovered.push(claim);
     } else if (drop !== undefined && locks.isLocked(drop)) {
       // A locked player cannot be dropped, so this claim cannot go through this week.
       if (await markFailed(repos, claim, now, lockedFailure(drop.name))) failed += 1;
+    } else if (claim.dropPlayerId !== null && tradeId !== undefined) {
+      // The drop player is leaving in a trade that is processing right now.
+      const error = inTradeError(claim.dropPlayerId, tradeId);
+      if (await markFailed(repos, claim, now, { code: error.code, message: error.message, fix: error.fix }))
+        failed += 1;
     } else {
       toResolve.push(claim);
     }
@@ -182,6 +190,13 @@ export async function processLeagueWaivers(
       failed += 1;
   }
   await repos.waivers.addTransactions(transactions);
+  // Offers that include a player who just changed rosters no longer work.
+  await voidStaleOffers(
+    deps,
+    league,
+    transactions.flatMap((t) => [t.addPlayerId, t.dropPlayerId]),
+    now
+  );
   await applyPriorities(repos, league.id, resolution.priorityOrder, now);
 
   const closesAt = nextWaiverRun(now);

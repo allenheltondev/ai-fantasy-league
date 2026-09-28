@@ -55,3 +55,31 @@ export async function guardLopsided(
     details: { lineupGap: value.lineupGap, valueGap: value.valueGap, favors: value.favors }
   });
 }
+
+/** Open offers one team may have out to the same team at once. */
+export const MAX_OPEN_OFFERS_PER_PAIR = 2;
+
+/**
+ * Refuses a new offer (or counter) when `from` already has `MAX_OPEN_OFFERS_PER_PAIR` unanswered
+ * offers out to `to`, so an agent cannot flood a team with offers and burn both teams' budgets.
+ */
+export async function guardOpenOffers(ctx: Ctx, leagueId: string, from: Team, to: Team): Promise<void> {
+  const now = ctx.clock.now().toISOString();
+  const open = (await ctx.repos.trades.list(leagueId)).filter(
+    ({ trade }) =>
+      trade.status === 'proposed' &&
+      trade.expiresAt > now &&
+      trade.sides[0].teamId === from.id &&
+      trade.sides[1].teamId === to.id
+  );
+  if (open.length < MAX_OPEN_OFFERS_PER_PAIR) return;
+  const ids = open.map((r) => r.trade.tradeId);
+  throw new ApiError(
+    'TOO_MANY_OPEN_OFFERS',
+    `You already have ${open.length} open offers to ${to.name}; the limit is ${MAX_OPEN_OFFERS_PER_PAIR}.`,
+    {
+      fix: `Wait for ${to.name} to answer, or withdraw one of your open offers (withdraw_trade with tradeId ${ids.join(' or ')}) before sending another.`,
+      details: { tradeIds: ids, limit: MAX_OPEN_OFFERS_PER_PAIR }
+    }
+  );
+}

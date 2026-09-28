@@ -1,10 +1,12 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
+import type { RealtimeInfo } from '../chat/api';
+import type { EventConnect, LeagueEvent } from '../realtime/leagueEvents';
 import type { PlayerRef, TradePreview, TradesApi, TradeView } from './api';
-import { countdown, TradesPage } from './TradesPage';
+import { COUNTDOWN_TICK_MS, countdown, TradesPage } from './TradesPage';
 
 const NOW = Date.parse('2026-10-01T12:00:00Z');
 const p = (id: string, name: string, position = 'RB'): PlayerRef => ({ id, name, team: 'SF', position });
@@ -25,6 +27,7 @@ function trade(overrides: Partial<TradeView> = {}): TradeView {
     fromDrops: [],
     toDrops: [],
     message: 'Swap?',
+    reply: null,
     proposedAt: '2026-10-01T10:00:00Z',
     expiresAt: '2026-10-02T14:30:00Z',
     reviewEndsAt: null,
@@ -77,15 +80,40 @@ function fakeApi(trades: TradeView[], overrides: Partial<TradesApi> = {}): Trade
     ),
     withdraw: vi.fn(async () => trade({ status: 'withdrawn' })),
     vote: vi.fn(async () => trade({ status: 'in_review' })),
+    realtime: vi.fn(async () => OFF),
     ...overrides
   };
 }
 
-function renderPage(api: TradesApi) {
+const OFF: RealtimeInfo = {
+  enabled: false,
+  token: null,
+  endpoint: null,
+  cacheName: null,
+  topics: null,
+  expiresAt: null,
+  pollIntervalSeconds: 60
+};
+const LIVE: RealtimeInfo = {
+  enabled: true,
+  token: 'tok',
+  endpoint: 'https://momento',
+  cacheName: 'cache',
+  topics: { league: 'fantasy.league.L1', global: 'fantasy.global', team: 'fantasy.team.L1.team-1' },
+  expiresAt: null,
+  pollIntervalSeconds: 60
+};
+const fixedNow = () => NOW;
+const noConnect: EventConnect = async () => () => undefined;
+
+function renderPage(api: TradesApi, now: () => number = fixedNow, connect: EventConnect = noConnect) {
   return render(
     <MemoryRouter initialEntries={['/leagues/L1/trades']}>
       <Routes>
-        <Route path="/leagues/:leagueId/trades" element={<TradesPage api={api} now={() => NOW} />} />
+        <Route
+          path="/leagues/:leagueId/trades"
+          element={<TradesPage api={api} now={now} connect={connect} />}
+        />
       </Routes>
     </MemoryRouter>
   );
@@ -263,6 +291,40 @@ describe('TradesPage', () => {
     await user.selectOptions(await screen.findByLabelText('Trade with'), 'team-2');
     await user.click(await screen.findByLabelText('You send: Christian McCaffrey'));
     expect(await screen.findByText('Search again.')).toBeInTheDocument();
+  });
+
+  it('ticks the expiry countdown and reloads when a trade event arrives on the team topic', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let clock = NOW;
+      let emit: ((event: LeagueEvent) => void) | null = null;
+      const connect = vi.fn<EventConnect>(async (_target, handlers) => {
+        emit = handlers.onEvent;
+        return () => undefined;
+      });
+      const api = fakeApi([trade({ reply: 'Counter coming.' })], { realtime: vi.fn(async () => LIVE) });
+      const now = () => clock;
+      renderPage(api, now, connect);
+      const inbox = await screen.findByRole('region', { name: 'Inbox' });
+      expect(await within(inbox).findByText(/Expires in 1d 2h/)).toBeInTheDocument();
+      expect(within(inbox).getByText('Reply: “Counter coming.”')).toBeInTheDocument();
+
+      clock = NOW + 2 * 3_600_000;
+      act(() => {
+        vi.advanceTimersByTime(COUNTDOWN_TICK_MS);
+      });
+      expect(await within(inbox).findByText(/Expires in 1d 0h/)).toBeInTheDocument();
+
+      await waitFor(() => expect(connect).toHaveBeenCalled());
+      expect(connect.mock.calls[0]?.[0].topics).toEqual(['fantasy.league.L1', 'fantasy.team.L1.team-1']);
+      const loads = vi.mocked(api.list).mock.calls.length;
+      act(() => emit?.({ detailType: 'Trade Proposed', leagueId: 'L1' }));
+      await waitFor(() => expect(api.list).toHaveBeenCalledTimes(loads + 1));
+      act(() => emit?.({ detailType: 'Draft Pick Made', leagueId: 'L1' }));
+      expect(api.list).toHaveBeenCalledTimes(loads + 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('formats the countdown', () => {

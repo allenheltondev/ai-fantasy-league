@@ -953,6 +953,8 @@ Resources:
               detail-type:
                 - Draft Pick Made
                 - Draft Completed
+                - Draft Paused
+                - Draft Resumed
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed
@@ -1025,6 +1027,8 @@ Resources:
                 - Draft Turn Started
                 - Draft Pick Made
                 - Draft Completed
+                - Draft Paused
+                - Draft Resumed
                 - Waivers Processed
                 - Trade Accepted
                 - Trade Processed
@@ -1032,6 +1036,12 @@ Resources:
                 - Week Provisionally Final
                 - Week Official Final
                 - Stat Correction Applied
+                # Offers and their answers: relayed only to the two teams' private topics.
+                - Trade Proposed
+                - Trade Countered
+                - Trade Rejected
+                - Trade Expired
+                - Trade Withdrawn
             # Live updates are only worth delivering while they are fresh.
             RetryPolicy:
               MaximumRetryAttempts: 2

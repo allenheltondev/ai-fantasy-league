@@ -117,8 +117,9 @@ export async function executeOperation(request: ExecuteRequest): Promise<Execute
     const response = { status: error.status, body: { error: error.toBody() } };
     if (claim !== null) {
       // A 4xx from the handler is a deterministic answer: replay it. A 5xx may be
-      // transient, so free the key for a retry.
-      if (error.status < 500) {
+      // transient, and so is CONFLICT (the record changed under a conditional write, #123),
+      // so free the key: a retry with it runs again against the current state.
+      if (error.status < 500 && error.code !== 'CONFLICT') {
         await ctx.repos.idempotency.complete(claim.scope, claim.key, response, expiry(ctx));
       } else {
         await ctx.repos.idempotency.release(claim.scope, claim.key);

@@ -186,13 +186,24 @@ describe('executeOperation', () => {
 
     it('stores 4xx handler errors for replay and audits them', async () => {
       const { run, audit } = await setup();
-      const first = await run('rename_league', { leagueId: 'lg-1', name: 'X', fail: true }, USER, KEY);
+      const input = { leagueId: 'lg-1', name: 'X', fail: 'NOT_YOUR_TURN' };
+      const first = await run('rename_league', input, USER, KEY);
       expect(first.status).toBe(409);
-      const second = await run('rename_league', { leagueId: 'lg-1', name: 'X', fail: true }, USER, KEY);
+      const second = await run('rename_league', input, USER, KEY);
       expect(second.replayed).toBe(true);
       expect(audit.entries).toEqual([
-        expect.objectContaining({ operation: 'rename_league', outcome: 'error', errorCode: 'CONFLICT' })
+        expect.objectContaining({ operation: 'rename_league', outcome: 'error', errorCode: 'NOT_YOUR_TURN' })
       ]);
+    });
+
+    it('releases the key after a CONFLICT (a write race) so a retry with the same key runs again', async () => {
+      const { run, audit } = await setup();
+      const input = { leagueId: 'lg-1', name: 'X', fail: 'CONFLICT' };
+      const first = await run('rename_league', input, USER, KEY);
+      expect(first.body).toMatchObject({ error: { code: 'CONFLICT' } });
+      const retried = await run('rename_league', input, USER, KEY);
+      expect(retried.replayed).toBe(false);
+      expect(audit.entries.map((e) => e.errorCode)).toEqual(['CONFLICT', 'CONFLICT']);
     });
 
     it('releases the key after a 5xx so a retry runs again', async () => {
@@ -252,7 +263,9 @@ describe('executeOperation', () => {
       'post_message',
       'rename_team',
       'transfer_commissioner',
-      'update_league_settings'
+      'update_league_settings',
+      // Trade review goes on into the playoffs (#121).
+      'vote_trade'
     ]);
     const outsider = resolveActor(playoffs, [], { ...USER, sub: 'someone-else' } as Principal);
     expect(leagueAllowedActions(testRegistry.operations, playoffs, outsider, new Date(START))).toEqual([]);

@@ -8,6 +8,7 @@ import { PlayerRefSchema, toPlayerRef, type Player, type PlayerRef } from '../..
 import type { Team } from '../../repos/types.js';
 import { WAIVER_CLAIM_STATUSES, type WaiverClaimRecord } from '../../repos/waivers.js';
 import { assertNotLocked, resolveLineup, weekLocks, type WeekLocks } from '../../season/lineups.js';
+import { assertNotInProcessingTrade } from '../../trades/lifecycle.js';
 import { acquisitionsThisWeek, leaguePlayers, openSpots } from '../../waivers/rosters.js';
 
 export const TeamIdField = z
@@ -162,6 +163,7 @@ export async function planClaim(
       details: { dropPlayerId: drop.id }
     });
   }
+  await assertNotInProcessingTrade(ctx.repos, league.id, [drop?.id ?? null]);
   const lineup = await resolveLineup(ctx.repos, team, league.week ?? settings.schedule.startWeek);
   if (openSpots(settings, lineup.entries, drop?.id ?? null) < 1) {
     const refs = await playerRefs(ctx, team.roster);

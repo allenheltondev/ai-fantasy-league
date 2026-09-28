@@ -2,14 +2,19 @@ import {
   autopick,
   currentPick,
   deadlineFor,
+  draftRecap,
   draftRosterIssue,
+  formatDraftRecap,
   isComplete,
   LAST_NFL_WEEK,
   makePick,
   nextWaiverRun,
+  notablePick,
   picksUntilTurn,
   teamPicks,
   type DraftablePlayer,
+  type DraftRecap,
+  type Position,
   type DraftPick,
   type DraftState,
   type PickSlot,
@@ -17,6 +22,7 @@ import {
 } from '@fantasy/core';
 import type { Ctx } from '../context.js';
 import { ApiError, isApiError } from '../errors.js';
+import { scheduleName } from '../events/schedule-name.js';
 import { toPlayerRef, type Player } from '../players/model.js';
 import type { DraftRecord, League, Team } from '../repos/types.js';
 import { startLeagueSeason } from '../season/cycle.js';
@@ -32,9 +38,12 @@ import { transitionPhase } from './phase.js';
 /** What the draft needs from a request context. The pick-clock handler has no principal. */
 export type DraftDeps = Pick<Ctx, 'repos' | 'events' | 'clock' | 'log' | 'data'>;
 
+/** The longest reason a pick keeps (make_draft_pick `reason`). */
+export const MAX_PICK_REASON = 280;
+
 /** rsc-core schedule name for a pick's deadline: re-scheduling the same pick moves it. */
 export function deadlineScheduleName(leagueId: string, overall: number): string {
-  return `draft-${leagueId}-${overall}`;
+  return scheduleName('draft', leagueId, overall);
 }
 
 export function requireDraft(record: DraftRecord | null): DraftRecord {
@@ -123,6 +132,8 @@ export async function recordPick(
     auto: boolean;
     /** The overall pick the caller means to make; a pick that has passed is NOT_YOUR_TURN. */
     expectedPick?: number | undefined;
+    /** Why the team made the pick (an agent's reasoning); kept for the recap and notable-pick chat. */
+    reason?: string | undefined;
   }
 ): Promise<PickOutcome> {
   const { league, teams, record, teamId, player } = input;
@@ -158,7 +169,16 @@ export async function recordPick(
     });
   }
 
-  const state = made.value.draft;
+  // The pick keeps the player's rank at the time (the board's ADP stand-in) and the team's reason.
+  const pick: DraftPick = {
+    ...made.value.pick,
+    adp: player.rank,
+    ...(input.reason === undefined ? {} : { reason: input.reason })
+  };
+  const state: DraftState = {
+    ...made.value.draft,
+    picks: [...made.value.draft.picks.slice(0, -1), pick]
+  };
   const completed = isComplete(state);
   const at = now.toISOString();
   const saved = await deps.repos.drafts.update({
@@ -169,7 +189,6 @@ export async function recordPick(
     completedAt: completed ? at : null,
     updatedAt: at
   });
-  const pick = made.value.pick;
   await syncRoster(deps, league.id, teamId, state, now);
   await deps.events.publish('Draft Pick Made', {
     leagueId: league.id,
@@ -179,7 +198,17 @@ export async function recordPick(
     overall: pick.overall,
     round: pick.round,
     pick: pick.pick,
-    auto: pick.auto
+    auto: pick.auto,
+    adp: player.rank,
+    notable: notablePick({
+      overall: pick.overall,
+      round: pick.round,
+      adp: player.rank,
+      position: player.position,
+      byAgent: isAgentSeat(teams, teamId),
+      teamCount: state.teamIds.length
+    }),
+    reason: input.reason ?? null
   });
   if (completed) await finishDraft(deps, league.id, saved);
   else await announceTurn(deps, saved);
@@ -280,13 +309,56 @@ export async function finishDraft(deps: DraftDeps, leagueId: string, record: Dra
   // The season loop takes over: the first week's lineup lock and its lock warnings. Only the move
   // to the regular season above retries on a conflict; a failure here is not swallowed.
   await startSeasonWithRetry(deps, started, now);
+  const recap = await recapDraft(deps, leagueId, record.state);
   await deps.events.publish('Draft Completed', {
     leagueId,
     picks: record.state.picks.length,
     rounds: record.state.rounds,
     week,
-    completedAt: record.completedAt ?? now.toISOString()
+    completedAt: record.completedAt ?? now.toISOString(),
+    recap: recap.recap,
+    recapText: recap.text
   });
+}
+
+export function isAgentSeat(teams: readonly Team[], teamId: string): boolean {
+  return teams.find((t) => t.id === teamId)?.seatType === 'agent';
+}
+
+/** The draft's steals, reaches, and each agent's first pick with its reasoning (core `draftRecap`). */
+export function draftRecapOf(
+  state: DraftState,
+  teams: readonly Team[],
+  players: ReadonlyMap<string, Pick<Player, 'position'>>
+): DraftRecap {
+  return draftRecap(
+    state.picks.map((p) => ({
+      overall: p.overall,
+      round: p.round,
+      teamId: p.teamId,
+      playerId: p.playerId,
+      position: players.get(p.playerId)?.position ?? (p.positions[0] as Position),
+      adp: p.adp ?? null,
+      reason: p.reason ?? null,
+      byAgent: isAgentSeat(teams, p.teamId)
+    })),
+    state.teamIds.length
+  );
+}
+
+async function recapDraft(
+  deps: DraftDeps,
+  leagueId: string,
+  state: DraftState
+): Promise<{ recap: DraftRecap; text: string }> {
+  const [teams, all] = await Promise.all([deps.repos.teams.list(leagueId), deps.data.players.all()]);
+  const players = new Map(all.map((p) => [p.id, p]));
+  const recap = draftRecapOf(state, teams, players);
+  const text = formatDraftRecap(recap, {
+    team: (id) => teams.find((t) => t.id === id)?.name ?? id,
+    player: (id) => players.get(id)?.name ?? id
+  });
+  return { recap, text };
 }
 
 /** Starts the season loop, re-reading the league when another write got to it first. */

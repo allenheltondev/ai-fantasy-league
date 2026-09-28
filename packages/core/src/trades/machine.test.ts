@@ -12,6 +12,8 @@ import {
   proposeTrade,
   rejectTrade,
   startReview,
+  reviewSettingsFor,
+  voidOffer,
   voidTrade,
   withdrawTrade,
   type TradeResult
@@ -264,6 +266,28 @@ describe('review and processing', () => {
       codes(voidTrade(offer(), { code: 'X', severity: 'error', path: '', message: '', fix: '' }, NOW))
     ).toEqual(['ILLEGAL_TRADE_TRANSITION']);
     expect(codes(processTrade(settings, offer(), ctx))).toEqual(['ILLEGAL_TRADE_TRANSITION']);
+  });
+
+  it('voids an open offer early as expired, with the reason', () => {
+    const reason = { code: 'PLAYER_MOVED', severity: 'error' as const, path: '', message: 'm', fix: 'f' };
+    const voided = ok(voidOffer(offer(), reason, NOW));
+    expect(voided).toMatchObject({ status: 'expired', voidReason: { code: 'PLAYER_MOVED' } });
+    expect(voided.history.at(-1)).toEqual({ status: 'expired', at: NOW, byTeamId: null });
+    expect(codes(voidOffer(acceptedTrade(), reason, NOW))).toEqual(['ILLEGAL_TRADE_TRANSITION']);
+  });
+
+  it('falls back to a league vote for the commissioner’s own trade under commissioner review', () => {
+    const s = withReview('commissioner');
+    const t = offer();
+    expect(reviewSettingsFor(s, t, 'A').trades.review).toBe('league_vote');
+    expect(reviewSettingsFor(s, t, 'C')).toBe(s);
+    expect(reviewSettingsFor(s, t, null)).toBe(s);
+    expect(reviewSettingsFor(settings, t, 'A')).toBe(settings);
+    const own = ok(startReview(s, acceptedTrade(), NOW));
+    expect(codes(commissionerReview(reviewSettingsFor(s, own, 'A'), own, 'approve', NOW))).toEqual([
+      'COMMISSIONER_REVIEW_NOT_ENABLED'
+    ]);
+    expect(ok(castVetoVote(reviewSettingsFor(s, own, 'A'), own, 'C', NOW)).vetoVotes).toEqual(['C']);
   });
 
   it('exposes the transition table', () => {

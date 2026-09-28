@@ -28,6 +28,10 @@ export interface DraftPick {
   madeAt: string | null;
   /** True when the pick was made by autopick (timer expired or an agent fallback). */
   auto: boolean;
+  /** The player's consensus rank (ADP stand-in) when he was picked; null when unranked. */
+  adp?: number | null;
+  /** Why the team made the pick, in its own words (an agent's reasoning summary). */
+  reason?: string;
 }
 
 export interface DraftConfig {
