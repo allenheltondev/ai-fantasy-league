@@ -29,6 +29,7 @@ export type FantasyEventType =
   | 'Player Status Changed'
   | 'Chat Mention'
   | 'Chat Moment'
+  | 'Chat Message Posted'
   | 'Scores Updated'
   | 'Week Provisionally Final'
   | 'Week Official Final'

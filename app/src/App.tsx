@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router';
 import { AuthProvider } from '@readysetcloud/ui/auth';
 import { ForgotPasswordPage, LoginPage, SignUpPage } from './auth/AuthScreens';
 import { RequireSignIn } from './auth/RequireSignIn';
+import { ChatPage } from './chat/ChatPage';
 import { AppLayout } from './layout/AppLayout';
 import {
   CreateLeaguePage,
@@ -36,7 +37,9 @@ export function App() {
               <Route
                 key={section.path}
                 path={section.path}
-                element={<LeagueSectionPage section={section.path} />}
+                element={
+                  section.path === 'chat' ? <ChatPage /> : <LeagueSectionPage section={section.path} />
+                }
               />
             ))}
           </Route>

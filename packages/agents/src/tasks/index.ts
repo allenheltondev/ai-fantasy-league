@@ -1,3 +1,4 @@
+import { chatMomentTask, chatReplyTask } from './chat.js';
 import { createTaskKindRegistry, type TaskKind } from './kinds.js';
 import { lineupTask } from './lineup.js';
 import { noopTask } from './noop.js';
@@ -7,6 +8,6 @@ import { noopTask } from './noop.js';
  * trade_response, chat_reply, chat_moment); the router starts emitting a trigger's tasks as soon as
  * its kind is registered.
  */
-export const DEFAULT_TASK_KINDS: readonly TaskKind[] = [lineupTask, noopTask];
+export const DEFAULT_TASK_KINDS: readonly TaskKind[] = [lineupTask, noopTask, chatReplyTask, chatMomentTask];
 
 export const defaultTaskKinds = createTaskKindRegistry(DEFAULT_TASK_KINDS);

@@ -5,6 +5,8 @@
 #
 #   index.mjs  the API (packages/server/src/lambda.ts), Handler: index.handler
 #   jobs.mjs   the data jobs (packages/server/src/jobs/lambda.ts), Handler: jobs.handler
+#   chat-events.mjs  system chat messages (packages/server/src/chat/lambda.ts)
+#   realtime.mjs     the Momento realtime publisher (packages/server/src/realtime/lambda.ts)
 #
 # esbuild produces ESM for Node 22 on arm64 (the template's `Runtime:
 # nodejs22.x`). Both functions deploy the same zip. Everything is
@@ -62,10 +64,16 @@ if [ "${SERVER_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
   done
 fi
 
+# Chat and realtime handlers (#68, #70) share the API's code; bundled when present.
+EXTRA_ENTRIES=()
+for spec in "chat-events:packages/server/src/chat/lambda.ts" "realtime:packages/server/src/realtime/lambda.ts"; do
+  [ -f "${ROOT}/${spec#*:}" ] && EXTRA_ENTRIES+=("${spec%%:*}=${ROOT}/${spec#*:}")
+done
+
 log "Bundling ${ENTRY#"${ROOT}"/} and ${JOBS_ENTRY#"${ROOT}"/} with esbuild"
 # `name=path` entries give each bundle a fixed file name (index.mjs, jobs.mjs).
 # The banner gives bundled CommonJS dependencies a `require` inside ESM.
-"${ROOT}/node_modules/.bin/esbuild" "index=${ENTRY}" "jobs=${JOBS_ENTRY}" \
+"${ROOT}/node_modules/.bin/esbuild" "index=${ENTRY}" "jobs=${JOBS_ENTRY}" "${EXTRA_ENTRIES[@]}" \
   --bundle \
   --platform=node \
   --target=node22 \

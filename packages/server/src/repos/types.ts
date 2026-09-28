@@ -1,5 +1,6 @@
 import type { LeagueSettings, StandingsRow } from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
+import type { ChatRepository } from '../chat/model.js';
 import type { AgentRepository } from './agents.js';
 
 /**
@@ -272,4 +273,6 @@ export interface Repos {
   schedule: ScheduleRepository;
   /** Agent seats, notes, task records, and usage rollups (repos/agents.ts). */
   agents: AgentRepository;
+  /** League group chat (chat/model.ts). */
+  chat: ChatRepository;
 }

@@ -23,3 +23,5 @@ export * from './valuation/value.js';
 export * from './valuation/optimizer.js';
 export * from './valuation/trade-value.js';
 export * from './agents/index.js';
+export * from './chat/mentions.js';
+export * from './chat/system-messages.js';

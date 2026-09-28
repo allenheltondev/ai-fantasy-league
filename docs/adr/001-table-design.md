@@ -60,6 +60,14 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 |---|---|---|
 | Message | `MSG#<ts>#<messageId>` | `get_chat` is a reverse query with a limit and a cursor. `post_message` is one put. Chat has its own partition so a busy chat never slows league-state queries. Mentions go out as `Chat Mention` events rather than being indexed. |
 
+Details (#69, #70; code in `packages/server/src/chat/` and `repos/dynamo/chat.ts`):
+
+- **Item.** Every message stores its plain fields: `id`, `leagueId`, `kind` (`user`, `agent`, or `system`), `author` (`teamId`, `teamName`, `name`), `text`, `mentionedTeamIds`, `event` (for system messages, the `detailType` and `eventId` announced), and `createdAt`. The key is `MSG#<createdAt>#<id>`, and the put is conditional (`attribute_not_exists(pk)`), so a message is written at most once.
+- **Paging.** `get_chat` queries `begins_with(sk, MSG#)` in reverse with `Limit = limit + 1`. The extra item says whether an older page exists. The cursor (`nextCursor`, passed back as `after`) is the base64url sort key of the last message returned, and it resumes with `ExclusiveStartKey`. A cursor that does not decode to a `MSG#` key is rejected.
+- **Rate limit.** `post_message` reads the newest 20 messages and refuses a sixth message from the same author within 60 seconds (`RATE_LIMITED`). No counter item is needed.
+- **System messages.** The id is `sys-<EventBridge event id>` and the time is the event's own `time`, so a redelivered event hits the same key and the conditional put stores nothing (idempotent per event id).
+- **Agent chat budgets.** The chat tasks count recent `kind = agent` messages in the same query (per agent and per league, over 24 hours). The router's chat cooldowns use the agent trigger-state items (`AGENTSTATE#<agentId>#chat` and `AGENTSTATE#league#chat_moment`).
+
 ### Player universe: `pk = PLAYER#<playerId>`
 
 | Entity | `sk` | GSI keys | Notes |
@@ -130,7 +138,8 @@ has a 90-day `ttl`.
 | Live scoring gate (`ingestStats`) | GetItem `NFLSTATE`, then query `NFLSCHED#<season>#W05` |
 | Player sync diff | The six GSI1 `PLAYERIDX#` shards (the `source` attribute) |
 | `get_transactions` | Query `TXN#`, reverse, paginated |
-| `get_chat`, `post_message` | Query or put in `CHAT#<leagueId>` |
+| `get_chat`, `post_message` | Query or put in `CHAT#<leagueId>` (reverse, `Limit` + 1, `ExclusiveStartKey` cursor) |
+| System chat message | Conditional put `CHAT#<leagueId>` / `MSG#<event time>#sys-<event id>` |
 | `get_draft_board`, `make_draft_pick` | Query `DRAFT`; transact the pick, `OWN#`, `ROSTER#`, and `DRAFT` |
 | `set_lineup` | Put `LINEUP#W05#<teamId>` |
 | `drop_player`, `claim_waiver`, `cancel_waiver_claim` | Transact `ROSTER#`, `OWN#`, and `WAIVER#`/`TXN#` |

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registry } from '../../src/operations/index.js';
+import { CHAT_CASES } from '../support/contract-chat.js';
 import { LEAGUE_CASES, seedContractLeagues } from '../support/contract-leagues.js';
 import { createHarness, type Harness, type RequestOptions } from '../support/harness.js';
 import { seedLeague } from '../support/leagues.js';
@@ -90,6 +91,7 @@ const CASES: Record<string, Case[]> = {
     { label: 'unknown player', path: '/api/v1/news?playerId=nope', status: 404 }
   ],
   ...LEAGUE_CASES,
+  ...CHAT_CASES,
   configure_agent_seat: [
     {
       label: 'commissioner',

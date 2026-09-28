@@ -18,6 +18,7 @@ import { createDynamoRepos } from './repos/dynamo/index.js';
 import { createDynamoReferenceStore } from './repos/dynamo/reference.js';
 import { createDocumentClient } from './repos/dynamo/table.js';
 import { limitsFromEnv } from './context.js';
+import { realtimeFromEnv } from './realtime/config.js';
 import { createServices } from './services.js';
 
 export type FunctionUrlEvent = Extract<LambdaEvent, { rawPath: string }>;
@@ -34,7 +35,8 @@ export function createLambdaApp(env: Record<string, string | undefined> = proces
     events: new EventBridgePublisher({ busName: config.eventBusName }),
     log,
     limits: limitsFromEnv(env),
-    reference: createDynamoReferenceStore(table)
+    reference: createDynamoReferenceStore(table),
+    realtime: realtimeFromEnv(env, { clock: systemClock, log })
   });
   const verifier = createCognitoVerifier({
     userPoolId: config.userPoolId,
