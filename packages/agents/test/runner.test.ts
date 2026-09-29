@@ -73,7 +73,7 @@ describe('runAgentAction with the fake model', () => {
     });
     const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
     // A lineup is nobody's secret: its note is public.
-    expect(memory.notes).toEqual([{ text: 'rb3 is my guy.', visibility: 'public' }]);
+    expect(memory.notes).toEqual([{ text: 'rb3 is my guy.', at: expect.any(String), visibility: 'public' }]);
     expect(memory.decisions).toEqual([
       expect.objectContaining({
         kind: 'lineup',

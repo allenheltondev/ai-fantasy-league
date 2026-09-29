@@ -381,6 +381,7 @@ export async function propose(
     teamId: c.team.id,
     tradeId: id,
     outcome: 'proposed',
+    direction: 'outgoing',
     summary: `Offered ${c.send.name} for ${c.receive.name}.`,
     at,
     sent: [c.send.name],
@@ -439,6 +440,8 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
   decision: TradeProposalDecisionSchema,
   tools: ['get_league_state', 'get_roster', 'get_player', 'get_projections', 'get_news', 'preview_trade'],
   prepare: (ctx, payload) => prepare(ctx, payload),
+  // Recall first what it has with the teams it may offer to (#210).
+  memoryFocus: (_ctx, _payload, prep) => prep.candidates.map((c) => c.team.id),
   instructions(_ctx, payload, prep) {
     if (prep.pitch !== undefined)
       return [

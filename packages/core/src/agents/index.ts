@@ -6,6 +6,8 @@ export * from './personalities.js';
 export * from './seat-config.js';
 export * from './behavior.js';
 export * from './memory.js';
+export * from './relationships.js';
+export * from './recall.js';
 export * from './names.js';
 export * from './response-delay.js';
 export * from './check-in.js';
