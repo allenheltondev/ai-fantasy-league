@@ -36313,10 +36313,11 @@
               "enum": [
                 "free_agent",
                 "waivers",
-                "rostered"
+                "rostered",
+                "available"
               ]
             },
-            "description": "League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him)."
+            "description": "League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), `available` (either of those: anyone not on a team), or `rostered` (on a team; only a trade can get him)."
           },
           {
             "name": "injury",
