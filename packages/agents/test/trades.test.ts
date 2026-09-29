@@ -360,6 +360,9 @@ describe('trade response task', () => {
 
   it('seals trade answers in the commissioner activity log while the offer is private', async () => {
     const s = await tradeLeague(PRO);
+    const good = await allen(s, 'propose_trade', { withTeamId: AGENT_TEAM, send: ['rb3'], receive: ['rb4'] });
+    await runAgentAction(s.deps(new ScriptedModelClient()), request(good.id, 'f4'));
+    // The accepted trade is public now, so the next answer's prompt may recall it without a seal.
     const offer = await allen(s, 'propose_trade', { withTeamId: AGENT_TEAM, receive: ['rb1', 'wr1'] });
     const rejected = await runAgentAction(s.deps(new ScriptedModelClient()), request(offer.id, 'f3'));
     expect(rejected.sealed).toEqual({
@@ -367,8 +370,6 @@ describe('trade response task', () => {
       trades: [{ tradeId: offer.id, until: 'public' }],
       waiverClaims: []
     });
-    const good = await allen(s, 'propose_trade', { withTeamId: AGENT_TEAM, send: ['rb3'], receive: ['rb4'] });
-    await runAgentAction(s.deps(new ScriptedModelClient()), request(good.id, 'f4'));
     const op = s.registry.get('get_agent_activity');
     const res = await executeOperation({
       registry: s.registry,

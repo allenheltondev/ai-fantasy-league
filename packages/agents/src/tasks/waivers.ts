@@ -420,6 +420,8 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
   modelRole: 'decision',
   payload: WaiverPayloadSchema,
   decision: WaiverDecisionSchema,
+  // Bids are sealed and go to nobody: it may recall the agent's own pending bids and plans.
+  memoryAudience: () => 'owner',
   tools: [
     'get_league_state',
     'get_player',
