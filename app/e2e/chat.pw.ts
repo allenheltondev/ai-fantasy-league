@@ -96,6 +96,10 @@ function stubChatApi(page: Page) {
     async install() {
       // The header bell's summary (#165): nothing waiting.
       await page.route('**/api/v1/notifications', (route) => json(route, { unreadCount: 0, leagues: [] }));
+      // The header's league switcher (#178).
+      await page.route('**/api/v1/leagues', (route) =>
+        json(route, { leagues: [{ id: 'L1', name: 'Chat League' }] })
+      );
       await page.route('**/api/v1/leagues/L1/realtime', (route) =>
         json(route, {
           enabled: false,
@@ -186,7 +190,7 @@ test('posts a chat message, mentions a team, and sees new messages arrive', asyn
   await expect(page.getByTestId('chat-status')).toHaveText('Updates every 1s');
 
   // Who you can talk to (#177): the placeholder says so, and the room lists its AI manager.
-  const box = page.getByRole('combobox');
+  const box = page.getByRole('combobox', { name: 'Message' });
   await expect(box).toHaveAttribute('placeholder', /Type @ to talk to an AI manager/);
   await expect(page.getByTestId('chat-members')).toContainText('Robo Rita');
   await box.fill('Good luck ');

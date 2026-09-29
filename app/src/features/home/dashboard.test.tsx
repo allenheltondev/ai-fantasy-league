@@ -213,13 +213,13 @@ describe('the league dashboard', () => {
     expect(within(matchups).getByRole('heading', { name: 'Week 3 matchups' })).toBeInTheDocument();
     const tiles = within(matchups).getAllByRole('link');
     expect(tiles[0]).toHaveAttribute('data-yours', 'true');
-    expect(tiles[0]).toHaveAttribute('href', '/leagues/L1/matchup');
+    expect(tiles[0]).toHaveAttribute('href', '/leagues/L1/team/matchup');
     expect(tiles[0]).toHaveTextContent('Your matchup');
     expect(tiles[0]).toHaveTextContent("Alice's Team (you)");
     expect(tiles[0]).toHaveTextContent('Marcus Hale · 2-1');
     expect(within(tiles[0]!).getByRole('img', { name: 'Marcus Hale avatar' })).toBeInTheDocument();
     expect(tiles[1]).not.toHaveAttribute('data-yours');
-    expect(tiles[1]).toHaveAttribute('href', '/leagues/L1/matchup?team=team-3');
+    expect(tiles[1]).toHaveAttribute('href', '/leagues/L1/team/matchup?team=team-3');
     expect(within(matchups).getAllByText('Live').length).toBeGreaterThan(1);
     await waitFor(() => expect(screen.getByTestId('dashboard-score-team-1')).toHaveTextContent('110.50'));
   });
@@ -277,7 +277,7 @@ describe('the league dashboard', () => {
     expect(rows[1]).toHaveTextContent('Marcus Hale');
     expect(within(standings).getByRole('link', { name: 'Full standings' })).toHaveAttribute(
       'href',
-      '/leagues/L1/standings'
+      '/leagues/L1/league/standings'
     );
   });
 
@@ -336,7 +336,7 @@ describe('the league dashboard', () => {
     await waitFor(() => expect(getLeagueDashboard).toHaveBeenLastCalledWith('L1', { moves: MAX_MOVES }));
     expect(await within(board).findByRole('link', { name: 'See every transaction' })).toHaveAttribute(
       'href',
-      '/leagues/L1/players'
+      '/leagues/L1/league/transactions'
     );
   });
 

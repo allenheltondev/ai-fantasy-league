@@ -82,7 +82,8 @@ describe('Playoffs tab', () => {
   it('shows the champion, a tie decided by seed, and the consolation bracket', async () => {
     const user = userEvent.setup();
     open('/leagues/L1/standings', { getPlayoffBracket: vi.fn(async () => bracket) });
-    await user.click(await screen.findByRole('tab', { name: 'Playoffs' }));
+    const pages = await screen.findByRole('navigation', { name: 'League pages' });
+    await user.click(within(pages).getByRole('link', { name: 'Playoffs' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Champion: Team t1');
     expect(screen.getByText(/Playoffs complete\. 4 teams, 0 byes, fixed bracket\./)).toBeInTheDocument();
     expect(screen.getByText('Tie: the better seed advances.')).toBeInTheDocument();
@@ -243,7 +244,8 @@ describe('History tab', () => {
   it('shows champions, records, head-to-head, achievements, and trades', async () => {
     const user = userEvent.setup();
     open('/leagues/L1/standings', { getLeagueHistory: vi.fn(async () => history) });
-    await user.click(await screen.findByRole('tab', { name: 'History' }));
+    const pages = await screen.findByRole('navigation', { name: 'League pages' });
+    await user.click(within(pages).getByRole('link', { name: 'History' }));
     expect(await screen.findByText('No champion')).toBeInTheDocument();
     const records = screen.getByLabelText('2026 records', { selector: 'dl' });
     expect(records).toHaveTextContent('Team t1, 160.50 (week 3)');
@@ -257,7 +259,9 @@ describe('History tab', () => {
       'Team t1 +42.3 (week 5): got Player One for nothing from Team t2'
     );
     expect(screen.getByText('None yet.')).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Standings' }));
+    // Each page renders afresh, its tab row too.
+    const again = screen.getByRole('navigation', { name: 'League pages' });
+    await user.click(within(again).getByRole('link', { name: 'Standings' }));
     expect(await screen.findByText('No standings yet')).toBeInTheDocument();
   });
 

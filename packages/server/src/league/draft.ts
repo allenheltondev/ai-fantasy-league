@@ -365,7 +365,6 @@ async function recapDraft(
   return { recap, text };
 }
 
-/** Starts the season loop, re-reading the league when another write got to it first. */
 /**
  * Starts each human team with the optimizer's lineup for the first week, unless it already has one
  * (#176). A failure is logged, not thrown: the draft is complete either way, and the roster page
@@ -380,6 +379,7 @@ async function defaultLineups(deps: DraftDeps, league: League, now: Date): Promi
   }
 }
 
+/** Starts the season loop, re-reading the league when another write got to it first. */
 async function startSeasonWithRetry(deps: DraftDeps, league: League, now: Date): Promise<void> {
   const seasonDeps = {
     repos: deps.repos,

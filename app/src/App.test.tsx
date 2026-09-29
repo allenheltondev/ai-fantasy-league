@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { safeReturnPath } from './auth/AuthScreens';
 import { activeNavId, displayName } from './layout/AppLayout';
-import { LEAGUE_SECTIONS } from './routes/pages';
 import { renderApp, signInAs } from './test/render';
 
 const ALICE = { sub: 'u1', email: 'alice@example.com', given_name: 'Alice', family_name: 'Smith' };
@@ -64,20 +63,49 @@ describe('signed in', () => {
     expect(await screen.findByRole('heading', { name: 'Create League' })).toBeInTheDocument();
   });
 
-  it('opens a league on its Home dashboard and lists every section', async () => {
+  it('opens a league on its Home dashboard with the league side nav (#178)', async () => {
     signInAs(ALICE);
     renderApp('/leagues/L1');
     expect(await screen.findByTestId('league-section-home')).toBeInTheDocument();
     expect(await screen.findByRole('region', { name: 'Draft' })).toBeInTheDocument();
     // The header names the league, not its id.
     expect(await screen.findByRole('heading', { level: 1, name: 'Sunday Funday' })).toBeInTheDocument();
-    const nav = screen.getByRole('navigation', { name: 'League sections' });
-    for (const section of LEAGUE_SECTIONS) {
-      expect(within(nav).getByRole('link', { name: section.label })).toHaveAttribute(
-        'href',
-        `/leagues/L1/${section.path}`
-      );
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+    const link = (name: string) => within(nav).getByRole('link', { name });
+    expect(link('Home')).toHaveAttribute('aria-current', 'page');
+    expect(link('My Leagues')).toHaveAttribute('href', '/');
+    // In setup the Draft is its own section.
+    expect(link('Draft')).toHaveAttribute('href', '/leagues/L1/draft');
+    expect(link('Scoreboard')).toHaveAttribute('href', '/leagues/L1/league');
+    expect(link('Chat')).toHaveAttribute('href', '/leagues/L1/chat');
+    expect(link('Settings')).toHaveAttribute('href', '/leagues/L1/settings');
+    for (const [name, page] of [
+      ['Lineup', 'lineup'],
+      ['Matchup', 'matchup'],
+      ['Roster & moves', 'moves'],
+      ['Trades', 'trades'],
+      ['Achievements', 'achievements'],
+      ['Team profile', 'profile'],
+      ['Other teams', 'teams']
+    ] as const) {
+      expect(link(name)).toHaveAttribute('href', `/leagues/L1/team/${page}`);
     }
+    const headings = [...nav.querySelectorAll('.app-nav-section-title')].map((h) => h.textContent);
+    expect(headings).toEqual(['League', 'My Team']);
+    // The header bar switches leagues; the side nav carries the sections, so it has no links.
+    expect(screen.getByLabelText('League')).toHaveValue('L1');
+  });
+
+  it('lists My Leagues and Create League outside a league', async () => {
+    signInAs(ALICE);
+    renderApp('/');
+    const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((l) => l.textContent)
+    ).toEqual(['My Leagues', 'Create League']);
+    expect(screen.queryByLabelText('League')).not.toBeInTheDocument();
   });
 
   it('navigates between league sections', async () => {
@@ -85,12 +113,34 @@ describe('signed in', () => {
     signInAs(ALICE);
     renderApp('/leagues/L1/draft');
     expect(await screen.findByTestId('league-section-draft')).toBeInTheDocument();
-    await user.click(screen.getByRole('link', { name: 'Trades' }));
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+    await user.click(within(nav).getByRole('link', { name: 'Trades' }));
     expect(await screen.findByTestId('league-section-trades')).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'Trades' })).toHaveAttribute('aria-current', 'page');
+    await user.click(within(nav).getByRole('link', { name: 'Scoreboard' }));
+    expect(await screen.findByTestId('league-page-scoreboard')).toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Standings' }));
+    expect(await screen.findByTestId('league-section-standings')).toBeInTheDocument();
   });
 
-  it('scrolls the section nav to the current section (it is one sideways row on a phone)', async () => {
-    // jsdom has no scrollIntoView (the nav skips it then, as the other tests show); stand one in.
+  it.each([
+    ['/leagues/L1/roster', 'league-section-roster'],
+    ['/leagues/L1/matchup', 'league-section-matchup'],
+    ['/leagues/L1/trades?trade=t1', 'league-section-trades'],
+    ['/leagues/L1/players', 'league-section-players'],
+    ['/leagues/L1/standings', 'league-section-standings'],
+    ['/leagues/L1/standings?view=playoffs', 'league-page-playoffs'],
+    ['/leagues/L1/standings?view=history', 'league-page-history'],
+    ['/leagues/L1/team', 'league-section-roster'],
+    ['/leagues/L1/league', 'league-page-scoreboard']
+  ])('keeps the deep link %s working', async (path, testId) => {
+    signInAs(ALICE);
+    renderApp(path);
+    expect(await screen.findByTestId(testId)).toBeInTheDocument();
+  });
+
+  it('scrolls the League tabs to the current page (they are one sideways row on a phone)', async () => {
+    // jsdom has no scrollIntoView (the row skips it then, as the other tests show); stand one in.
     const scrolled: string[] = [];
     const scrollIntoView = vi.fn(function (this: Element) {
       scrolled.push(this.textContent ?? '');
@@ -98,9 +148,9 @@ describe('signed in', () => {
     Element.prototype.scrollIntoView = scrollIntoView;
     try {
       signInAs(ALICE);
-      renderApp('/leagues/L1/settings');
-      expect(await screen.findByTestId('league-section-settings')).toBeInTheDocument();
-      expect(scrolled).toContain('Settings');
+      renderApp('/leagues/L1/league/history');
+      expect(await screen.findByTestId('league-page-history')).toBeInTheDocument();
+      expect(scrolled).toContain('History');
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
     } finally {
       delete (Element.prototype as Partial<Element>).scrollIntoView;

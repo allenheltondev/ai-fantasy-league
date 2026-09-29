@@ -696,6 +696,42 @@ describe('membership changes', () => {
     );
   });
 
+  it("sets a person's team avatar, alone or with a new name, and shows it in the league", async () => {
+    expect(data(await bob.put('/leagues/lg-m/teams/team-2/name', { avatarSeed: 'bolt-7f3a' }))).toMatchObject(
+      {
+        team: { name: "Bob's Team", avatarSeed: 'bolt-7f3a' }
+      }
+    );
+    expect(
+      data(await bob.put('/leagues/lg-m/teams/team-2/name', { name: 'Bob Squad', avatarSeed: 'reroll_2' }))
+    ).toMatchObject({ team: { name: 'Bob Squad', avatarSeed: 'reroll_2' } });
+    // The same values again change nothing.
+    expect(data(await bob.put('/leagues/lg-m/teams/team-2/name', { avatarSeed: 'reroll_2' }))).toMatchObject({
+      team: { avatarSeed: 'reroll_2' }
+    });
+    const state = data<{ teams: { id: string; avatarSeed: string | null }[] }>(
+      await alice.get('/leagues/lg-m/state')
+    );
+    expect(state.teams.find((t) => t.id === 'team-2')?.avatarSeed).toBe('reroll_2');
+    expect(state.teams.find((t) => t.id === 'team-3')?.avatarSeed).toBeNull();
+
+    const nothing = await bob.put('/leagues/lg-m/teams/team-2/name', {});
+    expect(nothing.body).toMatchObject({
+      error: { code: 'INVALID_INPUT', fix: expect.stringContaining('avatarSeed') }
+    });
+    expect(errorCode(await bob.put('/leagues/lg-m/teams/team-2/name', { avatarSeed: 'no spaces' }))).toBe(
+      'INVALID_INPUT'
+    );
+    expect(errorCode(await bob.put('/leagues/lg-m/teams/team-3/name', { avatarSeed: 'mine' }))).toBe(
+      'FORBIDDEN'
+    );
+    // An unheld seat's picture is its AI manager's, set on the seat instead.
+    const unheld = await alice.put('/leagues/lg-m/teams/team-5/name', { avatarSeed: 'robo' });
+    expect(unheld.body).toMatchObject({
+      error: { code: 'INVALID_INPUT', fix: expect.stringContaining('configure_agent_seat') }
+    });
+  });
+
   it('lets an agent rename only the team it plays', async () => {
     const principal = agentPrincipal({ agentId: 'ag-6', teamId: 'team-6', leagueId: 'lg-m' });
     const call = (teamId: string, name: string, key: string) =>

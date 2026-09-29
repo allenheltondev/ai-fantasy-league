@@ -78,7 +78,7 @@ describe('notificationFor', () => {
     expect(notificationFor(ev('Notification Created', inboxItem()), 'team-1')).toEqual({
       message: "Trade offer from Bob's Team. You'd get Rashee Rice for Tony Pollard.",
       variant: 'info',
-      inbox: { id: 'n1', leagueId: 'L1', href: '/leagues/L1/trades?trade=tr1' }
+      inbox: { id: 'n1', leagueId: 'L1', href: '/leagues/L1/team/trades?trade=tr1' }
     });
     expect(
       notificationFor(
@@ -88,7 +88,7 @@ describe('notificationFor', () => {
         ),
         'team-1'
       )
-    ).toMatchObject({ variant: 'success', inbox: { href: '/leagues/L1/roster' } });
+    ).toMatchObject({ variant: 'success', inbox: { href: '/leagues/L1/team/lineup' } });
     expect(
       notificationFor(ev('Notification Created', inboxItem({ kind: 'waiver_lost' })), 'team-1')?.variant
     ).toBe('warning');
@@ -236,9 +236,9 @@ describe('LeagueNotifications', () => {
 
     // Open goes to the trade and marks the item read.
     const open = screen.getByRole('link', { name: 'Open' });
-    expect(open).toHaveAttribute('href', '/leagues/L1/trades?trade=tr1');
+    expect(open).toHaveAttribute('href', '/leagues/L1/team/trades?trade=tr1');
     await act(async () => open.click());
-    expect(screen.getByTestId('where')).toHaveTextContent('/leagues/L1/trades?trade=tr1');
+    expect(screen.getByTestId('where')).toHaveTextContent('/leagues/L1/team/trades?trade=tr1');
     expect(api.markNotificationsRead).toHaveBeenCalledWith('L1', { notificationIds: ['n1'] });
   });
 

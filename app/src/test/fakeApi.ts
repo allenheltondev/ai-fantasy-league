@@ -170,6 +170,7 @@ export function state(overrides: Partial<LeagueState> = {}): LeagueState {
     youAreCommissioner: true,
     yourTeam: detail.teams[0] as TeamDetail,
     allowedActions: COMMISSIONER_ACTIONS,
+    teams: detail.teams,
     ...overrides
   };
 }
@@ -272,6 +273,8 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     })),
     setSeatType: vi.fn(async () => ({ team: team(3) })),
     renameTeam: vi.fn(async () => ({ team: team(1) })),
+    setTeamProfile: vi.fn(async () => ({ team: team(1) })),
+    listChatRooms: vi.fn(async () => ({ defaultRoomId: 'trash-talk', rooms: [] })),
     removeMember: vi.fn(async () => ({})),
     transferCommissioner: vi.fn(async () => ({})),
     getAgentCatalog: vi.fn(async (query: { suggest?: number } = {}) => catalog(query.suggest ?? null)),

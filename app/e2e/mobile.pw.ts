@@ -509,8 +509,8 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByRole('region', { name: `${SEASON_WHO}'s Team` })).toBeVisible();
       await expectFits(page, 'matchup');
 
-      // The bell sits in the header beside the menu button, never folded into the menu, with its
-      // count in view; the Trades tab carries the offers waiting.
+      // The bell sits in the header bar under the top bar (#178), never folded into the menu, with
+      // its count in view, beside the league switcher.
       const bell = page.getByRole('button', { name: /^Notifications/ });
       await expect(bell).toHaveAccessibleName('Notifications, 12 unread');
       await expect(bell).toBeInViewport();
@@ -518,11 +518,17 @@ for (const viewport of VIEWPORTS) {
       const bellBox = await bell.boundingBox();
       expect(bellBox?.height ?? 0).toBeGreaterThanOrEqual(44);
       expect(bellBox?.width ?? 0).toBeGreaterThanOrEqual(44);
-      const menu = await page.getByRole('button', { name: 'Toggle navigation' }).boundingBox();
-      expect((bellBox?.x ?? 0) + (bellBox?.width ?? 0)).toBeLessThanOrEqual(menu?.x ?? 0);
-      await expect(
-        page.getByRole('navigation', { name: 'League sections' }).getByTestId('trades-badge')
-      ).toHaveText('2');
+      await expect(page.getByLabel('League')).toBeInViewport();
+      // On a phone the side nav folds into the top bar's menu. Its button carries a dot while
+      // something inside has a badge: My Team › Trades, with the offers waiting.
+      const menuButton = page.getByRole('button', { name: 'Toggle navigation' });
+      await expect(menuButton).toHaveClass(/app-nav-menu-btn-badged/);
+      await menuButton.tap();
+      const sections = page.getByRole('navigation', { name: 'Primary navigation' });
+      await expect(sections.getByRole('link', { name: 'Trades 2 offers waiting' })).toBeVisible();
+      await expectFits(page, 'league menu');
+      await menuButton.tap();
+      await expect(sections).toBeHidden();
       // The panel: every item, long titles wrapped, then tap one to go to its trade.
       await bell.tap();
       const panel = page.getByRole('dialog', { name: 'Notifications' });
@@ -554,10 +560,11 @@ for (const viewport of VIEWPORTS) {
       await page.goto('/leagues/demo-season/standings');
       await expect(page.getByRole('table', { name: 'Standings' })).toBeVisible();
       await expectFits(page, 'standings');
-      await page.getByRole('tab', { name: 'Playoffs' }).click();
+      const leaguePages = page.getByRole('navigation', { name: 'League pages' });
+      await leaguePages.getByRole('link', { name: 'Playoffs' }).tap();
       await expect(page.getByRole('region', { name: 'Championship bracket' })).toBeVisible();
       await expectFits(page, 'standings: playoffs');
-      await page.getByRole('tab', { name: 'History' }).click();
+      await leaguePages.getByRole('link', { name: 'History' }).tap();
       await expect(page.getByRole('heading', { name: 'Head to head' })).toBeVisible();
       await expectFits(page, 'standings: history');
 
@@ -586,8 +593,8 @@ for (const viewport of VIEWPORTS) {
       await page.getByRole('button', { name: 'Mention someone' }).tap();
       await expect(page.getByRole('listbox', { name: 'Mention a team' })).toBeVisible();
       await expectFits(page, 'chat: mention list');
-      await page.getByRole('combobox').press('Escape');
-      await page.getByRole('combobox').fill('');
+      await page.getByRole('combobox', { name: 'Message' }).press('Escape');
+      await page.getByRole('combobox', { name: 'Message' }).fill('');
       // Chat rooms (#144): the room sheet, a room with an announcement, and a new DM.
       await page.getByRole('button', { name: /Chat room: Trash Talk/ }).tap();
       const sheet = page.getByRole('dialog');
@@ -602,12 +609,39 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: 'Team 2', level: 2 })).toBeVisible();
       await expectFits(page, 'chat: DM');
 
-      // The section nav is one row that scrolls sideways: Settings, off to the right, is a tap away.
-      const sections = page.getByRole('navigation', { name: 'League sections' });
-      expect((await sections.boundingBox())?.height ?? 0).toBeLessThan(80);
+      // League's tabs are one row that scrolls sideways: Transactions, off to the right, is a tap away.
+      await page.goto('/leagues/demo-season/league');
+      await expect(page).toHaveURL(/\/league\/scoreboard$/);
+      await expect(page.getByRole('region', { name: 'Matchups' })).toBeVisible();
+      await expectFits(page, 'league: scoreboard');
+      const tabs = page.getByRole('navigation', { name: 'League pages' });
+      expect((await tabs.boundingBox())?.height ?? 0).toBeLessThan(80);
+      await tabs.getByRole('link', { name: 'Transactions' }).tap();
+      await expect(page).toHaveURL(/\/league\/transactions$/);
+      await expect(
+        page.getByRole('navigation', { name: 'League pages' }).getByRole('link', { name: 'Transactions' })
+      ).toBeInViewport();
+      await expect(page.getByRole('region', { name: 'Move board' })).toBeVisible();
+      await expectFits(page, 'league: transactions');
+
+      // My Team (#178): moves, your profile, and another team, read-only.
+      await page.goto('/leagues/demo-season/team/moves');
+      await expect(page.getByRole('region', { name: 'Your moves' })).toBeVisible();
+      await expectFits(page, 'my team: roster & moves');
+      await page.goto('/leagues/demo-season/team/profile');
+      await expect(page.getByLabel('Team name')).toBeVisible();
+      await expectFits(page, 'my team: profile');
+      await page.goto('/leagues/demo-season/team/teams');
+      await page.getByRole('list', { name: 'Teams' }).getByRole('link').first().tap();
+      await expect(page.getByTestId('team-view')).toBeVisible();
+      await expect(page.getByRole('table', { name: / lineup$/ })).toBeVisible();
+      await expectFits(page, 'my team: another team');
+
+      // Settings from the menu: it closes on the way.
+      await menuButton.tap();
       await sections.getByRole('link', { name: 'Settings' }).tap();
       await expect(page).toHaveURL(/\/settings$/);
-      await expect(sections.getByRole('link', { name: 'Settings' })).toBeInViewport();
+      await expect(sections).toBeHidden();
       await expect(page.getByRole('heading', { name: 'Rules' })).toBeVisible();
       await expectFits(page, 'settings (season): league settings');
       const aiTab = page.getByRole('button', { name: 'AI activity' });

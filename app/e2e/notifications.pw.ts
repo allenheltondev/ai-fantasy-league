@@ -100,26 +100,27 @@ test('a trade offer that arrives while you are away is on the bell at sign-in; o
   const item = panel.getByRole('link', { name: `Unread: Trade offer from ${RIVAL}'s Team` });
   await expect(item).toContainText("You'd get Lamar Jackson for Patrick Mahomes.");
   await item.click();
-  await expect(page).toHaveURL(new RegExp(`/leagues/${LEAGUE}/trades\\?trade=${tradeId}$`));
+  await expect(page).toHaveURL(new RegExp(`/leagues/${LEAGUE}/team/trades\\?trade=${tradeId}$`));
   await expect(panel).toBeHidden();
   await expect(page.locator('[aria-current="true"]').getByTestId(`trade-${tradeId}`)).toBeVisible();
   await expect(page.getByRole('region', { name: 'Inbox' })).toContainText('sends Lamar Jackson');
 
-  // The bell is clear; the Trades tab still shows the offer waiting on your answer.
+  // The bell is clear; My Team › Trades in the side nav still shows the offer waiting on your answer.
   await expect(bell).toHaveAccessibleName('Notifications');
   await expect(bell.getByTestId('notification-count')).toHaveCount(0);
   const tradesTab = page
-    .getByRole('navigation', { name: 'League sections' })
-    .getByRole('link', { name: /Trades/ });
-  await expect(tradesTab.getByTestId('trades-badge')).toHaveText('1');
+    .getByRole('navigation', { name: 'Primary navigation' })
+    .getByRole('link', { name: /^Trades/ });
+  await expect(tradesTab).toHaveAccessibleName('Trades 1 offer waiting');
+  await expect(tradesTab.locator('.app-nav-link-badge')).toContainText('1');
 
   // Answering it clears the Trades badge.
   await page.getByRole('region', { name: 'Inbox' }).getByRole('button', { name: 'Reject' }).first().click();
   await expect(page.getByText('Reject: the trade is now rejected.')).toBeVisible();
   await page
-    .getByRole('navigation', { name: 'League sections' })
-    .getByRole('link', { name: 'Roster' })
+    .getByRole('navigation', { name: 'Primary navigation' })
+    .getByRole('link', { name: 'Lineup' })
     .click();
-  await expect(tradesTab.getByTestId('trades-badge')).toHaveCount(0);
+  await expect(tradesTab.locator('.app-nav-link-badge')).toHaveCount(0);
   await context.close();
 });

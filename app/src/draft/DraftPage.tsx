@@ -124,14 +124,19 @@ function useFitScreen(
       const parent = el?.parentElement;
       if (el === null || parent === null || parent === undefined) return;
       const top = el.getBoundingClientRect().top + window.scrollY;
-      // Break out of the page's content column: the room uses the screen's width, up to a cap.
+      // Break out of the page's content column: the room uses the screen's width, up to a cap. A
+      // `data-room-bounds` ancestor (the column beside the league's side nav, #178) keeps it right
+      // of the nav.
       const screen = document.documentElement.clientWidth;
-      const width = Math.max(parent.clientWidth, Math.min(screen - 2 * ROOM_GUTTER, MAX_ROOM_WIDTH));
+      const bounds = el.closest('[data-room-bounds]')?.getBoundingClientRect();
+      const from = bounds === undefined ? ROOM_GUTTER : Math.max(ROOM_GUTTER, bounds.left);
+      const room = screen - ROOM_GUTTER - from;
+      const width = Math.max(parent.clientWidth, Math.min(room, MAX_ROOM_WIDTH));
       const left = parent.getBoundingClientRect().left;
       setFit({
         height: Math.max(MIN_ROOM_HEIGHT, Math.floor(window.innerHeight - top - spaceBelow(el))),
         width,
-        marginLeft: Math.min(0, Math.round((screen - width) / 2 - left))
+        marginLeft: Math.min(0, Math.round(from + (room - width) / 2 - left))
       });
     };
     measure();

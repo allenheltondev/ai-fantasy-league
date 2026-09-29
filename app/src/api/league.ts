@@ -70,6 +70,9 @@ export function createLeagueApi(api: ApiFetch) {
       }),
     renameTeam: (id: string, teamId: string, name: string) =>
       call<{ team: TeamDetail }>(`${league(id)}/teams/${teamId}/name`, { method: 'PUT', body: { name } }),
+    /** rename_team with a name, an avatar seed (#178), or both: your team's profile. */
+    setTeamProfile: (id: string, teamId: string, profile: { name?: string; avatarSeed?: string }) =>
+      call<{ team: TeamDetail }>(`${league(id)}/teams/${teamId}/name`, { method: 'PUT', body: profile }),
     removeMember: (id: string, userId: string) =>
       call<unknown>(`${league(id)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
     transferCommissioner: (id: string, userId: string) =>
@@ -116,6 +119,11 @@ export function createLeagueApi(api: ApiFetch) {
     getDataStatus: (id: string) => call<DataStatus>(`${league(id)}/data-status`),
     /** get_realtime_token: a subscribe-only token for live league events, or `enabled: false`. */
     getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`),
+    /** list_chat_rooms, for the league nav's unread badge (the chat page has its own client). */
+    listChatRooms: (id: string) =>
+      call<{ defaultRoomId: string; rooms: { roomId: string; unreadCount: number }[] }>(
+        `${league(id)}/chat/rooms`
+      ),
     // Playoffs and history (#78, #81)
     getPlayoffBracket: (id: string) => call<PlayoffBracketData>(`${league(id)}/playoffs`),
     getLeagueHistory: (id: string) => call<LeagueHistoryData>(`${league(id)}/history`),

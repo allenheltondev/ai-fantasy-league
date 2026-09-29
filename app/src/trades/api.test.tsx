@@ -1,7 +1,5 @@
-import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiFetch, ApiRequest } from '../api/client';
-import { LeagueSectionPage } from '../routes/pages';
 import { createTradesApi } from './api';
 
 function fakeFetch() {
@@ -71,10 +69,5 @@ describe('trades api', () => {
     expect(calls[5]?.request?.body).toEqual({ send: ['a'], receive: ['b'], drops: [] });
     expect(calls[6]?.request?.body).toEqual({ response: 'accept', drops: [] });
     expect(calls[8]?.request?.body).toEqual({ decision: 'veto' });
-  });
-
-  it('keeps a placeholder for sections without a page of their own', () => {
-    render(<LeagueSectionPage section="chat" />);
-    expect(screen.getByText('Coming soon.')).toBeInTheDocument();
   });
 });

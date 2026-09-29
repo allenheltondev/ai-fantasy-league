@@ -181,6 +181,11 @@ export interface Team {
   /** The human owner's user id; null for agent seats and open human seats. */
   ownerUserId: string | null;
   ownerName: string | null;
+  /**
+   * The seed its owner picked for the team's avatar picture (#178), hashed by the app the same way
+   * as an AI manager's. Absent until set with rename_team; an AI manager's avatar comes from its seat.
+   */
+  avatarSeed?: string;
   /** The agent config (personality, difficulty, model) for agent seats; null until configured. */
   agentConfigId: string | null;
   /** 1-based position in the round-1 draft order. */

@@ -252,8 +252,9 @@ describe('league shell', () => {
       const user = userEvent.setup();
       open('/leagues/L1/matchup', { getMatchup: vi.fn(async () => matchup('scheduled', null, null)) });
       await screen.findByTestId('league-section-matchup');
-      await user.click(screen.getByRole('link', { name: 'Standings' }));
-      expect(await screen.findByTestId('league-section-standings')).toBeInTheDocument();
+      const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+      await user.click(within(nav).getByRole('link', { name: 'Scoreboard' }));
+      expect(await screen.findByTestId('league-page-scoreboard')).toBeInTheDocument();
       expect(start).toHaveBeenCalledOnce();
     } finally {
       Reflect.deleteProperty(document, 'startViewTransition');
