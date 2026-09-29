@@ -34,7 +34,6 @@ export function LeagueSectionLayout() {
   }, [pathname]);
   return (
     <div data-testid="league-section-league" className="space-y-4">
-      <h2 className="text-xl font-semibold">League</h2>
       <nav
         ref={row}
         aria-label="League pages"

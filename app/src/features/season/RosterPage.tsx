@@ -37,7 +37,6 @@ export function RosterPage({ connect = connectMomentoEvents }: { connect?: Event
   }
   return (
     <div data-testid="league-section-roster" className="space-y-4">
-      <h2 className="text-xl font-semibold">Lineup</h2>
       {body}
     </div>
   );
@@ -99,7 +98,7 @@ function LineupEditor({
       <>
         {data.carriedFromWeek !== null && (
           <p className="text-muted-foreground">
-            {data.teamName} · Week {data.week} · carried over from week {data.carriedFromWeek}
+            Week {data.week} · carried over from week {data.carriedFromWeek}
           </p>
         )}
         <EmptyState title="No players yet" description="Your roster fills in at the draft." />
