@@ -13,16 +13,6 @@ import { seatTenureStart, type Services } from '@fantasy/server';
 import { z } from 'zod';
 import type { TaskContext } from './tasks/kinds.js';
 
-/** Only tasks that manage the roster consume private operational priorities. */
-export const AGENDA_KINDS = new Set([
-  'check_in',
-  'lineup',
-  'waivers',
-  'trade_proposal',
-  'trade_response',
-  'post_draft'
-]);
-
 const RosterSchema = z.object({
   week: z.number().int().positive(),
   players: z.array(

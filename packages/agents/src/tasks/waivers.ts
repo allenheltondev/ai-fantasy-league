@@ -477,6 +477,7 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
   kind: 'waivers',
   title: 'Work the waiver wire',
   modelRole: 'decision',
+  agenda: (_ctx, payload) => (payload.reason === 'chat' ? 'refresh_only' : 'private'),
   payload: WaiverPayloadSchema,
   decision: WaiverDecisionSchema,
   // Bids are sealed and go to nobody: it may recall the agent's own pending bids and plans.

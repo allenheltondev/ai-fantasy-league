@@ -804,6 +804,8 @@ export const checkInTask = defineTaskKind<Payload, CheckInDecision, CheckInPrep>
   kind: 'check_in',
   title: 'Check in on your team',
   modelRole: 'decision',
+  // One model may also post publicly or send a DM, so it may update goals but never read them.
+  agenda: 'refresh_only',
   payload: PayloadSchema,
   decision: CheckInDecisionSchema,
   // Research only: every move goes through the vetted lists in the decision.

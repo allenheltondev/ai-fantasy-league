@@ -123,6 +123,12 @@ export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
    * `memoryNote` is not persisted, so nothing it was talked into survives into later prompts.
    */
   modelNotes?: boolean;
+  /**
+   * `private` lets this roster decision and its model use the owner's agenda. `guide_only` permits
+   * deterministic candidate ranking but withholds the agenda from a model that can write a trade
+   * note or DM. `refresh_only` only reconciles durable goals for a chat-visible task.
+   */
+  agenda?: AgendaMode | ((ctx: TaskContext, payload: P) => AgendaMode);
   prepare(ctx: TaskContext, payload: P): Promise<Prep>;
   instructions(ctx: TaskContext, payload: P, prep: Prep): string;
   apply(ctx: TaskContext, payload: P, prep: Prep, decision: D): Promise<TaskOutcome>;
@@ -163,8 +169,11 @@ export interface TaskKind {
   tools?: readonly string[];
   modelActions?: number;
   modelNotes?: boolean;
+  agendaMode(ctx: TaskContext, payload: unknown): AgendaMode;
   prepare(ctx: TaskContext, payload: unknown): Promise<PreparedTask>;
 }
+
+export type AgendaMode = 'none' | 'private' | 'guide_only' | 'refresh_only';
 
 export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSpec<P, D, Prep>): TaskKind {
   return {
@@ -174,6 +183,11 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
     ...(spec.tools === undefined ? {} : { tools: spec.tools }),
     ...(spec.modelActions === undefined ? {} : { modelActions: spec.modelActions }),
     ...(spec.modelNotes === undefined ? {} : { modelNotes: spec.modelNotes }),
+    agendaMode(ctx, rawPayload) {
+      if (spec.agenda === undefined) return 'none';
+      const payload = spec.payload.parse(rawPayload);
+      return typeof spec.agenda === 'function' ? spec.agenda(ctx, payload) : spec.agenda;
+    },
     async prepare(ctx, rawPayload) {
       const payload = spec.payload.parse(rawPayload);
       const prep = await spec.prepare(ctx, payload);

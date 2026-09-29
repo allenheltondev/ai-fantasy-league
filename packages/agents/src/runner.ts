@@ -37,7 +37,7 @@ import {
 import { ZodError } from 'zod';
 import { dispatchTask, errorName } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
-import { AGENDA_KINDS, refreshAgenda } from './agenda.js';
+import { refreshAgenda } from './agenda.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
 import {
@@ -63,6 +63,7 @@ import { MEMORY_NOTE_MAX, assembleSystemPrompt } from './prompt.js';
 import { taskIdFor } from './router.js';
 import type {
   BaseDecision,
+  AgendaMode,
   PreparedTask,
   TaskContext,
   TaskKindRegistry,
@@ -312,13 +313,15 @@ export async function runAgentAction(
     }
   };
 
-  const usesAgenda = kind.modelRole === 'decision' && AGENDA_KINDS.has(kind.kind);
-  if (usesAgenda) {
-    const agenda = await refreshAgenda(services, ctx);
-    if (agenda !== undefined) ctx.agenda = agenda;
-  }
+  let agendaMode: AgendaMode = 'none';
   let prepared: PreparedTask;
   try {
+    agendaMode = kind.agendaMode(ctx, request.payload);
+    if (agendaMode !== 'none') {
+      const agenda = await refreshAgenda(services, ctx);
+      if ((agendaMode === 'private' || agendaMode === 'guide_only') && agenda !== undefined)
+        ctx.agenda = agenda;
+    }
     prepared = await kind.prepare(ctx, request.payload);
   } catch (error) {
     if (error instanceof TaskUnavailableError) {
@@ -341,7 +344,7 @@ export async function runAgentAction(
   const audience = prepared.memoryAudience ?? defaultAudience(kind.modelRole, prepared.memoryScope);
   attempt.remember = async (outcome: TaskOutcome, note?: string) => {
     // Only a new authoritative snapshot can finish a goal; pending offers/claims do not.
-    if (usesAgenda && system.actionsTaken > 0) await refreshAgenda(services, ctx);
+    if (agendaMode !== 'none' && system.actionsTaken > 0) await refreshAgenda(services, ctx);
     const events: MemoryEvent[] = [];
     // The decision and its note are as private as the task's summary (#206).
     const visibility = outcomeVisibility(outcome.sealed, audience);
@@ -437,7 +440,7 @@ export async function runAgentAction(
     task: {
       title: kind.title,
       instructions: [
-        ...(ctx.agenda === undefined || agendaPrompt(ctx.agenda).length === 0
+        ...(agendaMode !== 'private' || ctx.agenda === undefined || agendaPrompt(ctx.agenda).length === 0
           ? []
           : [
               'Your current private roster priorities (do not disclose private plans):',

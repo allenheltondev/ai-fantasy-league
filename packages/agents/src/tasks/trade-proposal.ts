@@ -228,24 +228,15 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
   for (const team of state.teams) {
     if (team.id === me || pending.has(team.id)) continue;
     const theirs = await rosterOf(team.id);
+    // Keep the strongest baseline ideas in the preview pool. Agenda preference is applied only
+    // after legality and value checks, so a failed repair idea cannot hide a valid fallback.
     ideas.push(
       ...swapIdeas(mine, theirs)
-        .sort(
-          (a, b) =>
-            agendaPriority(ctx.agenda, b.receive.player.position) -
-              agendaPriority(ctx.agenda, a.receive.player.position) || b.rough - a.rough
-        )
         .slice(0, PER_TEAM)
         .map((idea) => ({ ...idea, team }))
     );
   }
-  ideas.sort(
-    (a, b) =>
-      agendaPriority(ctx.agenda, b.receive.player.position) -
-        agendaPriority(ctx.agenda, a.receive.player.position) ||
-      b.rough - a.rough ||
-      a.team.id.localeCompare(b.team.id)
-  );
+  ideas.sort((a, b) => b.rough - a.rough || a.team.id.localeCompare(b.team.id));
 
   const bar = Math.max(appetite.acceptEdge, MIN_PROPOSAL_GAIN);
   const recency = ctx.config.valuation.recencyBias ?? 0;
@@ -452,6 +443,7 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
   kind: 'trade_proposal',
   title: 'Look for a trade to offer',
   modelRole: 'decision',
+  agenda: (_ctx, payload) => (payload.reason === 'chat' ? 'refresh_only' : 'guide_only'),
   payload: PayloadSchema,
   decision: TradeProposalDecisionSchema,
   tools: ['get_league_state', 'get_roster', 'get_player', 'get_projections', 'get_news', 'preview_trade'],

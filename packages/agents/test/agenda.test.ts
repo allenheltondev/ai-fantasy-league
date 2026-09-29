@@ -4,14 +4,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { agendaHoles, refreshAgenda } from '../src/agenda.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { runAgentAction } from '../src/runner.js';
+import { checkInTask } from '../src/tasks/check-in.js';
 import {
   BaseDecisionSchema,
   createTaskKindRegistry,
   defineTaskKind,
   type TaskContext
 } from '../src/tasks/kinds.js';
+import { lineupTask } from '../src/tasks/lineup.js';
+import { tradeProposalTask } from '../src/tasks/trade-proposal.js';
+import { tradeResponseTask } from '../src/tasks/trades.js';
 import { ToolBox } from '../src/tools.js';
-import { scout } from '../src/tasks/waivers.js';
+import { scout, waiverTask } from '../src/tasks/waivers.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup, type Setup } from './support.js';
 
 const agentId = `${LEAGUE_ID}.${AGENT_TEAM}`;
@@ -62,6 +66,26 @@ const stored = async (s: Setup) =>
   );
 
 describe('agenda availability', () => {
+  it('marks every chat-visible roster task as refresh-only', async () => {
+    const s = await setup();
+    const ctx = await context(s);
+    expect(checkInTask.agendaMode(ctx, { slot: 'morning' })).toBe('refresh_only');
+    expect(lineupTask.agendaMode(ctx, { reason: 'chat' })).toBe('refresh_only');
+    expect(waiverTask.agendaMode(ctx, { reason: 'chat' })).toBe('refresh_only');
+    expect(tradeProposalTask.agendaMode(ctx, { reason: 'chat' })).toBe('refresh_only');
+    expect(
+      tradeResponseTask.agendaMode(ctx, {
+        tradeId: 't1',
+        fromTeamId: 'team-1',
+        chat: { roomId: 'league', messageId: 'm1', fromTeamId: 'team-1' }
+      })
+    ).toBe('refresh_only');
+    expect(tradeResponseTask.agendaMode(ctx, { tradeId: 't1' })).toBe('refresh_only');
+    expect(tradeProposalTask.agendaMode(ctx, { reason: 'week' })).toBe('guide_only');
+    expect(lineupTask.agendaMode(ctx, { reason: 'lock' })).toBe('private');
+    expect(waiverTask.agendaMode(ctx, { reason: 'window' })).toBe('private');
+  });
+
   it('prioritizes a durable need before allocating scarce drops without bypassing the gain floor', async () => {
     const s = await setup();
     const ctx = await context(s);
@@ -155,7 +179,9 @@ describe('agenda availability', () => {
     await runAgentAction(s.deps(model), request('first'));
     const first = await stored(s);
     expect(first.goals[0]).toMatchObject({ slot: 'RB', missing: 2, status: 'active' });
-    expect(model.transcript[0]?.systemPrompt).toContain('[repair_position:W5:RB]');
+    expect(model.transcript[0]?.systemPrompt).not.toContain('repair_position');
+    await runAgentAction(s.deps(model), request('private-lineup', 'lineup'));
+    expect(model.transcript.at(-1)?.systemPrompt).toContain('[repair_position:W5:RB]');
     s.clock.advance(60_000);
     await runAgentAction(s.deps(model), request('second'));
     expect((await stored(s)).goals).toEqual(first.goals);
@@ -200,7 +226,7 @@ describe('agenda availability', () => {
     }
   });
 
-  it('keeps private goals out of chat prompts even when stored for that manager', async () => {
+  it('keeps private goals out of chat and externally-writing decision prompts', async () => {
     const s = await setup();
     const ctx = await context(s);
     await hurtRunningBacks(s, 'Out');
@@ -220,13 +246,30 @@ describe('agenda availability', () => {
       apply: async () => ({ action: 'none', summary: 'Hello.' }),
       fallback: async () => ({ action: 'none', summary: 'Quiet.' })
     });
+    const guidedTrade = defineTaskKind({
+      kind: 'guided_trade',
+      title: 'Guided trade',
+      modelRole: 'decision',
+      agenda: 'guide_only',
+      payload: BaseDecisionSchema.partial(),
+      decision: BaseDecisionSchema,
+      tools: [],
+      prepare: async (ctx) => {
+        expect(ctx.agenda?.goals[0]?.slot).toBe('RB');
+        return null;
+      },
+      instructions: () => 'Choose from already-ranked candidates and write a note.',
+      apply: async () => ({ action: 'none', summary: 'No offer.' }),
+      fallback: async () => ({ action: 'none', summary: 'Quiet.' })
+    });
     const model = new ScriptedModelClient({ script: () => ({ steps: [], decision: { summary: 'Hello.' } }) });
-    await runAgentAction(
-      s.deps(model, { kinds: createTaskKindRegistry([chat]) }),
-      request('chat', 'chat_reply')
-    );
+    const kinds = createTaskKindRegistry([chat, guidedTrade]);
+    await runAgentAction(s.deps(model, { kinds }), request('chat', 'chat_reply'));
     expect(model.transcript[0]?.systemPrompt).not.toContain('repair_position');
     expect(model.transcript[0]?.systemPrompt).not.toContain('private roster priorities');
+    await runAgentAction(s.deps(model, { kinds }), request('guided', 'guided_trade'));
+    expect(model.transcript[1]?.systemPrompt).not.toContain('repair_position');
+    expect(model.transcript[1]?.systemPrompt).not.toContain('private roster priorities');
   });
 
   it('preserves saved goals but withholds stale context when roster reads fail', async () => {
