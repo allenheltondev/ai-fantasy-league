@@ -169,7 +169,18 @@ export async function runAgentAction(
     tools: system,
     clock,
     log,
-    trigger: base.trigger
+    trigger: base.trigger,
+    claimLimit: async (name, cap, windowMs) => {
+      const result = await services.repos.agents.claimLimit({
+        leagueId: league.id,
+        key: `${seat.agentId}#${name}`,
+        now: clock.now(),
+        windowMs,
+        cap
+      });
+      if (result === 'contended') log.warn('agent limit contended; treated as used up', { limit: name });
+      return result === 'claimed';
+    }
   };
 
   let prepared: PreparedTask;
@@ -236,7 +247,7 @@ export async function runAgentAction(
   };
   const followUp = async (outcome: TaskOutcome) => {
     for (const next of outcome.followUps ?? []) {
-      if (next.chatDriven === true && !(await takeChatActionSlot(services, league.id, seat.agentId))) {
+      if (next.chatDriven === true && !(await takeChatActionSlot(services, league.id, seat.agentId, log))) {
         log.info('chat follow-up skipped: daily limit', { followUp: next.kind });
         continue;
       }
@@ -585,26 +596,23 @@ async function finish(
 }
 
 /**
- * Takes one of the agent's daily chat-action slots (#196): `SOCIAL_LIMITS.chatActionsPerDay` trigger
- * states, each free once its last use is a day old. False when all are taken.
+ * Takes one of the agent's daily chat-action uses (#196): at most `SOCIAL_LIMITS.chatActionsPerDay`
+ * in any 24 hours, claimed atomically (`claimLimit`: a conditional write, so two replies running at
+ * once cannot both take the last one). False when they are used up, or the claim stayed contended.
  */
 export async function takeChatActionSlot(
   services: Services,
   leagueId: string,
-  agentId: string
+  agentId: string,
+  log: Services['log'] = services.log
 ): Promise<boolean> {
-  const now = services.clock.now();
-  for (let i = 0; i < SOCIAL_LIMITS.chatActionsPerDay; i++) {
-    const slot = `${agentId}#chat-action#${i}`;
-    const state = await services.repos.agents.getTriggerState(leagueId, slot);
-    if (state !== null && now.getTime() - Date.parse(state.lastTriggeredAt) < SOCIAL_LIMITS.windowMs)
-      continue;
-    await services.repos.agents.putTriggerState({
-      leagueId,
-      agentId: slot,
-      lastTriggeredAt: now.toISOString()
-    });
-    return true;
-  }
-  return false;
+  const result = await services.repos.agents.claimLimit({
+    leagueId,
+    key: `${agentId}#chat-action`,
+    now: services.clock.now(),
+    windowMs: SOCIAL_LIMITS.windowMs,
+    cap: SOCIAL_LIMITS.chatActionsPerDay
+  });
+  if (result === 'contended') log.warn('chat-action limit contended; treated as used up', { agentId });
+  return result === 'claimed';
 }

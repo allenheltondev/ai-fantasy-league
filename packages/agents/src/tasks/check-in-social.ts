@@ -102,6 +102,7 @@ async function pack(ctx: TaskContext, roomId: string) {
 }
 
 const DAY_MS = SOCIAL_LIMITS.windowMs;
+const WEEK_MS = 7 * DAY_MS;
 /** Phases with a matchup every week. */
 const GAME_PHASES: ReadonlySet<string> = new Set(['regular_season', 'playoffs']);
 const name = (n: string) => quote(n, 40);
@@ -411,6 +412,11 @@ async function matchupPost(ctx: TaskContext, prep: CheckInPrep, actions: readonl
   const matchup = prep.look.social.matchup;
   const text = chatText(actions.find((a) => chatText(a) !== ''));
   if (matchup === null || text === '') return;
+  // The week's limit, claimed atomically (the room's messages counted at the look are not).
+  if (!(await ctx.claimLimit(`matchup#${matchup.roomId}`, SOCIAL_LIMITS.matchupPostsPerWeek, WEEK_MS))) {
+    run.done.push({ action: 'chat_held', line: 'Held my tongue in my matchup room: said enough this week.' });
+    return;
+  }
   const tag = `@${matchup.opponent.name}`;
   const tagged = text.toLowerCase().includes(tag.toLowerCase()) ? text : `${tag} ${text}`.slice(0, 280);
   const result = await post(ctx, matchup.roomId, tagged);
@@ -431,7 +437,14 @@ async function directMessage(
   const action = actions.find((a) => a.goal !== undefined && chatText(a) !== '');
   const goal = action?.goal === undefined ? undefined : prep.look.social.dms[action.goal - 1];
   if (goal === undefined) return;
-  const verdict = await dmCheck(ctx, goal);
+  // The thread's daily claim is atomic, so two tasks cannot both start one (the chat read is not).
+  const checked = await dmCheck(ctx, goal);
+  const verdict =
+    checked !== 'ok'
+      ? checked
+      : (await ctx.claimLimit(`dm#${goal.teamId}`, SOCIAL_LIMITS.dmThreadsPerTeamPerDay, DAY_MS))
+        ? 'ok'
+        : 'daily_limit';
   if (verdict !== 'ok') {
     run.done.push({ action: 'dm_held', line: `Held off messaging ${name(goal.teamName)} (${verdict}).` });
     return;

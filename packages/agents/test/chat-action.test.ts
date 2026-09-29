@@ -404,6 +404,19 @@ describe('chat → follow-up: what gets handed on', () => {
     expect(requested(s)).toHaveLength(3);
     expect(s.logs.some((l) => l.includes('chat follow-up skipped: daily limit'))).toBe(true);
   });
+
+  it('holds the limit when replies run at the same time (an atomic claim)', async () => {
+    const s = await settle(await setup());
+    await s.seat(AGENT_TEAM, HAPPY);
+    await injure(s, 'rb1');
+    // Six tips in six rooms, answered all at once: each reply sees the day's limit untouched.
+    const rooms = ['trash-talk', 'league', 'trades', 'waivers-news', DM, 'draft'];
+    const tips = await Promise.all(rooms.map((room) => tell(s, 'RB1 is out.', room)));
+    await Promise.all(
+      tips.map((tip) => answer(s, tip, { kind: 'player_tip', players: ['RB1'], claim: 'out' }))
+    );
+    expect(requested(s)).toHaveLength(3);
+  });
 });
 
 describe('chat → waivers: a tip or a taunt gets a look at the wire', () => {

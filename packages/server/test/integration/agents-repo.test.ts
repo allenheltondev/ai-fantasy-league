@@ -132,6 +132,22 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     expect(await agents.listTasks(leagueId, { limit: 1 })).toHaveLength(1);
   });
 
+  it('claims a rolling-window limit atomically: N parallel claims against a cap of 3 get exactly 3', async () => {
+    const { agents } = make();
+    const leagueId = unique('lg');
+    const claim = (now: Date, key = 'a#chat-action') =>
+      agents.claimLimit({ leagueId, key, now, windowMs: 86_400_000, cap: 3 });
+    const results = await Promise.all(Array.from({ length: 8 }, () => claim(T0)));
+    expect(results.filter((r) => r === 'claimed')).toHaveLength(3);
+    expect(results.filter((r) => r !== 'claimed').every((r) => r === 'full' || r === 'contended')).toBe(true);
+    expect(await claim(T0)).toBe('full');
+    // Another limit has its own count.
+    expect(await claim(T0, 'a#dm#team-1')).toBe('claimed');
+    // A day later the uses have aged out.
+    const later = new Date(T0.getTime() + 86_400_001);
+    expect(await Promise.all([claim(later), claim(later), claim(later), claim(later)])).toContain('full');
+  });
+
   it('adds weekly usage rows', async () => {
     const { agents } = make();
     const leagueId = unique('lg');

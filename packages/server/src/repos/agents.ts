@@ -152,7 +152,30 @@ export interface AgentRepository {
 
   getTriggerState(leagueId: string, agentId: string): Promise<AgentTriggerState | null>;
   putTriggerState(state: AgentTriggerState): Promise<void>;
+  /**
+   * Takes one use of a rolling-window limit (#196: an agent's chat-driven actions a day, the DM
+   * threads it starts with a team a day, its posts in a matchup room a week), atomically: the uses
+   * inside `windowMs` before `now` are counted and a new one is recorded only if they are below
+   * `cap`, by a conditional write on the limit's revision, re-read and retried when another claim
+   * got there first. `full` when the cap is reached; `contended` when the retries ran out (callers
+   * treat it as full).
+   */
+  claimLimit(input: LimitClaim): Promise<LimitClaimResult>;
 }
+
+export interface LimitClaim {
+  leagueId: string;
+  /** The limit and whose it is, e.g. `<agentId>#chat-action`. */
+  key: string;
+  now: Date;
+  windowMs: number;
+  cap: number;
+}
+
+export type LimitClaimResult = 'claimed' | 'full' | 'contended';
+
+/** Claim attempts before a contended limit counts as full. */
+export const LIMIT_CLAIM_ATTEMPTS = 8;
 
 export function staleSeat(teamId: string): ApiError {
   return new ApiError(

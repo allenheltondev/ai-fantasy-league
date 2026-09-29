@@ -37,6 +37,8 @@ function scripted(answers: Record<string, unknown>): TaskContext & { calls: stri
     league: { week: 5, name: 'Test League' },
     clock: new FixedClock(START),
     calls,
+    // Limits named in `full` (answers.full) are used up; every other claim succeeds.
+    claimLimit: async (name: string) => !((answers.full as string[] | undefined) ?? []).includes(name),
     tools: {
       call: async (name: string, args: Record<string, unknown>) => {
         calls.push(name);
@@ -356,6 +358,22 @@ describe('the social steps', () => {
       { action: 'send_dm_failed', line: "Could not message Allen's Team: RATE_LIMITED." }
     ]);
     expect(refusing.calls.filter((c) => c === 'post_message')).toHaveLength(3);
+  });
+
+  it('holds a post or a DM when another task took the last use of its limit first', async () => {
+    const ctx = scripted({ get_chat: { messages: [] }, full: ['matchup#m', 'dm#team-1'] });
+    const social = {
+      matchup: { roomId: 'm', opponent: { teamId: 'team-3', name: 'Them' }, angles: ['x'] },
+      dms: [GOAL]
+    };
+    const run = newRun();
+    await step('matchup_post').run(ctx, prep(social), [{ type: 'matchup_post', message: 'hi' }], run);
+    await step('send_dm').run(ctx, prep(social), [{ type: 'send_dm', goal: 1, message: 'hi' }], run);
+    expect(run.done).toEqual([
+      { action: 'chat_held', line: 'Held my tongue in my matchup room: said enough this week.' },
+      { action: 'dm_held', line: "Held off messaging Allen's Team (daily_limit)." }
+    ]);
+    expect(ctx.calls).not.toContain('post_message');
   });
 
   it('holds a DM that went over the limit since the look', async () => {

@@ -54,6 +54,11 @@ export interface TaskContext {
   clock: Clock;
   log: Logger;
   trigger: { detailType: string; eventId: string };
+  /**
+   * Takes one use of this agent's rolling-window limit `name` (#196: DM threads, matchup posts),
+   * atomically, so two tasks running at once cannot both take the last use. False when used up.
+   */
+  claimLimit(name: string, cap: number, windowMs: number): Promise<boolean>;
 }
 
 export interface TaskOutcome {

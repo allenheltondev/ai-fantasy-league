@@ -154,7 +154,8 @@ describe('replayLeague: the real league on the simulated clock', () => {
       timings: r.timings.map((t) => ({ ...t, wallMs: 0 }))
     });
     expect(stable(again)).toEqual(stable(first));
-  });
+    // Two full replays take about 55s under coverage: the default 60s is too tight under load.
+  }, 150_000);
 
   it('starts a scheduled draft by itself when the clock reaches its time', async () => {
     const report = await replayLeague({
