@@ -9,7 +9,11 @@ import {
   sourcePlayer,
   StubProvider
 } from '../../test/support/jobs.js';
-import { syncGameDayInjuries } from './sync-gameday-injuries.js';
+import { InMemoryEventPublisher } from '../events/publisher.js';
+import { silentLogger } from '../log.js';
+import { writeNotifications } from '../notifications/consumer.js';
+import { createServices } from '../services.js';
+import { MIN_REPORT_FOR_CLEARING, syncGameDayInjuries } from './sync-gameday-injuries.js';
 import { syncPlayers } from './sync-players.js';
 
 // Week 1 of 2025: SF at LAR on Sunday at 1pm Eastern, BAL at KC on Monday night.
@@ -197,5 +201,112 @@ describe('syncGameDayInjuries', () => {
       new Date(SUNDAY)
     );
     expect(await syncGameDayInjuries(deps, deps.clock)).toMatchObject({ reason: 'nobody_rostered' });
+  });
+});
+
+describe('syncGameDayInjuries clearing (#200 review)', () => {
+  /** A full league-wide report: players nobody here rosters, plus `listed`. */
+  const full = (...listed: InjuryReport[]) => [
+    ...Array.from({ length: MIN_REPORT_FOR_CLEARING }, (_, i) =>
+      report({ name: `Other Player ${i}`, espnId: `x${i}`, team: 'NYG' })
+    ),
+    ...listed
+  ];
+  const THURSDAY = '2025-09-04T15:05:00.000Z';
+  const SUNDAY_GAME_DAY = '2025-09-07T15:30:00.000Z';
+  const QUESTIONABLE = report({
+    name: 'Alpha One',
+    espnId: 'e1',
+    position: 'RB',
+    injuryStatus: 'Questionable',
+    statusText: 'Questionable'
+  });
+
+  it('clears an ESPN designation once he drops off a full report, and his manager hears he is back', async () => {
+    const { deps, provider } = await setup(THURSDAY);
+    provider.injuries = full(QUESTIONABLE);
+    expect(await syncGameDayInjuries(deps, deps.clock)).toMatchObject({
+      window: 'morning',
+      statusChanges: 1
+    });
+    expect(await deps.playerRepo.get('1')).toMatchObject({
+      injuryStatus: 'Questionable',
+      statusSource: 'espn_gameday'
+    });
+
+    // Sunday: cleared, he is simply gone from the report.
+    deps.events.events.length = 0;
+    provider.injuries = full();
+    deps.clock.set(new Date(SUNDAY_GAME_DAY));
+    expect(await syncGameDayInjuries(deps, deps.clock)).toMatchObject({
+      statusChanges: 1,
+      cleared: 1,
+      clearing: true
+    });
+    expect(await deps.playerRepo.get('1')).toMatchObject({
+      injuryStatus: null,
+      statusSource: 'espn_gameday',
+      statusHeldUntil: WEEK_ENDS
+    });
+    const [event] = deps.events.events;
+    expect(event?.detail).toMatchObject({
+      playerId: '1',
+      changes: [{ field: 'injuryStatus', from: 'Questionable', to: null }],
+      source: 'espn_gameday'
+    });
+
+    // The cleared state holds against Sleeper's stale value too.
+    provider.players = [{ ...PLAYERS[0]!, injuryStatus: 'Questionable' }, ...PLAYERS.slice(1)];
+    await syncPlayers(deps, deps.clock);
+    expect((await deps.playerRepo.get('1'))?.injuryStatus).toBeNull();
+
+    // The return to active reaches the person who rosters him.
+    const services = createServices({
+      repos: deps.repos,
+      reference: deps.reference,
+      clock: deps.clock,
+      events: new InMemoryEventPublisher(),
+      log: silentLogger
+    });
+    await writeNotifications(services, {
+      id: 'evt-cleared',
+      'detail-type': event!.detailType,
+      source: 'fantasy',
+      time: SUNDAY_GAME_DAY,
+      detail: event!.detail
+    });
+    const inbox = await deps.repos.notifications.list('lg', 't1', { limit: 5, visibleFrom: '2025-01-01' });
+    expect(inbox.notifications.map((n) => [n.kind, n.title])).toEqual([
+      ['player_status', 'Alpha One is off the injury report']
+    ]);
+  });
+
+  it('clears nothing on an empty or partial report', async () => {
+    const { deps, provider } = await setup(THURSDAY);
+    provider.injuries = full(QUESTIONABLE);
+    await syncGameDayInjuries(deps, deps.clock);
+    deps.clock.set(new Date(SUNDAY_GAME_DAY));
+    for (const partial of [[], full().slice(0, MIN_REPORT_FOR_CLEARING - 1)]) {
+      provider.injuries = partial;
+      expect(await syncGameDayInjuries(deps, deps.clock)).toMatchObject({
+        statusChanges: 0,
+        cleared: 0,
+        clearing: false
+      });
+      expect((await deps.playerRepo.get('1'))?.injuryStatus).toBe('Questionable');
+    }
+  });
+
+  it('leaves a Sleeper designation ESPN does not list to Sleeper', async () => {
+    const { deps, provider } = await setup(SUNDAY_GAME_DAY);
+    provider.injuries = full();
+    expect(await syncGameDayInjuries(deps, deps.clock)).toMatchObject({
+      statusChanges: 0,
+      cleared: 0,
+      clearing: true
+    });
+    expect(await deps.playerRepo.get('2')).toMatchObject({ injuryStatus: 'Questionable' });
+    expect((await deps.playerRepo.get('2'))?.statusSource).toBeUndefined();
+    expect(deps.events.events).toEqual([]);
   });
 });

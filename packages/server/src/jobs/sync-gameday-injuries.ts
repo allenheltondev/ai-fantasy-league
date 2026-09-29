@@ -5,7 +5,7 @@ import type { SyncedPlayer } from '../repos/reference.js';
 import { weekGames } from '../season/lineups.js';
 import { STATS_GAME_DURATION_MS } from '../season/window.js';
 import { mapLimit, skipped, type JobDeps, type JobResult } from './deps.js';
-import { statusChangedDetail } from './sync-players.js';
+import { isGameDayHeld, statusChangedDetail } from './sync-players.js';
 
 /**
  * The once-a-day run outside game days, so designations for a Thursday or Monday game land the
@@ -13,6 +13,12 @@ import { statusChangedDetail } from './sync-players.js';
  * every 15 minutes, so exactly one run falls in this quarter hour.
  */
 export const GAMEDAY_MORNING_UTC = { hour: 15, minutes: 15 } as const;
+
+/**
+ * A report with fewer entries than this is treated as partial (a bad read, or ESPN mid-update): it
+ * still sets the statuses it lists, but clears none. A normal report lists a few hundred players.
+ */
+export const MIN_REPORT_FOR_CLEARING = 20;
 
 function isMorningRun(now: Date): boolean {
   return now.getUTCHours() === GAMEDAY_MORNING_UTC.hour && now.getUTCMinutes() < GAMEDAY_MORNING_UTC.minutes;
@@ -28,7 +34,9 @@ function isMorningRun(now: Date): boolean {
  * Scope: only players rostered in some in-season league (the roster index) whose NFL team plays
  * that day (on the morning run: still has a game this week). Each is matched to ESPN's report by
  * the ESPN id Sleeper carries, else by name, team, and position (`matchInjuryReports`). A player
- * absent from the report is left alone: only an explicit status changes one.
+ * absent from the report is left alone, unless his designation came from this job (still held):
+ * then he is off the report and is cleared to active, but only on a full read (at least
+ * `MIN_REPORT_FOR_CLEARING` entries). A status Sleeper set is never cleared by absence.
  *
  * Output: a changed injury status is written to the player record, marked as a game-day status
  * held until the week ends (so the next Sleeper sync cannot revert it, `syncPlayers`), and
@@ -69,19 +77,40 @@ export async function syncGameDayInjuries(
   );
   const heldUntil = weekEndsAt(games, STATS_GAME_DURATION_MS) as string;
   const asOf = now.toISOString();
+  // Clearing trusts absence, so only a full read may clear (#200 review): a partial or empty
+  // report must never mass-clear statuses.
+  const canClear = reports.length >= MIN_REPORT_FOR_CLEARING;
+  if (!canClear) {
+    deps.log.warn('injury report too short to clear statuses', {
+      reported: reports.length,
+      minimum: MIN_REPORT_FOR_CLEARING
+    });
+  }
   const changed: { record: SyncedPlayer; from: string | null; to: InjuryStatus | null }[] = [];
+  let cleared = 0;
   for (const { player, source } of records) {
     const report = matches.byPlayer.get(player.id);
-    if (report === undefined || report.injuryStatus === player.injuryStatus) continue;
+    let to: InjuryStatus | null;
+    if (report !== undefined) {
+      to = report.injuryStatus;
+    } else if (canClear && isGameDayHeld(player, now) && player.injuryStatus !== null) {
+      // ESPN set his designation and no longer lists him: he is off the report. A status Sleeper
+      // set is left to Sleeper, which stays authoritative for players ESPN does not list.
+      to = null;
+      cleared++;
+    } else {
+      continue;
+    }
+    if (to === player.injuryStatus) continue;
     const { injuryStatusRaw: _raw, ...rest } = source;
     changed.push({
       from: player.injuryStatus,
-      to: report.injuryStatus,
+      to,
       record: {
-        source: { ...rest, injuryStatus: report.injuryStatus },
+        source: { ...rest, injuryStatus: to },
         player: {
           ...player,
-          injuryStatus: report.injuryStatus,
+          injuryStatus: to,
           updatedAt: asOf,
           statusSource: 'espn_gameday',
           statusAsOf: asOf,
@@ -112,7 +141,9 @@ export async function syncGameDayInjuries(
     reported: reports.length,
     matchedById: matches.byId,
     matchedByName: matches.byName,
-    statusChanges: changed.length
+    statusChanges: changed.length,
+    cleared,
+    clearing: canClear
   };
   deps.log.info('game-day injuries synced', result);
   return result;
