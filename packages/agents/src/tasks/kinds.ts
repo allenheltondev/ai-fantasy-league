@@ -1,4 +1,4 @@
-import type { Clock, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
+import type { Clock, MemoryAudience, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
 import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
 import type { FakeScript } from '../fake-model.js';
@@ -123,6 +123,11 @@ export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
   fakeScript?(ctx: TaskContext, payload: P, prep: Prep): FakeScript;
   /** Chat kinds: the room and teams whose chat memory the prompt may show (`memoryForPrompt`). */
   memoryScope?(ctx: TaskContext, payload: P, prep: Prep): ChatMemoryScope;
+  /**
+   * Who reads what the model produces (#206), which bounds the private memory its prompt may hold
+   * (core `memoryForAudience`). Defaults to the DM's other teams for a DM, else anyone (`public`).
+   */
+  memoryAudience?(ctx: TaskContext, payload: P, prep: Prep): MemoryAudience;
 }
 
 /** A kind with its types closed over, as the runtime sees it. */
@@ -133,6 +138,7 @@ export interface PreparedTask {
   fallback(): Promise<TaskOutcome>;
   fakeScript?: () => FakeScript;
   memoryScope?: ChatMemoryScope;
+  memoryAudience?: MemoryAudience;
   /** The model's tools for this run, when the kind narrows them (`toolsFor`). */
   tools?: readonly string[];
 }
@@ -160,6 +166,7 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
       const prep = await spec.prepare(ctx, payload);
       const fakeScript = spec.fakeScript;
       const memoryScope = spec.memoryScope?.(ctx, payload, prep);
+      const memoryAudience = spec.memoryAudience?.(ctx, payload, prep);
       const tools = spec.toolsFor?.(ctx, payload, prep);
       return {
         instructions: spec.instructions(ctx, payload, prep),
@@ -168,6 +175,7 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
         fallback: () => spec.fallback(ctx, payload, prep),
         ...(fakeScript === undefined ? {} : { fakeScript: () => fakeScript(ctx, payload, prep) }),
         ...(memoryScope === undefined ? {} : { memoryScope }),
+        ...(memoryAudience === undefined ? {} : { memoryAudience }),
         ...(tools === undefined ? {} : { tools })
       };
     }

@@ -24,6 +24,7 @@ export { createDynamoRepos } from './repos/dynamo/index.js';
 export { createDocumentClient, type TableContext } from './repos/dynamo/table.js';
 export { EventBridgePublisher } from './events/eventbridge.js';
 export { leagueBudget, budgetWeek, type LeagueBudget } from './operations/agents/budget.js';
+export { stillSealed } from './operations/agents/activity.js';
 export * from './repos/types.js';
 export { createServices } from './services.js';
 export { createLogger, silentLogger, type Logger } from './log.js';

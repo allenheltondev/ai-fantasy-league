@@ -276,6 +276,9 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
   modelNotes: false,
   payload: PayloadSchema,
   decision: TradeDecisionSchema,
+  // A counter's note goes to the team that made the offer: it may recall private dealings with
+  // that team, never with anyone else.
+  memoryAudience: (_ctx, _payload, prep) => ({ teams: [prep.trade.fromTeam.id] }),
   tools: [
     'get_league_state',
     'get_roster',
