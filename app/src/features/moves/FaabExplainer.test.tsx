@@ -25,6 +25,29 @@ describe('FaabExplainer', () => {
     expect(screen.queryByRole('region', { name: 'About FAAB' })).toBeNull();
   });
 
+  it('closes on a tap outside, stays open on a tap inside, and toggles from the button', async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <FaabExplainer />
+        <p>elsewhere</p>
+      </div>
+    );
+    const button = screen.getByRole('button', { name: 'What is FAAB?' });
+    await user.click(button);
+    await user.click(screen.getByRole('region', { name: 'About FAAB' }));
+    expect(screen.getByRole('region', { name: 'About FAAB' })).toBeInTheDocument();
+    await user.click(screen.getByText('elsewhere'));
+    expect(screen.queryByRole('region', { name: 'About FAAB' })).toBeNull();
+    await user.click(button);
+    await user.click(button);
+    expect(screen.queryByRole('region', { name: 'About FAAB' })).toBeNull();
+    // Other keys leave it open.
+    await user.click(button);
+    await user.keyboard('a');
+    expect(screen.getByRole('region', { name: 'About FAAB' })).toBeInTheDocument();
+  });
+
   it('slides left when it would run off the right edge of a phone-width screen', async () => {
     vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(375);
     fakeRect(300, 288);
