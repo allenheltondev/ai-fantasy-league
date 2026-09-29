@@ -4,7 +4,8 @@ import { ApiError, type ApiFetch } from '../api';
 import type { PlayerRef } from './board';
 import { InjuryBadge } from './BestAvailableTable';
 import { PlayerHeadshot, TeamLogo } from '../players/PlayerHeadshot';
-import { fmt, sparklinePoints, STAT_NAMES, type PlayerCardData } from './research';
+import { fmt, STAT_NAMES, type PlayerCardData } from './research';
+import { WeeklyPoints } from './WeeklyPoints';
 
 export interface PlayerCardProps {
   api: ApiFetch;
@@ -19,38 +20,6 @@ export interface PlayerCardProps {
   canDraft?: boolean;
   picking?: boolean;
   onDraft?(player: PlayerRef): void;
-}
-
-const WIDTH = 240;
-const HEIGHT = 48;
-
-/** Weekly points as an inline SVG line, with a dot per game. */
-export function Sparkline({
-  weekly,
-  label: which = 'last season'
-}: {
-  weekly: { week: number; points: number }[];
-  /** Which season, for screen readers: "last season" or "this season". */
-  label?: string;
-}) {
-  const values = weekly.map((w) => w.points);
-  const points = sparklinePoints(values, WIDTH, HEIGHT);
-  const label = `Weekly points ${which}: ${weekly.map((w) => `week ${w.week} ${fmt(w.points)}`).join(', ')}`;
-  return (
-    <svg
-      role="img"
-      aria-label={label}
-      viewBox={`-4 -4 ${WIDTH + 8} ${HEIGHT + 8}`}
-      className="h-14 w-full text-primary-800"
-      data-testid="sparkline"
-    >
-      <polyline points={points} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" />
-      {points.split(' ').map((p) => {
-        const [x, y] = p.split(',');
-        return <circle key={p} cx={x} cy={y} r={2} fill="currentColor" />;
-      })}
-    </svg>
-  );
 }
 
 function Totals({ totals, label }: { totals: Record<string, number>; label: string }) {
@@ -181,7 +150,19 @@ export function PlayerCard(props: PlayerCardProps) {
                   <strong>{fmt(card.thisSeason.ppg)}</strong> PPG · {card.thisSeason.games} games
                 </p>
                 {card.thisSeason.weekly.length > 0 && (
-                  <Sparkline weekly={card.thisSeason.weekly} label="this season" />
+                  <WeeklyPoints
+                    weekly={card.thisSeason.weekly}
+                    average={card.thisSeason.ppg}
+                    which="this season"
+                    projected={
+                      card.nextWeek != null &&
+                      !card.nextWeek.bye &&
+                      card.nextWeek.points !== null &&
+                      !card.thisSeason.weekly.some((w) => w.week === card.nextWeek?.week)
+                        ? { week: card.nextWeek.week, points: card.nextWeek.points }
+                        : null
+                    }
+                  />
                 )}
                 <Totals totals={card.thisSeason.totals} label="This season totals" />
               </section>
@@ -222,7 +203,7 @@ export function PlayerCard(props: PlayerCardProps) {
                     <strong>{fmt(last.points)}</strong> pts · <strong>{fmt(last.ppg)}</strong> PPG ·{' '}
                     {last.games} games
                   </p>
-                  {last.weekly.length > 0 && <Sparkline weekly={last.weekly} />}
+                  {last.weekly.length > 0 && <WeeklyPoints weekly={last.weekly} average={last.ppg} />}
                   <Totals totals={last.totals} label="Last season totals" />
                 </>
               )}

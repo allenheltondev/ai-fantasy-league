@@ -98,22 +98,3 @@ export function fmt(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—';
   return String(Math.round(value * 10) / 10);
 }
-
-/**
- * SVG polyline points for a sparkline of `values` in a `width` × `height` box: x spread evenly,
- * y scaled from 0 (or the minimum, when negative) to the maximum. A single value sits mid-width.
- */
-export function sparklinePoints(values: readonly number[], width: number, height: number): string {
-  if (values.length === 0) return '';
-  const max = Math.max(...values, 0);
-  const min = Math.min(...values, 0);
-  const span = max - min || 1;
-  const step = values.length === 1 ? 0 : width / (values.length - 1);
-  return values
-    .map((v, i) => {
-      const x = values.length === 1 ? width / 2 : i * step;
-      const y = height - ((v - min) / span) * height;
-      return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`;
-    })
-    .join(' ');
-}
