@@ -40,6 +40,7 @@ import { dispatchTask, errorName } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
 import { refreshAgenda } from './agenda.js';
 import { effectiveBehavior, readSituation } from './situation.js';
+import { ATTACHMENT_KINDS, refreshAttachments } from './attachments.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
 import {
@@ -339,6 +340,10 @@ export async function runAgentAction(
       const agenda = await refreshAgenda(services, ctx);
       if ((agendaMode === 'private' || agendaMode === 'guide_only') && agenda !== undefined)
         ctx.agenda = agenda;
+    }
+    if (ATTACHMENT_KINDS.has(kind.kind)) {
+      const attachments = await refreshAttachments(services, ctx);
+      if (attachments !== undefined) ctx.attachments = attachments;
     }
     prepared = await kind.prepare(ctx, request.payload);
   } catch (error) {

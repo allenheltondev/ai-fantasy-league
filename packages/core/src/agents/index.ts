@@ -15,3 +15,4 @@ export * from './team-names.js';
 export * from './social.js';
 export * from './agenda.js';
 export * from './situation.js';
+export * from './attachments.js';

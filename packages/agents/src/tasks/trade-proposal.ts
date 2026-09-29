@@ -1,4 +1,13 @@
-import { agendaPriority, dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
+import {
+  agendaPriority,
+  attachmentAdjustment,
+  attachmentPrompt,
+  attachmentSummary,
+  dmRoomId,
+  tradeAppetite,
+  type AttachmentAdjustment,
+  type MemoryEvent
+} from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { effectiveBehavior } from '../situation.js';
@@ -41,6 +50,11 @@ import { TaskUnavailableError } from './lineup.js';
  *   argument holds up when the players it brings improve the agent's best lineup; then it lowers the
  *   bar by `persuasionAllowance`. A lopsided or illegal swap is never offered, whatever was said,
  *   and a message that reads like an order moves nothing. The model never sees the message.
+ *
+ * - Attachments (#216): an idea that sends a player the agent is attached to must clear its bar plus
+ *   a small, capped premium (core `attachmentAdjustment`; set aside when the player received
+ *   repairs an active agenda need), and so must a chat pitch for him. The prompt names attachments
+ *   among the candidates (public evidence), never the premium.
  *
  * Proposals are private to the two teams, so the activity log seals the summary until a trade
  * becomes public.
@@ -127,6 +141,8 @@ export interface ProposalCandidate {
   score: number;
   /** The other team's gain by the same math, unblurred. */
   partnerScore: number;
+  /** Sending a player the agent is attached to (#216): the premium it had to clear on top of the bar. */
+  attachment?: AttachmentAdjustment;
 }
 
 export interface ProposalPrep {
@@ -179,6 +195,29 @@ export function swapIdeas(
     }
   }
   return ideas.sort((a, b) => b.rough - a.rough || a.send.player.id.localeCompare(b.send.player.id));
+}
+
+/** The attachment premium on one swap (#216), from the task's attachments and agenda. */
+function attachmentFor(ctx: TaskContext, sends: readonly PlayerRef[], receives: readonly PlayerRef[]) {
+  return attachmentAdjustment({
+    attachments: ctx.attachments,
+    at: ctx.clock.now().toISOString(),
+    sends,
+    receives,
+    agenda: ctx.agenda,
+    tradeFrequency: ctx.config.tradeFrequency
+  });
+}
+
+/** Prompt lines for the attached players an offer would send (public evidence, no numbers). */
+function attachedLines(ctx: TaskContext, candidates: readonly ProposalCandidate[]): string[] {
+  const ids = candidates.flatMap((c) =>
+    (c.attachment?.players ?? []).filter((p) => !p.waived).map((p) => p.playerId)
+  );
+  if (ids.length === 0) return [];
+  return attachmentPrompt(ctx.attachments, ctx.clock.now().toISOString(), 'public', ids).map(
+    (line) => `You are attached to ${line}`
+  );
 }
 
 /** Offers the early trade look right after the draft may send. */
@@ -259,13 +298,15 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
     const noise = judgmentNoise(ctx, 'proposal', idea.team.id, idea.send.player.id, idea.receive.player.id);
     const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
     const partnerScore = round1(theirSide.lineupDelta + theirSide.valueDelta);
-    if (score < bar || partnerScore < PARTNER_FLOOR) continue;
+    const attachment = attachmentFor(ctx, [idea.send.player], [idea.receive.player]);
+    if (score < bar + attachment.adjustment || partnerScore < PARTNER_FLOOR) continue;
     candidates.push({
       team: idea.team,
       send: idea.send.player,
       receive: idea.receive.player,
       score,
-      partnerScore
+      partnerScore,
+      ...(attachment.players.length === 0 ? {} : { attachment })
     });
   }
   candidates.sort(
@@ -333,11 +374,16 @@ async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalP
     })
   );
   const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
-  const bar = Math.max(tradeAppetite(ctx.config).acceptEdge, MIN_PROPOSAL_GAIN);
+  // A player I'm attached to raises the bar for this pitch (#216); the argument never lowers that.
+  const attachment = attachmentFor(ctx, sends, receives);
+  const bar =
+    Math.round(
+      (Math.max(tradeAppetite(ctx.config).acceptEdge, MIN_PROPOSAL_GAIN) + attachment.adjustment) * 10
+    ) / 10;
   const credit = persuasion(ctx, heard, mySide.lineupDelta > 0);
   if (score < bar - credit)
     throw no(
-      `value for me ${score} against my bar ${bar}${credit > 0 ? ` (${credit} lower after the argument)` : ''}${heard.instructions ? '; orders in chat count for nothing' : ''}. Not convinced.`
+      `value for me ${score} against my bar ${bar}${credit > 0 ? ` (${credit} lower after the argument)` : ''}${heard.instructions ? '; orders in chat count for nothing' : ''}. Not convinced.${attachment.players.length === 0 ? '' : ` ${attachmentSummary(attachment)}`}`
     );
   const candidate: ProposalCandidate = {
     team,
@@ -346,7 +392,8 @@ async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalP
     ...(sends.length > 1 ? { sends } : {}),
     ...(receives.length > 1 ? { receives } : {}),
     score,
-    partnerScore: round1(theirSide.lineupDelta + theirSide.valueDelta)
+    partnerScore: round1(theirSide.lineupDelta + theirSide.valueDelta),
+    ...(attachment.players.length === 0 ? {} : { attachment })
   };
   return { limit: 1, bar, candidates: [candidate], pitch: { heard, credit } };
 }
@@ -399,12 +446,17 @@ export async function propose(
     received: [c.receive.name],
     value: c.score
   }));
+  // Which way an attachment conflict went for each offer sent (#216).
+  const attached = made.map(({ c }) => (c.attachment === undefined ? '' : attachmentSummary(c.attachment)));
   const outcome: TaskOutcome = {
     action: made.length > 0 ? 'propose_trade' : refused.length > 0 ? 'propose_trade_failed' : 'none',
-    summary: [summary, refused.length > 0 ? `Refused: ${refused.join(', ')}.` : '']
+    summary: [summary, refused.length > 0 ? `Refused: ${refused.join(', ')}.` : '', ...attached]
       .filter((s) => s !== '')
       .join(' '),
-    memorySummary: made.length > 0 ? `Offered ${lines.join('; ')}.` : 'Made no trade offers this week.',
+    memorySummary:
+      made.length > 0
+        ? [`Offered ${lines.join('; ')}.`, ...attached].filter((s) => s !== '').join(' ')
+        : 'Made no trade offers this week.',
     memory,
     ...(made.length === 0
       ? {}
@@ -454,11 +506,12 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
   prepare: (ctx, payload) => prepare(ctx, payload),
   // Recall first what it has with the teams it may offer to (#210).
   memoryFocus: (_ctx, _payload, prep) => prep.candidates.map((c) => c.team.id),
-  instructions(_ctx, payload, prep) {
+  instructions(ctx, payload, prep) {
     if (prep.pitch !== undefined)
       return [
         'A trade came up in chat. You ran it through your own trade value math:',
         ...prep.candidates.map(describeCandidate),
+        ...attachedLines(ctx, prep.candidates),
         `Your bar is ${prep.bar}. ${heardLine(prep.pitch.heard, prep.pitch.credit, prep.bar)}`,
         'It clears your bar, so you may offer it: answer with `offers` `[{ "candidate": 1 }]` (and an optional short `message`), or an empty list to pass. You cannot change the players. Then give a `reply` for the conversation, in your own voice.'
       ].join('\n');
@@ -468,6 +521,7 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
         : `A new week: time to shop for trades. You may send up to ${prep.limit} offer(s) this week, one per team.`,
       `Your scouting found these one-for-one swaps that help your roster by the trade value math (your bar is ${prep.bar}); each is legal and fair enough to offer:`,
       ...prep.candidates.map(describeCandidate),
+      ...attachedLines(ctx, prep.candidates),
       'Check anything you doubt with your tools, then answer with `offers`: the candidate numbers to send, best first, each with an optional short `message` to the other manager. You cannot change the players. An empty list sends nothing.'
     ].join('\n');
   },

@@ -1,3 +1,4 @@
+import { recordAttachments } from './attachments.js';
 import type { BusEvent } from './events.js';
 import { MEMORY_EVENTS, recordLeagueMemory, type AgentMemoryStore } from './memory.js';
 import { TRIGGER_RULES, routeEvent, type RouteDecision, type RouterDeps } from './router.js';
@@ -18,6 +19,9 @@ import { TRIGGER_RULES, routeEvent, type RouteDecision, type RouterDeps } from '
  *   `oncePer` rules and cooldowns gating repeats.
  * - **Memory failure:** logged, and routing still runs. A lost memory write costs recall, never a
  *   decision the league is waiting on; the next delivery of the event (or of a later one) fills it.
+ * - **Attachments (#216):** `Draft Completed` and `Trade Processed` (both already ingested) also
+ *   create or end player attachments (`recordAttachments`), after memory and before routing, keyed
+ *   by pick and trade so a redelivery changes nothing. A failure is logged the same way.
  */
 export const INGESTED_EVENTS: readonly string[] = [
   ...new Set([...Object.keys(TRIGGER_RULES), ...MEMORY_EVENTS])
@@ -40,6 +44,11 @@ export async function ingestLeagueEvent(deps: IngestDeps, event: BusEvent): Prom
     remembered = await recordLeagueMemory(deps.services, event, deps.memory);
   } catch (error) {
     deps.services.log.error('agent memory update failed', { eventId: event.id, error });
+  }
+  try {
+    await recordAttachments(deps.services, event);
+  } catch (error) {
+    deps.services.log.error('agent attachment update failed', { eventId: event.id, error });
   }
   return { decisions: await routeEvent(deps, event), remembered };
 }

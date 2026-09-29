@@ -1,4 +1,9 @@
-import { AgentSeatConfigSchema, type AgentLeagueMemory, type AgentAgenda } from '@fantasy/core';
+import {
+  AgentSeatConfigSchema,
+  type AgentLeagueMemory,
+  type AgentAgenda,
+  type PlayerAttachments
+} from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
 
@@ -257,6 +262,18 @@ export interface AgentRepository {
     agentId: string,
     update: (memory: AgentLeagueMemory) => AgentLeagueMemory
   ): Promise<AgentLeagueMemory>;
+
+  /**
+   * Player attachments (#216), isolated by occupant tenure like the agenda: a new occupant reads an
+   * empty set. `update` must be pure (core `recordAcquisition` and friends); revision-checked.
+   */
+  getAttachments(leagueId: string, agentId: string, tenure: string): Promise<PlayerAttachments>;
+  updateAttachments(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (attachments: PlayerAttachments) => PlayerAttachments
+  ): Promise<PlayerAttachments>;
 
   /**
    * Claims a task id: once per trigger, with takeover after `lockUntil` if a run crashed, or at

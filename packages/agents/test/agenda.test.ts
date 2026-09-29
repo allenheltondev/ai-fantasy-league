@@ -80,7 +80,8 @@ describe('agenda availability', () => {
         chat: { roomId: 'league', messageId: 'm1', fromTeamId: 'team-1' }
       })
     ).toBe('refresh_only');
-    expect(tradeResponseTask.agendaMode(ctx, { tradeId: 't1' })).toBe('refresh_only');
+    // A plain answer may use the agenda deterministically (#216's override); its model never reads it.
+    expect(tradeResponseTask.agendaMode(ctx, { tradeId: 't1' })).toBe('guide_only');
     expect(tradeProposalTask.agendaMode(ctx, { reason: 'week' })).toBe('guide_only');
     expect(lineupTask.agendaMode(ctx, { reason: 'lock' })).toBe('private');
     expect(waiverTask.agendaMode(ctx, { reason: 'window' })).toBe('private');

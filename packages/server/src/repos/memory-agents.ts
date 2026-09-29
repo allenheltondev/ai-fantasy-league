@@ -1,9 +1,12 @@
 import {
   AgentAgendaSchema,
+  PlayerAttachmentsSchema,
   emptyAgenda,
+  emptyAttachments,
   emptyMemory,
   type AgentAgenda,
-  type AgentLeagueMemory
+  type AgentLeagueMemory,
+  type PlayerAttachments
 } from '@fantasy/core';
 import {
   gateCutoff,
@@ -116,6 +119,25 @@ export class InMemoryAgentRepository implements AgentRepository {
     const id = `${leagueId}\u0000${agentId}`;
     const next = update(clone(this.#memory.get(id) ?? emptyMemory()));
     this.#memory.set(id, clone(next));
+    return clone(next);
+  }
+
+  readonly #attachments = new Map<string, PlayerAttachments>();
+
+  async getAttachments(leagueId: string, agentId: string, tenure: string): Promise<PlayerAttachments> {
+    return clone(this.#attachments.get(JSON.stringify([leagueId, agentId, tenure])) ?? emptyAttachments());
+  }
+
+  async updateAttachments(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (attachments: PlayerAttachments) => PlayerAttachments
+  ): Promise<PlayerAttachments> {
+    const key = JSON.stringify([leagueId, agentId, tenure]);
+    const current = clone(this.#attachments.get(key) ?? emptyAttachments());
+    const next = PlayerAttachmentsSchema.parse(update(current));
+    this.#attachments.set(key, clone(next));
     return clone(next);
   }
 
