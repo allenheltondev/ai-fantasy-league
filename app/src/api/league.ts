@@ -1,6 +1,5 @@
 import { createContext, useContext } from 'react';
 import type { RealtimeInfo } from '../chat/api';
-import type { PlayerCardData } from '../draft/research';
 import type { ApiFetch, ApiRequest } from './client';
 import type { NotificationInbox, NotificationPreferences, NotificationSummary } from '../notifications/types';
 import type {
@@ -116,9 +115,6 @@ export function createLeagueApi(api: ApiFetch) {
     // Roster workspace (#205): the player market, adds and claims, drops, and pending claims
     listLeaguePlayers: (id: string, query: MarketQuery) =>
       call<MarketPage>(`${league(id)}/players`, { query: { ...query } }),
-    /** get_player_card with league scoring: last season, the projection, and news. */
-    getPlayerCard: (id: string, playerId: string) =>
-      call<PlayerCardData>('/players/card', { query: { playerId, leagueId: id } }),
     previewClaim: (id: string, query: { playerId: string; dropPlayerId?: string; bid?: number }) =>
       call<ClaimPreview>(`${league(id)}/waivers/preview`, { query }),
     claimPlayer: (id: string, body: { playerId: string; dropPlayerId?: string; bid?: number }) =>

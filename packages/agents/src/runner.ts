@@ -3,6 +3,7 @@ import {
   estimateCostUsd,
   getModel,
   resolveAgentConfig,
+  memoryForAudience,
   summarizeMemory,
   type MemoryEvent,
   type ModelKey,
@@ -24,7 +25,16 @@ import {
 import type { AgentActionRequested } from './events.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
-import { MEMORY_BUDGETS, memoryForPrompt, tableMemoryStore, type AgentMemoryStore } from './memory.js';
+import {
+  MEMORY_BUDGETS,
+  defaultAudience,
+  memoryForPrompt,
+  outcomeVisibility,
+  sealChecker,
+  sealWithMemory,
+  tableMemoryStore,
+  type AgentMemoryStore
+} from './memory.js';
 import { estimateTokens, isModelUnavailable, type ModelClient } from './model.js';
 import { MEMORY_NOTE_MAX, assembleSystemPrompt } from './prompt.js';
 import { requestTask, taskIdFor } from './router.js';
@@ -182,8 +192,11 @@ export async function runAgentAction(
   }
 
   const memoryStore = deps.memory ?? tableMemoryStore(services.repos.agents);
+  const audience = prepared.memoryAudience ?? defaultAudience(kind.modelRole, prepared.memoryScope);
   const remember = async (outcome: TaskOutcome, note?: string) => {
     const events: MemoryEvent[] = [];
+    // The decision and its note are as private as the task's summary (#206).
+    const visibility = outcomeVisibility(outcome.sealed, audience);
     // Chat summaries come from reading other people's messages: never kept as the agent's own record.
     if (kind.modelRole === 'decision' && outcome.action !== 'none') {
       events.push({
@@ -191,7 +204,8 @@ export async function runAgentAction(
         kind: kind.kind,
         action: outcome.action,
         summary: outcome.memorySummary ?? outcome.summary,
-        at: clock.now().toISOString()
+        at: clock.now().toISOString(),
+        visibility
       });
     }
     if (
@@ -200,9 +214,15 @@ export async function runAgentAction(
       kind.modelRole === 'decision' &&
       kind.modelNotes !== false
     ) {
-      events.push({ type: 'note', text: note.trim().slice(0, MEMORY_NOTE_MAX) });
+      events.push({ type: 'note', text: note.trim().slice(0, MEMORY_NOTE_MAX), visibility });
     }
-    events.push(...(outcome.memory ?? []));
+    // A chat kind keeps only chat: its room snapshot and relationship notes, never a decision,
+    // note, or trade record that later prompts would treat as the agent's own.
+    events.push(
+      ...(outcome.memory ?? []).filter(
+        (e) => kind.modelRole === 'decision' || e.type === 'chat' || e.type === 'relationship'
+      )
+    );
     if (events.length === 0) return;
     try {
       await memoryStore.remember(league.id, seat.agentId, events);
@@ -256,11 +276,22 @@ export async function runAgentAction(
     memoryStore.load(league.id, seat.agentId),
     services.repos.teams.list(league.id)
   ]);
+  // Only what the task's readers may know reaches the prompt (#206); what private memory it keeps
+  // extends the task's seal, since the model's words may repeat it.
+  const heard = memoryForAudience(
+    memoryForPrompt(memory, kind.modelRole, prepared.memoryScope),
+    audience,
+    await sealChecker(services, league.id, memory)
+  );
+  const sealHeard = (outcome: TaskOutcome): TaskOutcome => {
+    const sealed = sealWithMemory(outcome.sealed, heard.seals, kind.title);
+    return sealed === undefined ? outcome : { ...outcome, sealed };
+  };
   const systemPrompt = assembleSystemPrompt({
     config,
     league,
     teamId: seat.teamId,
-    memory: summarizeMemory(memoryForPrompt(memory, kind.modelRole, prepared.memoryScope), {
+    memory: summarizeMemory(heard.memory, {
       tokenBudget: MEMORY_BUDGETS[config.levers.reasoningEffort],
       teamName: (id) => teams.find((t) => t.id === id)?.name ?? id
     }),
@@ -311,7 +342,7 @@ export async function runAgentAction(
       clearTimeout(timer);
       let outcome: TaskOutcome;
       try {
-        outcome = await prepared.apply(result.decision);
+        outcome = sealHeard(await prepared.apply(result.decision));
       } catch (error) {
         log.error('agent decision could not be applied', { error });
         return finish(

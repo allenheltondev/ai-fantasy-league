@@ -1,4 +1,4 @@
-import { emptyMemory, rememberEvent } from '@fantasy/core';
+import { OWNER_ONLY, emptyMemory, rememberEvent } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import type { AgentSeatRecord, AgentTaskRecord } from '../../src/repos/agents.js';
@@ -97,7 +97,7 @@ describe.each(backends)('%s agent repository', (_name, make) => {
         at: T0.toISOString()
       })
     );
-    expect(after.notes).toEqual(['one']);
+    expect(after.notes).toEqual([{ text: 'one', visibility: OWNER_ONLY }]);
     expect(after.rivals).toEqual([expect.objectContaining({ teamId: 't2', grudge: 2 })]);
     expect(await agents.getMemory(leagueId, 'a')).toEqual(after);
     expect(await agents.getMemory(leagueId, 'b')).toEqual(emptyMemory());

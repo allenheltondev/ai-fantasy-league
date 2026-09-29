@@ -3,10 +3,18 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentLeagueMemorySchema,
   MEMORY_LIMITS,
+  OWNER_ONLY,
+  decisionVisibility,
   emptyMemory,
   estimateTokens,
+  mayHear,
+  memoryForAudience,
+  memorySeals,
   rememberEvent,
+  rivalVisibility,
   summarizeMemory,
+  tradeVisibility,
+  type MemorySeal,
   type MemoryEvent
 } from './memory.js';
 
@@ -16,7 +24,8 @@ describe('agent league memory', () => {
   it('parses stored memory written before the structured fields existed', () => {
     expect(AgentLeagueMemorySchema.parse({ notes: ['old note'] })).toEqual({
       ...emptyMemory(),
-      notes: ['old note']
+      // A bare-string note from before #206 has no visibility: it is kept to the agent alone.
+      notes: [{ text: 'old note' }]
     });
   });
 
@@ -98,7 +107,7 @@ describe('agent league memory', () => {
     }
     m = rememberEvent(m, { type: 'note', text: '   ' });
     expect(m.notes).toHaveLength(MEMORY_LIMITS.notes);
-    expect(m.notes.at(-1)).toBe('note 29');
+    expect(m.notes.at(-1)).toEqual({ text: 'note 29', visibility: OWNER_ONLY });
     expect(m.decisions).toHaveLength(MEMORY_LIMITS.decisions);
     const long = 'x'.repeat(1000);
     m = rememberEvent(m, {
@@ -269,7 +278,7 @@ describe('agent league memory', () => {
 
   it('drops a pre-rooms chat snapshot when reading stored memory', () => {
     const stored = { notes: ['n'], chat: [{ author: 'Allen', text: 'old', at: AT }] };
-    expect(AgentLeagueMemorySchema.parse(stored)).toEqual({ ...emptyMemory(), notes: ['n'] });
+    expect(AgentLeagueMemorySchema.parse(stored)).toEqual({ ...emptyMemory(), notes: [{ text: 'n' }] });
   });
 
   it('applies a league event once per event id, so a redelivery never bumps a grudge twice', () => {
@@ -358,5 +367,122 @@ describe('agent league memory', () => {
       value: 0
     });
     expect(summarizeMemory(even)).toContain('Trade with team-4 (accepted): Even. [value for you 0 (even)]');
+  });
+});
+
+describe('memory visibility (#206)', () => {
+  const holds = () => true;
+  const lifted = () => false;
+  const withTeam1: MemorySeal = {
+    teams: ['team-1'],
+    trades: [{ tradeId: 't', until: 'public' }],
+    waiverClaims: []
+  };
+  const mine: MemorySeal = { teams: [], trades: [], waiverClaims: ['c'] };
+
+  it('lets each audience hear only what its readers may know', () => {
+    for (const audience of ['public', 'owner', { teams: ['team-1'] }] as const)
+      expect(mayHear('public', audience, holds)).toBe(true);
+    // Anything released is public.
+    expect(mayHear(withTeam1, 'public', lifted)).toBe(true);
+    expect(mayHear(withTeam1, 'public', holds)).toBe(false);
+    // The agent's own secrets reach only its sealed moves; shared ones only the teams that know.
+    expect(mayHear(mine, 'owner', holds)).toBe(true);
+    expect(mayHear(withTeam1, 'owner', holds)).toBe(false);
+    expect(mayHear(withTeam1, { teams: ['team-1'] }, holds)).toBe(true);
+    expect(mayHear(withTeam1, { teams: ['team-1', 'team-3'] }, holds)).toBe(false);
+    expect(mayHear(mine, { teams: ['team-1'] }, holds)).toBe(false);
+    expect(mayHear(withTeam1, { teams: [] }, holds)).toBe(false);
+  });
+
+  it('records visibility on new memories and classifies what was stored before it', () => {
+    let m = emptyMemory();
+    m = rememberEvent(m, { type: 'note', text: 'n' });
+    m = rememberEvent(m, { type: 'decision', kind: 'lineup', action: 'a', summary: 's', at: AT });
+    // Without a visibility, a new note or decision is the agent's alone.
+    expect(m.notes[0]?.visibility).toEqual(OWNER_ONLY);
+    expect(m.decisions[0]?.visibility).toEqual(OWNER_ONLY);
+    // Stored before #206: sealable kinds stay private, the rest were never secret.
+    expect(decisionVisibility({ kind: 'waivers', action: 'a', summary: 's', at: AT })).toEqual(OWNER_ONLY);
+    expect(decisionVisibility({ kind: 'lineup', action: 'a', summary: 's', at: AT })).toBe('public');
+    // A private offer stays with the other team until the trade is public; a rejection, for good.
+    expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'processed' })).toBe('public');
+    expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'rejected' })).toEqual(withTeam1);
+    const rival = { teamId: 'team-3', grudge: 1, at: AT };
+    expect(rivalVisibility({ ...rival, reason: 'Trade expired: An offer from team-3 was expired.' })).toEqual(
+      {
+        teams: ['team-3'],
+        trades: [],
+        waiverClaims: []
+      }
+    );
+    expect(rivalVisibility({ ...rival, reason: 'Week 3: lost to them 80-140.' })).toBe('public');
+  });
+
+  it('seals the grudge a private offer leaves, and a later public reason replaces it', () => {
+    let m = rememberEvent(emptyMemory(), {
+      type: 'trade',
+      teamId: 'team-3',
+      tradeId: 't3',
+      outcome: 'rejected',
+      summary: 'Your offer to team-3 was rejected.',
+      at: AT
+    });
+    expect(m.rivals[0]?.visibility).toEqual({
+      teams: ['team-3'],
+      trades: [{ tradeId: 't3', until: 'public' }],
+      waiverClaims: []
+    });
+    expect(memoryForAudience(m, 'public', holds).memory.rivals).toEqual([]);
+    m = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-3',
+      week: 4,
+      pointsFor: 90,
+      pointsAgainst: 100,
+      at: AT
+    });
+    expect(memoryForAudience(m, 'public', holds).memory.rivals).toEqual([
+      expect.objectContaining({ teamId: 'team-3', grudge: 3, visibility: 'public' })
+    ]);
+  });
+
+  it('filters every kind of memory and reports the seals it kept', () => {
+    let m = emptyMemory();
+    m = rememberEvent(m, { type: 'note', text: 'bid plan', visibility: mine });
+    m = rememberEvent(m, { type: 'note', text: 'public note', visibility: 'public' });
+    m = rememberEvent(m, {
+      type: 'decision',
+      kind: 'waivers',
+      action: 'claim',
+      summary: 'bid',
+      at: AT,
+      visibility: mine
+    });
+    m = rememberEvent(m, {
+      type: 'trade',
+      teamId: 'team-1',
+      tradeId: 't',
+      outcome: 'proposed',
+      summary: 'x',
+      at: AT
+    });
+    const open = memoryForAudience(m, 'public', holds);
+    expect(open.memory.notes.map((n) => n.text)).toEqual(['public note']);
+    expect(open.memory.decisions).toEqual([]);
+    expect(open.memory.trades).toEqual([]);
+    expect(open.seals).toEqual([]);
+    const owner = memoryForAudience(m, 'owner', holds);
+    expect(owner.memory.notes).toHaveLength(2);
+    expect(owner.memory.decisions).toHaveLength(1);
+    expect(owner.seals).toEqual([mine, mine]);
+    // Once lifted, a memory is kept without a seal to carry.
+    expect(memoryForAudience(m, 'public', lifted).seals).toEqual([]);
+    expect(memorySeals(m)).toEqual([
+      mine,
+      mine,
+      { ...withTeam1, trades: [{ tradeId: 't', until: 'public' }] }
+    ]);
+    expect(summarizeMemory(owner.memory)).toContain('Your note: bid plan');
   });
 });

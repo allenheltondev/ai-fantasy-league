@@ -157,6 +157,9 @@ export function DataStatusPanel({ leagueId }: { leagueId: string }) {
             <tbody>
               <SeasonSetRow label="Last season's stats" set={research.stats} />
               <SeasonSetRow label="Season projections" set={research.projections} />
+              {research.currentStats !== undefined && (
+                <SeasonSetRow label="This season's stats so far" set={research.currentStats} />
+              )}
             </tbody>
           </table>
         </TableScroll>

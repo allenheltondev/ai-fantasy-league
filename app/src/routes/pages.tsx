@@ -8,6 +8,7 @@ import { EmptyState } from '@readysetcloud/ui';
 import { CreateLeagueWizard } from '../features/create/CreateLeagueWizard';
 import { MyLeaguesPage } from '../features/leagues/MyLeaguesPage';
 import { supportsViewTransitions } from '../motion/pageTransition';
+import { PlayerCardProvider } from '../players/PlayerLink';
 import { LeagueNotifications } from '../realtime/LeagueNotifications';
 import { useCurrentLeague } from './currentLeague';
 import type { LeagueOutletContext } from './leagueContext';
@@ -37,17 +38,20 @@ export function LeagueLayout() {
   };
   return (
     <LeagueTeamsContext.Provider value={data?.teams ?? []}>
-      {/* The draft room sizes itself to this column, not the whole screen (#173). */}
-      <section aria-labelledby="league-title" className="space-y-4" data-room-bounds>
-        <h1 id="league-title" className="text-2xl font-semibold">
-          {data?.name ?? 'League'}
-        </h1>
-        <LeagueNotifications leagueId={leagueId} yourTeamId={yourTeamId} />
-        {/* Browsers with view transitions cross-fade on section clicks; the rest get a quick rise-in. */}
-        <div key={pathname} className={supportsViewTransitions() ? undefined : 'motion-page'}>
-          <Outlet context={context} />
-        </div>
-      </section>
+      {/* Any player name in the league opens his card (PlayerLink). */}
+      <PlayerCardProvider leagueId={leagueId}>
+        {/* The draft room sizes itself to this column, not the whole screen (#173). */}
+        <section aria-labelledby="league-title" className="space-y-4" data-room-bounds>
+          <h1 id="league-title" className="text-2xl font-semibold">
+            {data?.name ?? 'League'}
+          </h1>
+          <LeagueNotifications leagueId={leagueId} yourTeamId={yourTeamId} />
+          {/* Browsers with view transitions cross-fade on section clicks; the rest get a quick rise-in. */}
+          <div key={pathname} className={supportsViewTransitions() ? undefined : 'motion-page'}>
+            <Outlet context={context} />
+          </div>
+        </section>
+      </PlayerCardProvider>
     </LeagueTeamsContext.Provider>
   );
 }

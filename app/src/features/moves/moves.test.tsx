@@ -223,16 +223,25 @@ beforeEach(() => {
   signInAs(ALICE);
   vi.stubGlobal(
     'fetch',
-    vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({ data: { transactions: [], nextCursor: null }, league: null, warnings: [] }),
-          {
-            status: 200,
-            headers: { 'content-type': 'application/json' }
+    vi.fn(async (input: RequestInfo | URL) => {
+      // The transaction log, and the shared player card (#203), read through fetch.
+      const url = new URL(String(input), 'http://localhost');
+      const data = url.pathname.endsWith('/players/card')
+        ? {
+            player: { id: url.searchParams.get('playerId'), name: 'Card', team: null, position: 'RB' },
+            scoring: { source: 'league' },
+            bye: null,
+            injuryStatus: null,
+            lastSeason: null,
+            projection: null,
+            news: []
           }
-        )
-    )
+        : { transactions: [], nextCursor: null };
+      return new Response(JSON.stringify({ data, league: null, warnings: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    })
   );
 });
 afterEach(() => {
@@ -965,100 +974,23 @@ describe('the roster workspace, edges', () => {
   });
 });
 
-describe('the market player card', () => {
+describe('player cards from the workspace', () => {
   beforeEach(() => {
     restore = stubWide(true);
   });
 
-  it('shows this week, last season, and the news, with the add button', async () => {
+  it('opens the shared player card from a market row, a roster row, and a claim', async () => {
     const user = userEvent.setup();
-    const getPlayerCard = vi.fn(async (_id: string, playerId: string) => ({
-      player: { id: playerId, name: "D'Andre Swift", team: 'CHI', position: 'RB' },
-      scoring: { source: 'league' as const },
-      bye: 7,
-      injuryStatus: null,
-      lastSeason: {
-        season: 2025,
-        points: 180,
-        ppg: 12,
-        games: 15,
-        weekly: [
-          { week: 1, points: 10 },
-          { week: 2, points: 14 }
-        ],
-        totals: {}
-      },
-      projection: null,
-      news: [
-        {
-          id: 'n1',
-          url: 'https://example.com/swift',
-          title: 'Swift leads the Bears backfield',
-          source: 'Example',
-          publishedAt: '2026-09-10T08:00:00.000Z',
-          summary: null
-        }
-      ]
-    }));
-    open('/leagues/L1/team/moves', { getPlayerCard });
+    open();
     const list = await screen.findByRole('list', { name: 'Available players' });
     await user.click(within(list).getByRole('button', { name: /^D'Andre Swift/ }));
-    const card = await screen.findByTestId('market-card');
-    expect(getPlayerCard).toHaveBeenCalledWith('L1', 'fa');
-    expect(card).toHaveTextContent('RB · CHI · Bye 7');
-    expect(card).toHaveTextContent('2.2k adds in fantasy leagues today');
-    expect(await within(card).findByText('2025 season')).toBeInTheDocument();
-    expect(within(card).getByTestId('sparkline')).toBeInTheDocument();
-    expect(within(card).getByRole('link', { name: 'Swift leads the Bears backfield' })).toHaveAttribute(
-      'href',
-      'https://example.com/swift'
-    );
-    await user.click(within(card).getByRole('button', { name: "Add D'Andre Swift" }));
-    expect(await screen.findByTestId('add-sheet')).toBeInTheDocument();
-    expect(screen.queryByTestId('market-card')).not.toBeInTheDocument();
-  });
-
-  it('says when there is no history or news, and when the card fails', async () => {
-    const user = userEvent.setup();
-    let fail = false;
-    const getPlayerCard = vi.fn(async (_id: string, playerId: string) => {
-      if (fail) throw conflict('NO_CARD');
-      return {
-        player: { id: playerId, name: 'x', team: null, position: 'WR' },
-        scoring: { source: 'league' as const },
-        bye: null,
-        injuryStatus: null,
-        lastSeason: null,
-        projection: null,
-        news: []
-      };
-    });
-    const rows = [
-      market('solo', 'Solo', {
-        player: { id: 'solo', name: 'Solo', team: null, position: 'WR' },
-        byeWeek: null,
-        injuryStatus: 'Questionable',
-        trend: { adds: 0, drops: 900 },
-        availability: { status: 'rostered', teamId: 'team-2' }
-      }),
-      market('quiet', 'Quiet', { trend: null })
-    ];
-    open('/leagues/L1/team/moves', { getPlayerCard, listLeaguePlayers: vi.fn(async () => page(rows)) });
-    const list = await screen.findByRole('list', { name: 'Available players' });
-    await user.click(within(list).getByRole('button', { name: /^Solo/ }));
-    const card = await screen.findByTestId('market-card');
-    expect(card).toHaveTextContent('WR · FA');
-    expect(card).not.toHaveTextContent('Bye');
-    expect(card).toHaveTextContent('900 drops');
-    expect(await within(card).findByText('No stats last season.')).toBeInTheDocument();
-    expect(within(card).getByText('No recent news.')).toBeInTheDocument();
-    // A rostered player has no add button here.
-    expect(within(card).queryByRole('button', { name: /^(Add|Claim) Solo/ })).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("D'Andre Swift player card")).toBeInTheDocument();
     await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByTestId('market-card')).not.toBeInTheDocument());
-    fail = true;
-    await user.click(within(list).getByRole('button', { name: /^Quiet/ }));
-    expect(await screen.findByText('NO_CARD happened.')).toBeInTheDocument();
-    expect(screen.getByTestId('market-card')).not.toHaveTextContent('in fantasy leagues today');
+    await user.click(screen.getByRole('button', { name: 'Josh Allen, QB: moves' }));
+    await user.click(within(screen.getByTestId('moves-qb')).getByRole('button', { name: 'Player card' }));
+    expect(await screen.findByLabelText('Josh Allen player card')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await user.click(within(screen.getByTestId('claim-c1')).getByRole('button', { name: 'Tank Bigsby' }));
+    expect(await screen.findByLabelText('Tank Bigsby player card')).toBeInTheDocument();
   });
 });

@@ -32,7 +32,9 @@ export const RESEARCH_RECHECK_MS = 20 * 60 * 60 * 1000;
 /**
  * Draft research data (hourly; a set is pulled when it is missing, and rechecked at most every
  * `RESEARCH_RECHECK_MS`). Last season's weekly stats are final, so they are pulled when a new
- * season begins (again only while the stored pull is missing weeks). This season's weekly
+ * season begins (again only while the stored pull is missing weeks). During the regular season
+ * this season's weekly stats are pulled too, so every completed week is stored even when the live
+ * stats job missed it (a deploy mid-season, a missed game window): the player card's season so far. This season's weekly
  * projections are rechecked daily in the preseason and offseason, and in-season only while none
  * are stored or the stored pull is missing weeks. Each set is one `SEASON#<kind>#<season>`
  * partition, rewritten only when it changed; an unchanged check only stamps the meta's `checkedAt`.
@@ -86,9 +88,11 @@ export async function syncSeasonResearch(
     };
   };
 
-  const [statsMeta, projectionMeta] = await Promise.all([
+  const inSeason = state.seasonType === 'regular' || state.seasonType === 'post';
+  const [statsMeta, projectionMeta, currentMeta] = await Promise.all([
     seasons.getMeta('stats', lastSeason),
-    seasons.getMeta('projections', season)
+    seasons.getMeta('projections', season),
+    inSeason ? seasons.getMeta('stats', season) : Promise.resolve(null)
   ]);
   const checkedRecently = (meta: SeasonLinesMeta) =>
     now.getTime() - Date.parse(meta.checkedAt ?? meta.updatedAt) < RESEARCH_RECHECK_MS;
@@ -113,6 +117,10 @@ export async function syncSeasonResearch(
     sets.push(recent('projections', season));
   } else {
     sets.push(await refresh('projections', season, projectionMeta));
+  }
+  if (inSeason) {
+    if (currentMeta !== null && checkedRecently(currentMeta)) sets.push(recent('stats', season));
+    else sets.push(await refresh('stats', season, currentMeta));
   }
   const result: JobResult = { status: 'ok', season, lastSeason, sets };
   deps.log.info('season research synced', result);

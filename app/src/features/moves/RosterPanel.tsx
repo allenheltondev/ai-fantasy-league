@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Button, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { Roster, RosterEntry, WaiverClaim } from '../../api/types';
+import { PlayerLink, useOpenPlayerCard } from '../../players/PlayerLink';
 import { gameContext } from '../season/gameState';
 import { placementOf, seats, statusLabel, willPlay } from '../season/slots';
 import { canMoveToIr, dropCandidates, moveErrorText, pts, slotPosition, waiverTime } from './moves';
@@ -177,6 +178,7 @@ function PlayerRow(
 function RowMoves(props: RosterPanelProps & { entry: RosterEntry; setOpen: (id: string | null) => void }) {
   const { entry, leagueId, roster } = props;
   const api = useLeagueApi();
+  const openCard = useOpenPlayerCard();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -281,6 +283,11 @@ function RowMoves(props: RosterPanelProps & { entry: RosterEntry; setOpen: (id: 
         <Link to={props.tradeHref(entry)} className="btn btn-ghost inline-flex min-h-11 items-center">
           Trade {name.split(' ')[0]}
         </Link>
+        {openCard !== null && (
+          <Button variant="ghost" size="sm" className="min-h-11" onClick={() => openCard(entry.player)}>
+            Player card
+          </Button>
+        )}
       </div>
       {problem !== null && (
         <p role="alert" className="px-1 text-sm font-medium text-error-700">
@@ -341,10 +348,10 @@ function PendingClaims(props: RosterPanelProps) {
                 {index + 1}.
               </span>
               <p className="min-w-0 flex-1 text-sm">
-                Claiming <strong>{claim.player.name}</strong>
+                Claiming <PlayerLink player={claim.player} className="font-semibold" />
                 {claim.drop !== null && (
                   <>
-                    , dropping <strong>{claim.drop.name}</strong>
+                    , dropping <PlayerLink player={claim.drop} className="font-semibold" />
                   </>
                 )}
                 <span className="text-muted-foreground">

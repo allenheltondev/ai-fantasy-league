@@ -71,7 +71,8 @@ describe('runAgentAction with the fake model', () => {
       rb2: 'W/R/T'
     });
     const memory = await s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
-    expect(memory.notes).toEqual(['rb3 is my guy.']);
+    // A lineup is nobody's secret: its note is public.
+    expect(memory.notes).toEqual([{ text: 'rb3 is my guy.', visibility: 'public' }]);
     expect(memory.decisions).toEqual([
       expect.objectContaining({
         kind: 'lineup',
@@ -96,7 +97,7 @@ describe('runAgentAction with the fake model', () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, PRO);
     await s.repos.agents.updateMemory(LEAGUE_ID, AGENT_ID, (m) =>
-      rememberEvent(m, { type: 'note', text: 'Team 3 fleeced me in week 2.' })
+      rememberEvent(m, { type: 'note', text: 'Team 3 fleeced me in week 2.', visibility: 'public' })
     );
     const model = new ScriptedModelClient();
     const record = await runAgentAction(s.deps(model), request());

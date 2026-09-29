@@ -4,6 +4,7 @@ import type { Move, MoveSide, MoveType, PlayerRef } from '../../api/types';
 import { useArrivals } from '../../motion/useArrivals';
 import { leagueTabPath } from '../../routes/leagueRoutes';
 import { managerName, TeamAvatar } from './TeamBadge';
+import { PlayerLink } from '../../players/PlayerLink';
 
 /**
  * The move board (#166): the league's trades, pickups, drops, and waiver awards, one card per move,
@@ -73,7 +74,7 @@ function PlayerChip({ player, tone }: { player: PlayerRef; tone: 'in' | 'out' })
       }`}
     >
       <span className="sr-only">{tone === 'in' ? 'In: ' : 'Out: '}</span>
-      <span className="break-words font-medium">{player.name}</span>
+      <PlayerLink player={player} className="break-words font-medium" />
       <span className="text-xs text-muted-foreground">
         {player.position}
         {player.team === null ? '' : ` · ${player.team}`}

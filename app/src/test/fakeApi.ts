@@ -331,15 +331,6 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       faabRemaining: 100,
       faabAfter: 100
     })),
-    getPlayerCard: vi.fn(async (_id: string, playerId: string) => ({
-      player: { id: playerId, name: playerId, team: null, position: 'RB' },
-      scoring: { source: 'league' as const },
-      bye: null,
-      injuryStatus: null,
-      lastSeason: null,
-      projection: null,
-      news: []
-    })),
     claimPlayer: vi.fn(async () => {
       throw new Error('claimPlayer is not faked in this test');
     }),

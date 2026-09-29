@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { AgentTaskRecordSchema, type AgentTaskRecord, type AgentTaskSeal } from '../../repos/agents.js';
 import { defineOperation } from '../../registry/operation.js';
+import type { Repos } from '../../repos/types.js';
 import { PUBLIC_STATUSES } from '../trades/shared.js';
 import { LeagueBudgetSchema, leagueBudget } from './budget.js';
 import { TeamIdSchema, requireCommissioner } from './shared.js';
@@ -67,7 +68,7 @@ export const getAgentActivity = defineOperation({
 
 async function taskView(ctx: Ctx, task: AgentTaskRecord): Promise<z.infer<typeof AgentTaskViewSchema>> {
   const { sealed, ...rest } = task;
-  if (sealed === undefined || !(await stillSealed(ctx, task.leagueId, sealed))) {
+  if (sealed === undefined || !(await stillSealed(ctx.repos, task.leagueId, sealed))) {
     return { ...rest, redacted: false };
   }
   // Everything else that could give the move away is masked too: the action, the tools called,
@@ -85,15 +86,24 @@ async function taskView(ctx: Ctx, task: AgentTaskRecord): Promise<z.infer<typeof
   };
 }
 
-/** True while any sealed move is unresolved (a missing trade or claim stays sealed). */
-async function stillSealed(ctx: Ctx, leagueId: string, seal: AgentTaskSeal): Promise<boolean> {
+/**
+ * True while any sealed move is unresolved: a trade not yet public (or final), a pending waiver
+ * claim, or one that cannot be found. A `withheld` seal never lifts. Shared with the agents runtime,
+ * which applies the same rules to private memory (#206).
+ */
+export async function stillSealed(
+  repos: Pick<Repos, 'trades' | 'waivers'>,
+  leagueId: string,
+  seal: Pick<AgentTaskSeal, 'trades' | 'waiverClaims' | 'withheld'>
+): Promise<boolean> {
+  if (seal.withheld === true) return true;
   for (const ref of seal.trades) {
-    const status = (await ctx.repos.trades.get(leagueId, ref.tradeId))?.trade.status;
+    const status = (await repos.trades.get(leagueId, ref.tradeId))?.trade.status;
     const open = ref.until === 'final' ? FINAL_STATUSES : PUBLIC_STATUSES;
     if (status === undefined || !open.has(status)) return true;
   }
   for (const claimId of seal.waiverClaims) {
-    const claim = await ctx.repos.waivers.getClaim(leagueId, claimId);
+    const claim = await repos.waivers.getClaim(leagueId, claimId);
     if (claim === null || claim.status === 'pending') return true;
   }
   return false;

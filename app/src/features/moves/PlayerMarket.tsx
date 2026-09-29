@@ -5,8 +5,8 @@ import { useLeagueApi } from '../../api/league';
 import type { MarketPage, MarketPlayer, MarketSort } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { LoadingSkeleton } from '../../motion/decor';
+import { useOpenPlayerCard } from '../../players/PlayerLink';
 import { gameText } from '../season/gameState';
-import { MarketPlayerCard } from './MarketPlayerCard';
 import { pts, standingText, trendOf } from './moves';
 
 export const MARKET_POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'] as const;
@@ -64,7 +64,6 @@ export function PlayerMarket(props: MarketProps) {
   const [rows, setRows] = useState<MarketPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [card, setCard] = useState<MarketPlayer | null>(null);
   const { leagueId, onContext } = props;
 
   useEffect(() => setPosition(props.position), [props.position, props.positionKey]);
@@ -210,21 +209,9 @@ export function PlayerMarket(props: MarketProps) {
           className="divide-y divide-border rounded-lg border border-border bg-surface"
         >
           {rows.map((row) => (
-            <MarketRow key={row.player.id} row={row} onOpen={setCard} {...props} />
+            <MarketRow key={row.player.id} row={row} {...props} />
           ))}
         </ul>
-      )}
-      {card !== null && (
-        <MarketPlayerCard
-          leagueId={leagueId}
-          row={card}
-          canAdd={props.canAdd}
-          onClose={() => setCard(null)}
-          onAdd={(row) => {
-            setCard(null);
-            props.onAdd(row);
-          }}
-        />
       )}
       {page?.nextOffset != null && (
         <Button
@@ -241,7 +228,8 @@ export function PlayerMarket(props: MarketProps) {
   );
 }
 
-function MarketRow(props: MarketProps & { row: MarketPlayer; onOpen: (row: MarketPlayer) => void }) {
+function MarketRow(props: MarketProps & { row: MarketPlayer }) {
+  const openCard = useOpenPlayerCard();
   const { row } = props;
   const { player, availability } = row;
   const trend = trendOf(row.trend);
@@ -252,7 +240,7 @@ function MarketRow(props: MarketProps & { row: MarketPlayer; onOpen: (row: Marke
     <li className="flex items-center gap-3 px-3 py-2.5" data-testid={`market-row-${player.id}`}>
       <button
         type="button"
-        onClick={() => props.onOpen(row)}
+        onClick={() => openCard?.(row.player)}
         aria-haspopup="dialog"
         className="group -my-1 min-h-11 min-w-0 flex-1 rounded-md py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
       >

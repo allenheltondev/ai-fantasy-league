@@ -65,6 +65,8 @@ export const tradeVoteTask = defineTaskKind<Payload, TradeVoteDecision, VotePrep
   modelNotes: false,
   payload: PayloadSchema,
   decision: TradeVoteDecisionSchema,
+  // The vote is sealed and nobody reads the model's words: it may recall the agent's own secrets.
+  memoryAudience: () => 'owner',
   // Reading only: the vote itself is cast by the runtime.
   tools: ['get_league_state', 'get_roster', 'get_player', 'get_projections', 'get_news', 'preview_trade'],
   async prepare(ctx, payload) {

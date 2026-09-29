@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { signInAs } from '../../test/render';
@@ -70,11 +70,11 @@ describe('Transactions', () => {
   it('shows the league log with older pages', async () => {
     const queries = stubLog();
     render(<Transactions leagueId="L1" refreshKey={0} />);
-    const log = within(await screen.findByRole('list', { name: 'League transactions' }));
-    expect(await log.findByText(/claimed Breece Hall for \$7, dropping Josh Allen/)).toBeInTheDocument();
-    expect(log.getByText(/added Bijan Robinson/)).toBeInTheDocument();
+    const log = await screen.findByRole('list', { name: 'League transactions' });
+    await waitFor(() => expect(log).toHaveTextContent(/claimed Breece Hall for \$7, dropping Josh Allen/));
+    expect(log).toHaveTextContent(/added Bijan Robinson/);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Show older moves' }));
-    expect(await log.findByText(/dropped D'Andre Swift/)).toBeInTheDocument();
+    await waitFor(() => expect(log).toHaveTextContent(/dropped D'Andre Swift/));
     expect(screen.queryByRole('button', { name: 'Show older moves' })).not.toBeInTheDocument();
     expect(queries.at(-1)?.get('cursor')).toBe('older');
     expect(queries.at(-1)?.get('limit')).toBe('20');
@@ -83,9 +83,9 @@ describe('Transactions', () => {
   it("shows one team's moves", async () => {
     stubLog();
     render(<Transactions leagueId="L1" refreshKey={0} teamId="team-2" title="Recent moves" />);
-    const log = within(await screen.findByRole('list', { name: 'Recent moves list' }));
-    expect(await log.findByText(/added Bijan Robinson/)).toBeInTheDocument();
-    expect(log.queryByText(/Breece Hall/)).not.toBeInTheDocument();
+    const log = await screen.findByRole('list', { name: 'Recent moves list' });
+    await waitFor(() => expect(log).toHaveTextContent(/added Bijan Robinson/));
+    expect(log).not.toHaveTextContent(/Breece Hall/);
   });
 
   it('reports a failed log', async () => {
@@ -98,7 +98,9 @@ describe('Transactions', () => {
     stubLog();
     const view = render(<Transactions leagueId="L1" refreshKey={0} />);
     view.rerender(<Transactions leagueId="L1" refreshKey={1} />);
-    expect(await screen.findByText(/added Bijan Robinson/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('list', { name: 'League transactions' })).toHaveTextContent(/added Bijan/)
+    );
     view.unmount();
     stubLog(true);
     render(<Transactions leagueId="L1" refreshKey={0} />).unmount();
@@ -107,7 +109,7 @@ describe('Transactions', () => {
   it('reports a failed older page', async () => {
     stubLog();
     render(<Transactions leagueId="L1" refreshKey={0} />);
-    await screen.findByText(/added Bijan Robinson/);
+    await screen.findByRole('button', { name: 'Show older moves' });
     stubLog(true);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Show older moves' }));
     expect(await screen.findByText('FORBIDDEN happened. Join the league.')).toBeInTheDocument();
