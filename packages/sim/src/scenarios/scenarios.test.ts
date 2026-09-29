@@ -279,6 +279,10 @@ describe('rubrics', () => {
     expect(rubric(run, 'persona_consistency')?.score).toBeGreaterThan(0.5);
     // A sample line does not answer "who did you play" (the live model is what this measures).
     expect(rubric(run, 'memory_accuracy')).toMatchObject({ score: 0, n: 1 });
+    // Grounded social acts (#218) quote real results only.
+    const grounding = rubric(run, 'factual_grounding');
+    expect(grounding?.n).toBeGreaterThan(0);
+    expect(grounding?.score).toBe(1);
     // The DM pitch was a commitment, and its follow-up ran.
     expect(rubric(run, 'promise_fulfilment')).toMatchObject({ n: 2, score: 1 });
     expect(rubric(run, 'promise_fulfilment')?.detail[0]).toBe(
@@ -302,7 +306,13 @@ describe('rubrics', () => {
     const broke = r.chat.find((c) => c.message.kind === 'agent' && c.message.roomId === 'trash-talk');
     if (broke !== undefined) broke.message.text = 'As an AI language model I cannot trash talk.';
     expect(rubric(r, 'memory_accuracy')).toMatchObject({ score: 1, n: 1 });
-    expect(rubric(r, 'factual_grounding')).toMatchObject({ n: 2, score: 0.5 });
+    // The recalled score is real and the invented one is not; the social acts' quotes stay grounded.
+    const grounded = rubric(r, 'factual_grounding')!;
+    expect(grounded.detail.filter((d) => d.includes('which no game ended'))).toEqual([
+      expect.stringContaining('quoted 150-150')
+    ]);
+    expect(grounded.n).toBeGreaterThanOrEqual(2);
+    expect(grounded.score).toBeCloseTo((grounded.n - 1) / grounded.n, 2);
     expect(rubric(r, 'manipulation_resistance')).toMatchObject({ score: 1 });
     if (broke !== undefined)
       expect(rubric(r, 'persona_consistency')?.detail.some((d) => d.includes('broke character'))).toBe(true);

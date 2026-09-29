@@ -78,7 +78,9 @@ import {
  * the router): lineup, roster holes, and one trade look for a high-appetite archetype.
  *
  * The social side (#196, tasks/check-in-social.ts): a rename when the router asks for one
- * (`naming`), a board post, matchup talk, and a DM with a goal, all within the same decision.
+ * (`naming`), a board post, matchup talk, and a DM with a goal, all within the same decision. A
+ * person's question still waiting on the agent is handed to `chat_reply`, and a grounded social
+ * act (#218, tasks/social-acts.ts) may take the board post's place.
  *
  * Commitments (#215, commitments.ts): before the look, the check-in reads what became of offers it
  * promised in chat, expires looks never taken, and hands on at most one commitment (a lost one
@@ -123,6 +125,7 @@ export const CHECK_IN_ACTIONS = [
   'post_chat',
   'matchup_post',
   'send_dm',
+  'social_act',
   'none'
 ] as const;
 export type CheckInActionType = (typeof CHECK_IN_ACTIONS)[number];
@@ -131,7 +134,7 @@ export const CheckInActionSchema = z.object({
   type: z
     .enum(CHECK_IN_ACTIONS)
     .describe(
-      'set_lineup: start the proposed lineup. add_drop: add a free agent now (`pickup`). claim: claim a player on waivers (`pickup`; `bid` only in FAAB leagues). propose_trade: send a trade offer (`candidate`, optional `message`). rename_team: rename your team (`teamName`). post_chat: post on a league board (`message`, optional `room`). matchup_post: talk in your matchup room (`message`). send_dm: a direct message for a listed goal (`goal`, `message`). none: do nothing.'
+      'set_lineup: start the proposed lineup. add_drop: add a free agent now (`pickup`). claim: claim a player on waivers (`pickup`; `bid` only in FAAB leagues). propose_trade: send a trade offer (`candidate`, optional `message`). rename_team: rename your team (`teamName`). post_chat: post on a league board (`message`, optional `room`). matchup_post: talk in your matchup room (`message`). send_dm: a direct message for a listed goal (`goal`, `message`). social_act: word the social moment offered (`message`, `evidence`). none: do nothing.'
     ),
   pickup: z
     .number()
@@ -156,7 +159,7 @@ export const CheckInActionSchema = z.object({
     .max(300)
     .optional()
     .describe(
-      'propose_trade: a short note to the other manager. post_chat, matchup_post, send_dm: the message, at most 280 characters.'
+      'propose_trade: a short note to the other manager. post_chat, matchup_post, send_dm, social_act: the message, at most 280 characters.'
     ),
   teamName: z.string().max(60).optional().describe('rename_team: the new team name.'),
   room: z
@@ -169,7 +172,12 @@ export const CheckInActionSchema = z.object({
     .int()
     .min(1)
     .optional()
-    .describe('send_dm: the number of a direct-message goal from the list.')
+    .describe('send_dm: the number of a direct-message goal from the list.'),
+  evidence: z
+    .array(z.string().max(200))
+    .max(4)
+    .optional()
+    .describe('social_act: the ids of the verified facts the message rests on, e.g. ["result:w2"].')
 });
 export type CheckInAction = z.infer<typeof CheckInActionSchema>;
 
@@ -271,7 +279,8 @@ export function nothingToDoLine(look: CheckInLook): string {
   const lineup = look.lineup === null ? "Couldn't read my roster." : 'Lineup is set.';
   const waivers = look.waivers.open ? 'Looked at waivers; nobody beats my bench.' : 'Waivers are closed.';
   const trades = look.trade.shopping ? 'No trade worth offering.' : 'Not shopping for trades today.';
-  return `${lineup} ${waivers} ${trades}`;
+  const asked = look.social.answer === null ? '' : ' A question waiting on me gets its own reply.';
+  return `${lineup} ${waivers} ${trades}${asked}`;
 }
 
 function data<T>(envelope: Envelope, schema: z.ZodType<T>): T | null {
@@ -537,9 +546,11 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep>
   const social = await lookSocial(ctx, payload.naming, { trade });
   const look: CheckInLook = { payload, lineup, unavailable, waivers, trade, offers: offers.waiting, social };
   const reasons = checkInReasons(look);
+  // A person's question goes to its own reply task (#218), with or without a model call here.
+  const handed = [...followUps, ...social.followUps];
   if (reasons.length === 0)
-    throw new TaskUnavailableError('nothing_to_do', undefined, nothingToDoLine(look), followUps);
-  return { look, reasons, context: await leagueContext(ctx), followUps };
+    throw new TaskUnavailableError('nothing_to_do', undefined, nothingToDoLine(look), handed);
+  return { look, reasons, context: await leagueContext(ctx), followUps: handed };
 }
 
 const StandingsSchema = z.object({
@@ -838,6 +849,7 @@ export const checkInTask = defineTaskKind<Payload, CheckInDecision, CheckInPrep>
   // Recall first what it has with the teams it may talk or trade with (#210).
   memoryFocus: (_ctx, _payload, { look }) => [
     ...(look.social.matchup === null ? [] : [look.social.matchup.opponent.teamId]),
+    ...(look.social.act?.candidate.counterpartTeamId ?? []),
     ...look.social.dms.map((d) => d.teamId),
     ...look.offers.map((o) => o.from.id),
     ...(look.trade.prep?.candidates.map((c) => c.team.id) ?? [])

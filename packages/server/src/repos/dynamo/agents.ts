@@ -9,7 +9,9 @@ import {
 import {
   AgentAgendaSchema,
   CommitmentBookSchema,
+  SocialActBookSchema,
   emptyAgenda,
+  emptySocialActs,
   emptyCommitments,
   AgentLeagueMemorySchema,
   PlayerAttachmentsSchema,
@@ -17,7 +19,8 @@ import {
   type AgentAgenda,
   type AgentLeagueMemory,
   type PlayerAttachments,
-  type CommitmentBook
+  type CommitmentBook,
+  type SocialActBook
 } from '@fantasy/core';
 import { z } from 'zod';
 import {
@@ -58,6 +61,7 @@ import { TABLE_KEYS, epochSeconds, isConditionalCheckFailure, type TableContext 
  * - Seat history:     pk LEAGUE#<leagueId>  sk AGENTSEATV#<teamId>#<version, 6 digits>
  * - Agent memory:     pk LEAGUE#<leagueId>  sk AGENTMEM#<agentId>  (notes, rivals, trades, decisions, chat; rev)
  * - Attachments:      pk LEAGUE#<leagueId>  sk AGENTATTACH#<agentId>#<tenure>  (#216; rev)
+ * - Social acts:      pk LEAGUE#<leagueId>  sk AGENTSOCIAL#<agentId>#<tenure>  (#218; rev)
  * - Trigger state:    pk LEAGUE#<leagueId>  sk AGENTSTATE#<agentId>
  * - Limit (#196):     pk LEAGUE#<leagueId>  sk AGENTLIMIT#<key>     (rev, uses: epoch ms; TTL)
  * - Task:             pk AGENTTASK#<taskId> sk STATUS
@@ -196,6 +200,27 @@ export class DynamoAgentRepository implements AgentRepository {
   ): Promise<CommitmentBook> {
     const key = { pk: leaguePk(leagueId), sk: `AGENTCOMMIT#${agentId}#${tenure}` };
     return this.#versioned(key, CommitmentBookSchema, emptyCommitments, update);
+  }
+
+  async getSocialActs(leagueId: string, agentId: string, tenure: string): Promise<SocialActBook> {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: { pk: leaguePk(leagueId), sk: `AGENTSOCIAL#${agentId}#${tenure}` },
+        ConsistentRead: true
+      })
+    );
+    return SocialActBookSchema.parse(result.Item ?? emptySocialActs());
+  }
+
+  async updateSocialActs(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (book: SocialActBook) => SocialActBook
+  ): Promise<SocialActBook> {
+    const key = { pk: leaguePk(leagueId), sk: `AGENTSOCIAL#${agentId}#${tenure}` };
+    return this.#versioned(key, SocialActBookSchema, emptySocialActs, update);
   }
 
   async getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null> {

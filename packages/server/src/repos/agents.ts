@@ -3,7 +3,8 @@ import {
   type AgentLeagueMemory,
   type AgentAgenda,
   type PlayerAttachments,
-  type CommitmentBook
+  type CommitmentBook,
+  type SocialActBook
 } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
@@ -249,6 +250,14 @@ export interface AgentRepository {
     tenure: string,
     update: (book: CommitmentBook) => CommitmentBook
   ): Promise<CommitmentBook>;
+  /** Social acts it chose (#218), keyed like the agenda: a new occupant starts with none. */
+  getSocialActs(leagueId: string, agentId: string, tenure: string): Promise<SocialActBook>;
+  updateSocialActs(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (book: SocialActBook) => SocialActBook
+  ): Promise<SocialActBook>;
   getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null>;
   listSeats(leagueId: string): Promise<AgentSeatRecord[]>;
   /**
