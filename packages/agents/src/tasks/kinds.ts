@@ -51,9 +51,13 @@ export type BaseDecision = z.infer<typeof BaseDecisionSchema>;
 export interface TaskContext {
   /** Verified private priorities for this decision only; never supplied to chat tasks. */
   agenda?: AgentAgenda;
-  PlayerAttachments,
-  ResolvedAgentConfig,
-  SituationalState
+  /**
+   * Competitive stakes and roster health from finalized results (#217). Levers read it through
+   * `effectiveBehavior`; without it every lever is the archetype's baseline.
+   */
+  situation?: SituationalState;
+  /** Player attachments (#216) for trade decisions: public evidence, read by core's capped policy. */
+  attachments?: PlayerAttachments;
   taskId: string;
   principal: AgentPrincipal;
   league: League;

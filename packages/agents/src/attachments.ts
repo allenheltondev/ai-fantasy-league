@@ -196,8 +196,9 @@ export async function refreshAttachments(
   try {
     const at = ctx.clock.now().toISOString();
     const team = await services.repos.teams.get(ctx.league.id, ctx.principal.teamId);
-    const league = await services.repos.leagues.get(ctx.league.id);
-    if (team?.seatType !== 'agent' || league === null) return undefined;
+    // The runner read the league for this task; only the roster and seat need a fresh look.
+    const league = ctx.league;
+    if (team?.seatType !== 'agent') return undefined;
     const tenure = seatTenureStart(team);
     const { agents } = services.repos;
     const stored = await agents.getAttachments(league.id, ctx.seat.agentId, tenure);

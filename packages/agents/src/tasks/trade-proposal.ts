@@ -446,16 +446,18 @@ export async function propose(
     received: [c.receive.name],
     value: c.score
   }));
-  // Which way an attachment conflict went for each offer sent (#216).
-  const attached = made.map(({ c }) => (c.attachment === undefined ? '' : attachmentSummary(c.attachment)));
+  // Which way an attachment conflict went for each offer sent (#216): a need may be named in the
+  // sealed activity log, never in the agent's own record.
+  const attached = (audience: 'activity' | 'memory') =>
+    made.map(({ c }) => (c.attachment === undefined ? '' : attachmentSummary(c.attachment, audience)));
   const outcome: TaskOutcome = {
     action: made.length > 0 ? 'propose_trade' : refused.length > 0 ? 'propose_trade_failed' : 'none',
-    summary: [summary, refused.length > 0 ? `Refused: ${refused.join(', ')}.` : '', ...attached]
+    summary: [summary, refused.length > 0 ? `Refused: ${refused.join(', ')}.` : '', ...attached('activity')]
       .filter((s) => s !== '')
       .join(' '),
     memorySummary:
       made.length > 0
-        ? [`Offered ${lines.join('; ')}.`, ...attached].filter((s) => s !== '').join(' ')
+        ? [`Offered ${lines.join('; ')}.`, ...attached('memory')].filter((s) => s !== '').join(' ')
         : 'Made no trade offers this week.',
     memory,
     ...(made.length === 0

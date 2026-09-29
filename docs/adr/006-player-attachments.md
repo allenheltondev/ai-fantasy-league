@@ -1,4 +1,4 @@
-# ADR 005: Evidence-backed player attachments
+# ADR 006: Evidence-backed player attachments
 
 Status: accepted, first slice of #216 (drafted and traded-for attachment, one override rule). The broader player-behavior roadmap is #219.
 
@@ -22,7 +22,7 @@ The override rule: when the incoming players can fill an active agenda goal this
 
 - Trade answers (`trade_response`): bar and accept floor include the adjustment; the suggested counter keeps the favorite out, and a counter is floored by its own terms' adjustment. A plain answer now reads the agenda deterministically (`guide_only`); a chat-driven one cannot (`refresh_only`), so its chat reply and its choice see the same inputs.
 - Trade scouting (`trade_proposal`, the check-in's trade look, chat pitches): a swap sending an attached player must clear bar plus adjustment.
-- Summaries (activity log and the agent's own decision memory, sealed while the offer is private) say which way the conflict went: "Held X to a higher bar" or "Set aside my attachment to X for the RB need".
+- Summaries say which way the conflict went. The activity log (sealed while the offer is private) says "Held X to a higher bar" or, generically, "Set aside my attachment to X for a roster need", with no slot or goal id. The agent's own decision memory, which later chat prompts may recall once the trade is public, records only the attachment side and no agenda information.
 
 ## Privacy and prompts
 
@@ -34,4 +34,4 @@ Waiver-pickup sources, other preference types (belief in upside, disappointment,
 
 ## Validation
 
-Core tests cover attribution, idempotency, non-additive sources, bounded decay, sustained versus one-week revision, stat-correction replacement and out-of-order reads, departure and return, bounds, caps across personalities, the agenda override, the base floor, and empty state for new agents. Both repository backends test tenure isolation, idempotent writes, and concurrent updates. Runtime tests cover draft and trade ingestion (autopicks, released players, human seats, pre-tenure records, redelivery, ingestion failure), revision from last week, trade answers, counters, scouting, chat pitches, and the prompt through the runner.
+Core tests cover attribution, idempotency, non-additive sources, bounded decay, sustained versus one-week revision, stat-correction replacement and out-of-order reads, departure and return, bounds, caps across personalities, the agenda override, the base floor, and empty state for new agents. Both repository backends test tenure isolation, idempotent writes, and concurrent updates. Runtime tests cover draft and trade ingestion, summaries that keep the need generic and out of memory, (autopicks, released players, human seats, pre-tenure records, redelivery, ingestion failure), revision from last week, trade answers, counters, scouting, chat pitches, and the prompt through the runner.

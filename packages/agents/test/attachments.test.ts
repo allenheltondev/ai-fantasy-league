@@ -321,12 +321,15 @@ describe('attachment revision before a decision', () => {
     await s.repos.agents.updateAttachments(LEAGUE_ID, AGENT_ID, await tenure(s), (a) =>
       recordAcquisition(a, acquisition('rb1', 'RB'))
     );
-    const league = (await s.repos.leagues.get(LEAGUE_ID))!;
+    // It uses the league the task already read (no second league read).
     const leagueGet = vi.spyOn(s.repos.leagues, 'get');
-    leagueGet.mockResolvedValueOnce({ ...league, phase: 'drafting' });
+    const league = ctx.league;
+    ctx.league = { ...league, phase: 'drafting' };
     expect((await refreshAttachments(s.services, ctx))?.preferences).toHaveLength(1);
-    leagueGet.mockResolvedValueOnce({ ...league, week: league.settings.schedule.startWeek });
+    ctx.league = { ...league, week: league.settings.schedule.startWeek };
     expect((await refreshAttachments(s.services, ctx))?.preferences).toHaveLength(1);
+    ctx.league = league;
+    expect(leagueGet).not.toHaveBeenCalled();
     // Years later, time alone has not erased it, but only results could make it count again.
     s.clock.advance(3 * 365 * 86_400_000);
     await s.repos.agents.updateAttachments(LEAGUE_ID, AGENT_ID, await tenure(s), (a) => ({
@@ -343,8 +346,6 @@ describe('attachment revision before a decision', () => {
     const teamGet = vi.spyOn(s.repos.teams, 'get');
     const team = (await s.repos.teams.get(LEAGUE_ID, AGENT_TEAM))!;
     teamGet.mockResolvedValueOnce({ ...team, seatType: 'human' });
-    expect(await refreshAttachments(s.services, ctx)).toBeUndefined();
-    vi.spyOn(s.repos.leagues, 'get').mockResolvedValueOnce(null);
     expect(await refreshAttachments(s.services, ctx)).toBeUndefined();
     vi.spyOn(s.repos.agents, 'getAttachments').mockRejectedValueOnce(new Error('offline'));
     expect(await refreshAttachments(s.services, ctx)).toBeUndefined();
@@ -479,9 +480,14 @@ describe('attachment policy in trade decisions', () => {
     ctx.agenda = rbNeed;
     const { task, outcome } = await answer(ctx);
     expect(outcome.action).toBe('accept_trade');
-    expect(outcome.summary).toContain('Set aside my attachment to WR1 for the RB need');
+    // The sealed activity log says a need outweighed it, generically: no slot, no goal id.
+    expect(outcome.summary).toContain('Set aside my attachment to WR1 for a roster need.');
+    expect(outcome.summary).not.toMatch(/RB need|repair_position/);
+    expect(outcome.sealed).toMatchObject({ trades: [{ tradeId: 't9', until: 'public' }] });
+    // The agent's own record, which later chat may recall, keeps no agenda information.
+    expect(outcome.memorySummary).not.toMatch(/need|repair_position|Set aside/);
     // The need is private: the model that writes to Allen never reads it, nor the waived attachment.
-    expect(task.instructions).not.toContain('RB need');
+    expect(task.instructions).not.toMatch(/need|repair_position/);
     expect(task.instructions).not.toContain('attached');
 
     // A bad deal stays bad: the need waives the premium, never the base floor (bar 1 - 5 = -4).
@@ -565,8 +571,9 @@ describe('attachment policy in trade decisions', () => {
     expect(repaired.instructions).toContain('your WR1 (WR) for their AR (RB)');
     expect(repaired.instructions).not.toContain('attached');
     const sent = await repaired.apply({ summary: 'Sending it.', offers: [{ candidate: 1 }] });
-    expect(sent.summary).toContain('Set aside my attachment to WR1 for the RB need');
-    expect(sent.memorySummary).toContain('Set aside my attachment');
+    expect(sent.summary).toContain('Set aside my attachment to WR1 for a roster need.');
+    expect(sent.sealed?.trades).toEqual([{ tradeId: 't20', until: 'public' }]);
+    expect(sent.memorySummary).not.toMatch(/need|repair_position|Set aside/);
   });
 
   it('holds a chat pitch for a favorite to the same higher bar', async () => {

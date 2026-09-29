@@ -239,7 +239,9 @@ describe('attachment policy', () => {
     expect(need.waived).toBe(need.premium);
     expect(need.override).toEqual({ goalId: 'repair_position:W1:RB', slot: 'RB' });
     expect(need.players[0]?.waived).toBe(true);
-    expect(attachmentSummary(need)).toContain('Set aside my attachment to Wide One for the RB need');
+    // Generic in the activity log (no slot or goal id), and absent from the agent's own record.
+    expect(attachmentSummary(need)).toBe('Set aside my attachment to Wide One for a roster need.');
+    expect(attachmentSummary(need, 'memory')).toBe('');
     // The adjustment is never negative: the base bar (and its floor) still apply in full.
     expect(need.adjustment).toBeGreaterThanOrEqual(0);
     // Receiving a player who does not fill the need does not trigger the override.

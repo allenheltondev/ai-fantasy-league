@@ -303,13 +303,17 @@ function outcome(
       ? ''
       : ` Asked instead for ${names(sentBack.receive)} for your ${names(sentBack.send)}${sentBack.drops.length === 0 ? '' : `, releasing ${names(sentBack.drops)}`} (value for you ${sentBack.score}).`;
   const line = `${VERB[action]} ${trade.fromTeam.id}'s offer: ${names(trade.fromSends)} for your ${names(trade.toSends)}${value === undefined ? '' : ` (value for you ${value}, bar ${prep.suggestion.bar})`}.${sentLine}`;
-  // Which way an attachment conflict went (#216), in the activity log and the agent's own record.
-  const why =
-    prep.suggestion.attachment === undefined ? '' : ` ${attachmentSummary(prep.suggestion.attachment)}`;
+  // Which way an attachment conflict went (#216). The activity log (sealed while the offer is
+  // private) may say a need outweighed it; the agent's own record keeps no agenda information.
+  const why = (audience: 'activity' | 'memory') => {
+    const text =
+      prep.suggestion.attachment === undefined ? '' : attachmentSummary(prep.suggestion.attachment, audience);
+    return text === '' ? '' : ` ${text}`;
+  };
   return {
     action: failed ? `${action}_failed` : action,
-    summary: `${failed ? `${summary} Refused: ${result.error.code}.` : summary}${why}`,
-    memorySummary: `${failed ? `${line} Refused: ${result.error.code}.` : line}${why}`,
+    summary: `${failed ? `${summary} Refused: ${result.error.code}.` : summary}${why('activity')}`,
+    memorySummary: `${failed ? `${line} Refused: ${result.error.code}.` : line}${why('memory')}`,
     sealed: { summary: SEALED_RESPONSE, trades: [{ tradeId: trade.id, until: 'public' }], waiverClaims: [] },
     ...(failed || action !== 'accept_trade'
       ? {}

@@ -491,8 +491,16 @@ export function attachmentAdjustment(input: AttachmentPolicyInput): AttachmentAd
   };
 }
 
-/** The activity-summary line for an adjustment: which way the conflict went (never the premium). */
-export function attachmentSummary(adjustment: AttachmentAdjustment): string {
+/**
+ * The summary line for an adjustment: which way the conflict went, never the premium. `activity`
+ * (the activity log, sealed while the offer is private) may say a need outweighed the attachment,
+ * generically: no slot, no goal id. `memory` (the agent's own decision record, which later chat
+ * prompts may recall once the trade is public) keeps no agenda information at all.
+ */
+export function attachmentSummary(
+  adjustment: AttachmentAdjustment,
+  audience: 'activity' | 'memory' = 'activity'
+): string {
   if (adjustment.players.length === 0) return '';
   const names = (list: typeof adjustment.players) => list.map((p) => p.name).join(', ');
   const kept = adjustment.players.filter((p) => !p.waived);
@@ -501,9 +509,9 @@ export function attachmentSummary(adjustment: AttachmentAdjustment): string {
     kept.length === 0
       ? ''
       : `Held ${names(kept)} to a higher bar: I'm attached to ${kept.length === 1 ? 'him' : 'them'}.`,
-    adjustment.override === null
+    adjustment.override === null || audience === 'memory'
       ? ''
-      : `Set aside my attachment to ${names(set)} for the ${adjustment.override.slot} need (${adjustment.override.goalId}).`
+      : `Set aside my attachment to ${names(set)} for a roster need.`
   ]
     .filter((line) => line.length > 0)
     .join(' ');
