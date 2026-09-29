@@ -851,6 +851,17 @@ describe('League › Players', () => {
     await waitFor(() => expect(api.getRoster).toHaveBeenCalledTimes(2));
   });
 
+  it('closes the add step on the Players page without adding', async () => {
+    const user = userEvent.setup();
+    const api = open('/leagues/L1/league/players');
+    const list = await screen.findByRole('list', { name: 'All players' });
+    await user.click(await within(list).findByRole('button', { name: "Add D'Andre Swift" }));
+    const dialog = await screen.findByTestId('add-sheet');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByTestId('add-sheet')).not.toBeInTheDocument());
+    expect(api.claimPlayer).not.toHaveBeenCalled();
+  });
+
   it('closes adds for someone without a team, and says rolling waivers', async () => {
     const user = userEvent.setup();
     open(

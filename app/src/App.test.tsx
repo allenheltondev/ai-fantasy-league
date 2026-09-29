@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { safeReturnPath } from './auth/AuthScreens';
 import { activeNavId, displayName } from './layout/AppLayout';
+import { fakeApi, league } from './test/fakeApi';
 import { renderApp, signInAs } from './test/render';
 
 const ALICE = { sub: 'u1', email: 'alice@example.com', given_name: 'Alice', family_name: 'Smith' };
@@ -148,6 +149,16 @@ describe('signed in', () => {
     signInAs(ALICE);
     renderApp(path);
     expect(await screen.findByTestId(testId)).toBeInTheDocument();
+  });
+
+  it('shows the draft results in League info once the draft is over', async () => {
+    signInAs(ALICE);
+    renderApp(
+      '/leagues/L1/settings?view=draft',
+      undefined,
+      fakeApi({ getLeague: vi.fn(async () => league({ phase: 'regular_season' })) })
+    );
+    expect(await screen.findByTestId('league-section-draft')).toBeInTheDocument();
   });
 
   it('shows not found for an unknown path', async () => {

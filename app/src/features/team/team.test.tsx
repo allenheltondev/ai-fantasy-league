@@ -1,9 +1,9 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LeagueApi } from '../../api/league';
 import type { DashboardMatchup, Roster, RosterEntry } from '../../api/types';
-import { dashboard, fakeApi, state, team } from '../../test/fakeApi';
+import { dashboard, fakeApi, league, state, team } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 
 /** My Team (#178): your team's profile and moves, and the other teams, read-only. */
@@ -334,6 +334,47 @@ describe('League pages', () => {
     const views = await screen.findByRole('group', { name: 'Settings view' });
     expect(within(views).getByRole('button', { name: 'History' })).toBeInTheDocument();
     expect(within(views).queryByRole('button', { name: 'Draft results' })).not.toBeInTheDocument();
+  });
+
+  it('reports a Scoreboard that fails to load', async () => {
+    open('/leagues/L1/league/scoreboard', {
+      getLeagueDashboard: vi.fn(async () => {
+        throw new Error('down');
+      })
+    });
+    expect(await screen.findAllByRole('alert')).not.toHaveLength(0);
+  });
+
+  it('opens League info on History, and falls back for views you cannot see', async () => {
+    const member = () => ({
+      getLeagueState: vi.fn(async () => state({ teams: TEAMS, youAreCommissioner: false })),
+      getLeague: vi.fn(async () => league({ phase: 'regular_season' }))
+    });
+    open('/leagues/L1/settings?view=history', member());
+    expect(await screen.findByText('No completed seasons yet.')).toBeInTheDocument();
+    cleanup();
+    // A member has no AI activity view: the URL falls back to the settings.
+    open('/leagues/L1/settings?view=ai', member());
+    const views = await screen.findByRole('group', { name: 'Settings view' });
+    expect(within(views).getByRole('button', { name: 'Rules & seats' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(within(views).getByRole('button', { name: 'Draft results' })).toBeInTheDocument();
+    expect(within(views).queryByRole('button', { name: 'AI activity' })).not.toBeInTheDocument();
+  });
+
+  it('switches between League info views', async () => {
+    const user = userEvent.setup();
+    open('/leagues/L1/settings');
+    const views = await screen.findByRole('group', { name: 'Settings view' });
+    await user.click(within(views).getByRole('button', { name: 'History' }));
+    expect(await screen.findByText('No completed seasons yet.')).toBeInTheDocument();
+    await user.click(within(views).getByRole('button', { name: 'League settings' }));
+    expect(within(views).getByRole('button', { name: 'League settings' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
   });
 
   it('shows the move board and the full log on Transactions', async () => {

@@ -30,9 +30,6 @@ export const LEAGUE_PAGES = [
 
 export type LeagueTabPath = (typeof LEAGUE_PAGES)[number]['path'];
 
-/** League info's extra views: the league's past seasons, and how this season's draft went. */
-export type LeagueInfoView = 'history' | 'draft';
-
 /** Before and during the draft, the Draft section is its own item; afterwards its results are in League info. */
 export function draftIsLive(phase: Phase | null | undefined): boolean {
   return phase === 'setup' || phase === 'drafting';
@@ -45,8 +42,6 @@ export function leaguePath(leagueId: string, page: string): string {
 
 export const teamPath = (leagueId: string, page: TeamPagePath) => leaguePath(leagueId, `team/${page}`);
 export const leagueTabPath = (leagueId: string, tab: LeagueTabPath) => leaguePath(leagueId, `league/${tab}`);
-export const leagueInfoPath = (leagueId: string, view: LeagueInfoView) =>
-  leaguePath(leagueId, `settings?view=${view}`);
 /** A read-only view of another team, with "Propose trade" as its only action. */
 export const otherTeamPath = (leagueId: string, teamId: string) =>
   leaguePath(leagueId, `team/teams/${encodeURIComponent(teamId)}`);

@@ -37,6 +37,7 @@ describe('the league IA (#178)', () => {
     expect(movedSectionTarget('standings', '?view=history&x=1')).toBe('settings?view=history&x=1');
     expect(movedSectionTarget('standings', '?view=history')).toBe('settings?view=history');
     expect(movedSectionTarget('standings', '?view=nope')).toBe('league/standings');
+    expect(movedSectionTarget('standings', '?view=playoffs&x=1')).toBe('league/playoffs?x=1');
   });
 
   it('keeps the Draft a section until it is over, then its results are League info', () => {

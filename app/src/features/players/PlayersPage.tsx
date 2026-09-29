@@ -35,18 +35,6 @@ export function PlayersPage() {
     (id: string) => teams?.find((t) => t.id === id)?.name ?? 'Another team',
     [teams]
   );
-  // A refresh that reads the same FAAB and waiver type leaves the page (and the market) alone.
-  const onContext = useCallback(
-    (page: MarketPage) =>
-      setContext((current) =>
-        current?.faabRemaining === page.faabRemaining &&
-        current?.waiverType === page.waiverType &&
-        current?.dropClearsAt === page.dropClearsAt
-          ? current
-          : page
-      ),
-    []
-  );
   const faab = context?.faabRemaining ?? null;
 
   return (
@@ -67,7 +55,7 @@ export function PlayersPage() {
         canAdd={allowed('claim_waiver') && roster.data !== null}
         canTrade={allowed('propose_trade')}
         refreshKey={refreshKey}
-        onContext={onContext}
+        onContext={setContext}
         tradeHref={(row) =>
           tradeLink(leagueId, { playerId: row.player.id, teamId: row.availability.teamId as string })
         }
