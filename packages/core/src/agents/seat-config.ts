@@ -20,6 +20,7 @@ import {
 } from './difficulty.js';
 import { tradeAppetite, waiverMinGain } from './behavior.js';
 import { MODEL_KEYS, getModel, modelChain, type ModelKey } from './models.js';
+import { ResponseDelayLeverSchema } from './response-delay.js';
 import {
   AvatarSeedSchema,
   ManagerNameSchema,
@@ -38,9 +39,12 @@ import {
 export const CUSTOM_FLAVOR_MAX = 280;
 
 /** Individual lever overrides from the Advanced drawer; anything left out comes from the difficulty. */
-export const LeverOverridesSchema = DifficultyLeversSchema.omit({ research: true })
+export const LeverOverridesSchema = DifficultyLeversSchema.omit({ research: true, responseDelay: true })
   .partial()
-  .extend({ research: ResearchAccessSchema.partial().optional() })
+  .extend({
+    research: ResearchAccessSchema.partial().optional(),
+    responseDelay: ResponseDelayLeverSchema.partial().optional()
+  })
   .strict();
 export type LeverOverrides = z.infer<typeof LeverOverridesSchema>;
 
@@ -105,16 +109,16 @@ export interface ResolvedAgentConfig {
 }
 
 function mergeLevers(base: DifficultyLevers, overrides: LeverOverrides | undefined): DifficultyLevers {
-  if (overrides === undefined) return { ...base, research: { ...base.research } };
-  const { research, ...rest } = overrides;
-  const defined = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
-  const researchDefined = Object.fromEntries(
-    Object.entries(research ?? {}).filter(([, v]) => v !== undefined)
-  );
+  if (overrides === undefined)
+    return { ...base, research: { ...base.research }, responseDelay: { ...base.responseDelay } };
+  const { research, responseDelay, ...rest } = overrides;
+  const defined = <T extends object>(o: T | undefined) =>
+    Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined));
   return DifficultyLeversSchema.parse({
     ...base,
-    ...defined,
-    research: { ...base.research, ...researchDefined }
+    ...defined(rest),
+    research: { ...base.research, ...defined(research) },
+    responseDelay: { ...base.responseDelay, ...defined(responseDelay) }
   });
 }
 

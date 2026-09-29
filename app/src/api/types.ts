@@ -142,6 +142,8 @@ export interface AgentLevers {
   negotiationRounds?: number;
   valuationNoise?: number;
   research?: Partial<Record<'projections' | 'news' | 'trending' | 'matchupOutlook', boolean>>;
+  /** How long the agent waits before acting on a trigger (#189). */
+  responseDelay?: { multiplier?: number; immediateChance?: number };
 }
 
 export interface AgentSeatConfig {

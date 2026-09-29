@@ -7,3 +7,4 @@ export * from './seat-config.js';
 export * from './behavior.js';
 export * from './memory.js';
 export * from './names.js';
+export * from './response-delay.js';

@@ -290,6 +290,26 @@ const NUMERIC_LEVERS = [
   { key: 'valuationNoise', label: 'Valuation noise (0-0.5)', min: 0, max: 0.5, step: 0.01 }
 ] as const;
 
+/** The response delay lever (#189): how slow the manager is to act, and how often it answers at once. */
+const DELAY_LEVERS = [
+  {
+    key: 'multiplier',
+    label: 'Response delay multiplier (0-5)',
+    hint: '1 is a typical manager; 0 always answers at once.',
+    min: 0,
+    max: 5,
+    step: 0.1
+  },
+  {
+    key: 'immediateChance',
+    label: 'Chance of answering at once (0-1)',
+    hint: 'How often it skips the wait entirely.',
+    min: 0,
+    max: 1,
+    step: 0.05
+  }
+] as const;
+
 const RESEARCH = [
   { key: 'projections', label: 'Projections' },
   { key: 'news', label: 'News' },
@@ -322,6 +342,9 @@ function AdvancedDrawer({
     const value = research[key as keyof typeof research];
     return value === undefined ? '' : value ? 'on' : 'off';
   };
+  const delay = levers.responseDelay ?? {};
+  const setDelay = (key: keyof NonNullable<AgentLevers['responseDelay']>, value: number | undefined) =>
+    setLever('responseDelay', { ...delay, [key]: value });
   const setResearch = (key: string, value: TriState) => {
     const next: Record<string, boolean> = { ...research };
     if (value === '') delete next[key];
@@ -429,6 +452,25 @@ function AdvancedDrawer({
             onChange={(e) => setLever(lever.key, e.target.value === '' ? undefined : Number(e.target.value))}
           />
         ))}
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">Response delay</legend>
+          {DELAY_LEVERS.map((lever) => (
+            <Input
+              key={lever.key}
+              type="number"
+              label={lever.label}
+              hint={lever.hint}
+              placeholder="Difficulty default"
+              min={lever.min}
+              max={lever.max}
+              step={lever.step}
+              value={delay[lever.key] ?? ''}
+              onChange={(e) =>
+                setDelay(lever.key, e.target.value === '' ? undefined : Number(e.target.value))
+              }
+            />
+          ))}
+        </fieldset>
         <TextArea
           label="Extra personality flavor"
           hint="Up to 280 characters."

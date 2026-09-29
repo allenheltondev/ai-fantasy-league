@@ -102,7 +102,12 @@ export const CommissionerSeatSchema = z
         news: z.boolean(),
         trending: z.boolean(),
         matchupOutlook: z.boolean()
-      })
+      }),
+      responseDelay: z
+        .object({ multiplier: z.number(), immediateChance: z.number() })
+        .describe(
+          'How long the agent waits before acting on a trigger: the multiplier on the typical delay, and the chance of answering at once.'
+        )
     })
   })
   .describe("The commissioner's full view of an agent seat, including its effective settings.");
@@ -143,7 +148,8 @@ export function commissionerSeat(record: AgentSeatRecord): CommissionerSeat {
       actionsPerTrigger: resolved.levers.actionsPerTrigger,
       cooldownMinutes: resolved.levers.cooldownMinutes,
       negotiationRounds: resolved.levers.negotiationRounds,
-      research: resolved.levers.research
+      research: resolved.levers.research,
+      responseDelay: resolved.levers.responseDelay
     }
   };
 }

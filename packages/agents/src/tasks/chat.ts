@@ -47,6 +47,9 @@ import { TaskUnavailableError } from './lineup.js';
  *   list_chat_rooms; post_message enforces the same budgets), and the runner's league cost ceiling
  *   applies.
  * - Without a model (kill switch, over budget, model failure) the agent stays quiet.
+ * - A reply may run a while after the mention (a human-like response delay, #189), so it re-reads
+ *   the room first: a message this agent already answered (its reply to it, or in a DM any
+ *   message it wrote since) is skipped (`already_answered`), so it is never answered twice.
  * - Memory: chat decisions carry no `memoryNote`, so chat text can never become a note that a
  *   tool-using task later trusts. After posting in a league room, the task leaves a snapshot of the
  *   exchange keyed by the room, and may leave a one-line relationship note about one other team in
@@ -255,6 +258,22 @@ export function conversationTeams(
   return [...new Set(ids)];
 }
 
+/**
+ * True when `self` already answered `target`: one of its messages replies to it, or, in a DM,
+ * it wrote after it. `messages` is the room's recent messages, newest first (get_chat).
+ */
+export function alreadyAnswered(
+  messages: readonly Pick<ChatMessage, 'id' | 'kind' | 'author' | 'replyToId'>[],
+  target: Pick<ChatMessage, 'id'>,
+  self: string,
+  dm: boolean
+): boolean {
+  const at = messages.findIndex((m) => m.id === target.id);
+  return messages.some(
+    (m, i) => m.kind === 'agent' && m.author.teamId === self && (m.replyToId === target.id || (dm && i < at))
+  );
+}
+
 export async function prepareChat(
   ctx: TaskContext,
   roomId: string,
@@ -274,10 +293,12 @@ export async function prepareChat(
   );
   const target = targetId === null ? null : (messages.find((m) => m.id === targetId) ?? null);
   if (targetId !== null && target === null) throw new TaskUnavailableError('message_not_found');
+  const self = ctx.principal.teamId;
+  if (target !== null && alreadyAnswered(messages, target, self, room.kind === 'dm'))
+    throw new TaskUnavailableError('already_answered');
   // Answering another agent is a retort: it spends the league's banter budget too.
   if (target?.kind === 'agent') checkBudget(listed.postingBudget, true);
   const recent = messages.slice(0, CHAT_BUDGETS.context).reverse();
-  const self = ctx.principal.teamId;
   const aboutTeamId = about(target);
   // In turn, not together, so the task's tool log reads the same on every run.
   const facts = await roomFacts(ctx, room.roomId, aboutTeamId === self ? null : aboutTeamId);

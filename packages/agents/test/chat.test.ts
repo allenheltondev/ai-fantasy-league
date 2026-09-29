@@ -4,7 +4,7 @@ import { AgentActionRequestedSchema, type AgentActionRequested, type BusEvent } 
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { CHAT_COOLDOWNS, routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
-import { CHAT_BUDGETS, CHAT_TOOLS, checkBudget, quote } from '../src/tasks/chat.js';
+import { CHAT_BUDGETS, CHAT_TOOLS, alreadyAnswered, checkBudget, quote } from '../src/tasks/chat.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup } from './support.js';
 
@@ -176,6 +176,40 @@ describe('chat_reply with the fake model', () => {
     });
     expect(record.finalAction).toBe('post_message_failed');
     expect(record.reasoningSummary).toContain('RATE_LIMITED');
+  });
+
+  it('never answers a message twice, however late the task runs (#189)', async () => {
+    const s = await chatSetup();
+    await s.repos.chat.put(human());
+    const first = await runAgentAction(
+      s.deps(new ScriptedModelClient()),
+      request('chat_reply', { messageId: 'm-human' })
+    );
+    expect(first.finalAction).toBe('post_message');
+    const late = new ScriptedModelClient();
+    const again = await runAgentAction(s.deps(late), {
+      ...request('chat_reply', { messageId: 'm-human' }),
+      taskId: 'chat_reply.evt-late'
+    });
+    expect(again).toMatchObject({ status: 'skipped', fallbackReason: 'already_answered' });
+    expect(late.transcript).toEqual([]);
+    expect(await s.agentPosts()).toHaveLength(1);
+  });
+
+  it('knows when a message was answered: a reply to it, or in a DM anything written after it', () => {
+    const target = human();
+    const mine = { ...agentMessage(0), createdAt: '2026-10-04T15:00:00.000Z' };
+    const theirs = agentMessage(0, 'team-3');
+    // Newest first, like get_chat.
+    expect(alreadyAnswered([{ ...mine, replyToId: target.id }, target], target, AGENT_TEAM, false)).toBe(
+      true
+    );
+    expect(alreadyAnswered([mine, target], target, AGENT_TEAM, false)).toBe(false);
+    expect(alreadyAnswered([mine, target], target, AGENT_TEAM, true)).toBe(true);
+    expect(alreadyAnswered([target, mine], target, AGENT_TEAM, true)).toBe(false);
+    expect(alreadyAnswered([{ ...theirs, replyToId: target.id }, target], target, AGENT_TEAM, true)).toBe(
+      false
+    );
   });
 
   it('stays quiet without a model and skips unknown messages', async () => {

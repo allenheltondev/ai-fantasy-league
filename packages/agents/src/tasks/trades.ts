@@ -2,6 +2,7 @@ import { hashString, tradeAcceptEdge, tradeAppetite } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
+import { TaskUnavailableError } from './lineup.js';
 
 /**
  * Trade response task (#66): when an offer or a counter arrives for the agent's team, the agent
@@ -21,6 +22,10 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  * the offer's note never reaches the model (`withholdTradeNotes`), the model's memory note is not
  * kept, and the memory records a deterministic line with the players and the value instead. The
  * activity log seals the summary while the offer is private.
+ *
+ * Stale offers (#189): the task may run well after the offer arrived (a human-like response
+ * delay), so it re-reads the trade first. An offer that was withdrawn, expired, or already answered
+ * meanwhile is skipped (`offer_closed`) before any model call.
  */
 
 /** How far below the bar an offer can be and still be worth a counter. */
@@ -80,8 +85,7 @@ export interface TradeSuggestion {
 }
 
 interface TradePrep {
-  open: boolean;
-  trade: z.infer<typeof TradeSchema> | null;
+  trade: z.infer<typeof TradeSchema>;
   preview: z.infer<typeof PreviewSchema> | null;
   roundsLeft: number;
   suggestion: TradeSuggestion;
@@ -104,15 +108,15 @@ export function countersUsed(round: number): number {
 const REJECT: TradeSuggestion = { action: 'reject', score: 0, bar: 0, drops: [], counter: null };
 
 async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
-  const closed = { open: false, trade: null, preview: null, roundsLeft: 0, suggestion: REJECT };
   const listed = parse(
     await ctx.tools.call('list_trades', { tradeId: payload.tradeId }),
     z.object({ trades: z.array(TradeSchema) })
   );
   const trade = listed?.trades[0];
-  if (trade === undefined || !trade.yourActions.includes('accept')) return closed;
+  if (trade === undefined || !trade.yourActions.includes('accept'))
+    throw new TaskUnavailableError('offer_closed');
   const preview = parse(await ctx.tools.call('preview_trade', { tradeId: trade.id }), PreviewSchema);
-  if (preview === null) return { ...closed, open: true, trade };
+  if (preview === null) return { trade, preview: null, roundsLeft: 0, suggestion: REJECT };
   const me = preview.sides[1];
   const unit = (hashString(`${ctx.taskId}|${trade.id}`) % 2001) / 1000 - 1;
   const noise = 1 + unit * ctx.config.levers.valuationNoise;
@@ -127,7 +131,7 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
   const drops = me.dropCandidates.slice(0, me.dropsNeeded).map((p) => p.id);
   const suggestion: TradeSuggestion = { action: 'reject', score, bar, drops, counter: null };
   if (preview.valid && score >= bar)
-    return { open: true, trade, preview, roundsLeft, suggestion: { ...suggestion, action: 'accept' } };
+    return { trade, preview, roundsLeft, suggestion: { ...suggestion, action: 'accept' } };
   // Counter: keep my most valuable player out of the deal when I send more than one.
   const mine = preview.players
     .filter((p) => p.fromTeamId === me.team.id)
@@ -139,7 +143,7 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
       receive: trade.fromSends.map((p) => p.id)
     };
   }
-  return { open: true, trade, preview, roundsLeft, suggestion };
+  return { trade, preview, roundsLeft, suggestion };
 }
 
 function names(list: readonly { name: string }[]): string {
@@ -180,7 +184,7 @@ function outcome(
   result: Envelope,
   prep: TradePrep
 ): TaskOutcome {
-  const trade = prep.trade as NonNullable<TradePrep['trade']>;
+  const trade = prep.trade;
   const failed = 'error' in result;
   const sent = trade.toSends.map((p) => p.name);
   const received = trade.fromSends.map((p) => p.name);
@@ -229,8 +233,6 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
   ],
   prepare,
   instructions(_ctx, _payload, prep) {
-    if (!prep.open || prep.trade === null)
-      return 'This offer can no longer be answered. Answer with action "reject" and a short summary.';
     const t = prep.trade;
     const s = prep.suggestion;
     const me = prep.preview?.sides[1];
@@ -251,7 +253,6 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
       .join('\n');
   },
   async apply(ctx, _payload, prep, decision) {
-    if (!prep.open || prep.trade === null) return { action: 'none', summary: decision.summary };
     const id = prep.trade.id;
     if (decision.action === 'accept' && acceptAllowed(prep)) {
       const result = await respond(
@@ -287,7 +288,6 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
     return outcome(ctx, 'reject_trade', out, await respond(ctx, id, 'reject', [], decision.message), prep);
   },
   async fallback(ctx, _payload, prep) {
-    if (!prep.open || prep.trade === null) return { action: 'none', summary: 'The offer is no longer open.' };
     return outcome(
       ctx,
       'reject_trade',

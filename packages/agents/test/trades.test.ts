@@ -150,7 +150,7 @@ describe('trade response task', () => {
     });
   });
 
-  it('rejects without a model, and does nothing for an offer that is no longer open', async () => {
+  it('rejects without a model, and skips an offer that is no longer open (#189)', async () => {
     const s = await tradeLeague(PRO);
     const offer = await allen(s, 'propose_trade', {
       withTeamId: AGENT_TEAM,
@@ -162,9 +162,26 @@ describe('trade response task', () => {
       finalAction: 'reject_trade'
     });
     expect(await status(s, offer.id)).toBe('rejected');
-    expect(await runAgentAction(s.deps(new ScriptedModelClient()), request(offer.id, 'e8'))).toMatchObject({
-      finalAction: 'none'
+    // A delayed task that runs after the offer was answered: skipped, no model call.
+    const late = new ScriptedModelClient();
+    expect(await runAgentAction(s.deps(late), request(offer.id, 'e8'))).toMatchObject({
+      status: 'skipped',
+      fallbackReason: 'offer_closed'
     });
+    expect(late.transcript).toEqual([]);
+    // Withdrawn while the agent was still thinking it over: skipped too.
+    const withdrawn = await allen(s, 'propose_trade', {
+      withTeamId: AGENT_TEAM,
+      send: ['rb3'],
+      receive: ['rb4']
+    });
+    await allen(s, 'withdraw_trade', { tradeId: withdrawn.id });
+    expect(await status(s, withdrawn.id)).toBe('withdrawn');
+    expect(await runAgentAction(s.deps(late), request(withdrawn.id, 'e8b'))).toMatchObject({
+      status: 'skipped',
+      fallbackReason: 'offer_closed'
+    });
+    expect(late.transcript).toEqual([]);
   });
 
   it('counters for their player, suggests drops, and rejects an offer that stopped being legal', async () => {
