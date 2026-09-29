@@ -313,7 +313,7 @@ export function DraftPage({
     board.status === 'in_progress' &&
     board.onTheClock !== null &&
     board.onTheClock.teamId === board.yourTeamId;
-  useTitleBadge(yourTurn, 'Your pick!');
+  useTitleBadge(yourTurn, '⏰ Your pick');
 
   // "You're up!": a moment (and the chime, when on) each time your turn starts.
   const turnKey = yourTurn ? (board?.onTheClock?.overall ?? null) : null;
@@ -359,7 +359,6 @@ export function DraftPage({
   if (board === null) {
     return (
       <div data-testid="league-section-draft" className="space-y-4">
-        <h2 className="text-xl font-semibold">Draft</h2>
         {loadError === null ? (
           <p className="text-muted-foreground">Loading the draft board…</p>
         ) : loadError.code === 'DRAFT_NOT_STARTED' ? (

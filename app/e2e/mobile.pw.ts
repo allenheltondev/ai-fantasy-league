@@ -412,7 +412,7 @@ for (const viewport of VIEWPORTS) {
       await friend.close();
 
       // My leagues, with the league's dashboard before the draft (#166): seats filled, the lobby.
-      await page.goto('/');
+      await page.goto('/leagues');
       await expect(page.getByRole('list', { name: 'Leagues' })).toBeVisible();
       await expect(page.getByRole('region', { name: 'Draft' })).toContainText('seats filled');
       await expectFits(page, 'my leagues');
@@ -503,7 +503,7 @@ for (const viewport of VIEWPORTS) {
       ).toBeVisible();
       await expect(page.getByRole('region', { name: 'Move board' })).toBeVisible();
       await expectFits(page, 'league home (dashboard)');
-      await page.goto('/');
+      await page.goto('/leagues');
       await expect(page.getByRole('region', { name: 'Standings' })).toBeVisible();
       await expectFits(page, 'my leagues (in season)');
 

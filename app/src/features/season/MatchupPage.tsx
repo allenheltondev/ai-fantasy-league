@@ -162,7 +162,6 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
   }
   return (
     <div data-testid="league-section-matchup" className="space-y-4">
-      <h2 className="text-xl font-semibold">Matchup</h2>
       {viewTeam !== undefined && (
         <Link to="." className="text-sm font-medium text-primary-700 hover:underline">
           Back to your matchup

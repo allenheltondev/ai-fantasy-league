@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import { Skeleton } from '@readysetcloud/ui';
 
 /**
@@ -30,20 +30,8 @@ export function Trophy({ className = '' }: { className?: string }) {
   );
 }
 
-/**
- * Prefixes the tab title while `active` (it's your pick), so a manager in another tab sees it, and
- * restores the title afterwards.
- */
-export function useTitleBadge(active: boolean, badge: string) {
-  useEffect(() => {
-    if (!active) return undefined;
-    const original = document.title;
-    document.title = `${badge} · ${original}`;
-    return () => {
-      document.title = original;
-    };
-  }, [active, badge]);
-}
+/** Leads the tab title with a live badge; it lives beside the page title it joins (#212). */
+export { useTitleBadge } from '../layout/pageTitle';
 
 /** Staggered entrance for the first rows of a list: row `index` waits a beat longer, up to a cap. */
 export function stagger(index: number): { className: string; style: CSSProperties } {

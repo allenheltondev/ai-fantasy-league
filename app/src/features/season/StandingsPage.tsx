@@ -15,7 +15,6 @@ const ROW = `${STACKED_ROW} max-sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_a
 export function StandingsPage() {
   return (
     <div data-testid="league-section-standings" className="space-y-4">
-      <h3 className="sr-only">Standings</h3>
       <StandingsTable />
     </div>
   );

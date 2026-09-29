@@ -80,7 +80,6 @@ export function SettingsPage() {
   return (
     <div data-testid="league-section-settings" className="space-y-8">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-semibold">{league.name}</h2>
         <StatusBadge tone={phase.tone}>{phase.label}</StatusBadge>
         {state.youAreCommissioner && (
           <span className="text-sm text-muted-foreground">You are the commissioner</span>
