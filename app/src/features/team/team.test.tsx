@@ -184,16 +184,12 @@ describe('My Team › Team profile', () => {
 });
 
 describe('My Team › Roster & moves', () => {
-  it('shows your claims and only your moves, with the player pool a tap away', async () => {
+  it('shows only your moves under the roster workspace', async () => {
     open('/leagues/L1/team/moves');
     const moves = await screen.findByRole('region', { name: 'Your moves' });
     expect(await within(moves).findByText(/added Breece Hall/)).toBeInTheDocument();
     expect(within(moves).queryByText(/Zach Charbonnet/)).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'My claims' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Add a player' })).toHaveAttribute(
-      'href',
-      '/leagues/L1/league/players'
-    );
+    expect(screen.getByRole('heading', { level: 1, name: 'Roster & moves' })).toBeInTheDocument();
   });
 });
 

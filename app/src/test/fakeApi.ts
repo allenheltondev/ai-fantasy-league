@@ -312,6 +312,37 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     setLineup: vi.fn(async () => {
       throw new Error('setLineup is not faked in this test');
     }),
+    listLeaguePlayers: vi.fn(async () => ({
+      season: 2026,
+      week: 1,
+      total: 0,
+      nextOffset: null,
+      trendHours: null,
+      waiverType: 'faab' as const,
+      faabRemaining: 100,
+      dropClearsAt: null,
+      players: []
+    })),
+    previewClaim: vi.fn(async () => ({
+      wouldSucceed: true,
+      outcome: 'add_now' as const,
+      issues: [],
+      processesAt: null,
+      faabRemaining: 100,
+      faabAfter: 100
+    })),
+    claimPlayer: vi.fn(async () => {
+      throw new Error('claimPlayer is not faked in this test');
+    }),
+    dropPlayer: vi.fn(async () => {
+      throw new Error('dropPlayer is not faked in this test');
+    }),
+    listClaims: vi.fn(async () => []),
+    updateClaim: vi.fn(async () => {
+      throw new Error('updateClaim is not faked in this test');
+    }),
+    cancelClaim: vi.fn(async () => ({})),
+    reorderClaims: vi.fn(async () => []),
     getMatchup: vi.fn(async () => ({ week: 1, teamId: 'team-1', matchup: null, lineups: null })),
     getNflGames: vi.fn(async () => ({ season: 2026, week: 1, games: [], redZone: [], updatedAt: null })),
     getStandings: vi.fn(async () => ({ throughWeek: null, standings: [] })),

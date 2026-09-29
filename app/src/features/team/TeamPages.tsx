@@ -9,10 +9,9 @@ import { TableScroll } from '../../components/TableScroll';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton } from '../../motion/decor';
 import { useLeagueOutlet } from '../../routes/leagueContext';
-import { leagueTabPath, otherTeamPath, teamPath } from '../../routes/leagueRoutes';
+import { otherTeamPath, teamPath } from '../../routes/leagueRoutes';
 import { rollTeamAvatarSeed, teamAvatarSeed } from '../../routes/leagueTeams';
 import { initials } from '../home/TeamBadge';
-import { MyClaims } from '../players/MyClaims';
 import { Transactions } from '../players/Transactions';
 import { isStarter, statusLabel } from '../season/slots';
 import { TeamAchievements } from '../season/TeamAchievements';
@@ -181,46 +180,6 @@ export function TeamProfilePage() {
           </form>
         </CardBody>
       </Card>
-    </div>
-  );
-}
-
-/** My Team › Roster & moves: your pending waiver claims and your moves, with the player pool a tap away. */
-export function MovesPage() {
-  const { leagueId = '' } = useParams();
-  const { team, fallback } = useYourTeam();
-  const [refreshKey, setRefreshKey] = useState(0);
-  return (
-    <div data-testid="team-page-moves" className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Roster &amp; moves</h2>
-        <Link
-          to={leagueTabPath(leagueId, 'players')}
-          className="btn btn-primary inline-flex min-h-11 items-center"
-        >
-          Add a player
-        </Link>
-      </div>
-      {team === null ? (
-        fallback
-      ) : (
-        <>
-          <p className="text-sm text-muted-foreground">
-            Pick up free agents and put in waiver claims from League › Players; your claims and every move you
-            make land here. Set who starts in{' '}
-            <Link className="font-medium text-primary-700 hover:underline" to={teamPath(leagueId, 'lineup')}>
-              Lineup
-            </Link>
-            .
-          </p>
-          <MyClaims
-            leagueId={leagueId}
-            refreshKey={refreshKey}
-            onChanged={() => setRefreshKey((k) => k + 1)}
-          />
-          <Transactions leagueId={leagueId} refreshKey={refreshKey} teamId={team.id} title="Your moves" />
-        </>
-      )}
     </div>
   );
 }

@@ -1,60 +1,10 @@
-/** The slices of the API responses the players pages read (see packages/server/openapi.json). */
+/** The slices of the API responses the transaction log reads (see packages/server/openapi.json). */
 
 export interface PlayerRef {
   id: string;
   name: string;
   team: string | null;
   position: string;
-}
-
-export interface Availability {
-  status: 'free_agent' | 'waivers' | 'rostered';
-  teamId?: string;
-  clearsAt?: string;
-}
-
-export interface SearchPlayer extends PlayerRef {
-  availability?: Availability;
-}
-
-export interface LeagueStateData {
-  yourTeam: { id: string; name: string; faabRemaining: number } | null;
-  allowedActions: string[];
-  teams: { id: string; name: string }[];
-}
-
-export interface Issue {
-  code: string;
-  message: string;
-  fix: string;
-}
-
-export interface ClaimPreview {
-  wouldSucceed: boolean;
-  outcome: 'add_now' | 'claim_pending' | 'blocked';
-  issues: Issue[];
-  processesAt: string | null;
-  currentRoster: PlayerRef[];
-  resultingRoster: PlayerRef[];
-  faabRemaining: number;
-  faabAfter: number;
-}
-
-export interface Claim {
-  id: string;
-  teamName: string;
-  player: PlayerRef;
-  drop: PlayerRef | null;
-  bid: number;
-  priority: number;
-  status: string;
-  processesAt: string;
-}
-
-export interface ClaimResult {
-  outcome: 'added' | 'claim_pending';
-  player: PlayerRef;
-  claim: Claim | null;
 }
 
 /** One move from list_transactions. */
