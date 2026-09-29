@@ -11,7 +11,7 @@ import {
 import { z } from 'zod';
 import { ScriptedModelClient } from '../fake-model.js';
 import { OFF_SWITCH, ParameterKillSwitch, ssmParameterReader, type KillSwitch } from '../kill-switch.js';
-import type { ModelClient } from '../model.js';
+import { bedrockModel, type ModelClient } from '../model.js';
 
 const EnvSchema = z.object({
   TABLE_NAME: z.string().min(1),
@@ -62,9 +62,7 @@ export function responseDelaysOn(env: Pick<AgentEnv, 'AGENT_RESPONSE_DELAYS'>): 
 
 /** The fake model when `FANTASY_FAKE_MODEL=1`; otherwise Bedrock (loaded lazily, so fake mode never loads the SDK). */
 export async function modelFromEnv(env: Pick<AgentEnv, 'FANTASY_FAKE_MODEL'>): Promise<ModelClient> {
-  if (isFakeModel(env)) return new ScriptedModelClient();
-  const { StrandsModelClient } = await import('../strands-model.js');
-  return new StrandsModelClient();
+  return isFakeModel(env) ? new ScriptedModelClient() : bedrockModel();
 }
 
 export function killSwitchFromEnv(

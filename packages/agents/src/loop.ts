@@ -4,22 +4,24 @@ const DraftCompletedSchema = EVENT_DETAIL_SCHEMAS['Draft Completed'];
 import { gradeDraft } from './draft-report.js';
 import { AgentActionRequestedSchema } from './events.js';
 import { OFF_SWITCH, type KillSwitch } from './kill-switch.js';
+import { INGESTED_EVENTS, ingestLeagueEvent } from './ingest.js';
 import type { ModelClient } from './model.js';
-import { TRIGGER_RULES, leagueRosterIndex, routeEvent, type RouterDeps } from './router.js';
+import { leagueRosterIndex, type RouterDeps } from './router.js';
 import { runAgentAction, type RunnerDeps } from './runner.js';
 import { defaultTaskKinds } from './tasks/index.js';
 
 /**
  * The agent router, task runner, and draft report grader as event-loop subscribers (`EventLoop` in `@fantasy/server`),
- * calling the same functions as their Lambdas (`lambda/router.ts`, `lambda/task.ts`). The season
+ * calling the same functions as their Lambdas (`lambda/router.ts` via `ingestLeagueEvent`, `lambda/task.ts`). The season
  * replay simulator and the local dev server use them to run agents in process.
  */
 export function agentSubscribers(deps: { router: RouterDeps; runner: RunnerDeps }): EventSubscriber[] {
   return [
     {
       name: 'agent-router',
-      detailTypes: Object.keys(TRIGGER_RULES),
-      handle: (event) => routeEvent(deps.router, event)
+      // The router Lambda's path (#211): memory for every league event it involves, then routing.
+      detailTypes: INGESTED_EVENTS,
+      handle: (event) => ingestLeagueEvent(deps.router, event)
     },
     {
       name: 'agent-task',

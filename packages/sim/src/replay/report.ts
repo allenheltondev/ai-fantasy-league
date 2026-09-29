@@ -2,6 +2,7 @@ import { FIXED_ROOM_IDS, matchupRoomId, type LeagueSettings, type StandingsRow }
 import { AGENT_CHAT_BUDGETS } from '@fantasy/server';
 import type {
   AgentTaskRecord,
+  ChatMessage,
   InMemoryEventPublisher,
   League,
   LoopFailure,
@@ -155,13 +156,11 @@ function add(t: AgentTotals, task: AgentTaskRecord, usage?: AgentTaskRecord['usa
 const sorted = <T>(record: Record<string, T>): Record<string, T> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
-async function chatCounts(services: Services, league: League): Promise<LeagueReplayReport['chat']> {
-  const byKind: Record<string, number> = {};
-  const byRoom: Record<string, number> = {};
-  const agentByRoom: Record<string, number> = {};
-  let messages = 0;
-  let retorts = 0;
-  const agentPosts: { teamId: string; at: number }[] = [];
+/** Every chat message in the league, room by room (fixed rooms, matchup rooms, DMs), oldest first per room. */
+export async function leagueChat(
+  services: Services,
+  league: Pick<League, 'id' | 'season'>
+): Promise<{ label: string; message: ChatMessage }[]> {
   const matchups = await services.repos.schedule.listMatchups(league.id);
   const teams = await services.repos.teams.list(league.id);
   const dms = new Set<string>();
@@ -172,6 +171,7 @@ async function chatCounts(services: Services, league: League): Promise<LeagueRep
     ...matchups.map((m): [string, string] => [matchupRoomId(league.season, m.week, m.id), 'matchup']),
     ...[...dms].map((id): [string, string] => [id, 'dm'])
   ];
+  const out: { label: string; message: ChatMessage }[] = [];
   for (const [roomId, label] of rooms) {
     let cursor: string | undefined;
     do {
@@ -179,18 +179,29 @@ async function chatCounts(services: Services, league: League): Promise<LeagueRep
         limit: 100,
         ...(cursor === undefined ? {} : { cursor })
       });
-      for (const m of page.messages) {
-        messages++;
-        byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
-        byRoom[label] = (byRoom[label] ?? 0) + 1;
-        if (m.kind === 'agent') {
-          agentByRoom[label] = (agentByRoom[label] ?? 0) + 1;
-          agentPosts.push({ teamId: m.author.teamId as string, at: Date.parse(m.createdAt) });
-        }
-        if ((m.replyToAgentDepth ?? 0) > 0) retorts++;
-      }
+      for (const message of page.messages) out.push({ label, message });
       cursor = page.nextCursor ?? undefined;
     } while (cursor !== undefined);
+  }
+  return out;
+}
+
+async function chatCounts(services: Services, league: League): Promise<LeagueReplayReport['chat']> {
+  const byKind: Record<string, number> = {};
+  const byRoom: Record<string, number> = {};
+  const agentByRoom: Record<string, number> = {};
+  let messages = 0;
+  let retorts = 0;
+  const agentPosts: { teamId: string; at: number }[] = [];
+  for (const { label, message: m } of await leagueChat(services, league)) {
+    messages++;
+    byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
+    byRoom[label] = (byRoom[label] ?? 0) + 1;
+    if (m.kind === 'agent') {
+      agentByRoom[label] = (agentByRoom[label] ?? 0) + 1;
+      agentPosts.push({ teamId: m.author.teamId as string, at: Date.parse(m.createdAt) });
+    }
+    if ((m.replyToAgentDepth ?? 0) > 0) retorts++;
   }
   return {
     messages,
