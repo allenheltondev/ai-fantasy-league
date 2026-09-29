@@ -38,13 +38,28 @@ async function restoreLineup(page: Page, moves = SEEDED) {
 }
 
 /** Drags with the mouse in small steps, as a person would, so the drag sensor engages. */
+/**
+ * Drags `from` onto `to`. It waits for the pickup to register (every other row is marked as a
+ * valid or invalid target) before moving: right after a drop, dnd-kit is still finishing that
+ * drop's animation and ignores a new press, so a press that doesn't pick up is released and tried
+ * again instead of dragging nothing.
+ */
 async function drag(page: Page, from: Locator, to: Locator) {
-  const a = await from.boundingBox();
+  await expect(async () => {
+    const a = await from.boundingBox();
+    if (a === null) throw new Error('drag: source not visible');
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 10, { steps: 4 });
+    try {
+      await expect(to).toHaveAttribute('data-target', /^(valid|invalid)$/, { timeout: 1000 });
+    } catch (error) {
+      await page.mouse.up();
+      throw error;
+    }
+  }).toPass({ timeout: 10_000 });
   const b = await to.boundingBox();
-  if (a === null || b === null) throw new Error('drag: element not visible');
-  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 10, { steps: 4 });
+  if (b === null) throw new Error('drag: target not visible');
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
   await page.mouse.up();
 }
