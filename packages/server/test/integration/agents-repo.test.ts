@@ -98,7 +98,7 @@ describe.each(backends)('%s agent repository', (_name, make) => {
       })
     );
     expect(after.notes).toEqual([{ text: 'one', visibility: OWNER_ONLY }]);
-    expect(after.rivals).toEqual([expect.objectContaining({ teamId: 't2', grudge: 2 })]);
+    expect(after.trades).toEqual([expect.objectContaining({ teamId: 't2', outcome: 'vetoed' })]);
     expect(await agents.getMemory(leagueId, 'a')).toEqual(after);
     expect(await agents.getMemory(leagueId, 'b')).toEqual(emptyMemory());
   });

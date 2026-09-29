@@ -9,6 +9,7 @@ import {
   type MemorySeal,
   type MemoryVisibility,
   type ReasoningEffort,
+  type RecallFocus,
   type SealCheck
 } from '@fantasy/core';
 import type { AgentRepository, Services } from '@fantasy/server';
@@ -19,6 +20,10 @@ import type { BusEvent } from './events.js';
  * Agent memory (issue #44): each agent's private, compact league memory (rivalries, trade history
  * with each team, its own past decisions, and a snapshot of the last chat it joined), summarized
  * into its prompt within a token budget (`prompt.ts`).
+ *
+ * League events become memory in one place, `leagueMemoryWrites` (records only: scores, outcomes,
+ * player names), and prompts recall it through core `summarizeMemory` with the task's
+ * `recallFocus` (#210): the teams it deals with first, then its kind, then recency.
  *
  * Storage sits behind `AgentMemoryStore`. The implementation today is the league table
  * (`tableMemoryStore`, one item per agent). `@readysetcloud/agent` has no AgentCore Memory client
@@ -81,6 +86,24 @@ export function memoryForPrompt(
     chatRooms: memory.chatRooms.filter((r) => r.roomId === scope.roomId),
     relationships: memory.relationships.filter((r) => scope.teamIds.includes(r.teamId))
   };
+}
+
+/**
+ * What a task's prompt should recall first (#210, core `summarizeMemory`): its role and kind, and
+ * the teams it deals with: those the kind names (`memoryFocus`: a matchup opponent, trade partners),
+ * the other teams in its conversation, and the teams that read its output.
+ */
+export function recallFocus(
+  kind: { kind: string; modelRole: 'decision' | 'chat' },
+  prepared: { memoryFocus?: readonly string[]; memoryScope?: ChatMemoryScope },
+  audience: MemoryAudience
+): RecallFocus {
+  const teamIds = [
+    ...(prepared.memoryFocus ?? []),
+    ...(prepared.memoryScope?.teamIds ?? []),
+    ...(typeof audience === 'object' ? audience.teams : [])
+  ];
+  return { role: kind.modelRole, kind: kind.kind, teamIds: [...new Set(teamIds)] };
 }
 
 /** Who reads a task's output when its kind does not say: a DM's other teams, or anyone. */
@@ -165,9 +188,14 @@ export function outcomeVisibility(
     : { teams, trades: [...seal.trades], waiverClaims: [...seal.waiverClaims] };
 }
 
-/** League events that write agent memory. The router function receives them with its triggers. */
+/**
+ * League events that write agent memory. The router function receives them with its triggers.
+ * `Week Official Final` is the correction path for results (#210): it replaces the provisional score
+ * of any matchup a stat correction changed.
+ */
 export const MEMORY_EVENTS = [
   'Week Provisionally Final',
+  'Week Official Final',
   'Trade Proposed',
   'Trade Countered',
   'Trade Accepted',
@@ -213,28 +241,33 @@ const TradeSchema = z.object({
   toPlayers: Names
 });
 
-/**
- * Writes memory for the agents a league event involves: matchup results for every agent that
- * played, and trade steps for the agents on either side (with the players each side sent once the
- * trade is processed). Returns how many agents were updated. Only structured fields are stored (ids,
- * scores, outcomes, player names); no free text from the event. Each write carries the event id, so
- * a redelivered event changes nothing (core `rememberEvent`).
- */
-export async function recordLeagueMemory(
-  services: Services,
-  event: BusEvent,
-  store: AgentMemoryStore = tableMemoryStore(services.repos.agents)
-): Promise<number> {
-  event = canonicalEvent(event);
-  if (event.source !== 'fantasy') return 0;
-  const detailType = event['detail-type'];
-  const at = event.time ?? services.clock.now().toISOString();
-  const writes: { leagueId: string; teamId: string; event: MemoryEvent }[] = [];
+/** One memory write a league event makes: the event for the agent seated on `teamId`. */
+export interface LeagueMemoryWrite {
+  leagueId: string;
+  teamId: string;
+  event: MemoryEvent;
+}
 
-  if (detailType === 'Week Provisionally Final') {
+/**
+ * The memory writes one league event makes, by team (pure; the one place league events become
+ * agent memory, for the live router and for the simulator alike): matchup results for every team
+ * that played, and trade steps for both sides (with the players each side sent once the trade is
+ * processed, and which side made the offer). Only structured fields are kept (ids, scores,
+ * outcomes, player names); no free text from the event. Each write carries the event id, so a
+ * redelivered event changes nothing (core `rememberEvent`).
+ */
+export function leagueMemoryWrites(event: BusEvent, at: string): LeagueMemoryWrite[] {
+  event = canonicalEvent(event);
+  if (event.source !== 'fantasy') return [];
+  const detailType = event['detail-type'];
+  const time = event.time ?? at;
+  const writes: LeagueMemoryWrite[] = [];
+
+  if (detailType === 'Week Provisionally Final' || detailType === 'Week Official Final') {
     const parsed = WeekFinalSchema.safeParse(event.detail);
-    if (!parsed.success) return 0;
+    if (!parsed.success) return [];
     const { leagueId, week } = parsed.data;
+    const official = detailType === 'Week Official Final' ? { official: true } : {};
     for (const m of parsed.data.matchups) {
       if (m.homeScore === null || m.awayScore === null) continue;
       const sides = [
@@ -252,12 +285,16 @@ export async function recordLeagueMemory(
         }
       ];
       for (const { teamId, ...rest } of sides) {
-        writes.push({ leagueId, teamId, event: { type: 'matchup', week, at, eventId: event.id, ...rest } });
+        writes.push({
+          leagueId,
+          teamId,
+          event: { type: 'matchup', week, at: time, eventId: event.id, ...official, ...rest }
+        });
       }
     }
   } else if (detailType in TRADE_OUTCOMES) {
     const parsed = TradeSchema.safeParse(event.detail);
-    if (!parsed.success) return 0;
+    if (!parsed.success) return [];
     const { leagueId, tradeId, fromTeamId, toTeamId, fromPlayers, toPlayers } = parsed.data;
     const outcome = TRADE_OUTCOMES[detailType as keyof typeof TRADE_OUTCOMES];
     // What changed hands is worth remembering once it has (who won the trade).
@@ -272,8 +309,9 @@ export async function recordLeagueMemory(
           teamId: toTeamId,
           tradeId,
           outcome,
+          direction: 'outgoing',
           summary: `Your offer to ${toTeamId} was ${outcome}.`,
-          at,
+          at: time,
           eventId: event.id,
           ...moved(fromPlayers, toPlayers)
         }
@@ -286,17 +324,28 @@ export async function recordLeagueMemory(
           teamId: fromTeamId,
           tradeId,
           outcome,
+          direction: 'incoming',
           summary: `An offer from ${fromTeamId} was ${outcome}.`,
-          at,
+          at: time,
           eventId: event.id,
           ...moved(toPlayers, fromPlayers)
         }
       }
     );
-  } else {
-    return 0;
   }
+  return writes;
+}
 
+/**
+ * Writes memory for the agents a league event involves (`leagueMemoryWrites`), skipping teams no
+ * agent manages. Returns how many agents were updated.
+ */
+export async function recordLeagueMemory(
+  services: Services,
+  event: BusEvent,
+  store: AgentMemoryStore = tableMemoryStore(services.repos.agents)
+): Promise<number> {
+  const writes = leagueMemoryWrites(event, services.clock.now().toISOString());
   const leagueId = writes[0]?.leagueId;
   if (leagueId === undefined) return 0;
   const seats = await services.repos.agents.listSeats(leagueId);
@@ -307,6 +356,10 @@ export async function recordLeagueMemory(
     await store.remember(leagueId, seat.agentId, [write.event]);
     updated += 1;
   }
-  services.log.info('agent memory recorded', { detailType, leagueId, agents: updated });
+  services.log.info('agent memory recorded', {
+    detailType: canonicalEvent(event)['detail-type'],
+    leagueId,
+    agents: updated
+  });
   return updated;
 }

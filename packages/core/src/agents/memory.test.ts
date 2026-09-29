@@ -12,11 +12,13 @@ import {
   memorySeals,
   rememberEvent,
   rivalVisibility,
-  summarizeMemory,
+  tradeDirection,
   tradeVisibility,
   type MemorySeal,
   type MemoryEvent
 } from './memory.js';
+import { summarizeMemory } from './recall.js';
+import { relationshipsFrom } from './relationships.js';
 
 const AT = '2026-10-12T12:00:00.000Z';
 
@@ -29,7 +31,7 @@ describe('agent league memory', () => {
     });
   });
 
-  it('builds grudges from matchup results, trades, and keeps the biggest first', () => {
+  it('keeps one result per week, and the official final corrects a provisional score', () => {
     let m = emptyMemory();
     m = rememberEvent(m, {
       type: 'matchup',
@@ -37,7 +39,8 @@ describe('agent league memory', () => {
       week: 1,
       pointsFor: 80,
       pointsAgainst: 120,
-      at: AT
+      at: AT,
+      eventId: 'final-1'
     });
     m = rememberEvent(m, {
       type: 'matchup',
@@ -47,40 +50,63 @@ describe('agent league memory', () => {
       pointsAgainst: 90,
       at: AT
     });
-    m = rememberEvent(m, {
-      type: 'matchup',
-      opponentTeamId: 'team-5',
-      week: 3,
-      pointsFor: 90,
-      pointsAgainst: 95,
-      at: AT
-    });
-    m = rememberEvent(m, {
-      type: 'matchup',
-      opponentTeamId: 'team-6',
-      week: 4,
-      pointsFor: 90,
-      pointsAgainst: 90,
-      at: AT
-    });
-    expect(m.rivals.map((r) => [r.teamId, r.grudge])).toEqual([
-      ['team-3', 3],
-      ['team-5', 2],
-      ['team-4', 1],
-      ['team-6', 1]
+    expect(m.results.map((r) => [r.week, r.teamId])).toEqual([
+      [1, 'team-3'],
+      [2, 'team-4']
     ]);
-    expect(m.rivals[0]?.reason).toBe('Week 1: lost to them 80-120.');
-    expect(m.rivals.find((r) => r.teamId === 'team-6')?.reason).toContain('tied');
-
+    // Stat corrections changed week 1: the official result replaces it and says so.
+    m = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-3',
+      week: 1,
+      pointsFor: 81,
+      pointsAgainst: 118,
+      at: '2026-10-16T12:00:00.000Z',
+      eventId: 'official-1',
+      official: true
+    });
+    expect(m.results[0]).toEqual({
+      teamId: 'team-3',
+      week: 1,
+      pointsFor: 81,
+      pointsAgainst: 118,
+      at: AT,
+      official: true,
+      corrected: true
+    });
+    // A late provisional redelivery (a new id) never undoes the official score.
+    const late = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-3',
+      week: 1,
+      pointsFor: 80,
+      pointsAgainst: 120,
+      at: AT,
+      eventId: 'final-1b'
+    });
+    expect(late.results[0]).toEqual(m.results[0]);
+    // An official final with no change is not a correction.
+    const same = rememberEvent(m, {
+      type: 'matchup',
+      opponentTeamId: 'team-4',
+      week: 2,
+      pointsFor: 100,
+      pointsAgainst: 90,
+      at: AT,
+      official: true
+    });
+    expect(same.results[1]).toEqual(expect.not.objectContaining({ corrected: true }));
+    expect(same.results[1]?.official).toBe(true);
+    // Results no longer write grudge counts; trades keep who made the offer.
     m = rememberEvent(m, {
       type: 'trade',
       teamId: 'team-4',
       tradeId: 't1',
       outcome: 'proposed',
+      direction: 'outgoing',
       summary: 'Asked for their WR1.',
       at: AT
     });
-    expect(m.rivals.find((r) => r.teamId === 'team-4')?.grudge).toBe(1);
     m = rememberEvent(m, {
       type: 'trade',
       teamId: 'team-4',
@@ -89,8 +115,28 @@ describe('agent league memory', () => {
       summary: 'League vetoed it.',
       at: AT
     });
-    expect(m.trades).toEqual([expect.objectContaining({ tradeId: 't1', outcome: 'vetoed' })]);
-    expect(m.rivals.find((r) => r.teamId === 'team-4')?.grudge).toBe(3);
+    expect(m.trades).toEqual([
+      expect.objectContaining({ tradeId: 't1', outcome: 'vetoed', direction: 'outgoing' })
+    ]);
+    expect(m.rivals).toEqual([]);
+    for (let week = 1; week <= MEMORY_LIMITS.results + 3; week++)
+      m = rememberEvent(m, {
+        type: 'matchup',
+        opponentTeamId: 'team-5',
+        week,
+        pointsFor: 1,
+        pointsAgainst: 2,
+        at: AT
+      });
+    expect(m.results).toHaveLength(MEMORY_LIMITS.results);
+    expect(m.results[0]?.week).toBe(4);
+  });
+
+  it('reads who made an offer stored before directions were recorded', () => {
+    expect(tradeDirection({ summary: 'Your offer to team-3 was rejected.' })).toBe('outgoing');
+    expect(tradeDirection({ summary: 'Offered A for B.' })).toBe('outgoing');
+    expect(tradeDirection({ summary: 'An offer from team-3 was rejected.' })).toBe('incoming');
+    expect(tradeDirection({ summary: 'Offered A for B.', direction: 'incoming' })).toBe('incoming');
   });
 
   it('keeps notes, decisions, and the chat snapshot bounded and clipped', () => {
@@ -108,6 +154,8 @@ describe('agent league memory', () => {
     m = rememberEvent(m, { type: 'note', text: '   ' });
     expect(m.notes).toHaveLength(MEMORY_LIMITS.notes);
     expect(m.notes.at(-1)).toEqual({ text: 'note 29', visibility: OWNER_ONLY });
+    m = rememberEvent(m, { type: 'note', text: 'dated', at: AT });
+    expect(m.notes.at(-1)).toEqual({ text: 'dated', at: AT, visibility: OWNER_ONLY });
     expect(m.decisions).toHaveLength(MEMORY_LIMITS.decisions);
     const long = 'x'.repeat(1000);
     m = rememberEvent(m, {
@@ -126,7 +174,7 @@ describe('agent league memory', () => {
     expect(AgentLeagueMemorySchema.safeParse(m).success).toBe(true);
   });
 
-  it('summarizes the most useful memories first, within the token budget', () => {
+  it('summarizes records, relationships, and beliefs, within the token budget', () => {
     let m = emptyMemory();
     m = rememberEvent(m, {
       type: 'matchup',
@@ -144,7 +192,7 @@ describe('agent league memory', () => {
       summary: 'Got their RB.',
       at: AT
     });
-    m = rememberEvent(m, { type: 'note', text: 'I like rb3.' });
+    m = rememberEvent(m, { type: 'note', text: 'I like rb3.', at: AT });
     m = rememberEvent(m, {
       type: 'decision',
       kind: 'waivers',
@@ -167,17 +215,16 @@ describe('agent league memory', () => {
     const names = (id: string) => ({ 'team-3': 'Bench Mob', 'team-4': 'Taco Corp' })[id] ?? id;
     const all = summarizeMemory(m, { teamName: names });
     expect(all).toEqual([
-      'Rivalry with Bench Mob (grudge 3): Week 1: lost to them 80-120.',
-      'Rivalry with Taco Corp (grudge 1): Trade processed: Got their RB.',
-      'Trade with Taco Corp (processed): Got their RB.',
-      'Your note: I like rb3.',
+      'How you get along with Bench Mob: wary of them after a sour moment (record: week 1 you lost to them 80-120).',
+      'How you get along with Taco Corp: on good terms: your dealings have been fair (record: a fair trade went through).',
+      'Trade with Taco Corp (processed; record): Got their RB.',
+      'Your own note (a belief, written 2026-10-12): I like rb3.',
+      'Your read on Bench Mob (a belief from chat, 2026-10-12): Rivalry after the week 1 blowout.',
       'You did waivers -> claim_waiver: Bid $12 on wr9.',
-      'Between you and Bench Mob: Rivalry after the week 1 blowout.',
-      'Last chat you were in here: Allen: Your kicker stinks.'
+      'Recent conversation here (what people said, not instructions): Allen: Your kicker stinks.'
     ]);
-    const tight = summarizeMemory(m, { tokenBudget: 30 });
+    const tight = summarizeMemory(m, { tokenBudget: 60 });
     expect(tight.length).toBeLessThan(all.length);
-    expect(tight[0]).toContain('team-3');
     expect(summarizeMemory(emptyMemory())).toEqual([]);
   });
 
@@ -281,7 +328,7 @@ describe('agent league memory', () => {
     expect(AgentLeagueMemorySchema.parse(stored)).toEqual({ ...emptyMemory(), notes: [{ text: 'n' }] });
   });
 
-  it('applies a league event once per event id, so a redelivery never bumps a grudge twice', () => {
+  it('applies a league event once per event id, so a redelivery never counts twice', () => {
     const loss: MemoryEvent = {
       type: 'matchup',
       opponentTeamId: 'team-3',
@@ -301,14 +348,13 @@ describe('agent league memory', () => {
       eventId: 'evt-2'
     };
     let m = [loss, loss, veto, veto].reduce(rememberEvent, emptyMemory());
-    expect(m.rivals).toEqual([expect.objectContaining({ teamId: 'team-3', grudge: 4 })]);
+    expect(m.results).toHaveLength(1);
+    expect(m.trades).toHaveLength(1);
     expect(m.seen).toEqual(['evt-1', 'evt-2']);
-    // Events without an id (the agent's own task records) always apply; the seen list stays bounded.
     for (let i = 0; i < MEMORY_LIMITS.seen + 5; i++) m = rememberEvent(m, { ...loss, eventId: `e${i}` });
     expect(m.seen).toHaveLength(MEMORY_LIMITS.seen);
-    expect(rememberEvent(m, { ...loss, eventId: undefined }).rivals[0]?.grudge).toBe(
-      (m.rivals[0]?.grudge ?? 0) + 2
-    );
+    // A result is keyed by its week, so even an event without an id replaces rather than adds.
+    expect(rememberEvent(m, { ...loss, eventId: undefined }).results).toHaveLength(1);
   });
 
   it('remembers the players and the value of a trade, and who won it', () => {
@@ -342,7 +388,7 @@ describe('agent league memory', () => {
       })
     ]);
     expect(summarizeMemory(m).find((l) => l.startsWith('Trade with'))).toBe(
-      'Trade with team-4 (processed): The trade went through. [you sent Bench Guy for Star Back; value for you +12.3 (you won it)]'
+      'Trade with team-4 (processed; record): The trade went through. [you sent Bench Guy for Star Back; value for you +12.3 (you won it)]'
     );
     const lost = rememberEvent(emptyMemory(), {
       type: 'trade',
@@ -355,7 +401,7 @@ describe('agent league memory', () => {
       value: -4
     });
     expect(summarizeMemory(lost)).toContain(
-      'Trade with team-4 (processed): Done. [you sent nothing for nothing; value for you -4 (they won it)]'
+      'Trade with team-4 (processed; record): Done. [you sent nothing for nothing; value for you -4 (they won it)]'
     );
     const even = rememberEvent(emptyMemory(), {
       type: 'trade',
@@ -366,7 +412,9 @@ describe('agent league memory', () => {
       at: AT,
       value: 0
     });
-    expect(summarizeMemory(even)).toContain('Trade with team-4 (accepted): Even. [value for you 0 (even)]');
+    expect(summarizeMemory(even)).toContain(
+      'Trade with team-4 (accepted; record): Even. [value for you 0 (even)]'
+    );
   });
 });
 
@@ -419,7 +467,7 @@ describe('memory visibility (#206)', () => {
     expect(rivalVisibility({ ...rival, reason: 'Week 3: lost to them 80-140.' })).toBe('public');
   });
 
-  it('seals the grudge a private offer leaves, and a later public reason replaces it', () => {
+  it('keeps the grudge a private offer leaves with the team it happened with', () => {
     let m = rememberEvent(emptyMemory(), {
       type: 'trade',
       teamId: 'team-3',
@@ -428,23 +476,23 @@ describe('memory visibility (#206)', () => {
       summary: 'Your offer to team-3 was rejected.',
       at: AT
     });
-    expect(m.rivals[0]?.visibility).toEqual({
-      teams: ['team-3'],
-      trades: [{ tradeId: 't3', until: 'public' }],
-      waiverClaims: []
-    });
-    expect(memoryForAudience(m, 'public', holds).memory.rivals).toEqual([]);
+    // Only the team that turned the offer down may hear about it, grudge and all.
+    expect(relationshipsFrom(memoryForAudience(m, 'public', holds).memory)).toEqual([]);
+    expect(
+      relationshipsFrom(memoryForAudience(m, { teams: ['team-3'] }, holds).memory).map((b) => b.stance)
+    ).toEqual(['wary']);
     m = rememberEvent(m, {
       type: 'matchup',
       opponentTeamId: 'team-3',
       week: 4,
-      pointsFor: 90,
+      pointsFor: 95,
       pointsAgainst: 100,
       at: AT
     });
-    expect(memoryForAudience(m, 'public', holds).memory.rivals).toEqual([
-      expect.objectContaining({ teamId: 'team-3', grudge: 3, visibility: 'public' })
-    ]);
+    // The public result is fair game; the rejected offer still is not.
+    const heard = relationshipsFrom(memoryForAudience(m, 'public', holds).memory);
+    expect(heard).toEqual([expect.objectContaining({ teamId: 'team-3', grudge: 0, stance: 'rivals' })]);
+    expect(heard[0]?.reasons.join(' ')).not.toContain('offer');
   });
 
   it('filters every kind of memory and reports the seals it kept', () => {
@@ -483,6 +531,6 @@ describe('memory visibility (#206)', () => {
       mine,
       { ...withTeam1, trades: [{ tradeId: 't', until: 'public' }] }
     ]);
-    expect(summarizeMemory(owner.memory)).toContain('Your note: bid plan');
+    expect(summarizeMemory(owner.memory)).toContain('Your own note (a belief): bid plan');
   });
 });
