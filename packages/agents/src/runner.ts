@@ -1,5 +1,6 @@
 import {
   RESEARCH_KINDS,
+  SOCIAL_LIMITS,
   estimateCostUsd,
   getModel,
   resolveAgentConfig,
@@ -52,6 +53,8 @@ import { ToolBox, keyPrefix } from './tools.js';
  *    its decision, its note, and whatever the kind adds (a chat snapshot). Summaries with sealed
  *    information carry the kind's `sealed` marker, so the activity log withholds them (#122).
  * 6. Request the outcome's follow-up tasks (`followUps`), each a task of its own for the same agent.
+ *    Chat-driven ones (#196, a conversation handed to an action task) are held to
+ *    `SOCIAL_LIMITS.chatActionsPerDay` per agent (`takeChatActionSlot`).
  *
  * The first task that finds the league's weekly budget spent announces it in the league chat
  * (`Agent Budget Exceeded`, once per league and budget week).
@@ -213,6 +216,10 @@ export async function runAgentAction(
   };
   const followUp = async (outcome: TaskOutcome) => {
     for (const next of outcome.followUps ?? []) {
+      if (next.chatDriven === true && !(await takeChatActionSlot(services, league.id, seat.agentId))) {
+        log.info('chat follow-up skipped: daily limit', { followUp: next.kind });
+        continue;
+      }
       const task: AgentActionRequested = {
         ...request,
         taskId: taskIdFor(request.trigger.eventId, request.teamId, next.kind),
@@ -544,4 +551,29 @@ async function finish(
     costUsd: record.costUsd
   });
   return record;
+}
+
+/**
+ * Takes one of the agent's daily chat-action slots (#196): `SOCIAL_LIMITS.chatActionsPerDay` trigger
+ * states, each free once its last use is a day old. False when all are taken.
+ */
+export async function takeChatActionSlot(
+  services: Services,
+  leagueId: string,
+  agentId: string
+): Promise<boolean> {
+  const now = services.clock.now();
+  for (let i = 0; i < SOCIAL_LIMITS.chatActionsPerDay; i++) {
+    const slot = `${agentId}#chat-action#${i}`;
+    const state = await services.repos.agents.getTriggerState(leagueId, slot);
+    if (state !== null && now.getTime() - Date.parse(state.lastTriggeredAt) < SOCIAL_LIMITS.windowMs)
+      continue;
+    await services.repos.agents.putTriggerState({
+      leagueId,
+      agentId: slot,
+      lastTriggeredAt: now.toISOString()
+    });
+    return true;
+  }
+  return false;
 }

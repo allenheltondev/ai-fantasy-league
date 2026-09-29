@@ -88,6 +88,11 @@ export interface TaskFollowUp {
   payload: Record<string, unknown>;
   /** Wait this long before it runs (scheduled); right away when left out. */
   delayMs?: number;
+  /**
+   * A conversation handed to an action task (#196): the runner holds these to
+   * `SOCIAL_LIMITS.chatActionsPerDay` per agent.
+   */
+  chatDriven?: boolean;
 }
 
 export interface TaskKindSpec<P, D extends BaseDecision, Prep> {

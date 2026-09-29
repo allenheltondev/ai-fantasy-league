@@ -2,6 +2,7 @@ import {
   PlayerStatusSchema,
   PositionSchema,
   RosterSlotSchema,
+  WILL_NOT_PLAY_STATUSES,
   lineupProjection,
   optimizeLineup,
   validateLineup,
@@ -12,6 +13,7 @@ import {
 } from '@fantasy/core';
 import type { AgentTaskSeal, Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import { ChatReplySchema, ChatSourceSchema, heardInChat, replyInChat } from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
 
 /**
@@ -64,8 +66,10 @@ const RosterDataSchema = z.object({ week: z.number().int(), players: z.array(Ros
 
 const LineupPayloadSchema = z.object({
   week: z.number().int().min(1).max(18).optional(),
-  reason: z.enum(['lock', 'news', 'status', 'draft_complete']).default('lock'),
+  /** `chat`: someone said in chat that `playerId` is out (#196); verified before anything changes. */
+  reason: z.enum(['lock', 'news', 'status', 'draft_complete', 'chat']).default('lock'),
   playerId: z.string().optional(),
+  chat: ChatSourceSchema.optional(),
   /** `lock`: the NFL teams kicking off at the warned time (#193). */
   nflTeams: z.array(z.string()).optional()
 });
@@ -77,7 +81,8 @@ export const LineupDecisionSchema = BaseDecisionSchema.extend({
     .array(z.object({ bench: z.string(), starter: z.string() }))
     .max(5)
     .optional()
-    .describe('When not confirming: pairs of (bench player id, starter player id) to swap.')
+    .describe('When not confirming: pairs of (bench player id, starter player id) to swap.'),
+  reply: ChatReplySchema
 });
 type LineupDecision = z.infer<typeof LineupDecisionSchema>;
 
@@ -91,6 +96,35 @@ export interface LineupPrep {
   optimized: OptimizedLineup;
   /** Players whose game is live or final: locked where they are for the week. */
   started?: string[];
+  /** A tip from chat, checked (#196): who gave it, and the player's real status. */
+  tip?: { who: string; name: string; status: string };
+}
+
+/**
+ * A chat tip that one of the agent's players is out (#196), checked against his real status before
+ * anything changes. A false tip, a player who is not starting, or a lineup that already benches
+ * him ends the task without a model call, with a line for the activity log.
+ */
+async function checkTip(ctx: TaskContext, payload: LineupPayload): Promise<LineupPrep> {
+  const prep = await readLineup(ctx, payload.week);
+  const player = prep.roster.find((p) => p.playerId === payload.playerId);
+  if (player === undefined || payload.chat === undefined) throw new TaskUnavailableError('not_on_roster');
+  const heard = await heardInChat(ctx, payload.chat);
+  const name = player.name ?? player.playerId;
+  const tip = { who: heard.who, name, status: player.status };
+  if (!WILL_NOT_PLAY_STATUSES.includes(player.status))
+    throw new TaskUnavailableError(
+      'claim_unverified',
+      undefined,
+      `Checked ${heard.who}'s tip: ${name} is listed ${player.status}, not out. Ignored it.`
+    );
+  if (sameLineup(prep.optimized.lineup, prep.current))
+    throw new TaskUnavailableError(
+      'nothing_to_change',
+      undefined,
+      `Checked ${heard.who}'s tip: ${name} is ${player.status}, and my lineup already covers it.`
+    );
+  return { ...prep, tip };
 }
 
 function dataOf(envelope: Envelope, tool: string): unknown {
@@ -238,14 +272,18 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
     'get_trending_players'
   ],
   prepare: (ctx, payload) =>
-    readLineup(ctx, payload.week, payload.reason === 'lock' ? payload.nflTeams : undefined),
+    payload.reason === 'chat'
+      ? checkTip(ctx, payload)
+      : readLineup(ctx, payload.week, payload.reason === 'lock' ? payload.nflTeams : undefined),
   instructions(ctx, payload, prep) {
     const why =
-      payload.reason === 'lock'
-        ? 'Lineups lock soon.'
-        : payload.reason === 'draft_complete'
-          ? 'The draft just ended: set your first starting lineup.'
-          : `News or a status change just hit ${payload.playerId ?? 'one of your players'}.`;
+      prep.tip !== undefined
+        ? `${prep.tip.who} told you in chat that ${prep.tip.name} will not play. You checked: his status is ${prep.tip.status}, so the tip is true. Then give a \`reply\` for that conversation, in your own voice.`
+        : payload.reason === 'lock'
+          ? 'Lineups lock soon.'
+          : payload.reason === 'draft_complete'
+            ? 'The draft just ended: set your first starting lineup.'
+            : `News or a status change just hit ${payload.playerId ?? 'one of your players'}.`;
     const projections = ctx.config.levers.research.projections;
     return [
       `${why} The lineup optimizer proposes this lineup${projections ? ` (${prep.optimized.projectedPoints} projected points)` : ''}:`,
@@ -259,7 +297,7 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
       'Never start a player who is out, on IR, or on bye.'
     ].join('\n');
   },
-  async apply(ctx, _payload, prep, decision) {
+  async apply(ctx, payload, prep, decision) {
     let lineup = prep.optimized.lineup;
     let summary = decision.summary;
     if (!decision.confirm && decision.swaps !== undefined && decision.swaps.length > 0) {
@@ -268,7 +306,16 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
       if (check.valid) lineup = check.lineup;
       else summary = `${summary} (Suggested swaps were not legal; kept the optimizer lineup.)`;
     }
-    return setLineup(ctx, prep, lineup, summary);
+    if (prep.tip === undefined || payload.chat === undefined) return setLineup(ctx, prep, lineup, summary);
+    // A verified tip changed the lineup (#196): say so in the conversation and the activity log.
+    const outcome = await setLineup(
+      ctx,
+      prep,
+      lineup,
+      `Reconsidered: ${prep.tip.who} pointed out ${prep.tip.name} is ${prep.tip.status}; reset my lineup. ${summary}`
+    );
+    if (outcome.action === 'set_lineup') await replyInChat(ctx, payload.chat, decision.reply);
+    return outcome;
   },
   fallback: (ctx, _payload, prep) =>
     setLineup(
@@ -281,7 +328,10 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
     steps: [],
     decision: {
       summary: `Going with the optimizer: ${prep.optimized.projectedPoints} projected points.`,
-      confirm: true
+      confirm: true,
+      ...(prep.tip === undefined
+        ? {}
+        : { reply: `Checked it: ${prep.tip.name} is out. Lineup fixed. Thanks.` })
     }
   })
 });

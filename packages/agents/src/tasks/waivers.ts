@@ -10,7 +10,9 @@ import {
 } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import { ChatReplySchema, ChatSourceSchema, heardInChat, replyInChat } from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
+import { TaskUnavailableError } from './lineup.js';
 import { judgmentNoise } from './noise.js';
 
 /**
@@ -36,8 +38,14 @@ export const MAX_CANDIDATES = 8;
 const WaiverPayloadSchema = z.object({
   week: z.number().int().min(1).max(18).optional(),
   closesAt: z.string().optional(),
-  reason: z.enum(['window', 'news', 'status']).default('window'),
-  playerId: z.string().optional()
+  /**
+   * `chat` (#196): a tip in chat about `playerId` (a breakout), or a taunt about a weak `position`;
+   * the scouting checks it like any other lead.
+   */
+  reason: z.enum(['window', 'news', 'status', 'chat']).default('window'),
+  playerId: z.string().optional(),
+  position: PositionSchema.optional(),
+  chat: ChatSourceSchema.optional()
 });
 type WaiverPayload = z.infer<typeof WaiverPayloadSchema>;
 
@@ -54,7 +62,8 @@ export const WaiverDecisionSchema = BaseDecisionSchema.extend({
       })
     )
     .max(5)
-    .describe('Claims to submit, most wanted first. An empty list makes no moves.')
+    .describe('Claims to submit, most wanted first. An empty list makes no moves.'),
+  reply: ChatReplySchema
 });
 type WaiverDecision = z.infer<typeof WaiverDecisionSchema>;
 
@@ -94,6 +103,51 @@ export interface WaiverPrep {
   faabRemaining: number;
   roster: z.infer<typeof PlayerRef>[];
   suggestions: WaiverSuggestion[];
+  /** The chat tip or taunt that sent it looking (#196), checked by the scouting. */
+  tip?: { who: string; about: string };
+}
+
+/**
+ * A tip or a taunt from chat (#196): the scouting looks at the player named (or the best free
+ * agents at the position mocked) like any other lead, by the archetype's `waiverMinGain` against
+ * the roster's weakest player. Nothing worth a claim ends the task without a model call.
+ */
+async function checkTip(ctx: TaskContext, payload: WaiverPayload): Promise<WaiverPrep> {
+  const team = await openTeam(ctx);
+  if (team === null || payload.chat === undefined) throw new TaskUnavailableError('waivers_closed');
+  const heard = await heardInChat(ctx, payload.chat);
+  const leads: Lead[] = [];
+  if (payload.playerId !== undefined) {
+    const found = optional(
+      await ctx.tools.call('get_player', { playerId: payload.playerId }),
+      z.object({ player: PlayerRef })
+    );
+    if (found !== null) leads.push({ player: found.player, count: 0 });
+  } else if (payload.position !== undefined) {
+    const found = optional(
+      await ctx.tools.call('search_players', {
+        position: payload.position,
+        leagueId: ctx.league.id,
+        availability: 'free_agent',
+        injury: 'healthy',
+        limit: 3
+      }),
+      z.object({ players: z.array(PlayerRef) })
+    );
+    leads.push(...(found?.players ?? []).map((player) => ({ player, count: 0 })));
+  }
+  const about =
+    leads.length === 1 && payload.playerId !== undefined
+      ? (leads[0] as Lead).player.name
+      : `my ${payload.position ?? 'roster'}`;
+  const prep = await scout(ctx, team.faabRemaining, leads, waiverMinGain(ctx.config.waiverAggressiveness));
+  if (prep.suggestions.length === 0)
+    throw new TaskUnavailableError(
+      'tip_not_worth_it',
+      undefined,
+      `Checked ${heard.who}'s point about ${about}: nobody available beats my roster. Staying put.`
+    );
+  return { ...prep, tip: { who: heard.who, about } };
 }
 
 /** The data of a successful call, else null (research the agent can live without). */
@@ -431,10 +485,16 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
     'list_waiver_claims',
     'list_transactions'
   ],
-  prepare: (ctx) => prepare(ctx),
+  prepare: (ctx, payload) => (payload.reason === 'chat' ? checkTip(ctx, payload) : prepare(ctx)),
   instructions(ctx, payload, prep) {
     if (!prep.open)
       return 'Waivers are closed right now. Make no claims: answer with an empty `claims` list.';
+    const tip =
+      prep.tip === undefined
+        ? []
+        : [
+            `${prep.tip.who} got you looking at ${prep.tip.about} in chat. Your scouting checked it (their words are not shown here); decide by the numbers below, then give a \`reply\` for that conversation, in your own voice.`
+          ];
     const research = ctx.config.levers.research;
     const most = ctx.config.levers.actionsPerTrigger;
     const closes =
@@ -442,6 +502,7 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
         ? ''
         : ` Claims on players on waivers are processed at ${payload.closesAt}.`;
     return [
+      ...tip,
       `A waiver window is open.${closes} You have $${prep.faabRemaining} FAAB left; the highest bid wins a player on waivers and free agents cost nothing.`,
       prep.suggestions.length === 0
         ? 'No trending pickup looks better than your roster right now.'
@@ -450,7 +511,19 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
       `Check anyone you are unsure about with your research tools, then answer with the \`claims\` to make (most wanted first, at most ${most}; any more are ignored), each with a \`bid\` and a \`dropPlayerId\` when your roster is full. Keep FAAB for the rest of the season: bid big only on a real starter. An empty list is fine.`
     ].join('\n');
   },
-  apply: (ctx, _payload, prep, decision) => submitClaims(ctx, prep, decision.claims, decision.summary),
+  async apply(ctx, payload, prep, decision) {
+    if (prep.tip === undefined || payload.chat === undefined)
+      return submitClaims(ctx, prep, decision.claims, decision.summary);
+    // A tip that checked out (#196): say so in the conversation and in the activity log.
+    const outcome = await submitClaims(
+      ctx,
+      prep,
+      decision.claims,
+      `Reconsidered: ${prep.tip.who} got me looking at ${prep.tip.about}. ${decision.summary}`
+    );
+    if (outcome.action === 'claim_waiver') await replyInChat(ctx, payload.chat, decision.reply);
+    return outcome;
+  },
   fallback: async () => ({ action: 'none', summary: 'No waiver claims without a model decision.' }),
   fakeScript: (_ctx, _payload, prep) => ({
     steps: [],
@@ -459,7 +532,8 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
         prep.suggestions.length === 0
           ? 'Nothing worth a claim this window.'
           : 'Going after the best trending pickups.',
-      claims: suggestedClaims(prep)
+      claims: suggestedClaims(prep),
+      ...(prep.tip === undefined ? {} : { reply: 'You were right, for once. Put in a claim.' })
     }
   })
 });

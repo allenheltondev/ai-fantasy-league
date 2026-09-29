@@ -1,4 +1,5 @@
 import { FIXED_ROOM_IDS, matchupRoomId, type LeagueSettings, type StandingsRow } from '@fantasy/core';
+import { AGENT_CHAT_BUDGETS } from '@fantasy/server';
 import type {
   AgentTaskRecord,
   InMemoryEventPublisher,
@@ -107,6 +108,13 @@ export interface LeagueReplayReport {
     agentByRoom: Record<string, number>;
     /** Agent-to-agent retorts (`replyToAgentDepth` 1 or more). */
     retorts: number;
+    /**
+     * Chat volume per agent (#196): messages per 7-day block from the first agent message, and the
+     * most in any 24 hours (the budget window); `leagueMaxPerDay` is the most the league's agents
+     * posted together in 24 hours.
+     */
+    byAgent: Record<string, { messages: number; perWeek: number[]; maxPerDay: number }>;
+    leagueMaxPerDay: number;
   };
   events: {
     delivered: Record<string, number>;
@@ -153,6 +161,7 @@ async function chatCounts(services: Services, league: League): Promise<LeagueRep
   const agentByRoom: Record<string, number> = {};
   let messages = 0;
   let retorts = 0;
+  const agentPosts: { teamId: string; at: number }[] = [];
   const matchups = await services.repos.schedule.listMatchups(league.id);
   const teams = await services.repos.teams.list(league.id);
   const dms = new Set<string>();
@@ -174,7 +183,10 @@ async function chatCounts(services: Services, league: League): Promise<LeagueRep
         messages++;
         byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
         byRoom[label] = (byRoom[label] ?? 0) + 1;
-        if (m.kind === 'agent') agentByRoom[label] = (agentByRoom[label] ?? 0) + 1;
+        if (m.kind === 'agent') {
+          agentByRoom[label] = (agentByRoom[label] ?? 0) + 1;
+          agentPosts.push({ teamId: m.author.teamId as string, at: Date.parse(m.createdAt) });
+        }
         if ((m.replyToAgentDepth ?? 0) > 0) retorts++;
       }
       cursor = page.nextCursor ?? undefined;
@@ -185,8 +197,42 @@ async function chatCounts(services: Services, league: League): Promise<LeagueRep
     byKind: sorted(byKind),
     byRoom: sorted(byRoom),
     agentByRoom: sorted(agentByRoom),
-    retorts
+    retorts,
+    ...agentVolume(agentPosts)
   };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The most posts in any 24 hours (each post starts a window). */
+function maxPerDay(times: readonly number[]): number {
+  const sortedTimes = [...times].sort((a, b) => a - b);
+  let most = 0;
+  let from = 0;
+  for (let i = 0; i < sortedTimes.length; i++) {
+    while ((sortedTimes[i] as number) - (sortedTimes[from] as number) >= DAY_MS) from++;
+    most = Math.max(most, i - from + 1);
+  }
+  return most;
+}
+
+/** Agent chat volume (#196): per agent, per 7-day block and in the busiest 24 hours. */
+export function agentVolume(
+  posts: readonly { teamId: string; at: number }[]
+): Pick<LeagueReplayReport['chat'], 'byAgent' | 'leagueMaxPerDay'> {
+  const start = Math.min(...posts.map((p) => p.at));
+  const byAgent: LeagueReplayReport['chat']['byAgent'] = {};
+  for (const teamId of new Set(posts.map((p) => p.teamId))) {
+    const mine = posts.filter((p) => p.teamId === teamId).map((p) => p.at);
+    const perWeek: number[] = [];
+    for (const at of mine) {
+      const week = Math.floor((at - start) / (7 * DAY_MS));
+      while (perWeek.length <= week) perWeek.push(0);
+      perWeek[week] = (perWeek[week] as number) + 1;
+    }
+    byAgent[teamId] = { messages: mine.length, perWeek, maxPerDay: maxPerDay(mine) };
+  }
+  return { byAgent: sorted(byAgent), leagueMaxPerDay: maxPerDay(posts.map((p) => p.at)) };
 }
 
 export async function buildLeagueReport(input: {
@@ -344,6 +390,7 @@ export async function buildLeagueReport(input: {
     violations,
     notes: [
       'Check-ins: three times a day every agent looks at its team (check_in, #195): a deterministic pre-check skips the model when nothing is worth a look; otherwise it may set its lineup, add or claim a player, or offer a trade.',
+      'Social (#196): at a check-in an agent may also rename its team, post on a league board about news that concerns it, talk about its matchup in the matchup room, or send a DM tied to a goal (a trade to pitch, an offer to follow up); how often depends on its personality (chattiness) and the chat budgets. The fake model posts canned lines.',
       'Trades: agents shop for trades once a week at the rollover (trade_proposal, paced by their archetype), and at check-ins when their appetite roll passes, and answer offers through trade_response; in league-vote review, agents outside a trade vote on it (trade_vote). The human stand-in offers one bench swap a week before the deadline and never answers offers, so offers to it expire.',
       'The champion is the one the league stored with its playoff bracket; the replay checks it against the stored playoff games replayed through core `advanceBracket`.'
     ]
@@ -418,6 +465,14 @@ export function renderLeagueReport(report: LeagueReplayReport): string {
         .map(([k, n]) => `${k} ${n}`)
         .join(', ') || 'none'
     }; agent-to-agent retorts ${report.chat.retorts}).`,
+    '',
+    `Agent chat volume (#196; budgets ${AGENT_CHAT_BUDGETS.agentPerDay} per agent and ${AGENT_CHAT_BUDGETS.leaguePerDay} per league in any 24 hours; the league's busiest 24 hours: ${report.chat.leagueMaxPerDay}):`,
+    '',
+    '| Team | Messages | Per week | Busiest 24h |',
+    '|---|---|---|---|',
+    ...Object.entries(report.chat.byAgent).map(
+      ([id, v]) => `| ${team(id)} | ${v.messages} | ${v.perWeek.join(', ')} | ${v.maxPerDay} |`
+    ),
     '',
     '## Weeks',
     '',

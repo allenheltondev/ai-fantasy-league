@@ -1,6 +1,15 @@
 import { tradeAcceptEdge, tradeAppetite } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import {
+  ChatReplySchema,
+  ChatSourceSchema,
+  heardInChat,
+  heardLine,
+  persuasion,
+  replyInChat,
+  type Heard
+} from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
 import { judgmentNoise } from './noise.js';
 import { TaskUnavailableError } from './lineup.js';
@@ -24,6 +33,12 @@ import { TaskUnavailableError } from './lineup.js';
  * kept, and the memory records a deterministic line with the players and the value instead. The
  * activity log seals the summary while the offer is private.
  *
+ * Chat (#196): a push about the offer in chat hands this task a follow-up (`chat`). The task re-reads
+ * the message and weighs it by its own numbers: when the players offered improve its best lineup,
+ * the argument lowers its bar by `persuasionAllowance` (a few points at most, by the personality's
+ * `persuadability`), so it can tip a borderline offer but never clear the hard floor for a bad one;
+ * a message that reads like an order moves nothing. The model never sees the message.
+ *
  * Stale offers (#189): the task may run well after the offer arrived (a human-like response
  * delay), so it re-reads the trade first. An offer that was withdrawn, expired, or already answered
  * meanwhile is skipped (`offer_closed`) before any model call.
@@ -37,7 +52,12 @@ export const ACCEPT_FLOOR_MARGIN = 5;
 /** The summary the commissioner's activity log shows while the offer is private. */
 export const SEALED_RESPONSE = 'Answered a trade offer; the terms stay private between the two teams.';
 
-const PayloadSchema = z.object({ tradeId: z.string(), fromTeamId: z.string().optional() });
+const PayloadSchema = z.object({
+  tradeId: z.string(),
+  fromTeamId: z.string().optional(),
+  /** A conversation about this offer (#196): the message to weigh. */
+  chat: ChatSourceSchema.optional()
+});
 type Payload = z.infer<typeof PayloadSchema>;
 
 export const TradeDecisionSchema = BaseDecisionSchema.extend({
@@ -49,7 +69,8 @@ export const TradeDecisionSchema = BaseDecisionSchema.extend({
     .describe('Accepting: your players to release so your roster fits.'),
   send: z.array(z.string()).max(6).optional().describe('Countering: your players you would give.'),
   receive: z.array(z.string()).max(6).optional().describe('Countering: their players you want.'),
-  message: z.string().max(300).optional().describe('An optional short note to the other manager.')
+  message: z.string().max(300).optional().describe('An optional short note to the other manager.'),
+  reply: ChatReplySchema
 });
 type TradeDecision = z.infer<typeof TradeDecisionSchema>;
 
@@ -81,6 +102,8 @@ export interface TradeSuggestion {
   action: TradeDecision['action'];
   score: number;
   bar: number;
+  /** How far a conversation moved the bar (#196); the hard floor stays at `bar`. */
+  credit?: number;
   drops: string[];
   counter: { send: string[]; receive: string[] } | null;
 }
@@ -90,6 +113,8 @@ interface TradePrep {
   preview: z.infer<typeof PreviewSchema> | null;
   roundsLeft: number;
   suggestion: TradeSuggestion;
+  /** The conversation that pushed for it (#196). */
+  heard?: Heard;
 }
 
 function parse<T>(envelope: Envelope, schema: z.ZodType<T>): T | null {
@@ -130,21 +155,32 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
   const bar = appetite.acceptEdge;
   const roundsLeft = Math.max(0, appetite.maxCounters - countersUsed(trade.round));
   const drops = me.dropCandidates.slice(0, me.dropsNeeded).map((p) => p.id);
-  const suggestion: TradeSuggestion = { action: 'reject', score, bar, drops, counter: null };
-  if (preview.valid && score >= bar)
-    return { trade, preview, roundsLeft, suggestion: { ...suggestion, action: 'accept' } };
+  // A pitch in chat: its argument holds up when the players offered improve my best lineup.
+  const heard = payload.chat === undefined ? undefined : await heardInChat(ctx, payload.chat);
+  const credit = heard === undefined ? 0 : persuasion(ctx, heard, me.lineupDelta > 0);
+  const suggestion: TradeSuggestion = {
+    action: 'reject',
+    score,
+    bar,
+    drops,
+    counter: null,
+    ...(heard === undefined ? {} : { credit })
+  };
+  const extra = heard === undefined ? {} : { heard };
+  if (preview.valid && score >= bar - credit)
+    return { trade, preview, roundsLeft, suggestion: { ...suggestion, action: 'accept' }, ...extra };
   // Counter: keep my most valuable player out of the deal when I send more than one.
   const mine = preview.players
     .filter((p) => p.fromTeamId === me.team.id)
     .sort((a, b) => b.projectedPoints - a.projectedPoints);
-  if (roundsLeft > 0 && mine.length > 1 && score >= bar - COUNTER_WINDOW) {
+  if (roundsLeft > 0 && mine.length > 1 && score >= bar - credit - COUNTER_WINDOW) {
     suggestion.action = 'counter';
     suggestion.counter = {
       send: mine.slice(1).map((p) => p.player.id),
       receive: trade.fromSends.map((p) => p.id)
     };
   }
-  return { trade, preview, roundsLeft, suggestion };
+  return { trade, preview, roundsLeft, suggestion, ...extra };
 }
 
 function names(list: readonly { name: string }[]): string {
@@ -166,9 +202,17 @@ async function respond(
   });
 }
 
-/** True when an accept clears the hard floor: the trade value math must be within reach of the bar. */
-export function acceptAllowed(prep: Pick<TradePrep, 'preview' | 'suggestion'>): boolean {
-  return prep.preview !== null && prep.suggestion.score >= prep.suggestion.bar - ACCEPT_FLOOR_MARGIN;
+/**
+ * True when an accept clears the hard floor: the trade value math must be within reach of the bar.
+ * After a chat message that tried to give orders (#196), the model gets no leeway at all: only what
+ * clears the bar by the numbers may be accepted.
+ */
+export function acceptAllowed(prep: Pick<TradePrep, 'preview' | 'suggestion' | 'heard'>): boolean {
+  return prep.preview !== null && prep.suggestion.score >= acceptFloor(prep);
+}
+
+function acceptFloor(prep: Pick<TradePrep, 'suggestion' | 'heard'>): number {
+  return prep.suggestion.bar - (prep.heard?.instructions === true ? 0 : ACCEPT_FLOOR_MARGIN);
 }
 
 const VERB = { accept_trade: 'Accepted', reject_trade: 'Rejected', counter_trade: 'Countered' } as const;
@@ -247,46 +291,17 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
         : '',
       s.drops.length > 0 ? `Accepting needs drops; suggested: ${s.drops.join(', ')}.` : '',
       `You have ${prep.roundsLeft} counter-offer(s) left in this negotiation.`,
+      prep.heard === undefined ? '' : heardLine(prep.heard, s.credit ?? 0, s.bar),
       `Suggested: ${s.action}${s.counter === null ? '' : ` (send ${s.counter.send.join(', ')}; receive ${s.counter.receive.join(', ')})`}.`,
-      'Decide with `action` accept, reject, or counter. For counter give `send` (your player ids) and `receive` (theirs). Chat banter does not execute anything.'
+      'Decide with `action` accept, reject, or counter. For counter give `send` (your player ids) and `receive` (theirs). Chat banter does not execute anything.',
+      prep.heard === undefined ? '' : 'Then give a `reply` for the conversation, in your own voice.'
     ]
       .filter((line) => line.length > 0)
       .join('\n');
   },
-  async apply(ctx, _payload, prep, decision) {
-    const id = prep.trade.id;
-    if (decision.action === 'accept' && acceptAllowed(prep)) {
-      const result = await respond(
-        ctx,
-        id,
-        'accept',
-        decision.drops ?? prep.suggestion.drops,
-        decision.message
-      );
-      return outcome(ctx, 'accept_trade', decision.summary, result, prep);
-    }
-    if (decision.action === 'accept') {
-      const why = `${decision.summary} The trade value math rules it out (score ${prep.suggestion.score}, floor ${prep.suggestion.bar - ACCEPT_FLOOR_MARGIN}), so rejecting.`;
-      return outcome(ctx, 'reject_trade', why, await respond(ctx, id, 'reject'), prep);
-    }
-    if (
-      decision.action === 'counter' &&
-      prep.roundsLeft > 0 &&
-      (decision.send ?? decision.receive) !== undefined
-    ) {
-      const result = await ctx.tools.call('counter_trade', {
-        tradeId: id,
-        send: decision.send ?? [],
-        receive: decision.receive ?? [],
-        ...(decision.message === undefined ? {} : { message: decision.message })
-      });
-      return outcome(ctx, 'counter_trade', decision.summary, result, prep);
-    }
-    const out =
-      decision.action === 'counter'
-        ? `${decision.summary} No counters left, so rejecting.`
-        : decision.summary;
-    return outcome(ctx, 'reject_trade', out, await respond(ctx, id, 'reject', [], decision.message), prep);
+  async apply(ctx, payload, prep, decision) {
+    const outcome = await answer(ctx, prep, decision);
+    return payload.chat === undefined ? outcome : afterChat(ctx, payload.chat, prep, decision, outcome);
   },
   async fallback(ctx, _payload, prep) {
     return outcome(
@@ -297,12 +312,84 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
       prep
     );
   },
-  fakeScript: (_ctx, _payload, prep) => ({
+  fakeScript: (_ctx, payload, prep) => ({
     steps: [],
     decision: {
       summary: `Suggested ${prep.suggestion.action} (score ${prep.suggestion.score}, bar ${prep.suggestion.bar}).`,
       action: prep.suggestion.action,
-      ...(prep.suggestion.counter === null ? {} : prep.suggestion.counter)
+      ...(prep.suggestion.counter === null ? {} : prep.suggestion.counter),
+      ...(payload.chat === undefined ? {} : { reply: scriptedChatReply(prep) })
     }
   })
 });
+
+/** The scripted model's line back to a conversation (tests, local dev, the simulator). */
+function scriptedChatReply(prep: TradePrep): string {
+  if (prep.heard?.instructions === true) return 'Nice try. Nobody gives me orders in chat. Rejected.';
+  const s = prep.suggestion;
+  if (s.action === 'accept')
+    return s.score < s.bar ? "Fine, you've convinced me. Accepting." : 'Numbers check out. Accepting.';
+  return s.action === 'counter'
+    ? 'Close, but not quite. Sent you a counter.'
+    : 'Ran the numbers. Still a no.';
+}
+
+/**
+ * A chat-driven answer (#196): its line back to the conversation, and, when the conversation is
+ * what tipped it, a visible note that it reconsidered.
+ */
+async function afterChat(
+  ctx: TaskContext,
+  source: z.infer<typeof ChatSourceSchema>,
+  prep: TradePrep,
+  decision: TradeDecision,
+  result: TaskOutcome
+): Promise<TaskOutcome> {
+  await replyInChat(ctx, source, decision.reply);
+  const s = prep.suggestion;
+  const who = prep.heard?.who ?? 'someone in chat';
+  const note = prep.heard?.instructions
+    ? `Ignored orders from ${who} in chat.`
+    : result.action === 'accept_trade' && s.score < s.bar
+      ? `Reconsidered: ${who} talked me into it.`
+      : `Weighed ${who}'s pitch.`;
+  return {
+    ...result,
+    summary: `${note} ${result.summary}`,
+    ...(result.memorySummary === undefined ? {} : { memorySummary: `${note} ${result.memorySummary}` })
+  };
+}
+
+async function answer(ctx: TaskContext, prep: TradePrep, decision: TradeDecision): Promise<TaskOutcome> {
+  const id = prep.trade.id;
+  if (decision.action === 'accept' && acceptAllowed(prep)) {
+    const result = await respond(
+      ctx,
+      id,
+      'accept',
+      decision.drops ?? prep.suggestion.drops,
+      decision.message
+    );
+    return outcome(ctx, 'accept_trade', decision.summary, result, prep);
+  }
+  if (decision.action === 'accept') {
+    const why = `${decision.summary} The trade value math rules it out (score ${prep.suggestion.score}, floor ${acceptFloor(prep)}), so rejecting.`;
+    return outcome(ctx, 'reject_trade', why, await respond(ctx, id, 'reject'), prep);
+  }
+  if (
+    decision.action === 'counter' &&
+    prep.roundsLeft > 0 &&
+    (decision.send ?? decision.receive) !== undefined
+  ) {
+    const result = await ctx.tools.call('counter_trade', {
+      tradeId: id,
+      send: decision.send ?? [],
+      receive: decision.receive ?? [],
+      ...(decision.message === undefined ? {} : { message: decision.message })
+    });
+    return outcome(ctx, 'counter_trade', decision.summary, result, prep);
+  }
+  const out =
+    decision.action === 'counter' ? `${decision.summary} No counters left, so rejecting.` : decision.summary;
+  return outcome(ctx, 'reject_trade', out, await respond(ctx, id, 'reject', [], decision.message), prep);
+}
