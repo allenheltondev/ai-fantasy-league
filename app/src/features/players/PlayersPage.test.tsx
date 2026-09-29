@@ -69,7 +69,11 @@ function fakeApi(
         ]
       });
     }
-    if (path === '/players') return ok({ players });
+    if (path === '/players') {
+      // Like the server: `availability=available` leaves out rostered players.
+      const available = url.searchParams.get('availability') === 'available';
+      return ok({ players: players.filter((p) => !available || p.availability?.status !== 'rostered') });
+    }
     if (path === '/leagues/L1/waivers/preview') {
       const drop = url.searchParams.get('dropPlayerId');
       const full = url.searchParams.get('playerId') === 'fx-cmc' && drop === null;
@@ -168,16 +172,22 @@ describe('players page', () => {
     expect(screen.queryByText('CeeDee Lamb')).not.toBeInTheDocument();
     expect(screen.getByText('FA')).toBeInTheDocument();
 
+    // The page asks the server for available players; it does not filter a top-50 list itself.
+    const first = api.calls.find((c) => c.path === '/players') as Call;
+    expect(first.query.get('availability')).toBe('available');
+
     const user = userEvent.setup();
     await user.click(screen.getByLabelText('Available only'));
-    expect(screen.getByText('Bob Squad')).toBeInTheDocument();
+    expect(await screen.findByText('Bob Squad')).toBeInTheDocument();
+    const all = api.calls.filter((c) => c.path === '/players').at(-1) as Call;
+    expect(all.query.get('availability')).toBeNull();
     expect(screen.getByText('Rostered')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add CeeDee Lamb' })).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Search players'), ' robinson ');
     await user.selectOptions(screen.getByLabelText('Position'), 'RB');
     await user.click(screen.getByRole('button', { name: 'Search' }));
-    await waitFor(() => expect(api.calls.filter((c) => c.path === '/players')).toHaveLength(2));
+    await waitFor(() => expect(api.calls.filter((c) => c.path === '/players')).toHaveLength(3));
     const search = api.calls.filter((c) => c.path === '/players').at(-1) as Call;
     expect(search.query.get('q')).toBe('robinson');
     expect(search.query.get('position')).toBe('RB');
