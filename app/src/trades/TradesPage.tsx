@@ -339,7 +339,6 @@ export function TradesPage({
 
   return (
     <div data-testid="league-section-trades" className="space-y-6">
-      <h2 className="text-xl font-semibold">Trades</h2>
       {notice && <Alert variant="success">{notice}</Alert>}
       <ApiErrorAlert error={error ?? setup.error ?? trades.error} />
 

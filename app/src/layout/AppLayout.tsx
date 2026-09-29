@@ -7,7 +7,9 @@ import { transitionClick } from '../motion/pageTransition';
 import { NotificationPanel } from '../notifications/NotificationPanel';
 import { NotificationsProvider, useNotifications } from '../notifications/NotificationsContext';
 import { CurrentLeagueProvider, useCurrentLeague } from '../routes/currentLeague';
+import { forgetLastLeague } from '../routes/lastLeague';
 import { PageHeaderBar } from './PageHeaderBar';
+import { documentTitle, pageName, TitleBadgeContext, usePageTitle } from './pageTitle';
 import { leagueIdIn, navItems, useChatUnread } from './navItems';
 
 /**
@@ -59,11 +61,25 @@ function SideNav() {
       user={{ name: displayName(user), email: typeof user.email === 'string' ? user.email : undefined }}
       navItems={items}
       onSignOut={() => {
+        // The next person on this browser starts at My Leagues, not in your league (#212).
+        forgetLastLeague();
         void signOut().then(() => navigate('/login', { replace: true }));
       }}
       className="sm:sticky sm:top-0 sm:h-screen sm:self-start sm:overflow-y-auto"
     />
   );
+}
+
+/**
+ * The browser tab's title (#212), set here once for every page from its route: "Matchup · Test
+ * League · AI Fantasy Football", led by a page's live badge ("⏰ Your pick").
+ */
+function PageTitle({ badge }: { badge: string | null }) {
+  const { pathname } = useLocation();
+  const data = useCurrentLeague()?.state.data ?? null;
+  const page = pageName(pathname, { commissioner: data?.youAreCommissioner === true, teams: data?.teams });
+  usePageTitle(documentTitle({ page: page.title, league: data?.name ?? null, badge }));
+  return null;
 }
 
 /**
@@ -73,10 +89,12 @@ function SideNav() {
 export function AppLayout() {
   const { pathname } = useLocation();
   const [panelOpen, setPanelOpen] = useState(false);
+  const [badge, setBadge] = useState<string | null>(null);
 
   return (
     <NotificationsProvider>
       <CurrentLeagueProvider leagueId={leagueIdIn(pathname)}>
+        <PageTitle badge={badge} />
         <div className="flex min-h-screen flex-col bg-background text-foreground sm:flex-row">
           <SideNav />
           <div className="flex min-w-0 flex-1 flex-col">
@@ -84,7 +102,9 @@ export function AppLayout() {
             {panelOpen ? <NotificationPanel onClose={() => setPanelOpen(false)} /> : null}
             <main id="main-content" className="flex-1">
               <Container className="py-6" style={{ maxWidth: '90rem' }}>
-                <Outlet />
+                <TitleBadgeContext.Provider value={setBadge}>
+                  <Outlet />
+                </TitleBadgeContext.Provider>
               </Container>
             </main>
           </div>
