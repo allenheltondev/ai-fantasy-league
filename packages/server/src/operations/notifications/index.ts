@@ -8,6 +8,7 @@ import {
   NOTIFICATION_PAGE,
   NOTIFICATION_UNREAD_CAP,
   notificationLocalKeyOf,
+  NotificationPreferencesSchema,
   NotificationSchema
 } from '../../notifications/model.js';
 import { defineOperation } from '../../registry/operation.js';
@@ -59,8 +60,8 @@ export const listNotifications = defineOperation({
   path: '/leagues/{leagueId}/notifications',
   summary: 'Read your notification inbox in a league',
   description: [
-    "Returns your team's notifications, newest first: trade offers, counters, and answers; accepted, vetoed, processed, and expired trades; your waiver claims won and lost (with why); and your turn in the draft.",
-    'Each has a `title`, a `body`, `read`, and a `target` (the section to open: `trades` with the `tradeId`, `roster`, or `draft`). `unreadCount` counts every unread item, not just this page.',
+    "Returns your team's notifications, newest first: trade offers, counters, and answers; accepted, vetoed, processed, and expired trades; your waiver claims won and lost (with why); your turn in the draft; and your players' status changes and news (#200).",
+    'Each has a `title`, a `body`, `read`, and a `target` (the section to open: `trades` with the `tradeId`, `roster`, `draft`, or `lineup` with the `playerId`). `urgent: true` marks a starter ruled out before his game: handle it first with set_lineup. `unreadCount` counts every unread item, not just this page.',
     "Mark items read with mark_notifications_read. Read older items by passing the previous response's `nextCursor` as `after`. Items are kept for 30 days, and you see only those from your time on the seat.",
     'A commissioner without a team has no inbox (an empty list). Errors: FORBIDDEN if you are not in the league; INVALID_INPUT for a cursor this operation did not return.'
   ].join(' '),
@@ -232,10 +233,59 @@ export const markNotificationsDelivered = defineOperation({
   }
 });
 
-/** The notification inbox (#165). */
+function userSub(ctx: Ctx, operation: string): string {
+  /* v8 ignore next -- auth: 'user' guarantees a user principal */
+  if (ctx.principal.type !== 'user') throw new Error(`${operation} needs a user principal`);
+  return ctx.principal.sub;
+}
+
+export const getNotificationPreferences = defineOperation({
+  name: 'get_notification_preferences',
+  method: 'GET',
+  path: '/notifications/preferences',
+  summary: 'Read your notification settings',
+  description: [
+    'Your notification settings, the same in every league: `playerNews` (inbox items for news stories about your players, on unless you turned it off).',
+    'Status alerts about your players (ruled out, doubtful, back on the field) always come. Change settings with update_notification_preferences.'
+  ].join(' '),
+  tags: ['notifications'],
+  mutation: false,
+  auth: 'user',
+  input: z.object({}),
+  output: NotificationPreferencesSchema,
+  handler: async (ctx) => ctx.repos.notifications.getPreferences(userSub(ctx, 'get_notification_preferences'))
+});
+
+export const updateNotificationPreferences = defineOperation({
+  name: 'update_notification_preferences',
+  method: 'PUT',
+  path: '/notifications/preferences',
+  summary: 'Change your notification settings',
+  description: [
+    'Turns player news in your inbox on or off (`playerNews`), in every league. Returns the settings as saved.',
+    'Status alerts about your players cannot be turned off: a starter ruled out before his game always reaches you.'
+  ].join(' '),
+  tags: ['notifications'],
+  mutation: true,
+  auth: 'user',
+  input: NotificationPreferencesSchema,
+  output: NotificationPreferencesSchema,
+  handler: async (ctx, input) => {
+    const preferences = { playerNews: input.playerNews };
+    await ctx.repos.notifications.putPreferences(
+      userSub(ctx, 'update_notification_preferences'),
+      preferences
+    );
+    return preferences;
+  }
+});
+
+/** The notification inbox (#165) and its settings (#200). */
 export const notificationOperations = [
   listNotifications,
   getNotificationSummary,
   markNotificationsRead,
-  markNotificationsDelivered
+  markNotificationsDelivered,
+  getNotificationPreferences,
+  updateNotificationPreferences
 ];

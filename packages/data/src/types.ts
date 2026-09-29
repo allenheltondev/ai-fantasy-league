@@ -36,6 +36,8 @@ export interface Player {
   byeWeek?: number;
   /** nflverse / NFL GSIS id (`00-0033873`). */
   gsisId?: string;
+  /** ESPN's athlete id (Sleeper's `espn_id`), which maps ESPN's injury report to our players (#200). */
+  espnId?: string;
   age?: number;
   yearsExp?: number;
   number?: number;
@@ -153,6 +155,23 @@ export interface ScoringPlay {
   team: string | null;
   awayScore: number | null;
   homeScore: number | null;
+}
+
+/**
+ * One player's line on ESPN's injury report (#200). `injuryStatus` is his designation in our terms
+ * (null: ESPN lists him as active or probable, so no designation); `statusText` is ESPN's own word.
+ * Team codes are Sleeper's.
+ */
+export interface InjuryReport {
+  espnId: string | null;
+  name: string;
+  team: string | null;
+  position: string | null;
+  injuryStatus: InjuryStatus | null;
+  statusText: string;
+  /** When ESPN last updated the entry, or null. */
+  reportedAt: string | null;
+  comment: string | null;
 }
 
 /** Bye week per team code for one regular season. */

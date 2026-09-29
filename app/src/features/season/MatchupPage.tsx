@@ -28,6 +28,8 @@ export const MATCHUP_LIVE_POLL_MS = 120_000;
 
 /** The week's NFL games changed (scores, possession, the red zone); on the global topic (#132). */
 export const NFL_GAMES_EVENT = 'NFL Games Updated';
+/** A player ruled out on game day (#200), on the global topic: the OUT chip shows without a reload. */
+export const PLAYER_STATUS_EVENT = 'Player Status Changed';
 
 /**
  * Events that change the matchup. `Scores Updated` and `NFL Games Updated` come from the live jobs
@@ -38,7 +40,8 @@ export const MATCHUP_EVENTS = [
   'Scores Updated',
   'Stat Correction Applied',
   'Week Provisionally Final',
-  'Week Official Final'
+  'Week Official Final',
+  PLAYER_STATUS_EVENT
 ] as const;
 
 /**
@@ -69,6 +72,7 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
         nfl.reload();
         return loaded.reload();
       }
+      if (event.detailType === PLAYER_STATUS_EVENT) return loaded.reload();
       const logs = pushedLog(event);
       if (logs.length > 0) setPushed((current) => [...current, ...logs]);
       else setLogVersion((v) => v + 1);

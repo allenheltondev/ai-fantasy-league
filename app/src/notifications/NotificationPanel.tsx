@@ -4,7 +4,7 @@ import { Button, Drawer, EmptyState, Loading } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
 import { ApiErrorAlert } from '../components/ApiErrorAlert';
 import { useNotifications } from './NotificationsContext';
-import { notificationHref, type AppNotification } from './types';
+import { inboxOrder, notificationHref, type AppNotification, type NotificationPreferences } from './types';
 
 /** Items read per league when the panel opens. */
 const PER_LEAGUE = 20;
@@ -22,7 +22,9 @@ export function timeAgo(iso: string, now: number): string {
 /**
  * The notification panel (#165): every league's inbox, newest first, as a sheet from the right
  * (full width on a phone). Opening an item marks it read and goes where it leads: the trade, the
- * roster, or the draft room. "Mark all read" clears every league.
+ * roster, the draft room, or the lineup with the player highlighted (#200). "Mark all read" clears
+ * every league. An unread urgent item (a starter ruled out before his game) sits on top in red; a
+ * switch at the bottom turns player news off.
  */
 export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void; now?: () => number }) {
   const api = useLeagueApi();
@@ -39,8 +41,7 @@ export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void
     Promise.all(leagues.map((l) => api.listNotifications(l.leagueId, { limit: PER_LEAGUE }))).then(
       (inboxes) => {
         if (!current) return;
-        const all = inboxes.flatMap((i) => i.notifications);
-        setItems(all.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)));
+        setItems(inboxes.flatMap((i) => i.notifications));
       },
       (e: unknown) => current && setError(e)
     );
@@ -51,7 +52,8 @@ export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, leagueKey]);
 
-  const unread = (items ?? []).filter((n) => !n.read);
+  const sorted = [...(items ?? [])].sort(inboxOrder);
+  const unread = sorted.filter((n) => !n.read);
   const markRead = (ids: Set<string>) =>
     // Only called once the items are on screen.
     setItems((list) => (list as AppNotification[]).map((n) => (ids.has(n.id) ? { ...n, read: true } : n)));
@@ -109,39 +111,111 @@ export function NotificationPanel({ onClose, now = Date.now }: { onClose(): void
         <div className="p-4">
           <EmptyState
             title="You're all caught up"
-            description="Trade offers, waiver results, and your turn in the draft show up here."
+            description="Trade offers, waiver results, your turn in the draft, and news about your players show up here."
           />
         </div>
       ) : (
         <ul aria-label="Notifications" className="divide-y divide-border">
-          {(items ?? []).map((n, i) => (
-            <li key={n.id} className="motion-stagger" style={{ ['--motion-i' as string]: Math.min(i, 10) }}>
-              <Link
-                to={notificationHref(n)}
-                onClick={() => open(n)}
-                aria-label={`${n.read ? '' : 'Unread: '}${n.title}`}
-                data-testid={`notification-${n.kind}`}
-                className={`motion-row flex min-h-11 gap-3 px-4 py-3 text-left no-underline ${
-                  n.read ? 'text-muted-foreground' : 'bg-primary-50/60 text-foreground'
-                }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${n.read ? 'bg-transparent' : 'bg-error-600'}`}
-                />
-                <span className="min-w-0 flex-1 space-y-0.5">
-                  <span className={`block break-words ${n.read ? '' : 'font-semibold'}`}>{n.title}</span>
-                  <span className="block break-words text-sm">{n.body}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {timeAgo(n.createdAt, now())}
-                    {names.size > 1 ? ` · ${names.get(n.leagueId) as string}` : ''}
+          {sorted.map((n, i) => {
+            const urgent = n.urgent === true && !n.read;
+            return (
+              <li key={n.id} className="motion-stagger" style={{ ['--motion-i' as string]: Math.min(i, 10) }}>
+                <Link
+                  to={notificationHref(n)}
+                  onClick={() => open(n)}
+                  aria-label={`${urgent ? 'Action needed: ' : n.read ? '' : 'Unread: '}${n.title}`}
+                  data-testid={`notification-${n.kind}`}
+                  data-urgent={urgent ? 'true' : undefined}
+                  className={`motion-row flex min-h-11 gap-3 px-4 py-3 text-left no-underline ${
+                    urgent
+                      ? 'border-l-4 border-l-error-600 bg-error-50 text-foreground'
+                      : n.read
+                        ? 'text-muted-foreground'
+                        : 'bg-primary-50/60 text-foreground'
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${n.read ? 'bg-transparent' : 'bg-error-600'} ${
+                      urgent ? 'ring-4 ring-error-200' : ''
+                    }`}
+                  />
+                  <span className="min-w-0 flex-1 space-y-0.5">
+                    {urgent ? (
+                      <span className="inline-flex items-center rounded-full bg-error-600 px-2 py-0.5 text-[0.7rem] font-bold uppercase tracking-wide text-white">
+                        Action needed
+                      </span>
+                    ) : null}
+                    <span
+                      className={`block break-words ${n.read ? '' : 'font-semibold'} ${urgent ? 'text-error-700' : ''}`}
+                    >
+                      {n.title}
+                    </span>
+                    <span className="block break-words text-sm">{n.body}</span>
+                    {urgent ? (
+                      <span className="block text-sm font-semibold text-error-700 underline">
+                        Fix your lineup
+                      </span>
+                    ) : null}
+                    <span className="block text-xs text-muted-foreground">
+                      {timeAgo(n.createdAt, now())}
+                      {names.size > 1 ? ` · ${names.get(n.leagueId) as string}` : ''}
+                    </span>
                   </span>
-                </span>
-              </Link>
-            </li>
-          ))}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
+      <PlayerNewsSetting />
     </Drawer>
+  );
+}
+
+/** The player news switch (#200): status alerts always come; news stories only while it is on. */
+function PlayerNewsSetting() {
+  const api = useLeagueApi();
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    let current = true;
+    api.getNotificationPreferences().then(
+      (p) => current && setPreferences(p),
+      () => undefined
+    );
+    return () => {
+      current = false;
+    };
+  }, [api]);
+  if (preferences === null) return null;
+  const toggle = (playerNews: boolean) => {
+    setError(null);
+    setPreferences({ playerNews });
+    api.updateNotificationPreferences({ playerNews }).then(setPreferences, (e: unknown) => {
+      setPreferences({ playerNews: !playerNews });
+      setError(e);
+    });
+  };
+  return (
+    <div className="border-t border-border px-4 py-3">
+      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
+        <span>
+          <span className="block font-medium">Player news</span>
+          <span className="block text-xs text-muted-foreground">
+            Stories about your players, at most one per player an hour. Injury alerts always come.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          data-testid="player-news-setting"
+          className="h-5 w-5 shrink-0 accent-primary-600"
+          checked={preferences.playerNews}
+          onChange={(e) => toggle(e.target.checked)}
+        />
+      </label>
+      <ApiErrorAlert error={error} />
+    </div>
   );
 }

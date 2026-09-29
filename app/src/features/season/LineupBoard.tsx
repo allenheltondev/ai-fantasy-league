@@ -104,13 +104,21 @@ export function LineupBoard(props: {
   onLocked?: (names: string[]) => void;
   /** The clock the lock countdowns read (ms); the page ticks it. */
   now: number;
+  /**
+   * A player a notification pointed at (#200, `?player=`): his row is highlighted and scrolled to,
+   * and a starter who can still move starts selected, so one tap on a bench player replaces him.
+   */
+  highlight?: string | null;
 }) {
   const { data } = props;
   const api = useLeagueApi();
   const reduced = usePrefersReducedMotion();
   const saved = useMemo(() => placementOf(data.players), [data.players]);
   const [placement, setPlacement] = useState<Placement>(saved);
-  const [selected, setSelected] = useState<string | null>(null);
+  const spotlight = data.players.find((p) => p.player.id === props.highlight);
+  const [selected, setSelected] = useState<string | null>(
+    spotlight !== undefined && !spotlight.locked && isStarter(spotlight.slot) ? spotlight.player.id : null
+  );
   const [dragging, setDragging] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<unknown>(null);
@@ -132,6 +140,14 @@ export function LineupBoard(props: {
     // A long press starts a drag on a phone, so a tap still selects and a swipe still scrolls.
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
+
+  const spotlightId = spotlight?.player.id ?? null;
+  useEffect(() => {
+    if (spotlightId === null) return;
+    document
+      .querySelector(`[data-highlighted="true"]`)
+      ?.scrollIntoView?.({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
+  }, [spotlightId, reduced]);
 
   useEffect(() => {
     if (selected === null) return undefined;
@@ -223,7 +239,19 @@ export function LineupBoard(props: {
   const bench = rows.filter((p) => p.slot === 'BN');
   const ir = rows.filter((p) => p.slot === 'IR');
   const irRoom = data.slots.find((s) => s.slot === 'IR')?.count ?? 0;
-  const board = { rows, moving, attempt, moveTo, choose, selected, saving, now: props.now };
+  const board = {
+    rows,
+    moving,
+    attempt,
+    moveTo,
+    choose,
+    selected,
+    saving,
+    now: props.now,
+    highlight: spotlightId
+  };
+  const spotlightRow = spotlightId === null ? undefined : byId.get(spotlightId);
+  const spotlightStatus = spotlightRow === undefined ? null : statusLabel(spotlightRow);
 
   // Nobody starts (right after the draft, say): offer the optimizer's lineup as one tap.
   const emptyLineup = !data.players.some((p) => isStarter(p.slot)) && pending.length === 0;
@@ -265,6 +293,26 @@ export function LineupBoard(props: {
         optimalGain={optimal === null ? 0 : optimal.projectedPoints - total}
         onOptimize={optimize}
       />
+      {spotlightRow !== undefined && spotlightStatus !== null && (
+        <section
+          role="alert"
+          data-testid="player-alert"
+          className={`motion-pop rounded-lg border p-3 text-sm ${
+            willPlay(spotlightRow) ? 'border-warning-500 bg-warning-50' : 'border-error-600 bg-error-50'
+          }`}
+        >
+          <p>
+            <strong>{spotlightRow.player.name}</strong> is <strong>{spotlightStatus}</strong>
+            {isStarter(spotlightRow.slot)
+              ? spotlightRow.locked
+                ? '. His game has started, so he stays in your lineup.'
+                : willPlay(spotlightRow)
+                  ? ' and in your lineup. Keep him, or tap a highlighted player to start instead.'
+                  : '. Tap a highlighted player to start in his place, then save.'
+              : ' and on your bench.'}
+          </p>
+        </section>
+      )}
       <ApiErrorAlert error={problem} />
       <p className="text-sm text-muted-foreground">
         <span className="max-sm:hidden">
@@ -410,6 +458,8 @@ interface Board {
   selected: string | null;
   saving: boolean;
   now: number;
+  /** The player a notification pointed at (#200). */
+  highlight: string | null;
 }
 
 /** The players a PLAYER_LOCKED refusal names (`details.lockedPlayerIds`), by name. */
@@ -583,14 +633,16 @@ function Spot(props: {
           : 'bg-primary-50 ring-1 ring-inset ring-primary-300'
         : 'opacity-40';
   const out = entry !== null && isStarter(props.slot) && !willPlay(entry);
+  const highlighted = entry !== null && entry.player.id === board.highlight;
   return (
     <li
       ref={setNodeRef}
       data-testid={entry === null ? `lineup-empty-${props.id}` : `roster-row-${entry.player.id}`}
       data-target={board.moving === null || isMover ? undefined : valid ? 'valid' : 'invalid'}
+      data-highlighted={highlighted ? 'true' : undefined}
       className={`motion-row ${enter.className} relative flex items-stretch gap-2 px-2 transition-[background-color,opacity] sm:gap-3 sm:px-3 ${tone} ${
-        out ? 'border-l-4 border-l-warning-500' : ''
-      }`}
+        out ? `border-l-4 ${highlighted ? 'border-l-error-600' : 'border-l-warning-500'}` : ''
+      } ${highlighted ? 'scroll-mt-24 ring-2 ring-inset ring-error-500' : ''}`}
       style={enter.style}
     >
       <span

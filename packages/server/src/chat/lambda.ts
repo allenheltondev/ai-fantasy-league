@@ -11,6 +11,7 @@ import type { BusEvent } from '../events/bus.js';
 import { EventBridgePublisher } from '../events/eventbridge.js';
 import { createLogger, parseLogLevel } from '../log.js';
 import { createDynamoRepos } from '../repos/dynamo/index.js';
+import { createDynamoReferenceStore } from '../repos/dynamo/reference.js';
 import { createDocumentClient } from '../repos/dynamo/table.js';
 import { createServices } from '../services.js';
 import { writeNotifications, type NotificationOutcome } from '../notifications/consumer.js';
@@ -29,9 +30,12 @@ export function createChatEventServices(env: Record<string, string | undefined>)
       `Missing or invalid chat events environment: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`
     );
   }
+  const table = { doc: createDocumentClient(), tableName: parsed.data.TABLE_NAME };
   return createServices({
     clock: systemClock,
-    repos: createDynamoRepos({ doc: createDocumentClient(), tableName: parsed.data.TABLE_NAME }),
+    repos: createDynamoRepos(table),
+    // Player notifications (#200) read the week's NFL games to know whether a game has kicked off.
+    reference: createDynamoReferenceStore(table),
     events: new EventBridgePublisher({ busName: parsed.data.EVENT_BUS_NAME }),
     log: createLogger({ level: parseLogLevel(parsed.data.LOG_LEVEL), bindings: { component: 'chat-events' } })
   });

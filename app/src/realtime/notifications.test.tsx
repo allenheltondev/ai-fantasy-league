@@ -97,6 +97,34 @@ describe('notificationFor', () => {
     expect(notificationFor(ev('Notification Created', {}), 'team-1')).toBeNull();
   });
 
+  it('pops only an urgent player alert, in red; routine status and news wait in the inbox (#200)', () => {
+    const lineup = { section: 'lineup', tradeId: null, playerId: '4034' };
+    expect(
+      notificationFor(
+        ev(
+          'Notification Created',
+          inboxItem({
+            kind: 'player_status',
+            urgent: true,
+            title: 'Starter out: Christian McCaffrey',
+            body: 'Set your lineup.',
+            target: lineup
+          })
+        ),
+        'team-1'
+      )
+    ).toEqual({
+      message: 'Starter out: Christian McCaffrey. Set your lineup.',
+      variant: 'error',
+      inbox: { id: 'n1', leagueId: 'L1', href: '/leagues/L1/team/lineup?player=4034' }
+    });
+    for (const kind of ['player_status', 'player_news']) {
+      expect(
+        notificationFor(ev('Notification Created', inboxItem({ kind, target: lineup })), 'team-1')
+      ).toBeNull();
+    }
+  });
+
   it('leaves trade news about your own team to your inbox', () => {
     for (const type of ['Trade Accepted', 'Trade Vetoed']) {
       expect(notificationFor(ev(type, tradeDetail()), 'team-1')).toBeNull();

@@ -45,6 +45,7 @@ describe('normalizePlayers (fixtures)', () => {
       depthChartPosition: 'QB',
       active: true,
       gsisId: '00-0033873', // Sleeper sends it with a leading space
+      espnId: '3139477', // Sleeper sends it as a number
       age: 29,
       yearsExp: 8,
       number: 15,
@@ -57,6 +58,7 @@ describe('normalizePlayers (fixtures)', () => {
     expect(byId.get('7564')?.searchNames).toEqual(['jamarr chase']);
     expect(byId.get('90003')).toMatchObject({ team: null, status: 'Inactive', depthChartOrder: null });
     expect(byId.get('90003')?.number).toBeUndefined();
+    expect(byId.get('90003')?.espnId).toBeUndefined();
     expect(byId.get('90004')?.active).toBe(false);
   });
 

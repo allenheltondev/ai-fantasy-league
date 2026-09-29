@@ -45,6 +45,11 @@ on:
         required: false
         type: string
         default: ''
+      espn_injuries:
+        description: Also record ESPN's league-wide injury report (#200; best on a game day, about 90 minutes before a kickoff; uploaded only)
+        required: false
+        type: boolean
+        default: false
       push_branch:
         description: Commit the recorded Sleeper fixtures to a fixtures/run-<run id> branch
         required: false
@@ -108,6 +113,12 @@ jobs:
         env:
           ESPN_EVENT: ${{ inputs.espn_event }}
         run: node scripts/record-fixtures.mjs --espn-summary "$ESPN_EVENT" --out recorded/fixtures
+      - name: Record ESPN's injury report
+        # The game-day injuries fixture (#200), hand-written until a live payload is recorded:
+        # commit recorded/fixtures/espn/injuries.json beside the hand-authored one.
+        if: ${{ inputs.espn_injuries }}
+        continue-on-error: true
+        run: node scripts/record-fixtures.mjs --espn-injuries --out recorded/fixtures
       - name: Check news feeds
         # A feed outage must not lose the recorded fixtures.
         continue-on-error: true

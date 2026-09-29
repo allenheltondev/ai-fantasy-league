@@ -508,6 +508,18 @@ Resources:
             Input: '{"job":"ingestNews"}'
             RetryPolicy:
               MaximumRetryAttempts: 0
+        # Game-day injuries (#200): ESPN's public injury report (outbound HTTPS, no
+        # credentials) for rostered players, from 3 hours before a game day's first
+        # kickoff to its last kickoff, plus one morning run; otherwise it returns
+        # after two reads.
+        SyncGameDayInjuries:
+          Type: ScheduleV2
+          Properties:
+            Description: Game-day injury designations and inactives from ESPN
+            ScheduleExpression: rate(15 minutes)
+            Input: '{"job":"syncGameDayInjuries"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 0
         # Season loop (docs/adr/002-weekly-cycle.md). Live scoring polls like
         # ingestStats and returns after one query outside game windows. Each run
         # also reads ESPN's public scoreboard once for the NFL games strip and the
@@ -1053,13 +1065,17 @@ Resources:
         - Version: '2012-10-17'
           Statement:
             # Reads the league and teams; writes CHAT# messages and
-            # LEAGUE# NOTIF# inbox items (conditional puts).
+            # LEAGUE# NOTIF# inbox items (conditional puts). Player notifications
+            # (#200) find rostering teams through the GSI2 league-phase index and
+            # read lineups, the NFL schedule, and USER# NOTIFPREFS.
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
                 - dynamodb:Query
-              Resource: !GetAtt FantasyTable.Arn
+              Resource:
+                - !GetAtt FantasyTable.Arn
+                - !Sub ${FantasyTable.Arn}/index/*
             # Chat Message Posted, Chat Moment, Notification Created.
             - Effect: Allow
               Action: events:PutEvents
@@ -1104,6 +1120,10 @@ Resources:
                 - Trade Expired
                 - Trade Withdrawn
                 - Draft Turn Started
+                # League-less player events: the inbox of every person whose
+                # team rosters the player (#200).
+                - Player Status Changed
+                - Player News Alert
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
@@ -1189,6 +1209,9 @@ Resources:
                 - Trade Withdrawn
                 # A team's new inbox item: relayed only to that team's topic.
                 - Notification Created
+                # A player's status (#200), on the global topic: open lineups
+                # and matchups show an OUT chip without a reload.
+                - Player Status Changed
             # Live updates are only worth delivering while they are fresh.
             RetryPolicy:
               MaximumRetryAttempts: 2

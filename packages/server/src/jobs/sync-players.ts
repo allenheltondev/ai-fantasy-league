@@ -1,7 +1,7 @@
 import type { Clock } from '@fantasy/core';
-import { diffPlayers, type PlayerChange } from '@fantasy/data';
+import { diffPlayers, type PlayerChange, type Player as SourcePlayer } from '@fantasy/data';
 import type { EventDetailOf } from '../events/details.js';
-import type { Player } from '../players/model.js';
+import type { Player, StatusSource } from '../players/model.js';
 import { inSyncScope, toProfile } from '../players/profile.js';
 import type { SyncedPlayer } from '../repos/reference.js';
 import { mapLimit, type JobDeps, type JobResult } from './deps.js';
@@ -11,6 +11,10 @@ import { mapLimit, type JobDeps, type JobResult } from './deps.js';
  * the stored source records, and upserts only what changed into the `PLAYER#` partition and the
  * GSI1 name index. Status, injury, team, and depth-chart changes become `Player Status Changed`
  * events (one per player). The first sync stores everything and emits nothing.
+ *
+ * Game-day statuses win (#200): a player whose injury status came from ESPN's game-day report
+ * (`syncGameDayInjuries`) keeps it until the end of that NFL week, so Sleeper's slower feed cannot
+ * revert an inactive to "Questionable" in the meantime; his other fields still sync.
  */
 export async function syncPlayers(
   deps: Pick<JobDeps, 'provider' | 'reference' | 'events' | 'directory' | 'log'>,
@@ -23,12 +27,20 @@ export async function syncPlayers(
   ]);
   const stored = new Set(previous.map((p) => p.id));
   const scoped = fetched.filter((p) => inSyncScope(p, stored));
-  const diff = diffPlayers(previous, scoped);
+  const firstDiff = diffPlayers(previous, scoped);
+  const held = await heldGameDayStatuses(
+    deps,
+    firstDiff.upserts.filter((p) => stored.has(p.id)).map((p) => p.id),
+    now
+  );
+  const diff = held.size === 0 ? firstDiff : diffPlayers(previous, pinGameDay(scoped, previous, held));
 
   const updatedAt = now.toISOString();
   const records: SyncedPlayer[] = diff.upserts.flatMap((source) => {
     const player = toProfile(source, updatedAt);
-    return player === null ? [] : [{ player, source }];
+    if (player === null) return [];
+    const gameDay = held.get(source.id);
+    return [{ player: gameDay === undefined ? player : { ...player, ...gameDayMarkers(gameDay) }, source }];
   });
   await deps.reference.playerSync.upsert(records);
 
@@ -54,17 +66,70 @@ export async function syncPlayers(
     inScope: scoped.length,
     upserted: records.length,
     statusChanges: alerts.length,
-    removed: diff.removed.length
+    removed: diff.removed.length,
+    gameDayHeld: held.size
   };
   deps.log.info('player sync finished', result);
   return result;
+}
+
+/** Stored profiles among `ids` whose game-day status still holds at `now`. */
+async function heldGameDayStatuses(
+  deps: Pick<JobDeps, 'reference'>,
+  ids: readonly string[],
+  now: Date
+): Promise<Map<string, Player>> {
+  if (ids.length === 0) return new Map();
+  const records = await deps.reference.playerSync.getMany(ids);
+  return new Map(
+    records
+      .filter(({ player }) => isGameDayHeld(player, now))
+      .map(({ player }) => [player.id, player] as const)
+  );
+}
+
+/** Whether a stored game-day status (#200) still outranks Sleeper at `now`. */
+export function isGameDayHeld(player: Player, now: Date): boolean {
+  return (
+    player.statusSource === 'espn_gameday' &&
+    player.statusHeldUntil !== undefined &&
+    Date.parse(player.statusHeldUntil) > now.getTime()
+  );
+}
+
+function gameDayMarkers(player: Player): Pick<Player, 'statusSource' | 'statusAsOf' | 'statusHeldUntil'> {
+  return {
+    statusSource: 'espn_gameday',
+    ...(player.statusAsOf === undefined ? {} : { statusAsOf: player.statusAsOf }),
+    ...(player.statusHeldUntil === undefined ? {} : { statusHeldUntil: player.statusHeldUntil })
+  };
+}
+
+/** Sleeper's records with each held player's injury status put back to the stored (game-day) one. */
+function pinGameDay(
+  fetched: readonly SourcePlayer[],
+  previous: readonly SourcePlayer[],
+  held: ReadonlyMap<string, Player>
+): SourcePlayer[] {
+  const before = new Map(previous.map((p) => [p.id, p]));
+  return fetched.map((p) => {
+    const stored = held.has(p.id) ? before.get(p.id) : undefined;
+    if (stored === undefined) return p;
+    const { injuryStatusRaw: _raw, ...rest } = p;
+    return {
+      ...rest,
+      injuryStatus: stored.injuryStatus,
+      ...(stored.injuryStatusRaw === undefined ? {} : { injuryStatusRaw: stored.injuryStatusRaw })
+    };
+  });
 }
 
 /** The `Player Status Changed` detail: one player's status, injury, team, or depth-chart changes. */
 export function statusChangedDetail(
   player: Player,
   changes: readonly PlayerChange[],
-  changedAt: string
+  changedAt: string,
+  source: StatusSource = 'sleeper'
 ): EventDetailOf<'Player Status Changed'> {
   return {
     playerId: player.id,
@@ -72,6 +137,7 @@ export function statusChangedDetail(
     team: player.team,
     position: player.position,
     changes: changes.map((c) => ({ field: c.field, from: c.from, to: c.to })),
-    changedAt
+    changedAt,
+    source
   };
 }

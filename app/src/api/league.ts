@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { RealtimeInfo } from '../chat/api';
 import type { ApiFetch, ApiRequest } from './client';
-import type { NotificationInbox, NotificationSummary } from '../notifications/types';
+import type { NotificationInbox, NotificationPreferences, NotificationSummary } from '../notifications/types';
 import type {
   AgentActivity,
   AgentCatalog,
@@ -145,7 +145,11 @@ export function createLeagueApi(api: ApiFetch) {
       call<{ leagueId: string }>('/notifications/delivered', {
         method: 'POST',
         body: { leagueId: id, notificationIds }
-      })
+      }),
+    /** get/update_notification_preferences (#200): player news in the inbox, on or off. */
+    getNotificationPreferences: () => call<NotificationPreferences>('/notifications/preferences'),
+    updateNotificationPreferences: (preferences: NotificationPreferences) =>
+      call<NotificationPreferences>('/notifications/preferences', { method: 'PUT', body: preferences })
   };
 }
 

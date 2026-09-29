@@ -105,6 +105,12 @@ Team defense (DEF) stats are not in nflverse's player file and are not derived y
   ESPN): one week with a red-zone drive, a drive outside it, a live game between plays (no
   possession), a pregame, and a final. `normalizeScoreboard` maps ESPN's codes (`WSH`) to ours
   and tolerates missing situations and unknown fields; verify against the live feed after deploy.
+  `espn/hand-authored/injuries.json` (#200) is ESPN's league-wide injury report
+  (`.../nfl/injuries`) in the shape community clients document: team groups of entries with a
+  status word, the athlete's name, position, team, and his ESPN id in `athlete.id` or only in his
+  player-card link. `normalizeInjuries` reads either, skips unknown status words, and
+  `matchInjuryReports` maps entries to our players by Sleeper's `espn_id` before name, team, and
+  position. Record the real report with `--espn-injuries` (below) on a game day.
 - `sleeper/`: **hand-authored** in Sleeper's real response shapes, because `api.sleeper.app` was not
   reachable from the sandbox that built this package. The weekly stats mirror the real nflverse
   numbers; projections, trending, and DEF lines are illustrative. `manifest.json` records each
@@ -115,6 +121,7 @@ Refresh them where Sleeper is reachable (CI, AWS, a laptop):
 ```sh
 node scripts/record-fixtures.mjs             # Sleeper + nflverse
 node scripts/record-fixtures.mjs --nflverse  # nflverse only (works from the sandbox)
+node scripts/record-fixtures.mjs --espn-injuries  # ESPN's injury report (#200) to espn/injuries.json
 ```
 
 The script trims responses to the fixture player set and keeps the synthetic `900xx` players.

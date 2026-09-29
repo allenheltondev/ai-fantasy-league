@@ -2,7 +2,7 @@ import { ACHIEVEMENT_IDS, CHECK_IN_SLOTS, NOTABLE_PICK_KINDS, TRADE_STATUSES } f
 import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
 import { NotificationSchema } from '../notifications/model.js';
-import { PlayerRefSchema } from '../players/model.js';
+import { PlayerRefSchema, STATUS_SOURCES } from '../players/model.js';
 import { NflGameSchema, RedZoneTeamSchema } from '../season/nfl-games.js';
 import { ScoringLogEntrySchema } from '../season/scoring-log.js';
 import type { EventDetail, FantasyEventType } from './publisher.js';
@@ -245,7 +245,12 @@ export const EVENT_DETAIL_SCHEMAS = {
     team: z.string().nullable(),
     position: z.string(),
     changes: z.array(z.object({ field: z.string(), from: z.unknown(), to: z.unknown() })),
-    changedAt: iso
+    changedAt: iso,
+    source: z
+      .enum(STATUS_SOURCES)
+      .describe(
+        "Where the change was read (#200): Sleeper's twice-daily sync, or ESPN's game-day injury report (inactives about 90 minutes before kickoff)."
+      )
   }),
   'Chat Mention': z.object({
     leagueId: id,

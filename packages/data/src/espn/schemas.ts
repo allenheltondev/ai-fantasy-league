@@ -87,3 +87,40 @@ export type EspnScoringPlay = z.infer<typeof espnScoringPlaySchema>;
 /** The summary's envelope: before kickoff (and for some games) `scoringPlays` is left out. */
 export const espnSummarySchema = z.object({ scoringPlays: z.array(z.unknown()).nullable().optional() });
 export type EspnSummary = z.infer<typeof espnSummarySchema>;
+
+/**
+ * One entry of ESPN's league-wide injury report (`.../nfl/injuries`, #200): a player's current
+ * designation, including the game-day inactives ESPN posts about 90 minutes before kickoff. Only
+ * the status and a name are required. The athlete's ESPN id is in `athlete.id` on some responses
+ * and only in its player-card link (`/_/id/<id>/`) on others; the team and position may be missing.
+ */
+export const espnInjurySchema = z.object({
+  status: z.string(),
+  date: optionalString,
+  shortComment: optionalString,
+  athlete: z.object({
+    id: z.union([z.string(), z.number()]).nullable().optional(),
+    displayName: z.string(),
+    links: z
+      .array(z.object({ href: optionalString }))
+      .nullable()
+      .optional(),
+    position: z.object({ abbreviation: optionalString }).nullable().optional(),
+    team: z.object({ abbreviation: optionalString }).nullable().optional()
+  })
+});
+export type EspnInjury = z.infer<typeof espnInjurySchema>;
+
+/**
+ * The injury report's envelope: one group per NFL team. Entries are validated one at a time
+ * (`normalizeInjuries`), so one odd entry does not hide the others.
+ */
+export const espnInjuriesSchema = z.object({
+  injuries: z.array(
+    z.object({
+      displayName: optionalString,
+      injuries: z.array(z.unknown()).nullable().optional()
+    })
+  )
+});
+export type EspnInjuries = z.infer<typeof espnInjuriesSchema>;

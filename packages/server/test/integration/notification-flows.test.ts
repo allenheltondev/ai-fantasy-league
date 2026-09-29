@@ -231,6 +231,55 @@ describe('notification inbox', () => {
     expect((await carol.post('/notifications/read', { leagueId: 'lg-n', all: true })).status).toBe(403);
   });
 
+  it('alerts a manager about their player, and keeps player news to those who want it (#200)', async () => {
+    expect(data(await bob.get('/notifications/preferences'))).toEqual({ playerNews: true });
+    const status: BusEvent = {
+      id: `evt-n-${++seq}`,
+      'detail-type': 'Player Status Changed',
+      source: 'fantasy',
+      time: h.clock.now().toISOString(),
+      detail: {
+        playerId: 'fx-cmc',
+        name: 'Christian McCaffrey',
+        team: 'SF',
+        position: 'RB',
+        changes: [{ field: 'injuryStatus', from: null, to: 'Out' }],
+        changedAt: h.clock.now().toISOString(),
+        source: 'espn_gameday'
+      }
+    };
+    expect(await writeNotifications(h.services, status)).toMatchObject({ status: 'written' });
+    const [alert] = (await inbox(alice)).notifications;
+    expect(alert).toMatchObject({
+      kind: 'player_status',
+      title: 'Christian McCaffrey is out',
+      target: { section: 'lineup', tradeId: null, playerId: 'fx-cmc' }
+    });
+
+    expect(data(await bob.put('/notifications/preferences', { playerNews: false }))).toEqual({
+      playerNews: false
+    });
+    expect(data(await bob.get('/notifications/preferences'))).toEqual({ playerNews: false });
+    expect(errorCode(await bob.put('/notifications/preferences', { playerNews: 'no' }))).toBe(
+      'INVALID_INPUT'
+    );
+    const news: BusEvent = {
+      ...status,
+      id: `evt-n-${++seq}`,
+      'detail-type': 'Player News Alert',
+      detail: {
+        newsId: 'n1',
+        title: 'Mahomes limited in practice',
+        url: 'https://example.test/n1',
+        source: 'ESPN',
+        publishedAt: h.clock.now().toISOString(),
+        playerIds: ['fx-mahomes'],
+        teams: ['KC']
+      }
+    };
+    expect(await writeNotifications(h.services, news)).toEqual({ status: 'skipped', reason: 'nobody' });
+  });
+
   it('gives a commissioner without a seat an empty inbox, and skips a seat someone else now holds', async () => {
     const nobody = as(h, { sub: 'nobody', name: 'Nobody', email: 'nobody@example.com' });
     await seedSeasonLeague(h.repos, { id: 'lg-n2', owners: [null, CAROL], rosters: {} });

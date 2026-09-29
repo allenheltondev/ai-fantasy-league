@@ -40,12 +40,17 @@ const VARIANTS: Record<string, ToastVariant> = {
   waiver_lost: 'warning'
 };
 
+/** Player news and routine status changes (#200) wait quietly in the inbox: only the bell moves. */
+const QUIET_KINDS = new Set(['player_news', 'player_status']);
+
 function inbox(detail: Record<string, unknown>, you: string): Notification | null {
   const n = detail.notification as AppNotification | undefined;
   if (n === undefined || typeof n.id !== 'string' || n.teamId !== you || n.target === undefined) return null;
+  const urgent = n.urgent === true;
+  if (!urgent && QUIET_KINDS.has(n.kind)) return null;
   return {
     message: `${n.title}. ${n.body}`,
-    variant: VARIANTS[n.kind] ?? 'info',
+    variant: urgent ? 'error' : (VARIANTS[n.kind] ?? 'info'),
     inbox: { id: n.id, leagueId: n.leagueId, href: notificationHref(n) }
   };
 }

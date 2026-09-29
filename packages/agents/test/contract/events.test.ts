@@ -700,6 +700,29 @@ describe('event contract: player news', () => {
     const request = last(s.events.events, 'Agent Action Requested');
     expect(request.detail).toMatchObject({ payload: { reason: 'status', playerId: 'rb3' } });
   });
+
+  it('a game-day status from ESPN (#200) routes like a Sleeper one, and goes to the global topic', async () => {
+    const s = await inSeason();
+    const player = (await s.repos.players.get('rb3')) as Player;
+    const changed = await consume(
+      s.services,
+      delivered({
+        detailType: 'Player Status Changed',
+        detail: statusChangedDetail(
+          player,
+          [{ playerId: 'rb3', field: 'injuryStatus', from: 'Questionable', to: 'Out' }],
+          '2026-10-04T15:30:00.000Z',
+          'espn_gameday'
+        )
+      })
+    );
+    expect(changed.event.detail).toMatchObject({ source: 'espn_gameday' });
+    expect(decisions(changed)).toEqual([['team-2', 'lineup', 'requested']]);
+    expect(last(s.events.events, 'Agent Action Requested').detail).toMatchObject({
+      payload: { reason: 'status', playerId: 'rb3' }
+    });
+    expect(changed.relay.topics).toEqual(['fantasy.global']);
+  });
 });
 
 describe('event contract: chat', () => {

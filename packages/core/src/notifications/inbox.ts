@@ -20,18 +20,22 @@ export const NOTIFICATION_KINDS = [
   'trade_processed',
   'waiver_won',
   'waiver_lost',
-  'draft_on_clock'
+  'draft_on_clock',
+  'player_status',
+  'player_news'
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 /** The league sections a notification opens. */
-export const NOTIFICATION_SECTIONS = ['trades', 'roster', 'draft'] as const;
+export const NOTIFICATION_SECTIONS = ['trades', 'roster', 'draft', 'lineup'] as const;
 export type NotificationSection = (typeof NOTIFICATION_SECTIONS)[number];
 
 export interface NotificationTarget {
   section: NotificationSection;
   /** The trade to open, for trade notifications. */
   tradeId: string | null;
+  /** The player to highlight, for player notifications (#200). */
+  playerId?: string | null;
 }
 
 export interface NotificationDraft {
@@ -42,6 +46,8 @@ export interface NotificationDraft {
   title: string;
   body: string;
   target: NotificationTarget;
+  /** Needs action now (#200: a starter ruled out before his game); shown first and in red. */
+  urgent?: boolean;
 }
 
 export interface NotificationContext {

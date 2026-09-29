@@ -59,6 +59,7 @@ export function normalizePlayer(raw: SleeperPlayer): Player {
       : [])
   ]);
   const gsisId = clean(raw.gsis_id);
+  const espnId = clean(raw.espn_id === null || raw.espn_id === undefined ? null : String(raw.espn_id));
   const jersey = raw.number === null || raw.number === undefined ? NaN : Number(raw.number);
   const player: Player = {
     id: raw.player_id,
@@ -76,6 +77,7 @@ export function normalizePlayer(raw: SleeperPlayer): Player {
     searchNames
   };
   if (gsisId) player.gsisId = gsisId;
+  if (espnId) player.espnId = espnId;
   if (typeof raw.age === 'number') player.age = raw.age;
   if (typeof raw.years_exp === 'number') player.yearsExp = raw.years_exp;
   if (Number.isFinite(jersey)) player.number = jersey;

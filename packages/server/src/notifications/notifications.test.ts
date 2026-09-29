@@ -5,6 +5,7 @@ import { InMemoryEventPublisher } from '../events/publisher.js';
 import { newTeam } from '../league/seats.js';
 import { silentLogger } from '../log.js';
 import { createInMemoryRepos } from '../repos/memory.js';
+import { createServices } from '../services.js';
 import type { League } from '../repos/types.js';
 import { writeNotifications } from './consumer.js';
 import { isRead, notificationId, notificationLocalKeyOf } from './model.js';
@@ -53,7 +54,7 @@ async function setup() {
     }),
     newTeam({ leagueId: 'lg', id: 'team-3', draftSlot: 3, settings, now })
   ]);
-  const services = { repos, clock, events, log: silentLogger };
+  const services = createServices({ repos, clock, events, log: silentLogger });
   return { repos, clock, events, services };
 }
 

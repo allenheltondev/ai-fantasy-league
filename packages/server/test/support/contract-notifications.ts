@@ -20,6 +20,7 @@ const ID = notificationId(notificationLocalKey(START, 'evt-contract-notif', ''))
 const LIST = '/api/v1/leagues/lg-c/notifications';
 const READ = '/api/v1/notifications/read';
 const DELIVERED = '/api/v1/notifications/delivered';
+const PREFERENCES = '/api/v1/notifications/preferences';
 
 export async function seedContractNotifications(repos: Repos): Promise<void> {
   await repos.notifications.put({
@@ -31,6 +32,21 @@ export async function seedContractNotifications(repos: Repos): Promise<void> {
     body: "You'd get Bijan Robinson for Christian McCaffrey.",
     target: { section: 'trades', tradeId: 'trade-contract' },
     event: { detailType: 'Trade Proposed', eventId: 'evt-contract-notif' },
+    createdAt: START,
+    readAt: null,
+    deliveredAt: null
+  });
+  // A game-day alert (#200): urgent, and it opens the lineup with the player highlighted.
+  await repos.notifications.put({
+    id: notificationId(notificationLocalKey(START, 'evt-contract-status', '')),
+    leagueId: 'lg-c',
+    teamId: 'team-1',
+    kind: 'player_status',
+    title: 'Starter out: Christian McCaffrey',
+    body: "Your starter Christian McCaffrey (RB, SF) is OUT for today's game. Set your lineup.",
+    target: { section: 'lineup', tradeId: null, playerId: '4034' },
+    urgent: true,
+    event: { detailType: 'Player Status Changed', eventId: 'evt-contract-status' },
     createdAt: START,
     readAt: null,
     deliveredAt: null
@@ -59,6 +75,24 @@ export const NOTIFICATION_CASES: Record<string, Case[]> = {
       label: 'not an id',
       path: DELIVERED,
       init: { body: { leagueId: 'lg-c', notificationIds: ['x!'] }, idempotencyKey: 'contract-notif-2' },
+      status: 400
+    }
+  ],
+  get_notification_preferences: [
+    { label: 'defaults', path: PREFERENCES, status: 200 },
+    { label: 'anonymous', path: PREFERENCES, init: { token: null }, status: 401 }
+  ],
+  update_notification_preferences: [
+    {
+      label: 'news off',
+      path: PREFERENCES,
+      init: { method: 'PUT', body: { playerNews: false }, idempotencyKey: 'contract-prefs-1' },
+      status: 200
+    },
+    {
+      label: 'missing setting',
+      path: PREFERENCES,
+      init: { method: 'PUT', body: {}, idempotencyKey: 'contract-prefs-2' },
       status: 400
     }
   ],

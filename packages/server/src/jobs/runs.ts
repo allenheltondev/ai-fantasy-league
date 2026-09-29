@@ -19,7 +19,8 @@ export const DATA_JOB_NAMES = [
   'officialFinal',
   'processWaivers',
   'syncSeasonResearch',
-  'managerCheckIns'
+  'managerCheckIns',
+  'syncGameDayInjuries'
 ] as const;
 
 /** Longest summary or error message a run record keeps. */

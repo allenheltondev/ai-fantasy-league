@@ -711,4 +711,88 @@ describe('the lineup page on game day (#193)', () => {
     act(() => push({ detailType: 'NFL Games Updated', leagueId: null }));
     await waitFor(() => expect(api.getRoster).toHaveBeenCalledTimes(2));
   });
+
+  it('shows a player ruled out without a reload, and ignores other teams’ players (#200)', async () => {
+    let push: (event: LeagueEvent) => void = () => undefined;
+    const connect: EventConnect = async (_target, handlers) => {
+      push = handlers.onEvent;
+      return () => undefined;
+    };
+    let out = false;
+    const api = fakeApi({
+      getLeagueState: vi.fn(async () => state({ phase: 'regular_season', week: 1 })),
+      getRoster: vi.fn(async () =>
+        roster([
+          entry('qb1', 'QB', 'QB'),
+          entry('wr1', 'WR', 'WR', out ? { status: 'out', injuryStatus: 'Out' } : {})
+        ])
+      ),
+      getRealtime: vi.fn(async () => ({
+        enabled: true,
+        token: 't',
+        endpoint: null,
+        cacheName: 'c',
+        topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
+        expiresAt: null,
+        pollIntervalSeconds: 30
+      }))
+    });
+    render(
+      <LeagueApiContext.Provider value={api}>
+        <MemoryRouter initialEntries={['/leagues/L1/roster']}>
+          <Routes>
+            <Route path="/leagues/:leagueId/roster" element={<RosterPage connect={connect} />} />
+          </Routes>
+        </MemoryRouter>
+      </LeagueApiContext.Provider>
+    );
+    expect(await screen.findByTestId('roster-row-wr1')).toBeInTheDocument();
+    await waitFor(() => expect(api.getRealtime).toHaveBeenCalled());
+    act(() => push({ detailType: 'Player Status Changed', leagueId: null, detail: { playerId: 'someone' } }));
+    out = true;
+    act(() => push({ detailType: 'Player Status Changed', leagueId: null, detail: { playerId: 'wr1' } }));
+    await waitFor(() => expect(api.getRoster).toHaveBeenCalledTimes(2));
+    expect(await within(screen.getByTestId('roster-row-wr1')).findByText('Out')).toBeInTheDocument();
+  });
+});
+
+describe('a player notification’s lineup link (#200)', () => {
+  const hurt = () =>
+    roster([
+      entry('qb1', 'QB', 'QB'),
+      entry('wr1', 'WR', 'WR', { status: 'out', injuryStatus: 'Out' }),
+      entry('wr2', 'WR', 'BN', { projectedPoints: 12 }),
+      entry('wr3', 'WR', 'BN', { status: 'questionable', injuryStatus: 'Questionable' })
+    ]);
+
+  function openAt(path: string, overrides: Partial<LeagueApi> = {}) {
+    const api = fakeApi({
+      getLeagueState: vi.fn(async () => state({ phase: 'regular_season', week: 1 })),
+      getRoster: vi.fn(async () => hurt()),
+      ...overrides
+    });
+    renderApp(path, undefined, api);
+    return api;
+  }
+
+  it('highlights the ruled-out starter, selected, so one tap on a bench player replaces him', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    openAt('/leagues/L1/team/lineup?player=wr1');
+    const row = await screen.findByTestId('roster-row-wr1');
+    expect(row).toHaveAttribute('data-highlighted', 'true');
+    expect(screen.getByTestId('player-alert')).toHaveTextContent(
+      'WR1 is Out. Tap a highlighted player to start in his place, then save.'
+    );
+    expect(screen.getByTestId('moving-banner')).toHaveTextContent('Moving WR1');
+    await user.click(within(screen.getByTestId('roster-row-wr2')).getByRole('button'));
+    expect(screen.getByTestId('pending-changes')).toBeInTheDocument();
+  });
+
+  it('only points at a bench player, or a questionable starter, without moving anyone', async () => {
+    openAt('/leagues/L1/team/lineup?player=wr3');
+    expect(await screen.findByTestId('player-alert')).toHaveTextContent(
+      'WR3 is Questionable and on your bench.'
+    );
+    expect(screen.queryByTestId('moving-banner')).not.toBeInTheDocument();
+  });
 });

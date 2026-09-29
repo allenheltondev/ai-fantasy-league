@@ -21920,7 +21920,7 @@
       "get": {
         "operationId": "list_notifications",
         "summary": "Read your notification inbox in a league",
-        "description": "Returns your team's notifications, newest first: trade offers, counters, and answers; accepted, vetoed, processed, and expired trades; your waiver claims won and lost (with why); and your turn in the draft. Each has a `title`, a `body`, `read`, and a `target` (the section to open: `trades` with the `tradeId`, `roster`, or `draft`). `unreadCount` counts every unread item, not just this page. Mark items read with mark_notifications_read. Read older items by passing the previous response's `nextCursor` as `after`. Items are kept for 30 days, and you see only those from your time on the seat. A commissioner without a team has no inbox (an empty list). Errors: FORBIDDEN if you are not in the league; INVALID_INPUT for a cursor this operation did not return.",
+        "description": "Returns your team's notifications, newest first: trade offers, counters, and answers; accepted, vetoed, processed, and expired trades; your waiver claims won and lost (with why); your turn in the draft; and your players' status changes and news (#200). Each has a `title`, a `body`, `read`, and a `target` (the section to open: `trades` with the `tradeId`, `roster`, `draft`, or `lineup` with the `playerId`). `urgent: true` marks a starter ruled out before his game: handle it first with set_lineup. `unreadCount` counts every unread item, not just this page. Mark items read with mark_notifications_read. Read older items by passing the previous response's `nextCursor` as `after`. Items are kept for 30 days, and you see only those from your time on the seat. A commissioner without a team has no inbox (an empty list). Errors: FORBIDDEN if you are not in the league; INVALID_INPUT for a cursor this operation did not return.",
         "tags": [
           "notifications"
         ],
@@ -22013,7 +22013,9 @@
                                   "trade_processed",
                                   "waiver_won",
                                   "waiver_lost",
-                                  "draft_on_clock"
+                                  "draft_on_clock",
+                                  "player_status",
+                                  "player_news"
                                 ]
                               },
                               "title": {
@@ -22030,12 +22032,20 @@
                                     "enum": [
                                       "trades",
                                       "roster",
-                                      "draft"
+                                      "draft",
+                                      "lineup"
                                     ],
-                                    "description": "The league section to open: trades, roster, or draft."
+                                    "description": "The league section to open: trades, roster, draft, or lineup (player status and news)."
                                   },
                                   "tradeId": {
                                     "description": "The trade to show, for trade notifications.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "playerId": {
+                                    "description": "The player to highlight on the lineup, for player status and news notifications.",
                                     "type": [
                                       "string",
                                       "null"
@@ -22048,6 +22058,10 @@
                                 ],
                                 "additionalProperties": false,
                                 "description": "Where the notification leads."
+                              },
+                              "urgent": {
+                                "description": "True when it needs action now: a starter ruled out (or doubtful) before his game. Show it first; fix it with set_lineup.",
+                                "type": "boolean"
                               },
                               "event": {
                                 "type": "object",
@@ -35622,6 +35636,346 @@
                 "required": [
                   "leagueId",
                   "notificationIds"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "operationId": "get_notification_preferences",
+        "summary": "Read your notification settings",
+        "description": "Your notification settings, the same in every league: `playerNews` (inbox items for news stories about your players, on unless you turned it off). Status alerts about your players (ruled out, doubtful, back on the field) always come. Change settings with update_notification_preferences.",
+        "tags": [
+          "notifications"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "playerNews": {
+                          "type": "boolean",
+                          "description": "Inbox items for news stories about your players (at most one per player an hour). Status alerts about your starters always come."
+                        }
+                      },
+                      "required": [
+                        "playerNews"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      },
+      "put": {
+        "operationId": "update_notification_preferences",
+        "summary": "Change your notification settings",
+        "description": "Turns player news in your inbox on or off (`playerNews`), in every league. Returns the settings as saved. Status alerts about your players cannot be turned off: a starter ruled out before his game always reaches you.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "notifications"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "playerNews": {
+                          "type": "boolean",
+                          "description": "Inbox items for news stories about your players (at most one per player an hour). Status alerts about your starters always come."
+                        }
+                      },
+                      "required": [
+                        "playerNews"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "playerNews": {
+                    "type": "boolean",
+                    "description": "Inbox items for news stories about your players (at most one per player an hour). Status alerts about your starters always come."
+                  }
+                },
+                "required": [
+                  "playerNews"
                 ]
               }
             }

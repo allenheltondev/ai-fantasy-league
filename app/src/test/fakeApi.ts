@@ -217,6 +217,8 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     })),
     markNotificationsRead: vi.fn(async (leagueId: string) => ({ leagueId, unreadCount: 0 })),
     markNotificationsDelivered: vi.fn(async (leagueId: string) => ({ leagueId })),
+    getNotificationPreferences: vi.fn(async () => ({ playerNews: true })),
+    updateNotificationPreferences: vi.fn(async (p: { playerNews: boolean }) => p),
     createLeague: vi.fn(async () => league()),
     getLeague: vi.fn(async () => league()),
     getLeagueState: vi.fn(async () => state()),

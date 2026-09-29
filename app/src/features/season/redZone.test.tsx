@@ -344,6 +344,16 @@ describe('MatchupPage red zone and NFL games', () => {
     expect(screen.getByRole('article', { name: 'DAL at PHI' })).toHaveTextContent('21');
   });
 
+  it('re-reads the matchup, not the games or the log, when a player’s status changes (#200)', async () => {
+    const { api, push } = renderMatchup(() => gamesData([RED]));
+    await screen.findByTestId('h2h-player-hurts');
+    await waitFor(() => expect(api.getRealtime).toHaveBeenCalled());
+    const reads = vi.mocked(api.getMatchup).mock.calls.length;
+    push({ detailType: 'Player Status Changed', leagueId: null, detail: { playerId: 'hurts' } });
+    await waitFor(() => expect(api.getMatchup).toHaveBeenCalledTimes(reads + 1));
+    expect(api.getNflGames).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the highlight but drops the pulse for reduced motion', async () => {
     reducedMotion(true);
     renderMatchup(() => gamesData([RED]));

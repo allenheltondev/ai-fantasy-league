@@ -231,6 +231,87 @@ describe('the notification panel, one league', () => {
   });
 });
 
+describe('player notifications (#200)', () => {
+  const PLAYER_INBOX: AppNotification[] = [
+    item({
+      id: 'p-news',
+      kind: 'player_news',
+      title: 'News: Mark Andrews',
+      body: 'Andrews limited in practice (ESPN)',
+      target: { section: 'lineup', tradeId: null, playerId: '5012' },
+      createdAt: '2026-10-04T14:58:00Z'
+    }),
+    item({
+      id: 'p-out',
+      kind: 'player_status',
+      urgent: true,
+      title: 'Starter out: Christian McCaffrey',
+      body: "Your starter Christian McCaffrey (RB, SF) is OUT for today's game. Set your lineup.",
+      target: { section: 'lineup', tradeId: null, playerId: '4034' },
+      createdAt: '2026-10-04T14:30:00Z'
+    }),
+    item({ id: 'p-old', createdAt: '2026-10-04T14:00:00Z', read: true })
+  ];
+  const ONE: NotificationSummary = {
+    unreadCount: 2,
+    leagues: [
+      { leagueId: 'L1', name: 'Sunday Funday', teamId: 'team-1', unreadCount: 2, tradeOffersWaiting: 0 }
+    ]
+  };
+
+  it('puts an urgent starter alert on top in red, one tap from the lineup with him highlighted', async () => {
+    const user = userEvent.setup();
+    signInAs(ALICE);
+    const fake = fakeApi({
+      getNotificationSummary: vi.fn(async () => ONE),
+      listNotifications: vi.fn(async () => ({
+        teamId: 'team-1',
+        unreadCount: 2,
+        notifications: PLAYER_INBOX,
+        nextCursor: null
+      }))
+    });
+    renderApp('/', undefined, fake);
+    await waitFor(() => expect(bell()).toHaveAccessibleName('Notifications, 2 unread'));
+    await user.click(bell());
+    const panel = await screen.findByRole('dialog', { name: 'Notifications' });
+    const list = await within(panel).findByRole('list', { name: 'Notifications' });
+    const links = within(list).getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('aria-label'))).toEqual([
+      'Action needed: Starter out: Christian McCaffrey',
+      'Unread: News: Mark Andrews',
+      "Trade offer from Bob's Team"
+    ]);
+    expect(links[0]).toHaveAttribute('data-urgent', 'true');
+    expect(links[0]).toHaveAttribute('href', '/leagues/L1/team/lineup?player=4034');
+    expect(within(links[0] as HTMLElement).getByText('Fix your lineup')).toBeInTheDocument();
+    expect(links[1]).not.toHaveAttribute('data-urgent');
+    await user.click(links[0] as HTMLElement);
+    expect(fake.markNotificationsRead).toHaveBeenCalledWith('L1', { notificationIds: ['p-out'] });
+    expect(await screen.findByTestId('league-section-roster')).toBeInTheDocument();
+  });
+
+  it('turns player news off and back on from the panel, and undoes a failed change', async () => {
+    const user = userEvent.setup();
+    signInAs(ALICE);
+    const fake = api(ONE);
+    renderApp('/', undefined, fake);
+    await user.click(bell());
+    const panel = await screen.findByRole('dialog', { name: 'Notifications' });
+    const setting = await within(panel).findByRole('switch', { name: /Player news/ });
+    expect(setting).toBeChecked();
+    await user.click(setting);
+    expect(fake.updateNotificationPreferences).toHaveBeenCalledWith({ playerNews: false });
+    await waitFor(() => expect(setting).not.toBeChecked());
+    fake.updateNotificationPreferences = vi.fn(async () => {
+      throw new Error('Settings are unavailable.');
+    });
+    await user.click(setting);
+    expect(await within(panel).findByText('Settings are unavailable.')).toBeInTheDocument();
+    expect(setting).not.toBeChecked();
+  });
+});
+
 describe('helpers', () => {
   it('say when, link where, and cap counts', () => {
     expect(timeAgo('2026-10-04T14:59:30Z', NOW)).toBe('just now');
@@ -241,6 +322,9 @@ describe('helpers', () => {
     expect(timeAgo('2026-10-05T15:00:00Z', NOW)).toBe('just now');
     expect(notificationHref(item({ target: { section: 'trades', tradeId: null } }))).toBe(
       '/leagues/L1/team/trades'
+    );
+    expect(notificationHref(item({ target: { section: 'lineup', tradeId: null } }))).toBe(
+      '/leagues/L1/team/lineup'
     );
     expect(countLabel(7)).toBe('7');
     expect(countLabel(100)).toBe('99+');
