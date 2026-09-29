@@ -1026,7 +1026,7 @@ describe('draft room motion and sound', () => {
     expect(screen.getByTestId('draft-topbar')).toHaveClass('motion-attention');
     // Sound is off by default.
     expect(chime).not.toHaveBeenCalled();
-    await waitFor(() => expect(document.title).toBe('Your pick! · Fantasy'));
+    await waitFor(() => expect(document.title).toBe('⏰ Your pick · Fantasy'));
 
     await user.click(screen.getByRole('button', { name: "Draft Ja'Marr Chase" }));
     expect(await screen.findByText("You drafted Ja'Marr Chase!")).toBeInTheDocument();

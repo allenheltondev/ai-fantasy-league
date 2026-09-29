@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { safeReturnPath } from './auth/AuthScreens';
@@ -68,12 +68,15 @@ describe('signed in', () => {
     renderApp('/leagues/L1');
     expect(await screen.findByTestId('league-section-home')).toBeInTheDocument();
     expect(await screen.findByRole('region', { name: 'Draft' })).toBeInTheDocument();
-    // The header names the league, not its id.
-    expect(await screen.findByRole('heading', { level: 1, name: 'Sunday Funday' })).toBeInTheDocument();
+    // The header bar names the league and the side nav the page, so the page's h1 is for screen
+    // readers only, named after the page (#212).
+    expect(await screen.findByRole('heading', { level: 1, name: 'Home' })).toHaveClass('sr-only');
+    expect(screen.queryByRole('heading', { name: 'Sunday Funday' })).not.toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe('Home · Sunday Funday · AI Fantasy Football'));
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
     const link = (name: string) => within(nav).getByRole('link', { name });
     expect(link('Home')).toHaveAttribute('aria-current', 'page');
-    expect(link('My Leagues')).toHaveAttribute('href', '/');
+    expect(link('My Leagues')).toHaveAttribute('href', '/leagues');
     // In setup the Draft is its own section.
     expect(link('Draft')).toHaveAttribute('href', '/leagues/L1/draft');
     expect(link('Scoreboard')).toHaveAttribute('href', '/leagues/L1/league');

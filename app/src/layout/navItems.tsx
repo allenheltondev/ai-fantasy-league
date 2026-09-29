@@ -72,9 +72,10 @@ export function navItems({
   const leagues: AppNavItem = {
     id: 'leagues',
     label: 'My Leagues',
-    href: '/',
+    // The list itself: `/` goes back into your last league (#212).
+    href: '/leagues',
     icon: <LeaguesIcon />,
-    active: pathname === '/'
+    active: pathname === '/' || pathname === '/leagues'
   };
   if (leagueId === null) {
     return [
