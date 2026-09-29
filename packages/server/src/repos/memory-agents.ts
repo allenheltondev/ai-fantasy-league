@@ -1,6 +1,7 @@
 import { emptyMemory, type AgentLeagueMemory } from '@fantasy/core';
 import {
   gateCutoff,
+  roundUsd,
   staleSeat,
   type AgentDispatch,
   type AgentDispatchReservation,
@@ -13,13 +14,18 @@ import {
   type AgentTaskPending,
   type AgentTaskRecord,
   type AgentTriggerState,
+  type AgentUsageEntry,
   type AgentUsageRow,
+  type BudgetAdmission,
+  type BudgetHold,
+  type BudgetHoldRef,
   type LimitClaim,
   type LimitClaimResult,
   type TriggerGate
 } from './agents.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
+const holdId = (h: { taskId: string; key: string }) => `${h.taskId}\u0000${h.key}`;
 
 interface TaskSlot {
   state: 'running' | 'retry' | 'complete';
@@ -46,6 +52,9 @@ export class InMemoryAgentRepository implements AgentRepository {
   readonly #state = new Map<string, StateSlot>();
   readonly #limits = new Map<string, number[]>();
   readonly #dispatches = new Map<string, AgentDispatch>();
+  /** Budget holds by task and ledger key, and the ledger's keys (#209). */
+  readonly #budgetHolds = new Map<string, BudgetHold>();
+  readonly #ledger = new Set<string>();
 
   async getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null> {
     const seat = this.#seats.get(`${leagueId}\u0000${teamId}`);
@@ -198,6 +207,58 @@ export class InMemoryAgentRepository implements AgentRepository {
       .filter((r) => r.leagueId === leagueId && r.week === week)
       .sort((a, b) => a.agentId.localeCompare(b.agentId) || a.modelKey.localeCompare(b.modelKey))
       .map(clone);
+  }
+
+  async reserveBudget(hold: BudgetHold, ceilingUsd: number): Promise<BudgetAdmission> {
+    if (this.#budgetHolds.has(holdId(hold))) return { status: 'reserved' };
+    // No await from the check to the write: nothing can interleave, as with the conditional write.
+    let spent = 0;
+    for (const r of this.#usage.values())
+      if (r.leagueId === hold.leagueId && r.week === hold.week) spent += r.costUsd;
+    const spentUsd = roundUsd(spent);
+    const reservedUsd = this.#reserved(hold.leagueId, hold.week);
+    if (roundUsd(spentUsd + reservedUsd + hold.costUsd) > ceilingUsd) {
+      return { status: 'refused', spentUsd, reservedUsd };
+    }
+    this.#budgetHolds.set(holdId(hold), clone(hold));
+    return { status: 'reserved' };
+  }
+
+  async recordUsage(entry: AgentUsageEntry, hold?: BudgetHoldRef): Promise<boolean> {
+    if (hold !== undefined) this.#budgetHolds.delete(holdId(hold));
+    const id = holdId(entry);
+    if (this.#ledger.has(id)) return false;
+    this.#ledger.add(id);
+    await this.addUsage({
+      leagueId: entry.leagueId,
+      week: entry.week,
+      agentId: entry.agentId,
+      modelKey: entry.modelKey,
+      inputTokens: entry.inputTokens,
+      outputTokens: entry.outputTokens,
+      costUsd: entry.costUsd,
+      tasks: entry.tasks
+    });
+    return true;
+  }
+
+  async releaseBudget(hold: BudgetHoldRef): Promise<boolean> {
+    return this.#budgetHolds.delete(holdId(hold));
+  }
+
+  async listStaleHolds(now: Date, limit: number): Promise<BudgetHold[]> {
+    return [...this.#budgetHolds.values()]
+      .filter((h) => Date.parse(h.expiresAt) <= now.getTime())
+      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt) || holdId(a).localeCompare(holdId(b)))
+      .slice(0, limit)
+      .map(clone);
+  }
+
+  #reserved(leagueId: string, week: number): number {
+    let sum = 0;
+    for (const h of this.#budgetHolds.values())
+      if (h.leagueId === leagueId && h.week === week) sum += h.costUsd;
+    return roundUsd(sum);
   }
 
   async getTriggerState(leagueId: string, agentId: string): Promise<AgentTriggerState | null> {

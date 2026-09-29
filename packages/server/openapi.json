@@ -3736,6 +3736,16 @@
                                     },
                                     "estimatedTokens": {
                                       "type": "boolean"
+                                    },
+                                    "attempt": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "call": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 9007199254740991
                                     }
                                   },
                                   "required": [
@@ -21209,7 +21219,7 @@
       "get": {
         "operationId": "get_model_leaderboard",
         "summary": "Which model wins the league: standings, trades, waivers, and cost by model",
-        "description": "Joins every team's standing (rank, record, win rate, points for) with the model that plays it: an agent seat's primary decision model, or \"human\" for a person. Then rolls the same numbers up per model, best win rate first, with estimated model spend and spend per win, trade value won or lost, and waiver hit rate. Use it for \"model power rankings\" posts and to compare how model families value players. Standings are as of the last final week; costs are estimates from the model catalog, not billing data. Any league member can read it. Errors: FORBIDDEN if you are not in the league; LEAGUE_NOT_FOUND for an unknown league.",
+        "description": "Joins every team's standing (rank, record, win rate, points for) with the model that plays it: an agent seat's primary decision model, or \"human\" for a person. Then rolls the same numbers up per model, best win rate first, with estimated model spend and spend per win, trade value won or lost, and waiver hit rate. Use it for \"model power rankings\" posts and to compare how model families value players. Standings are as of the last final week; costs are estimates from the model catalog, not billing data. Any league member can read it. It is observational: one league mixes each model with its strategy, difficulty, roster luck, settings changes, and fallbacks, so present it as how this league went, never as proof that one model is better. Errors: FORBIDDEN if you are not in the league; LEAGUE_NOT_FOUND for an unknown league.",
         "tags": [
           "agents",
           "season"
@@ -37889,7 +37899,7 @@
       "get": {
         "operationId": "get_player_card",
         "summary": "One player’s card: this season so far, next week’s projection and matchup, last season, the season projection, and news",
-        "description": "Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals (`thisSeason`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines. Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used. `lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade. An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.",
+        "description": "Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines. Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used. `lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade. An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.",
         "tags": [
           "research",
           "players"
@@ -38211,6 +38221,86 @@
                                     "type": "number"
                                   },
                                   "description": "Season totals by Sleeper stat key for the position: passing (pass_att, pass_cmp, pass_yd, pass_td, pass_int), rushing (rush_att = carries, rush_yd, rush_td), receiving (rec_tgt = targets, rec, rec_yd, rec_td), kicking (fgm, fga, fgm_50p, xpm, xpa), or team defense (sack, int, fum_rec, def_td, safe, pts_allow, yds_allow)."
+                                },
+                                "recent": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "week": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "points": {
+                                        "type": "number"
+                                      },
+                                      "vsAverage": {
+                                        "type": "number",
+                                        "description": "Points above (+) or below (-) his points per game this season."
+                                      },
+                                      "opponent": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "team": {
+                                                "type": "string"
+                                              },
+                                              "home": {
+                                                "type": "boolean"
+                                              }
+                                            },
+                                            "required": [
+                                              "team",
+                                              "home"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Who his team played that week; null when unknown."
+                                      },
+                                      "breakdown": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "stat": {
+                                              "type": "string",
+                                              "description": "The Sleeper stat key, or \"other\" for the small rest."
+                                            },
+                                            "text": {
+                                              "type": "string",
+                                              "description": "What he did, e.g. \"82 rec yds\", \"1 rec TD\", or \"rec yd bonus\"."
+                                            },
+                                            "points": {
+                                              "type": "number",
+                                              "description": "Points that earned (negative for a penalty)."
+                                            }
+                                          },
+                                          "required": [
+                                            "stat",
+                                            "text",
+                                            "points"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "description": "Where the game’s points came from under the caller’s scoring: biggest earners first, penalties last, the small rest as `other`."
+                                      }
+                                    },
+                                    "required": [
+                                      "week",
+                                      "points",
+                                      "vsAverage",
+                                      "opponent",
+                                      "breakdown"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "His last three games played, newest first, each in detail."
                                 }
                               },
                               "required": [
@@ -38219,7 +38309,8 @@
                                 "ppg",
                                 "games",
                                 "weekly",
-                                "totals"
+                                "totals",
+                                "recent"
                               ],
                               "additionalProperties": false
                             },

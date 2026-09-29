@@ -54,6 +54,12 @@ export interface CatalogModel {
    * that budget; for other models reasoning effort only sets the response token limit.
    */
   thinkingBudget?: true;
+  /**
+   * True when the model rejects `thinking.type: enabled` and takes adaptive thinking instead
+   * (`thinking.type: adaptive` plus `output_config.effort`), as the Claude 5 models do. Set
+   * together with `thinkingBudget`; the runtime then sends the reasoning effort, not a budget.
+   */
+  adaptiveThinking?: true;
 }
 
 export const MODEL_REGION = 'us-east-1';
@@ -118,6 +124,7 @@ export const MODEL_CATALOG = [
   model({
     key: 'claude-sonnet-5',
     thinkingBudget: true,
+    adaptiveThinking: true,
     displayName: 'Claude Sonnet 5',
     provider: 'anthropic',
     bedrockId: 'us.anthropic.claude-sonnet-5',
@@ -127,6 +134,7 @@ export const MODEL_CATALOG = [
   model({
     key: 'claude-opus-5',
     thinkingBudget: true,
+    adaptiveThinking: true,
     displayName: 'Claude Opus 5',
     provider: 'anthropic',
     bedrockId: 'us.anthropic.claude-opus-5',

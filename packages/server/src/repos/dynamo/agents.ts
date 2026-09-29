@@ -16,6 +16,7 @@ import {
   AgentUsageRowSchema,
   LIMIT_CLAIM_ATTEMPTS,
   gateCutoff,
+  roundUsd,
   staleSeat,
   type AgentDispatch,
   type AgentDispatchReservation,
@@ -28,7 +29,11 @@ import {
   type AgentTaskPending,
   type AgentTaskRecord,
   type AgentTriggerState,
+  type AgentUsageEntry,
   type AgentUsageRow,
+  type BudgetAdmission,
+  type BudgetHold,
+  type BudgetHoldRef,
   type LimitClaim,
   type LimitClaimResult,
   type TriggerGate
@@ -50,6 +55,10 @@ import { TABLE_KEYS, epochSeconds, isConditionalCheckFailure, type TableContext 
  * - Dispatch (#207):  pk AGENTTASK#<taskId> sk DISPATCH  (the outbox row; TTL)
  *                     GSI1 AGENTOUTBOX / <retryAt, 15 digits>#<taskId>          (while reserved)
  * - Weekly usage:     pk AGENTUSAGE#<leagueId>#W<week> sk AGENT#<agentId>#MODEL#<modelKey>
+ * - Week budget:      pk AGENTUSAGE#<leagueId>#W<week> sk BUDGET  (rev, reservedUsd: what holds keep)
+ * - Budget hold:      pk AGENTTASK#<taskId> sk HOLD#<key>   (#209: a model call's estimate, while it runs)
+ *                     GSI1 AGENTHOLD / <expiresAt, 15 digits>#<taskId>#<key>
+ * - Usage ledger:     pk AGENTTASK#<taskId> sk USAGE#<key>  (#209: what was charged, once per key; TTL)
  */
 const leaguePk = (leagueId: string) => `LEAGUE#${leagueId}`;
 const seatKey = (leagueId: string, teamId: string) => ({ pk: leaguePk(leagueId), sk: `AGENTSEAT#${teamId}` });
@@ -75,6 +84,12 @@ const OUTBOX = 'AGENTOUTBOX';
 /** How long a dispatch row is kept. */
 const DISPATCH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const usagePk = (leagueId: string, week: number) => `AGENTUSAGE#${leagueId}#W${week}`;
+const budgetKey = (leagueId: string, week: number) => ({ pk: usagePk(leagueId, week), sk: 'BUDGET' });
+const holdKey = (taskId: string, key: string) => ({ pk: `AGENTTASK#${taskId}`, sk: `HOLD#${key}` });
+const ledgerKey = (taskId: string, key: string) => ({ pk: `AGENTTASK#${taskId}`, sk: `USAGE#${key}` });
+const HOLDS = 'AGENTHOLD';
+/** How long ledger lines are kept (as long as task records). */
+const LEDGER_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 const MemorySchema = AgentLeagueMemorySchema.extend({ rev: z.number() });
 const TaskSlotSchema = z.object({
@@ -99,6 +114,26 @@ const DispatchSchema = z.object({
 });
 const StateSchema = z.object({ leagueId: z.string(), agentId: z.string(), lastTriggeredAt: z.string() });
 const LimitSchema = z.object({ rev: z.number(), uses: z.array(z.number()) });
+const BudgetSchema = z.object({ rev: z.number().default(0), reservedUsd: z.number().default(0) });
+const HoldSchema = z.object({
+  leagueId: z.string(),
+  week: z.number().int(),
+  agentId: z.string(),
+  taskId: z.string(),
+  key: z.string(),
+  modelKey: z.string(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  costUsd: z.number(),
+  expiresAt: z.string()
+});
+
+/** Why each item of a canceled transaction was refused (`ConditionalCheckFailed`, `None`, ...). */
+function cancellationCodes(error: unknown): (string | undefined)[] | null {
+  if (!(error instanceof Error) || error.name !== 'TransactionCanceledException') return null;
+  const reasons = (error as Error & { CancellationReasons?: { Code?: string }[] }).CancellationReasons;
+  return (reasons ?? []).map((r) => r.Code);
+}
 
 export class DynamoAgentRepository implements AgentRepository {
   constructor(private readonly table: TableContext) {}
@@ -363,39 +398,176 @@ export class DynamoAgentRepository implements AgentRepository {
   }
 
   async addUsage(row: AgentUsageRow): Promise<void> {
-    await this.table.doc.send(
-      new UpdateCommand({
-        TableName: this.table.tableName,
-        Key: { pk: usagePk(row.leagueId, row.week), sk: `AGENT#${row.agentId}#MODEL#${row.modelKey}` },
-        UpdateExpression:
-          'SET #league = :league, #week = :week, #agent = :agent, #model = :model ADD #in :in, #out :out, #cost :cost, #tasks :tasks',
-        ExpressionAttributeNames: {
-          '#league': 'leagueId',
-          '#week': 'week',
-          '#agent': 'agentId',
-          '#model': 'modelKey',
-          '#in': 'inputTokens',
-          '#out': 'outputTokens',
-          '#cost': 'costUsd',
-          '#tasks': 'tasks'
-        },
-        ExpressionAttributeValues: {
-          ':league': row.leagueId,
-          ':week': row.week,
-          ':agent': row.agentId,
-          ':model': row.modelKey,
-          ':in': row.inputTokens,
-          ':out': row.outputTokens,
-          ':cost': row.costUsd,
-          ':tasks': row.tasks
-        }
-      })
-    );
+    await this.table.doc.send(new UpdateCommand(this.#rollupUpdate(row)));
+  }
+
+  /** The rollup row's update: adds tokens, cost, and tasks for (league, week, agent, model). */
+  #rollupUpdate(row: AgentUsageRow) {
+    return {
+      TableName: this.table.tableName,
+      Key: { pk: usagePk(row.leagueId, row.week), sk: `AGENT#${row.agentId}#MODEL#${row.modelKey}` },
+      UpdateExpression:
+        'SET #league = :league, #week = :week, #agent = :agent, #model = :model ADD #in :in, #out :out, #cost :cost, #tasks :tasks',
+      ExpressionAttributeNames: {
+        '#league': 'leagueId',
+        '#week': 'week',
+        '#agent': 'agentId',
+        '#model': 'modelKey',
+        '#in': 'inputTokens',
+        '#out': 'outputTokens',
+        '#cost': 'costUsd',
+        '#tasks': 'tasks'
+      },
+      ExpressionAttributeValues: {
+        ':league': row.leagueId,
+        ':week': row.week,
+        ':agent': row.agentId,
+        ':model': row.modelKey,
+        ':in': row.inputTokens,
+        ':out': row.outputTokens,
+        ':cost': row.costUsd,
+        ':tasks': row.tasks
+      }
+    };
   }
 
   async weekUsage(leagueId: string, week: number): Promise<AgentUsageRow[]> {
     const items = await this.#queryPrefix(usagePk(leagueId, week), 'AGENT#', true, 500);
     return items.map((item) => AgentUsageRowSchema.parse(item));
+  }
+
+  async reserveBudget(hold: BudgetHold, ceilingUsd: number): Promise<BudgetAdmission> {
+    const budget = budgetKey(hold.leagueId, hold.week);
+    for (let attempt = 0; attempt < LIMIT_CLAIM_ATTEMPTS; attempt++) {
+      if ((await this.#get(holdKey(hold.taskId, hold.key), true)) !== undefined)
+        return { status: 'reserved' };
+      // The revision first: a settlement after this read moves it, so the write below is refused and
+      // retried rather than admitting against spend read before the settlement.
+      const { rev, reservedUsd } = BudgetSchema.parse((await this.#get(budget, true)) ?? {});
+      const rows = await this.#queryPrefix(usagePk(hold.leagueId, hold.week), 'AGENT#', true, 500, true);
+      const spentUsd = roundUsd(rows.reduce((sum, r) => sum + AgentUsageRowSchema.parse(r).costUsd, 0));
+      const held = roundUsd(Math.max(0, reservedUsd));
+      if (roundUsd(spentUsd + held + hold.costUsd) > ceilingUsd) {
+        return { status: 'refused', spentUsd, reservedUsd: held };
+      }
+      try {
+        await this.table.doc.send(
+          new TransactWriteCommand({
+            TransactItems: [
+              {
+                Update: {
+                  TableName: this.table.tableName,
+                  Key: budget,
+                  UpdateExpression: 'SET rev = :next, reservedUsd = :reserved',
+                  ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
+                  ExpressionAttributeValues: {
+                    ':next': rev + 1,
+                    ':reserved': roundUsd(held + hold.costUsd),
+                    ...(rev === 0 ? {} : { ':rev': rev })
+                  }
+                }
+              },
+              {
+                Put: {
+                  TableName: this.table.tableName,
+                  Item: {
+                    ...holdKey(hold.taskId, hold.key),
+                    ...hold,
+                    [TABLE_KEYS.gsi1.pk]: HOLDS,
+                    [TABLE_KEYS.gsi1.sk]: timeKey(Date.parse(hold.expiresAt), `${hold.taskId}#${hold.key}`)
+                  },
+                  ConditionExpression: 'attribute_not_exists(pk)'
+                }
+              }
+            ]
+          })
+        );
+        return { status: 'reserved' };
+      } catch (error) {
+        if (cancellationCodes(error) === null) throw error;
+      }
+    }
+    return { status: 'contended' };
+  }
+
+  async recordUsage(entry: AgentUsageEntry, hold?: BudgetHoldRef): Promise<boolean> {
+    const charge = {
+      Put: {
+        TableName: this.table.tableName,
+        Item: {
+          ...ledgerKey(entry.taskId, entry.key),
+          ...entry,
+          [TABLE_KEYS.ttl]: epochSeconds(new Date(Date.parse(entry.at) + LEDGER_TTL_MS))
+        },
+        ConditionExpression: 'attribute_not_exists(pk)'
+      }
+    };
+    try {
+      await this.table.doc.send(
+        new TransactWriteCommand({
+          // Every charge moves the week's budget revision, so an admission racing it reads again.
+          TransactItems: [
+            charge,
+            { Update: this.#rollupUpdate(entry) },
+            ...this.#release(hold ?? null, entry)
+          ]
+        })
+      );
+      return true;
+    } catch (error) {
+      const codes = cancellationCodes(error);
+      const charged = codes?.[0] === 'ConditionalCheckFailed';
+      const released = hold !== undefined && codes?.[2] === 'ConditionalCheckFailed';
+      if (!charged && !released) throw error;
+      if (!charged) return this.recordUsage(entry);
+      if (hold !== undefined && !released) await this.#releaseHold(hold);
+      return false;
+    }
+  }
+
+  releaseBudget(hold: BudgetHoldRef): Promise<boolean> {
+    return this.#releaseHold(hold);
+  }
+
+  async #releaseHold(hold: BudgetHoldRef): Promise<boolean> {
+    try {
+      await this.table.doc.send(new TransactWriteCommand({ TransactItems: this.#release(hold, hold) }));
+      return true;
+    } catch (error) {
+      if (cancellationCodes(error)?.[0] === 'ConditionalCheckFailed') return false;
+      throw error;
+    }
+  }
+
+  async listStaleHolds(now: Date, limit: number): Promise<BudgetHold[]> {
+    const items = await this.#queryDue(HOLDS, now, limit);
+    return items.map((item) => HoldSchema.parse(item));
+  }
+
+  /**
+   * Deletes a hold (only while it is held) and takes its cost off what the week keeps reserved; with
+   * no hold, only moves the week's revision.
+   */
+  #release(hold: BudgetHoldRef | null, week: { leagueId: string; week: number }) {
+    const budget = {
+      Update: {
+        TableName: this.table.tableName,
+        Key: budgetKey(week.leagueId, week.week),
+        UpdateExpression: hold === null ? 'ADD rev :one' : 'ADD rev :one, reservedUsd :minus',
+        ExpressionAttributeValues: { ':one': 1, ...(hold === null ? {} : { ':minus': -hold.costUsd }) }
+      }
+    };
+    if (hold === null) return [budget];
+    return [
+      {
+        Delete: {
+          TableName: this.table.tableName,
+          Key: holdKey(hold.taskId, hold.key),
+          ConditionExpression: 'attribute_exists(pk)'
+        }
+      },
+      budget
+    ];
   }
 
   async getTriggerState(leagueId: string, agentId: string): Promise<AgentTriggerState | null> {
@@ -575,8 +747,17 @@ export class DynamoAgentRepository implements AgentRepository {
     return 'contended';
   }
 
-  async #get(key: { pk: string; sk: string }): Promise<Record<string, unknown> | undefined> {
-    const result = await this.table.doc.send(new GetCommand({ TableName: this.table.tableName, Key: key }));
+  async #get(
+    key: { pk: string; sk: string },
+    consistent = false
+  ): Promise<Record<string, unknown> | undefined> {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: key,
+        ...(consistent ? { ConsistentRead: true } : {})
+      })
+    );
     return result.Item;
   }
 
@@ -584,7 +765,8 @@ export class DynamoAgentRepository implements AgentRepository {
     pk: string,
     prefix: string,
     forward: boolean,
-    limit: number
+    limit: number,
+    consistent = false
   ): Promise<Record<string, unknown>[]> {
     const result = await this.table.doc.send(
       new QueryCommand({
@@ -592,7 +774,8 @@ export class DynamoAgentRepository implements AgentRepository {
         KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
         ExpressionAttributeValues: { ':pk': pk, ':prefix': prefix },
         ScanIndexForward: forward,
-        Limit: limit
+        Limit: limit,
+        ...(consistent ? { ConsistentRead: true } : {})
       })
     );
     return result.Items ?? [];

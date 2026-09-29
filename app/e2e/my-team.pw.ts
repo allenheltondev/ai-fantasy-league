@@ -96,11 +96,14 @@ test('the side nav groups the league under a quiet header bar', async ({ browser
   await expect(page.getByRole('button', { name: /^Notifications/ })).toBeVisible();
   await nav.getByRole('link', { name: 'Scoreboard' }).click();
   await expect(page).toHaveURL(/\/league\/scoreboard$/);
-  await page
-    .getByRole('navigation', { name: 'League pages' })
-    .getByRole('link', { name: 'Draft results' })
-    .click();
-  await expect(page).toHaveURL(/\/league\/draft$/);
-  await expect(nav.getByRole('link', { name: 'Scoreboard' })).toHaveAttribute('aria-current', 'page');
+  for (const name of ['Standings', 'Playoffs', 'Transactions', 'Players']) {
+    await expect(nav.getByRole('link', { name })).toBeVisible();
+  }
+  // The commissioner's last item is Settings, everyone else's League info.
+  const info = nav.getByRole('link', { name: /^(Settings|League info)$/ });
+  await info.click();
+  await page.getByRole('button', { name: 'Draft results' }).click();
+  await expect(page).toHaveURL(/\/settings\?view=draft$/);
+  await expect(info).toHaveAttribute('aria-current', 'page');
   await context.close();
 });

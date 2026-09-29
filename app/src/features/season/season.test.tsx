@@ -408,6 +408,8 @@ describe('StandingsPage', () => {
     });
     const table = await screen.findByRole('table', { name: 'Model power rankings' });
     expect(screen.getByRole('heading', { name: 'Which model wins the league?' })).toBeInTheDocument();
+    // Observational (#211): standings are not a controlled comparison of models.
+    expect(screen.getByTestId('model-leaderboard-note')).toHaveTextContent(/Observational, not a benchmark/);
     const rows = within(table).getAllByRole('row');
     expect(rows[1]).toHaveTextContent('1Claude Opus 512-0100%250.5+31.3 (2-0)2/3 (67%)$0.40$0.20');
     expect(rows[2]).toHaveTextContent('2Human10-20%200.0-31.3 (0-2)–––');

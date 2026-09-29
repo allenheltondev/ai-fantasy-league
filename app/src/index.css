@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Player headshots (#222) are sized in CSS from `--headshot`: as given on a phone, bigger where there is room. */
+[data-headshot] {
+  width: var(--headshot);
+  height: var(--headshot);
+}
+@media (min-width: 1024px) {
+  [data-headshot] {
+    width: calc(var(--headshot) * 1.5);
+    height: calc(var(--headshot) * 1.5);
+  }
+}
+
 /*
  * Motion (#133). Small, one-shot animations; colors come only from the design-system tokens so
  * they hold contrast in light and dark. Nothing here loops except the explicit live dot, and the

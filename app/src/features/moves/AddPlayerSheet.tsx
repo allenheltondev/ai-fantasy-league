@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Input, Modal, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { ClaimPreview, ClaimResult, MarketPlayer, Roster, RosterEntry } from '../../api/types';
+import { PlayerHeadshot, TeamLogo } from '../../players/PlayerHeadshot';
 import { gameContext, gameText } from '../season/gameState';
 import { statusLabel } from '../season/slots';
 import { FaabExplainer } from './FaabExplainer';
@@ -83,50 +84,66 @@ export function AddPlayerSheet({ leagueId, row, roster, waiverType, onClose, onD
   const issues = (preview?.issues ?? []).filter((i) => i.code !== 'ROSTER_FULL');
   const verb = claim ? 'Claim' : 'Add';
   const ready = preview?.wouldSucceed === true && !busy && (!full || drop !== '');
+  const stacked = full || drop !== '';
   return (
-    <Modal open onClose={onClose} aria-label={`${verb} ${row.player.name}`}>
+    <Modal
+      open
+      onClose={onClose}
+      aria-label={`${verb} ${row.player.name}`}
+      className={stacked ? 'sm:!w-[min(58rem,calc(100vw-2rem))]' : undefined}
+    >
       <div className="space-y-4 p-4 sm:p-5" data-testid="add-sheet">
-        <header className="space-y-1">
-          <h2 className="text-lg font-semibold">
-            {verb} {row.player.name}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {row.player.position} · {row.player.team ?? 'FA'} · {gameText(row.game)} · proj{' '}
-            <strong className="text-foreground">{pts(row.projectedPoints)}</strong> · avg {pts(row.average)}
-          </p>
-          {claim && row.availability.clearsAt !== undefined && (
-            <p className="text-sm">
-              On waivers: your claim is processed{' '}
-              {waiverTime(preview?.processesAt ?? row.availability.clearsAt)}.
+        <header className="flex items-center gap-3">
+          <PlayerHeadshot player={row.player} size={56} eager />
+          <div className="min-w-0 space-y-0.5">
+            <h2 className="truncate text-lg font-semibold">
+              {verb} {row.player.name}
+            </h2>
+            <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
+              <TeamLogo team={row.player.team} size={14} />
+              <span>
+                {row.player.position} · {row.player.team ?? 'FA'} · {gameText(row.game)} · proj{' '}
+                <strong className="text-foreground">{pts(row.projectedPoints)}</strong> · avg{' '}
+                {pts(row.average)}
+              </span>
             </p>
-          )}
+          </div>
         </header>
-
-        {(full || drop !== '') && (
-          <fieldset className="space-y-2">
-            <legend className="font-semibold">
-              {full ? 'Your roster is full: pick who to drop' : 'Drop'}
-            </legend>
-            <p className="text-sm text-muted-foreground">Lowest projected first. Locked players stay.</p>
-            <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border">
-              {!full && (
-                <DropChoice label="Nobody" note="You have room" value="" drop={drop} onPick={setDrop} />
-              )}
-              {candidates.map((entry) => (
-                <DropChoice
-                  key={entry.player.id}
-                  entry={entry}
-                  label={entry.player.name}
-                  note={`${entry.player.position} · ${roleOf(entry)} · proj ${pts(entry.projectedPoints)}`}
-                  value={entry.player.id}
-                  drop={drop}
-                  onPick={setDrop}
-                />
-              ))}
-            </ul>
-          </fieldset>
+        {claim && row.availability.clearsAt !== undefined && (
+          <p className="text-sm">
+            On waivers: your claim is processed{' '}
+            {waiverTime(preview?.processesAt ?? row.availability.clearsAt)}.
+          </p>
         )}
-        {!full && drop === '' && candidates[0] !== undefined && (
+
+        {stacked && (
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+            <fieldset className="min-w-0 space-y-2">
+              <legend className="font-semibold">
+                {full ? 'Your roster is full: pick who to drop' : 'Drop'}
+              </legend>
+              <p className="text-sm text-muted-foreground">Lowest projected first. Locked players stay.</p>
+              <ul className="max-h-[min(22rem,45dvh)] divide-y divide-border overflow-y-auto rounded-lg border border-border">
+                {!full && (
+                  <DropChoice label="Nobody" note="You have room" value="" drop={drop} onPick={setDrop} />
+                )}
+                {candidates.map((entry) => (
+                  <DropChoice
+                    key={entry.player.id}
+                    entry={entry}
+                    label={entry.player.name}
+                    note={`${entry.player.position} · ${roleOf(entry)}`}
+                    value={entry.player.id}
+                    drop={drop}
+                    onPick={setDrop}
+                  />
+                ))}
+              </ul>
+            </fieldset>
+            <Compare row={row} drop={dropping} />
+          </div>
+        )}
+        {!stacked && candidates[0] !== undefined && (
           <Button
             variant="ghost"
             size="sm"
@@ -136,8 +153,6 @@ export function AddPlayerSheet({ leagueId, row, roster, waiverType, onClose, onD
             Drop someone too
           </Button>
         )}
-
-        {dropping !== null && <Compare row={row} drop={dropping} />}
 
         {faab && (
           <div className="flex items-start gap-1">
@@ -218,61 +233,187 @@ function DropChoice(props: {
   const { entry } = props;
   const locked = entry?.locked === true;
   const status = entry === undefined ? null : statusLabel(entry);
+  const picked = props.drop === props.value;
   return (
     <li>
       <label
-        className={`flex min-h-12 items-center gap-3 px-3 py-2 ${locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-muted'}`}
+        className={`flex min-h-14 items-center gap-3 px-3 py-2 ${
+          locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-muted'
+        } ${picked ? 'bg-primary-50 ring-1 ring-inset ring-primary-400' : ''}`}
       >
         <input
           type="radio"
           name="drop"
           value={props.value}
-          checked={props.drop === props.value}
+          checked={picked}
           disabled={locked}
           onChange={() => props.onPick(props.value)}
         />
+        {entry !== undefined && <PlayerHeadshot player={entry.player} size={40} />}
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium">{props.label}</span>
-          <span className="block text-xs text-muted-foreground">{props.note}</span>
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            {entry !== undefined && <TeamLogo team={entry.player.team} size={12} />}
+            <span className="truncate">{props.note}</span>
+          </span>
+          {(locked || status !== null) && (
+            <span className="mt-0.5 flex flex-wrap gap-1">
+              {locked && <StatusBadge tone="neutral">Locked</StatusBadge>}
+              {!locked && status !== null && (
+                <StatusBadge tone={entry?.onBye ? 'warning' : 'error'}>{status}</StatusBadge>
+              )}
+            </span>
+          )}
         </span>
-        {locked && <StatusBadge tone="neutral">Locked</StatusBadge>}
-        {!locked && status !== null && (
-          <StatusBadge tone={entry?.onBye ? 'warning' : 'error'}>{status}</StatusBadge>
+        {entry !== undefined && (
+          <span className="shrink-0 text-right tabular-nums">
+            <span className="block text-base font-semibold">
+              <span className="sr-only">Projected </span>
+              {pts(entry.projectedPoints)}
+            </span>
+            <span className="block text-[0.7rem] text-muted-foreground">
+              <span aria-hidden="true">avg </span>
+              <span className="sr-only">Season average </span>
+              {pts(entry.seasonAverage?.average)}
+            </span>
+          </span>
         )}
       </label>
     </li>
   );
 }
 
-/** The pickup against the drop: this week's projection and game, and the season average. */
-function Compare({ row, drop }: { row: MarketPlayer; drop: RosterEntry }) {
-  const line = (label: string, add: string, out: string) => (
-    <tr>
-      <th scope="row" className="py-1 pr-2 text-left font-normal text-muted-foreground">
-        {label}
-      </th>
-      <td className="py-1 pr-2 tabular-nums">{add}</td>
-      <td className="py-1 tabular-nums">{out}</td>
-    </tr>
-  );
+/** One comparable line: what each player has, and which side wins when it is a number. */
+interface CompareLine {
+  label: string;
+  add: string;
+  out: string;
+  /** Positive when the pickup is ahead, negative when the drop is, null when it is not a number. */
+  edge: number | null;
+}
+
+function healthOf(status: string, injury: string | null, bye: boolean): string {
+  if (bye) return 'Bye';
+  return status === 'active' ? 'Healthy' : (injury ?? status.toUpperCase());
+}
+
+function edgeOf(add: number | null | undefined, out: number | null | undefined): number | null {
+  return add === null || add === undefined || out === null || out === undefined ? null : add - out;
+}
+
+/**
+ * The pickup beside the player he would replace: headshots, then this week's projection, the
+ * season average, games played, health, and game, each with the better side marked (text as well
+ * as color). Before a drop is picked it holds the pickup's card and says to choose.
+ */
+function Compare({ row, drop }: { row: MarketPlayer; drop: RosterEntry | null }) {
+  if (drop === null) {
+    return (
+      <div
+        data-testid="compare"
+        className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground"
+      >
+        <PlayerHeadshot player={row.player} size={56} />
+        <span>
+          Pick a player to drop to compare him with <strong>{row.player.name}</strong>.
+        </span>
+      </div>
+    );
+  }
+  const projEdge = edgeOf(row.projectedPoints, drop.projectedPoints);
+  const dropGames = drop.seasonAverage?.games;
+  const lines: CompareLine[] = [
+    {
+      label: 'Proj this week',
+      add: pts(row.projectedPoints),
+      out: pts(drop.projectedPoints),
+      edge: projEdge
+    },
+    {
+      label: 'Season avg',
+      add: pts(row.average),
+      out: pts(drop.seasonAverage?.average),
+      edge: edgeOf(row.average, drop.seasonAverage?.average)
+    },
+    {
+      label: 'Games played',
+      add: String(row.games),
+      out: dropGames === undefined ? '–' : String(dropGames),
+      edge: null
+    },
+    {
+      label: 'Health',
+      add: healthOf(row.status, row.injuryStatus, row.game.state === 'bye'),
+      out: healthOf(drop.status, drop.injuryStatus, drop.onBye),
+      edge: null
+    },
+    { label: 'This week', add: gameText(row.game), out: gameContext(drop), edge: null }
+  ];
+  const cell = (value: string, edge: number | null, side: 'add' | 'out') => {
+    const wins = edge !== null && edge !== 0 && (side === 'add' ? edge > 0 : edge < 0);
+    return (
+      <td className={`px-2 py-2 text-center tabular-nums ${wins ? 'font-semibold text-success-700' : ''}`}>
+        {wins && <span aria-hidden="true">▲ </span>}
+        {value}
+        {wins && <span className="sr-only"> (better)</span>}
+      </td>
+    );
+  };
   return (
-    <table className="w-full text-sm" aria-label="Compare" data-testid="compare">
-      <thead>
-        <tr>
-          <td />
-          <th scope="col" className="pb-1 text-left font-semibold text-success-700">
-            + {row.player.name}
-          </th>
-          <th scope="col" className="pb-1 text-left font-semibold text-error-700">
-            − {drop.player.name}
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {line('Proj this week', pts(row.projectedPoints), pts(drop.projectedPoints))}
-        {line('Season avg', pts(row.average), pts(drop.seasonAverage?.average))}
-        {line('This week', gameText(row.game), gameContext(drop))}
-      </tbody>
-    </table>
+    <div className="min-w-0 space-y-2" data-testid="compare">
+      {projEdge !== null && (
+        <p
+          className={`rounded-md px-3 py-2 text-sm font-medium ${
+            projEdge > 0
+              ? 'bg-success-50 text-success-800'
+              : projEdge < 0
+                ? 'bg-error-50 text-error-800'
+                : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          {projEdge === 0
+            ? 'Projected the same this week.'
+            : `${row.player.name} projects ${Math.abs(projEdge).toFixed(1)} ${
+                projEdge > 0 ? 'more' : 'fewer'
+              } points this week.`}
+        </p>
+      )}
+      <table className="w-full table-fixed text-sm" aria-label="Compare">
+        <thead>
+          <tr className="align-top">
+            <th scope="col" className="w-1/3 px-2 pb-2 font-semibold text-success-700">
+              <span className="flex flex-col items-center gap-1 text-center">
+                <PlayerHeadshot player={row.player} size={48} />
+                <span className="break-words">+ {row.player.name}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {row.player.position} · {row.player.team ?? 'FA'}
+                </span>
+              </span>
+            </th>
+            <td className="w-1/3" />
+            <th scope="col" className="w-1/3 px-2 pb-2 font-semibold text-error-700">
+              <span className="flex flex-col items-center gap-1 text-center">
+                <PlayerHeadshot player={drop.player} size={48} />
+                <span className="break-words">− {drop.player.name}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {drop.player.position} · {drop.player.team ?? 'FA'}
+                </span>
+              </span>
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border border-t border-border">
+          {lines.map((line) => (
+            <tr key={line.label}>
+              {cell(line.add, line.edge, 'add')}
+              <th scope="row" className="px-1 py-2 text-center text-xs font-normal text-muted-foreground">
+                {line.label}
+              </th>
+              {cell(line.out, line.edge, 'out')}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

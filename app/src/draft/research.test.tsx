@@ -6,7 +6,7 @@ import { BestAvailableTable, type BestAvailableTableProps } from './BestAvailabl
 import type { BestAvailableEntry } from './board';
 import { DepthChart } from './DepthChart';
 import { PlayerCard } from './PlayerCard';
-import { fmt, sparklinePoints, type DraftDepth, type PlayerCardData } from './research';
+import { fmt, type DraftDepth, type PlayerCardData } from './research';
 
 const ref = (id: string, name: string, position: string, team: string | null = 'CIN') => ({
   id,
@@ -29,12 +29,8 @@ function fakeApi(handler: (path: string) => unknown) {
 }
 
 describe('research helpers', () => {
-  it('formats to one decimal and draws a sparkline in its box', () => {
+  it('formats to one decimal', () => {
     expect([fmt(12.345), fmt(10), fmt(null), fmt(undefined)]).toEqual(['12.3', '10', '—', '—']);
-    expect(sparklinePoints([], 100, 10)).toBe('');
-    expect(sparklinePoints([5], 100, 10)).toBe('50,0');
-    expect(sparklinePoints([0, 10, 5], 100, 10)).toBe('0,10 50,0 100,5');
-    expect(sparklinePoints([-2, 2], 10, 4)).toBe('0,4 10,0');
   });
 });
 
@@ -202,7 +198,7 @@ describe('PlayerCard', () => {
     return { props, calls };
   }
 
-  it('shows the sparkline, totals, projection, bye, injury, and news', async () => {
+  it('shows the weekly points chart, totals, projection, bye, injury, and news', async () => {
     const { calls } = renderCard(CARD);
     const card = await screen.findByTestId('player-card');
     expect(await within(card).findByText(/PPG/)).toHaveTextContent('40 pts · 20 PPG · 2 games');

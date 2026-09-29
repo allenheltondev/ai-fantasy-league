@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from 'react';
-import { useParams } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
 import { Card, CardBody, LoadingPage, SegmentedControl, StatusBadge, useToast } from '@readysetcloud/ui';
 import { useLeagueApi, type LeagueApi } from '../../api/league';
 import type { LeagueDetail } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
+import { DraftPage } from '../../draft/DraftPage';
 import { useLoad } from '../../lib/useLoad';
 import { PHASE_LABELS } from '../leagues/MyLeaguesPage';
+import { HistoryPanel } from '../season/HistoryPanel';
 import { AgentManagers } from './AgentManagers';
 import { AiActivityPanel } from './AiActivityPanel';
 import { DataStatusPanel } from './DataStatusPanel';
@@ -13,6 +15,7 @@ import { DraftSchedulePanel } from './DraftSchedulePanel';
 import { InvitesPanel } from './InvitesPanel';
 import { RulesEditor } from './RulesEditor';
 import { SeatHistoryPanel } from './SeatHistoryPanel';
+import { draftIsLive } from '../../routes/leagueRoutes';
 import { inferPreset } from './rules';
 import { SeatManager } from './SeatManager';
 
@@ -44,7 +47,13 @@ export function aiSeats(league: LeagueDetail) {
     .sort((a, b) => a.draftSlot - b.draftSlot);
 }
 
-/** The league's Settings section: seats, AI managers, invites, the rules, and (commissioner) AI activity and data status. */
+type View = 'league' | 'history' | 'draft' | 'ai' | 'data';
+
+/**
+ * The league's Settings section (League info for everyone but the commissioner): seats, AI
+ * managers, invites, and the rules, with the league's history and, once the draft is over, its
+ * results, and (commissioner) AI activity and data status. The view is `?view=`.
+ */
 export function SettingsPage() {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
@@ -52,7 +61,7 @@ export function SettingsPage() {
   const loaded = useLoad(() => loadSettings(api, leagueId), leagueId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [tab, setTab] = useState<'league' | 'ai' | 'data'>('league');
+  const [params, setParams] = useSearchParams();
 
   if (loaded.data === null) {
     return loaded.error ? <ApiErrorAlert error={loaded.error} /> : <LoadingPage text="Loading settings…" />;
@@ -74,6 +83,16 @@ export function SettingsPage() {
       }
     );
   };
+  const commissioner = state.youAreCommissioner;
+  const drafted = !draftIsLive(league.phase);
+  const requested = params.get('view');
+  const tab: View =
+    requested === 'history' ||
+    (requested === 'draft' && drafted) ||
+    (commissioner && (requested === 'ai' || requested === 'data'))
+      ? requested
+      : 'league';
+  const setTab = (view: View) => setParams(view === 'league' ? {} : { view });
   const phase = PHASE_LABELS[league.phase];
   const agents = aiSeats(league);
 
@@ -85,23 +104,33 @@ export function SettingsPage() {
           <span className="text-sm text-muted-foreground">You are the commissioner</span>
         )}
       </div>
-      {state.youAreCommissioner && (
-        <SegmentedControl
-          aria-label="Settings view"
-          options={[
-            { value: 'league', label: 'League settings' },
-            { value: 'ai', label: 'AI activity' },
-            { value: 'data', label: 'Data status' }
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
-      )}
-      {state.youAreCommissioner && tab === 'data' ? (
+      <SegmentedControl
+        aria-label="Settings view"
+        options={
+          [
+            { value: 'league', label: commissioner ? 'League settings' : 'Rules & seats' },
+            { value: 'history', label: 'History' },
+            ...(drafted ? [{ value: 'draft', label: 'Draft results' }] : []),
+            ...(commissioner
+              ? [
+                  { value: 'ai', label: 'AI activity' },
+                  { value: 'data', label: 'Data status' }
+                ]
+              : [])
+          ] as { value: View; label: string }[]
+        }
+        value={tab}
+        onChange={setTab}
+      />
+      {tab === 'history' ? (
+        <HistoryPanel />
+      ) : tab === 'draft' ? (
+        <DraftPage />
+      ) : commissioner && tab === 'data' ? (
         <Section id="data-status" title="Data status">
           <DataStatusPanel leagueId={league.id} />
         </Section>
-      ) : state.youAreCommissioner && tab === 'ai' ? (
+      ) : commissioner && tab === 'ai' ? (
         <>
           <Section id="ai-activity" title="AI activity">
             <AiActivityPanel leagueId={league.id} teams={league.teams} />

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect } from 'react';
 import { APP_NAME } from '../auth/AuthScreens';
-import { LEAGUE_TABS, TEAM_PAGES } from '../routes/leagueRoutes';
+import { LEAGUE_PAGES, TEAM_PAGES } from '../routes/leagueRoutes';
 import { leagueIdIn, leagueSubpath } from './navItems';
 
 /**
@@ -44,7 +44,8 @@ export function pageName(pathname: string, context: PageNameContext = {}): PageN
     case 'settings':
       return same(context.commissioner === true ? 'Settings' : 'League info');
     case 'league':
-      return same(LEAGUE_TABS.find((tab) => tab.path === page)?.label ?? 'Scoreboard');
+      if (page === 'history' || page === 'draft') return same('League info');
+      return same(LEAGUE_PAGES.find((tab) => tab.path === page)?.label ?? 'Scoreboard');
     case 'team': {
       if (page === 'teams' && detail !== undefined && detail !== '') {
         const team = context.teams?.find((t) => t.id === detail);

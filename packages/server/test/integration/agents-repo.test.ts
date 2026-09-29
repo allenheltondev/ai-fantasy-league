@@ -1,7 +1,16 @@
 import { OWNER_ONLY, emptyMemory, rememberEvent } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
-import type { AgentDispatch, AgentSeatRecord, AgentTaskRecord } from '../../src/repos/agents.js';
+import {
+  roundUsd,
+  taskCountKey,
+  usageKey,
+  type AgentDispatch,
+  type AgentSeatRecord,
+  type AgentTaskRecord,
+  type AgentUsageEntry,
+  type BudgetHold
+} from '../../src/repos/agents.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
 import type { Repos } from '../../src/repos/types.js';
@@ -321,6 +330,127 @@ describe.each(backends)('%s agent repository', (_name, make) => {
       { ...row, modelKey: 'claude-opus-5' },
       { ...row, inputTokens: 20, outputTokens: 10, costUsd: 0.75, tasks: 2 }
     ]);
+  });
+
+  describe('budget holds and the usage ledger (#209)', () => {
+    const hold = (leagueId: string, taskId: string, costUsd: number, expiresAt = T0): BudgetHold => ({
+      leagueId,
+      week: 3,
+      agentId: 'a',
+      taskId,
+      key: usageKey(1, 1),
+      modelKey: 'nova-lite',
+      inputTokens: 100,
+      outputTokens: 50,
+      costUsd,
+      expiresAt: expiresAt.toISOString()
+    });
+    const entry = (h: BudgetHold, costUsd: number, key = h.key): AgentUsageEntry => ({
+      leagueId: h.leagueId,
+      week: h.week,
+      agentId: h.agentId,
+      taskId: h.taskId,
+      key,
+      modelKey: h.modelKey,
+      inputTokens: 80,
+      outputTokens: 20,
+      costUsd,
+      tasks: 0,
+      estimated: false,
+      at: T0.toISOString()
+    });
+    const spent = async (repos: Repos, leagueId: string) =>
+      roundUsd((await repos.agents.weekUsage(leagueId, 3)).reduce((n, r) => n + r.costUsd, 0));
+
+    it('admits racing holds only while recorded spend and every hold fit the ceiling', async () => {
+      const repos = make();
+      const leagueId = unique('lg');
+      await repos.agents.addUsage({ ...entry(hold(leagueId, 'x', 0), 0.6), tasks: 1 });
+      // $0.40 left: of eight racing $0.15 holds, exactly two fit.
+      const holds = Array.from({ length: 8 }, () => hold(leagueId, unique('t'), 0.15));
+      const results = await Promise.all(holds.map((h) => repos.agents.reserveBudget(h, 1)));
+      expect(results.filter((r) => r.status === 'reserved')).toHaveLength(2);
+      expect(
+        results
+          .filter((r) => r.status !== 'reserved')
+          .every((r) => ['refused', 'contended'].includes(r.status))
+      ).toBe(true);
+      expect(await repos.agents.reserveBudget(hold(leagueId, unique('t'), 0.15), 1)).toEqual({
+        status: 'refused',
+        spentUsd: 0.6,
+        reservedUsd: 0.3
+      });
+      // Reserving the same call again is the same answer, and holds nothing more.
+      const admitted = holds.filter((_, i) => results[i]?.status === 'reserved');
+      expect(await repos.agents.reserveBudget(admitted[0] as BudgetHold, 1)).toEqual({ status: 'reserved' });
+      expect(await repos.agents.reserveBudget(hold(leagueId, unique('t'), 0.1), 1)).toEqual({
+        status: 'reserved'
+      });
+      // Another week has its own budget.
+      expect(await repos.agents.reserveBudget({ ...hold(leagueId, unique('t'), 0.9), week: 4 }, 1)).toEqual({
+        status: 'reserved'
+      });
+    });
+
+    it('charges each ledger key once and releases its hold, whatever the order', async () => {
+      const repos = make();
+      const leagueId = unique('lg');
+      const h = hold(leagueId, unique('t'), 0.5);
+      expect(await repos.agents.reserveBudget(h, 1)).toEqual({ status: 'reserved' });
+      expect(await repos.agents.reserveBudget(hold(leagueId, unique('t'), 0.6), 1)).toMatchObject({
+        status: 'refused'
+      });
+      // The actual cost replaces the estimate: 0.2 recorded, nothing held.
+      expect(await repos.agents.recordUsage(entry(h, 0.2), h)).toBe(true);
+      expect(await spent(repos, leagueId)).toBe(0.2);
+      expect(await repos.agents.reserveBudget(hold(leagueId, unique('t'), 0.8), 1)).toEqual({
+        status: 'reserved'
+      });
+      // A duplicate (a retry, a replay, a racing reconciliation) charges nothing.
+      expect(await repos.agents.recordUsage(entry(h, 0.2), h)).toBe(false);
+      expect(await repos.agents.recordUsage(entry(h, 0.2))).toBe(false);
+      expect(await spent(repos, leagueId)).toBe(0.2);
+      expect(await repos.agents.releaseBudget(h)).toBe(false);
+
+      // Charged without its hold first (a repair), then settled with it: the hold still goes.
+      const g = hold(leagueId, unique('t'), 0);
+      await repos.agents.reserveBudget(g, 1);
+      expect(await repos.agents.recordUsage(entry(g, 0.05))).toBe(true);
+      expect(await repos.agents.recordUsage(entry(g, 0.05), g)).toBe(false);
+      // Only the $0.80 hold is left.
+      const left = await repos.agents.listStaleHolds(new Date(T0.getTime() + 1), 100);
+      expect(left.filter((x) => x.leagueId === leagueId).map((x) => x.costUsd)).toEqual([0.8]);
+      // A hold already released (the sweep got there first) does not stop a first charge.
+      const k = hold(leagueId, unique('t'), 0);
+      expect(await repos.agents.recordUsage(entry(k, 0.01), k)).toBe(true);
+      expect(await spent(repos, leagueId)).toBe(0.26);
+      // A task's count is its own key.
+      expect(await repos.agents.recordUsage({ ...entry(h, 0, taskCountKey(0)), tasks: 1 })).toBe(true);
+      expect(await repos.agents.recordUsage({ ...entry(h, 0, taskCountKey(0)), tasks: 1 })).toBe(false);
+      const rows = await repos.agents.weekUsage(leagueId, 3);
+      expect(rows.reduce((n, r) => n + r.tasks, 0)).toBe(1);
+    });
+
+    it('releases a hold without a charge, and lists stale holds for the sweep', async () => {
+      const repos = make();
+      const leagueId = unique('lg');
+      const early = hold(leagueId, unique('t'), 0.5, T0);
+      const late = hold(leagueId, unique('t'), 0.4, new Date(T0.getTime() + 60_000));
+      await repos.agents.reserveBudget(early, 1);
+      await repos.agents.reserveBudget(late, 1);
+      const stale = (at: number) => repos.agents.listStaleHolds(new Date(T0.getTime() + at), 10);
+      expect((await stale(-1)).filter((x) => x.leagueId === leagueId)).toEqual([]);
+      expect((await stale(0)).filter((x) => x.leagueId === leagueId)).toEqual([early]);
+      expect((await stale(60_000)).filter((x) => x.leagueId === leagueId)).toEqual([early, late]);
+      expect(await repos.agents.releaseBudget(early)).toBe(true);
+      expect(await repos.agents.releaseBudget(early)).toBe(false);
+      expect((await stale(60_000)).filter((x) => x.leagueId === leagueId)).toEqual([late]);
+      expect(await spent(repos, leagueId)).toBe(0);
+      // The released capacity is free again.
+      expect(await repos.agents.reserveBudget(hold(leagueId, unique('t'), 0.6), 1)).toEqual({
+        status: 'reserved'
+      });
+    });
   });
 
   it('stores trigger state', async () => {

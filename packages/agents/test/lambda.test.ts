@@ -100,7 +100,9 @@ describe('agent Lambda handlers', () => {
       dispatches: 0,
       sent: 0,
       failed: 0,
-      abandoned: 0
+      abandoned: 0,
+      holds: 0,
+      settled: 0
     });
   });
 

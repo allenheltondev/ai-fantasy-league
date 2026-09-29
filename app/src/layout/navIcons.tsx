@@ -44,14 +44,6 @@ export const HomeIcon = () => (
   </Icon>
 );
 
-export const LeagueIcon = () => (
-  <Icon>
-    <path d="M8 4h8v4a4 4 0 0 1-8 0Z" />
-    <path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4" />
-    <path d="M12 12v4M9 20h6M10 16h4v4h-4Z" />
-  </Icon>
-);
-
 export const DraftIcon = () => (
   <Icon>
     <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -126,5 +118,39 @@ export const TeamsIcon = () => (
     <circle cx="9" cy="9" r="3" />
     <circle cx="16.5" cy="10" r="2.5" />
     <path d="M3.5 19a5.5 5.5 0 0 1 11 0M14 19a4.5 4.5 0 0 1 6.5-4" />
+  </Icon>
+);
+
+export const ScoreboardIcon = () => (
+  <Icon>
+    <rect x="3.5" y="6" width="17" height="12" rx="2" />
+    <path d="M12 6v12M7 10.5h.01M7 13.5h.01M17 10.5h.01M17 13.5h.01" />
+  </Icon>
+);
+
+export const StandingsIcon = () => (
+  <Icon>
+    <path d="M5 20v-7h4v7M10 20V5h4v15M15 20v-10h4v10M3.5 20h17" />
+  </Icon>
+);
+
+export const PlayoffsIcon = () => (
+  <Icon>
+    <path d="M4 5h4v4H4ZM4 15h4v4H4ZM16 10h4v4h-4Z" />
+    <path d="M8 7h3v10H8M11 12h5" />
+  </Icon>
+);
+
+export const TransactionsIcon = () => (
+  <Icon>
+    <path d="M6 4h12v16l-3-2-3 2-3-2-3 2Z" />
+    <path d="M9 9h6M9 13h6" />
+  </Icon>
+);
+
+export const PlayersIcon = () => (
+  <Icon>
+    <circle cx="10.5" cy="10.5" r="6" />
+    <path d="m15 15 5 5" />
   </Icon>
 );

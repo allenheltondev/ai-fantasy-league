@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { safeReturnPath } from './auth/AuthScreens';
 import { activeNavId, displayName } from './layout/AppLayout';
+import { fakeApi, league } from './test/fakeApi';
 import { renderApp, signInAs } from './test/render';
 
 const ALICE = { sub: 'u1', email: 'alice@example.com', given_name: 'Alice', family_name: 'Smith' };
@@ -79,7 +80,15 @@ describe('signed in', () => {
     expect(link('My Leagues')).toHaveAttribute('href', '/leagues');
     // In setup the Draft is its own section.
     expect(link('Draft')).toHaveAttribute('href', '/leagues/L1/draft');
-    expect(link('Scoreboard')).toHaveAttribute('href', '/leagues/L1/league');
+    for (const [name, page] of [
+      ['Scoreboard', 'scoreboard'],
+      ['Standings', 'standings'],
+      ['Playoffs', 'playoffs'],
+      ['Transactions', 'transactions'],
+      ['Players', 'players']
+    ] as const) {
+      expect(link(name)).toHaveAttribute('href', `/leagues/L1/league/${page}`);
+    }
     expect(link('Chat')).toHaveAttribute('href', '/leagues/L1/chat');
     expect(link('Settings')).toHaveAttribute('href', '/leagues/L1/settings');
     for (const [name, page] of [
@@ -122,7 +131,7 @@ describe('signed in', () => {
     expect(within(nav).getByRole('link', { name: 'Trades' })).toHaveAttribute('aria-current', 'page');
     await user.click(within(nav).getByRole('link', { name: 'Scoreboard' }));
     expect(await screen.findByTestId('league-page-scoreboard')).toBeInTheDocument();
-    await user.click(screen.getByRole('link', { name: 'Standings' }));
+    await user.click(within(nav).getByRole('link', { name: 'Standings' }));
     expect(await screen.findByTestId('league-section-standings')).toBeInTheDocument();
   });
 
@@ -133,7 +142,7 @@ describe('signed in', () => {
     ['/leagues/L1/players', 'league-section-players'],
     ['/leagues/L1/standings', 'league-section-standings'],
     ['/leagues/L1/standings?view=playoffs', 'league-page-playoffs'],
-    ['/leagues/L1/standings?view=history', 'league-page-history'],
+    ['/leagues/L1/standings?view=history', 'league-section-settings'],
     ['/leagues/L1/team', 'league-section-roster'],
     ['/leagues/L1/league', 'league-page-scoreboard']
   ])('keeps the deep link %s working', async (path, testId) => {
@@ -142,22 +151,14 @@ describe('signed in', () => {
     expect(await screen.findByTestId(testId)).toBeInTheDocument();
   });
 
-  it('scrolls the League tabs to the current page (they are one sideways row on a phone)', async () => {
-    // jsdom has no scrollIntoView (the row skips it then, as the other tests show); stand one in.
-    const scrolled: string[] = [];
-    const scrollIntoView = vi.fn(function (this: Element) {
-      scrolled.push(this.textContent ?? '');
-    });
-    Element.prototype.scrollIntoView = scrollIntoView;
-    try {
-      signInAs(ALICE);
-      renderApp('/leagues/L1/league/history');
-      expect(await screen.findByTestId('league-page-history')).toBeInTheDocument();
-      expect(scrolled).toContain('History');
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
-    } finally {
-      delete (Element.prototype as Partial<Element>).scrollIntoView;
-    }
+  it('shows the draft results in League info once the draft is over', async () => {
+    signInAs(ALICE);
+    renderApp(
+      '/leagues/L1/settings?view=draft',
+      undefined,
+      fakeApi({ getLeague: vi.fn(async () => league({ phase: 'regular_season' })) })
+    );
+    expect(await screen.findByTestId('league-section-draft')).toBeInTheDocument();
   });
 
   it('shows not found for an unknown path', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { Button, Select, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
@@ -66,6 +66,12 @@ export function PlayerMarket(props: MarketProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const { leagueId, onContext } = props;
+  // Rows are memoized, so they get callbacks that never change identity: a page-level re-render
+  // (the market's context arriving, a filter toggling) leaves the 25+ rows alone.
+  const latest = useRef(props);
+  latest.current = props;
+  const tradeHref = useCallback((r: MarketPlayer) => latest.current.tradeHref(r), []);
+  const onAdd = useCallback((r: MarketPlayer) => latest.current.onAdd(r), []);
 
   useEffect(() => setPosition(props.position), [props.position, props.positionKey]);
 
@@ -215,7 +221,17 @@ export function PlayerMarket(props: MarketProps) {
               row={row}
               showCost={page?.waiverType === 'faab'}
               faabRemaining={page?.faabRemaining ?? null}
-              {...props}
+              // The standing is resolved here as text, so a renamed team re-renders its rows.
+              standing={
+                row.availability.status === 'rostered' && row.availability.teamId === props.yourTeamId
+                  ? 'Your team'
+                  : standingText(row.availability, props.teamName)
+              }
+              yourTeamId={props.yourTeamId}
+              canAdd={props.canAdd}
+              canTrade={props.canTrade}
+              tradeHref={tradeHref}
+              onAdd={onAdd}
             />
           ))}
         </ul>
@@ -235,18 +251,29 @@ export function PlayerMarket(props: MarketProps) {
   );
 }
 
-function MarketRow(
-  props: MarketProps & { row: MarketPlayer; showCost: boolean; faabRemaining: number | null }
-) {
+interface RowProps extends Pick<MarketProps, 'yourTeamId' | 'canAdd' | 'canTrade' | 'tradeHref' | 'onAdd'> {
+  row: MarketPlayer;
+  /** "Free agent", "Waivers · clears …", "Your team", or the rostering team's name. */
+  standing: string;
+  /** Show what each add costs: FAAB leagues only. */
+  showCost: boolean;
+  /** Your FAAB left, for the "Bid up to" line. */
+  faabRemaining: number | null;
+}
+
+const MarketRow = memo(function MarketRow(props: RowProps) {
   const openCard = useOpenPlayerCard();
   const { row } = props;
   const { player, availability } = row;
   const trend = trendOf(row.trend);
   const mine = availability.status === 'rostered' && availability.teamId === props.yourTeamId;
   const injured = row.status !== 'active';
-  const standing = mine ? 'Your team' : standingText(availability, props.teamName);
+  const { standing } = props;
   return (
-    <li className="flex items-center gap-3 px-3 py-2.5" data-testid={`market-row-${player.id}`}>
+    <li
+      className="flex items-center gap-3 px-3 py-2.5 [contain-intrinsic-size:auto_4.5rem] [content-visibility:auto]"
+      data-testid={`market-row-${player.id}`}
+    >
       <button
         type="button"
         onClick={() => openCard?.(row.player)}
@@ -339,4 +366,4 @@ function MarketRow(
       </div>
     </li>
   );
-}
+});

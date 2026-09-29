@@ -19,28 +19,20 @@ export const TEAM_PAGES = [
 
 export type TeamPagePath = (typeof TEAM_PAGES)[number]['path'];
 
-/** League's tabs. `draft` (Draft results) shows once the draft is over. */
-export const LEAGUE_TABS = [
+/** The League pages that have a side-nav item of their own, in nav order (#178). */
+export const LEAGUE_PAGES = [
   { path: 'scoreboard', label: 'Scoreboard' },
   { path: 'standings', label: 'Standings' },
   { path: 'playoffs', label: 'Playoffs' },
-  { path: 'players', label: 'Players' },
   { path: 'transactions', label: 'Transactions' },
-  { path: 'history', label: 'History' },
-  { path: 'draft', label: 'Draft results' }
+  { path: 'players', label: 'Players' }
 ] as const;
 
-export type LeagueTabPath = (typeof LEAGUE_TABS)[number]['path'];
+export type LeagueTabPath = (typeof LEAGUE_PAGES)[number]['path'];
 
-/** Before and during the draft, the Draft section is its own item; afterwards it is a League tab. */
+/** Before and during the draft, the Draft section is its own item; afterwards its results are in League info. */
 export function draftIsLive(phase: Phase | null | undefined): boolean {
   return phase === 'setup' || phase === 'drafting';
-}
-
-export function leagueTabs(phase: Phase | null | undefined) {
-  return LEAGUE_TABS.filter(
-    (tab) => tab.path !== 'draft' || (phase !== undefined && phase !== null && !draftIsLive(phase))
-  );
 }
 
 /** `/leagues/:id/<page>`, with the id encoded. */
@@ -68,7 +60,7 @@ export const MOVED_SECTIONS = {
 
 /**
  * The new home of an old section URL. Standings kept its playoffs and history as `?view=` tabs;
- * those are League tabs of their own now.
+ * playoffs is a League page of its own now, and history lives in League info.
  */
 export function movedSectionTarget(section: keyof typeof MOVED_SECTIONS, search: string): string {
   const params = new URLSearchParams(search);
@@ -76,8 +68,8 @@ export function movedSectionTarget(section: keyof typeof MOVED_SECTIONS, search:
     const view = params.get('view');
     params.delete('view');
     const rest = params.toString();
-    const tab = view === 'playoffs' || view === 'history' ? view : 'standings';
-    return `league/${tab}${rest === '' ? '' : `?${rest}`}`;
+    if (view === 'history') return `settings?view=history${rest === '' ? '' : `&${rest}`}`;
+    return `league/${view === 'playoffs' ? 'playoffs' : 'standings'}${rest === '' ? '' : `?${rest}`}`;
   }
   return `${MOVED_SECTIONS[section]}${search}`;
 }

@@ -562,11 +562,10 @@ for (const viewport of VIEWPORTS) {
       await page.goto('/leagues/demo-season/standings');
       await expect(page.getByRole('table', { name: 'Standings' })).toBeVisible();
       await expectFits(page, 'standings');
-      const leaguePages = page.getByRole('navigation', { name: 'League pages' });
-      await leaguePages.getByRole('link', { name: 'Playoffs' }).tap();
+      await page.goto('/leagues/demo-season/league/playoffs');
       await expect(page.getByRole('region', { name: 'Championship bracket' })).toBeVisible();
       await expectFits(page, 'standings: playoffs');
-      await leaguePages.getByRole('link', { name: 'History' }).tap();
+      await page.goto('/leagues/demo-season/settings?view=history');
       await expect(page.getByRole('heading', { name: 'Head to head' })).toBeVisible();
       await expectFits(page, 'standings: history');
 
@@ -615,18 +614,12 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: 'Team 2', level: 2 })).toBeAttached();
       await expectFits(page, 'chat: DM');
 
-      // League's tabs are one row that scrolls sideways: Transactions, off to the right, is a tap away.
+      // Each League page is its own item in the nav drawer.
       await page.goto('/leagues/demo-season/league');
       await expect(page).toHaveURL(/\/league\/scoreboard$/);
       await expect(page.getByRole('region', { name: 'Matchups' })).toBeVisible();
       await expectFits(page, 'league: scoreboard');
-      const tabs = page.getByRole('navigation', { name: 'League pages' });
-      expect((await tabs.boundingBox())?.height ?? 0).toBeLessThan(80);
-      await tabs.getByRole('link', { name: 'Transactions' }).tap();
-      await expect(page).toHaveURL(/\/league\/transactions$/);
-      await expect(
-        page.getByRole('navigation', { name: 'League pages' }).getByRole('link', { name: 'Transactions' })
-      ).toBeInViewport();
+      await page.goto('/leagues/demo-season/league/transactions');
       await expect(page.getByRole('region', { name: 'Move board' })).toBeVisible();
       await expectFits(page, 'league: transactions');
 

@@ -208,6 +208,24 @@ describe('the NFL games strip', () => {
     expect(final).toHaveTextContent('27');
   });
 
+  it("shows each team's logo beside its name, and none for a team not set yet", () => {
+    render(
+      <>
+        <GameCard game={PREGAME} reducedMotion={false} />
+        <GameCard game={{ ...FINAL, homeTeam: null }} reducedMotion={false} />
+      </>
+    );
+    const pregame = screen.getByRole('article', { name: 'LAR at SF' });
+    expect([...pregame.querySelectorAll('img')].map((i) => i.getAttribute('src'))).toEqual([
+      'https://sleepercdn.com/images/team_logos/nfl/lar.png',
+      'https://sleepercdn.com/images/team_logos/nfl/sf.png'
+    ]);
+    // Decorative: the abbreviation is right beside it.
+    expect(pregame.querySelector('img')).toHaveAttribute('alt', '');
+    const final = screen.getByRole('article', { name: 'KC at TBD' });
+    expect(final.querySelectorAll('img')).toHaveLength(1);
+  });
+
   it('renders nothing without games, and every game otherwise', () => {
     const { container, rerender } = render(<NflGamesStrip data={gamesData([])} featured={new Set()} />);
     expect(container).toBeEmptyDOMElement();

@@ -434,6 +434,8 @@ describe('the roster workspace on a phone', () => {
     expect(await within(dialog).findByText('Your roster is full: pick who to drop')).toBeInTheDocument();
     const confirm = within(dialog).getByRole('button', { name: 'Add player' });
     expect(confirm).toBeDisabled();
+    // Before a drop is picked, the comparison says to choose one.
+    expect(within(dialog).getByTestId('compare')).toHaveTextContent(/Pick a player to drop/);
     // Locked players cannot be picked; the list runs lowest projection first.
     expect(within(dialog).getByRole('radio', { name: /Tyreek Hill/ })).toBeDisabled();
     const radios = within(dialog).getAllByRole('radio');
@@ -442,6 +444,10 @@ describe('the roster workspace on a phone', () => {
     const compare = await within(dialog).findByTestId('compare');
     expect(compare).toHaveTextContent("+ D'Andre Swift");
     expect(compare).toHaveTextContent('− Jaylen Warren');
+    // Side by side: each line has both players' numbers, and the better projection is marked.
+    expect(compare).toHaveTextContent('Proj this week');
+    expect(compare).toHaveTextContent('Season avg');
+    expect(compare).toHaveTextContent(/D'Andre Swift projects \d+\.\d (more|fewer) points this week\./);
     await user.click(await within(dialog).findByRole('button', { name: 'Add, drop Jaylen Warren' }));
     await waitFor(() =>
       expect(claimPlayer).toHaveBeenCalledWith('L1', { playerId: 'fa', dropPlayerId: 'bn1' })
@@ -843,6 +849,17 @@ describe('League › Players', () => {
     await user.click(await screen.findByRole('button', { name: 'Add player' }));
     expect(await screen.findByText("Added D'Andre Swift.")).toBeInTheDocument();
     await waitFor(() => expect(api.getRoster).toHaveBeenCalledTimes(2));
+  });
+
+  it('closes the add step on the Players page without adding', async () => {
+    const user = userEvent.setup();
+    const api = open('/leagues/L1/league/players');
+    const list = await screen.findByRole('list', { name: 'All players' });
+    await user.click(await within(list).findByRole('button', { name: "Add D'Andre Swift" }));
+    const dialog = await screen.findByTestId('add-sheet');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByTestId('add-sheet')).not.toBeInTheDocument());
+    expect(api.claimPlayer).not.toHaveBeenCalled();
   });
 
   it('closes adds for someone without a team, and says rolling waivers', async () => {

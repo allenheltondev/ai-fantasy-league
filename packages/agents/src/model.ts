@@ -23,6 +23,11 @@ export interface ModelRunRequest<T> {
    * (`thinkingBudget`) at medium or high reasoning effort.
    */
   thinkingBudgetTokens?: number;
+  /**
+   * Reasoning effort for models on adaptive thinking (`adaptiveThinking`), sent as
+   * `output_config.effort`. Set instead of `thinkingBudgetTokens`, at medium or high effort.
+   */
+  thinkingEffort?: 'medium' | 'high';
   temperature: number;
   /** The structured decision the run must end with. */
   outputSchema: z.ZodType<T>;
@@ -48,6 +53,32 @@ export interface ModelRunResult<T> {
 export interface ModelClient {
   readonly name: string;
   run<T>(request: ModelRunRequest<T>): Promise<ModelRunResult<T>>;
+}
+
+const RUN_USAGE = Symbol('modelRunUsage');
+
+/**
+ * Attaches what a failed run spent before it failed (every turn it finished, accumulated) to its
+ * error, so the runner charges that rather than a guess (#209). The error itself is unchanged: its
+ * name still decides whether the next model is tried.
+ */
+export function withRunUsage(error: unknown, usage: ModelUsage | null): unknown {
+  if (usage !== null && typeof error === 'object' && error !== null) {
+    Object.defineProperty(error, RUN_USAGE, { value: usage, enumerable: false, configurable: true });
+  }
+  return error;
+}
+
+/** The usage a failed run reported (`withRunUsage`), or null when it has none. */
+export function runUsageOf(error: unknown): ModelUsage | null {
+  if (typeof error !== 'object' || error === null) return null;
+  return (error as { [RUN_USAGE]?: ModelUsage })[RUN_USAGE] ?? null;
+}
+
+/** The Bedrock model client, loaded on demand (the Strands SDK is heavy; the fake model never needs it). */
+export async function bedrockModel(): Promise<ModelClient> {
+  const { StrandsModelClient } = await import('./strands-model.js');
+  return new StrandsModelClient();
 }
 
 /** Thrown for failures where trying the next model in the tier makes sense (access, throttling). */

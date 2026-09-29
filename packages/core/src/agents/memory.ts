@@ -317,6 +317,25 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
       const received = players(event.received) ?? previous?.received;
       const value = event.value ?? previous?.value;
       const direction = event.direction ?? previous?.direction;
+      // Delivery order is not event order (EventBridge, #211): a step older than the one kept (an
+      // `accepted` landing after `processed`) adds what it knew but never rolls the outcome back.
+      const late =
+        previous !== undefined &&
+        previous.outcome !== event.outcome &&
+        Date.parse(event.at) < Date.parse(previous.at);
+      if (late) {
+        const merged: TradeMemory = {
+          ...previous,
+          ...(direction === undefined ? {} : { direction }),
+          ...(sent === undefined ? {} : { sent }),
+          ...(received === undefined ? {} : { received }),
+          ...(value === undefined ? {} : { value: Math.round(value * 10) / 10 })
+        };
+        return markSeen(
+          { ...memory, trades: memory.trades.map((t) => (t.tradeId === event.tradeId ? merged : t)) },
+          event.eventId
+        );
+      }
       const entry: TradeMemory = {
         teamId: event.teamId,
         tradeId: event.tradeId,

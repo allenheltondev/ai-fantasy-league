@@ -21,7 +21,7 @@ export const getPlayerCard = defineOperation({
   summary:
     'One player’s card: this season so far, next week’s projection and matchup, last season, the season projection, and news',
   description: [
-    'Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals (`thisSeason`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines.',
+    'Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines.',
     'Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used.',
     '`lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade.',
     'An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.'
@@ -66,7 +66,35 @@ export const getPlayerCard = defineOperation({
         weekly: z
           .array(z.object({ week: z.number().int(), points: z.number() }))
           .describe('Points each week he has a line for, in week order.'),
-        totals: TotalsSchema
+        totals: TotalsSchema,
+        recent: z
+          .array(
+            z.object({
+              week: z.number().int(),
+              points: z.number(),
+              vsAverage: z
+                .number()
+                .describe('Points above (+) or below (-) his points per game this season.'),
+              opponent: z
+                .object({ team: z.string(), home: z.boolean() })
+                .nullable()
+                .describe('Who his team played that week; null when unknown.'),
+              breakdown: z
+                .array(
+                  z.object({
+                    stat: z.string().describe('The Sleeper stat key, or "other" for the small rest.'),
+                    text: z
+                      .string()
+                      .describe('What he did, e.g. "82 rec yds", "1 rec TD", or "rec yd bonus".'),
+                    points: z.number().describe('Points that earned (negative for a penalty).')
+                  })
+                )
+                .describe(
+                  'Where the game’s points came from under the caller’s scoring: biggest earners first, penalties last, the small rest as `other`.'
+                )
+            })
+          )
+          .describe('His last three games played, newest first, each in detail.')
       })
       .nullable()
       .describe(
