@@ -484,15 +484,6 @@ export function HeadToHead({
           <col className="w-[3.25rem] sm:w-20" />
           <col />
         </colgroup>
-        <thead className="sr-only">
-          <tr>
-            <th scope="col">{matchup.home.teamName}</th>
-            <th scope="col">{matchup.home.teamName} points</th>
-            <th scope="col">Slot</th>
-            <th scope="col">{matchup.away.teamName} points</th>
-            <th scope="col">{matchup.away.teamName}</th>
-          </tr>
-        </thead>
         <tbody>
           {starters.map((pair) => (
             <PairRow key={pair.key} pair={pair} lockSide={yourSide} drives={redZone} />

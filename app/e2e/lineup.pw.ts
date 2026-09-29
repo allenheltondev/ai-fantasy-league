@@ -50,6 +50,8 @@ async function drag(page: Page, from: Locator, to: Locator) {
 }
 
 test.beforeEach(async ({ page, context }) => {
+  // The page locks players by its own clock at kickoff (#193): run it on the server's pinned time.
+  await page.clock.setSystemTime(new Date('2026-09-10T12:00:00Z'));
   await signInAs(context, 'season-e2e');
   await page.goto('/leagues/demo-season/roster');
   await restoreLineup(page);
