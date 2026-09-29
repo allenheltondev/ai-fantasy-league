@@ -256,7 +256,9 @@ export class InMemoryAgentRepository implements AgentRepository {
   #gateOpen(leagueId: string, gate: TriggerGate): boolean {
     const current = this.#state.get(`${leagueId}\u0000${gate.slot}`);
     if (current === undefined || current.owner === gate.owner || gate.windowMs === 0) return true;
-    return gate.windowMs !== null && current.lastTriggeredAt <= gateCutoff(gate);
+    return (
+      gate.windowMs !== null && current.lastTriggeredAt <= gateCutoff({ ...gate, windowMs: gate.windowMs })
+    );
   }
 
   #takeGate(leagueId: string, gate: TriggerGate): void {

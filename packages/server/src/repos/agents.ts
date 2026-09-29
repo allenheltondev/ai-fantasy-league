@@ -333,6 +333,6 @@ export function agentIdFor(leagueId: string, teamId: string): string {
 }
 
 /** The latest `lastTriggeredAt` (ISO, which sorts as time) that leaves a windowed gate open. */
-export function gateCutoff(gate: TriggerGate): string {
-  return new Date(gate.now.getTime() - (gate.windowMs ?? 0)).toISOString();
+export function gateCutoff(gate: TriggerGate & { windowMs: number }): string {
+  return new Date(gate.now.getTime() - gate.windowMs).toISOString();
 }

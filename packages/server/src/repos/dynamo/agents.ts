@@ -525,7 +525,7 @@ export class DynamoAgentRepository implements AgentRepository {
       }`,
       ExpressionAttributeValues: {
         ...update.ExpressionAttributeValues,
-        ...(gate.windowMs === null ? {} : { ':cutoff': gateCutoff(gate) })
+        ...(gate.windowMs === null ? {} : { ':cutoff': gateCutoff({ ...gate, windowMs: gate.windowMs }) })
       }
     };
   }

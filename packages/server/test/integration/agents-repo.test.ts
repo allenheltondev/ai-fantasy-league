@@ -203,6 +203,10 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     // A claim made before #207 kept no request.
     const legacy = unique('task');
     await agents.claimTask({ taskId: legacy, now: T0, lockUntil: T0 });
+    // Leases that expire together come out in task-id order.
+    await agents.claimTask({ taskId: `${legacy}-b`, now: T0, lockUntil: T0 });
+    const together = (await agents.listExpiredTaskLeases(T0, 100)).map((l) => l.taskId);
+    expect(together.indexOf(legacy)).toBeLessThan(together.indexOf(`${legacy}-b`));
     expect(await agents.listExpiredTaskLeases(T0, 100)).toContainEqual(
       expect.objectContaining({ taskId: legacy, request: null })
     );
