@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { positionTone } from '../draft/board';
 import { headshotUrl, teamLogoUrl, type AssetPlayer } from './sleeperAssets';
 
 /**
  * A player's picture from Sleeper's CDN (#222): his headshot, or his team's logo for a team
- * defense. It sits in a box of a fixed size so nothing shifts as images arrive, loads lazily
+ * defense. It sits in a box of a fixed size (`size` px on a phone, larger on a wide screen: see
+ * `[data-headshot]` in index.css) so nothing shifts as images arrive, loads lazily
  * (`eager` for what is always on screen), and falls back once, without retrying, to his initials
  * (or the team, for a defense) in his position's color. Decorative: the name is always beside it.
  */
@@ -44,7 +45,7 @@ export function PlayerHeadshot({
     <span
       aria-hidden="true"
       data-headshot=""
-      style={{ width: size, height: size }}
+      style={{ '--headshot': `${size}px` } as CSSProperties}
       className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full ${
         shown && !isDefense ? 'bg-muted' : positionTone(player.position).chip
       } ${className}`}

@@ -24,6 +24,13 @@ interface Card {
     games: number;
     weekly: { week: number; points: number }[];
     totals: Record<string, number>;
+    recent: {
+      week: number;
+      points: number;
+      vsAverage: number;
+      opponent: { team: string; home: boolean } | null;
+      breakdown: { stat: string; text: string; points: number }[];
+    }[];
   } | null;
   nextWeek: {
     season: number;
@@ -95,6 +102,26 @@ beforeAll(async () => {
     2026,
     [
       {
+        gameId: '2026_01_CIN_CLE',
+        season: 2026,
+        seasonType: 'regular',
+        week: 1,
+        kickoff: '2026-09-13T17:00:00.000Z',
+        homeTeam: 'CLE',
+        awayTeam: chase.team!,
+        status: 'final'
+      },
+      {
+        gameId: '2026_03_KC_CIN',
+        season: 2026,
+        seasonType: 'regular',
+        week: 3,
+        kickoff: '2026-09-27T17:00:00.000Z',
+        homeTeam: chase.team!,
+        awayTeam: 'KC',
+        status: 'final'
+      },
+      {
         gameId: '2026_04_BAL_CIN',
         season: 2026,
         seasonType: 'regular',
@@ -117,7 +144,7 @@ describe('the player card in season', () => {
     const { thisSeason } = await card('fx-chase');
     // Half PPR: week 1 = 4 + 10 + 6 = 20 (the live line, not the stale copy); week 2 = 2.5 + 6 =
     // 8.5 (only in the research set); week 3 = 2 + 5 = 7.
-    expect(thisSeason).toEqual({
+    expect(thisSeason).toMatchObject({
       season: 2026,
       points: 35.5,
       ppg: 11.83,
@@ -129,6 +156,46 @@ describe('the player card in season', () => {
       ],
       totals: expect.objectContaining({ rec: 17, rec_yd: 210, rec_td: 1 })
     });
+  });
+
+  it('details his last three games: points against his average, the opponent, and where the points came from', async () => {
+    const { thisSeason } = await card('fx-chase');
+    // Newest first. Half PPR: week 3 = 4 rec (2) + 50 yds (5); week 2 = 5 rec (2.5) + 60 yds (6);
+    // week 1 = 8 rec (4) + 100 yds (10) + 1 TD (6). His average is 11.83.
+    expect(thisSeason?.recent).toEqual([
+      {
+        week: 3,
+        points: 7,
+        vsAverage: -4.8,
+        opponent: { team: 'KC', home: true },
+        breakdown: [
+          { stat: 'rec_yd', text: '50 rec yds', points: 5 },
+          { stat: 'rec', text: '4 rec', points: 2 }
+        ]
+      },
+      {
+        week: 2,
+        points: 8.5,
+        vsAverage: -3.3,
+        // The week's schedule is not known: no opponent, rather than a wrong one.
+        opponent: null,
+        breakdown: [
+          { stat: 'rec_yd', text: '60 rec yds', points: 6 },
+          { stat: 'rec', text: '5 rec', points: 2.5 }
+        ]
+      },
+      {
+        week: 1,
+        points: 20,
+        vsAverage: 8.2,
+        opponent: { team: 'CLE', home: false },
+        breakdown: [
+          { stat: 'rec_yd', text: '100 rec yds', points: 10 },
+          { stat: 'rec_td', text: '1 rec TD', points: 6 },
+          { stat: 'rec', text: '8 rec', points: 4 }
+        ]
+      }
+    ]);
   });
 
   it('projects the current week with the opponent and kickoff', async () => {

@@ -199,7 +199,7 @@ test('open a player card from best available, queue him, then view depth', async
   await row.getByRole('button', { name: "Ja'Marr Chase", exact: true }).click();
   const card = page.getByTestId('player-card');
   await expect(card).toContainText('301.4 pts · 17.7 PPG · 17 games');
-  await expect(card.getByTestId('sparkline')).toBeVisible();
+  await expect(card.getByTestId('weekly-points').first()).toBeVisible();
   await expect(card).toContainText('bye 10');
   await expect(card.getByRole('link', { name: 'Chase full go at practice' })).toBeVisible();
   await card.getByRole('button', { name: 'Queue', exact: true }).click();

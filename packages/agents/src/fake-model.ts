@@ -45,6 +45,7 @@ export interface FakeTranscriptEntry {
   maxIterations: number;
   maxTokens: number;
   thinkingBudgetTokens?: number;
+  thinkingEffort?: 'medium' | 'high';
   results: unknown[];
 }
 
@@ -70,6 +71,7 @@ export class ScriptedModelClient implements ModelClient {
       ...(request.thinkingBudgetTokens === undefined
         ? {}
         : { thinkingBudgetTokens: request.thinkingBudgetTokens }),
+      ...(request.thinkingEffort === undefined ? {} : { thinkingEffort: request.thinkingEffort }),
       results: []
     };
     this.transcript.push(entry);

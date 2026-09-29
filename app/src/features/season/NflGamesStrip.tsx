@@ -1,4 +1,5 @@
 import type { NflGame, NflGamesData } from '../../api/types';
+import { TeamLogo } from '../../players/PlayerHeadshot';
 import { RedZoneChip, redZoneClass, usePrefersReducedMotion } from './RedZone';
 
 const STATE_ORDER = { in: 0, pre: 1, post: 2 } as const;
@@ -67,8 +68,18 @@ export function GameCard({ game, reducedMotion }: { game: NflGame; reducedMotion
       data-state={game.state}
       className={`h-full rounded-lg border border-border p-3 text-sm ${game.isRedZone ? redZoneClass('red-zone-card', reducedMotion) : ''}`}
     >
-      <TeamLine team={away} score={game.awayScore} hasBall={live && game.possessionTeam === game.awayTeam} />
-      <TeamLine team={home} score={game.homeScore} hasBall={live && game.possessionTeam === game.homeTeam} />
+      <TeamLine
+        team={away}
+        logo={game.awayTeam}
+        score={game.awayScore}
+        hasBall={live && game.possessionTeam === game.awayTeam}
+      />
+      <TeamLine
+        team={home}
+        logo={game.homeTeam}
+        score={game.homeScore}
+        hasBall={live && game.possessionTeam === game.homeTeam}
+      />
       <p className="mt-1 text-xs text-muted-foreground" data-testid="game-status">
         {gameStatus(game)}
       </p>
@@ -94,10 +105,22 @@ export function GameCard({ game, reducedMotion }: { game: NflGame; reducedMotion
   );
 }
 
-function TeamLine({ team, score, hasBall }: { team: string; score: number | null; hasBall: boolean }) {
+function TeamLine({
+  team,
+  logo,
+  score,
+  hasBall
+}: {
+  team: string;
+  /** The team's abbreviation for its logo; null while the opponent is not set (TBD). */
+  logo: string | null;
+  score: number | null;
+  hasBall: boolean;
+}) {
   return (
     <p className="flex items-center justify-between font-medium">
       <span className="flex items-center gap-1.5">
+        <TeamLogo team={logo} size={24} />
         {team}
         {hasBall && <BallMark />}
       </span>
