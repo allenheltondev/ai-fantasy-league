@@ -272,6 +272,8 @@ export interface SyncedPlayer {
 export interface PlayerSyncRepository {
   /** Source records of every stored player (the previous side of `diffPlayers`). */
   listSources(): Promise<SourcePlayer[]>;
+  /** Stored profiles with their sources, in the order asked; unknown ids are left out. */
+  getMany(ids: readonly string[]): Promise<SyncedPlayer[]>;
   /** Upserts profiles (PLAYER# partition and GSI1 name index) with their sources. */
   upsert(records: readonly SyncedPlayer[]): Promise<void>;
 }

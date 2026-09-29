@@ -34,7 +34,7 @@ export function NotificationBell({
       {ring > 0 ? (
         // Keyed on each new arrival so the attention ring plays again.
         <span
-          key={ring}
+          key={`ring-${ring}`}
           aria-hidden="true"
           className="motion-attention pointer-events-none absolute inset-0"
         />
@@ -42,7 +42,7 @@ export function NotificationBell({
       <BellIcon />
       {unreadCount > 0 ? (
         <span
-          key={unreadCount}
+          key={`count-${unreadCount}`}
           data-testid="notification-count"
           aria-hidden="true"
           className="motion-pop absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-error-600 px-1 text-xs font-bold leading-none text-white ring-2 ring-surface"

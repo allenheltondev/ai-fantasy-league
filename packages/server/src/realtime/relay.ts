@@ -42,7 +42,9 @@ export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Trade Vetoed',
   'Week Provisionally Final',
   'Week Official Final',
-  'Stat Correction Applied'
+  'Stat Correction Applied',
+  // League-less, so on the global topic (#200): open lineups and matchups re-read the status.
+  'Player Status Changed'
 ];
 
 /** Events only the two teams in a trade may see: relayed to their private topics alone. */

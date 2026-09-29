@@ -1,11 +1,14 @@
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
   isRead,
   notificationLocalKeyOf,
   NOTIFICATION_TTL_MS,
   NOTIFICATION_UNREAD_CAP,
   NotificationSchema,
   type NotificationPage,
+  type NotificationPreferences,
+  NotificationPreferencesSchema,
   type NotificationRepository,
   type StoredNotification
 } from '../../notifications/model.js';
@@ -14,11 +17,13 @@ import { epochSeconds, isConditionalCheckFailure, TABLE_KEYS, type TableContext 
 /**
  * Notification inboxes in the league partition `LEAGUE#<leagueId>` (#165,
  * docs/adr/001-table-design.md): items `NOTIF#<teamId>#<createdAt>#<eventId>[-<key>]` with a
- * 30-day `ttl`, and one "mark all read" marker per team, `NOTIFREAD#<teamId>`.
+ * 30-day `ttl`, and one "mark all read" marker per team, `NOTIFREAD#<teamId>`. A person's
+ * notification settings (#200) are one item in their user partition: `USER#<sub>` / `NOTIFPREFS`.
  */
 const pk = (leagueId: string) => `LEAGUE#${leagueId}`;
 const prefix = (teamId: string) => `NOTIF#${teamId}#`;
 const markerSk = (teamId: string) => `NOTIFREAD#${teamId}`;
+const preferencesKey = (userId: string) => ({ pk: `USER#${userId}`, sk: 'NOTIFPREFS' });
 /** Sorts after every character a local key uses. */
 const HIGH = '~';
 
@@ -188,5 +193,22 @@ export class DynamoNotificationRepository implements NotificationRepository {
       // Already read up to `at` or later.
       if (!isConditionalCheckFailure(error)) throw error;
     }
+  }
+
+  async getPreferences(userId: string): Promise<NotificationPreferences> {
+    const result = await this.table.doc.send(
+      new GetCommand({ TableName: this.table.tableName, Key: preferencesKey(userId) })
+    );
+    const parsed = NotificationPreferencesSchema.partial().safeParse(result.Item ?? {});
+    return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...(parsed.success ? parsed.data : {}) };
+  }
+
+  async putPreferences(userId: string, preferences: NotificationPreferences): Promise<void> {
+    await this.table.doc.send(
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: { ...preferencesKey(userId), entity: 'notificationPreferences', ...preferences }
+      })
+    );
   }
 }

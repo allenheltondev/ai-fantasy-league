@@ -23,6 +23,7 @@
   "depth_chart_position": "QB",
   "active": true,
   "gsis_id": "00-0023459",
+  "espn_id": 8439,
   "sport": "nfl"
  },
  "1466": {
@@ -49,6 +50,7 @@
   "depth_chart_position": "TE",
   "active": true,
   "gsis_id": "00-0030506",
+  "espn_id": 15847,
   "sport": "nfl"
  },
  "4034": {
@@ -75,6 +77,7 @@
   "depth_chart_position": "RB",
   "active": true,
   "gsis_id": "00-0033280",
+  "espn_id": 3117251,
   "sport": "nfl"
  },
  "4046": {
@@ -101,6 +104,7 @@
   "depth_chart_position": "QB",
   "active": true,
   "gsis_id": " 00-0033873",
+  "espn_id": 3139477,
   "sport": "nfl"
  },
  "4227": {
@@ -127,6 +131,7 @@
   "depth_chart_position": "K",
   "active": true,
   "gsis_id": "00-0033303",
+  "espn_id": 3055899,
   "sport": "nfl"
  },
  "4866": {
@@ -153,6 +158,7 @@
   "depth_chart_position": "RB",
   "active": true,
   "gsis_id": "00-0034844",
+  "espn_id": 3929630,
   "sport": "nfl"
  },
  "4881": {
@@ -179,6 +185,7 @@
   "depth_chart_position": "QB",
   "active": true,
   "gsis_id": "00-0034796",
+  "espn_id": 3916387,
   "sport": "nfl"
  },
  "4984": {
@@ -205,6 +212,7 @@
   "depth_chart_position": "QB",
   "active": true,
   "gsis_id": "00-0034857",
+  "espn_id": 3918298,
   "sport": "nfl"
  },
  "6786": {
@@ -231,6 +239,7 @@
   "depth_chart_position": "WR",
   "active": true,
   "gsis_id": "00-0036358",
+  "espn_id": 4241389,
   "sport": "nfl"
  },
  "6794": {
@@ -257,6 +266,7 @@
   "depth_chart_position": "WR",
   "active": true,
   "gsis_id": "00-0036322",
+  "espn_id": 4262921,
   "sport": "nfl"
  },
  "6904": {
@@ -283,6 +293,7 @@
   "depth_chart_position": "QB",
   "active": true,
   "gsis_id": "00-0036389",
+  "espn_id": 4040715,
   "sport": "nfl"
  },
  "6994": {
@@ -309,6 +320,7 @@
   "depth_chart_position": "RCB",
   "active": true,
   "gsis_id": null,
+  "espn_id": 4034849,
   "sport": "nfl"
  },
  "7564": {
@@ -335,6 +347,7 @@
   "depth_chart_position": "WR",
   "active": true,
   "gsis_id": "00-0036900",
+  "espn_id": 4362628,
   "sport": "nfl"
  },
  "7640": {
@@ -361,6 +374,7 @@
   "depth_chart_position": "ROLB",
   "active": true,
   "gsis_id": "00-0036932",
+  "espn_id": 4361423,
   "sport": "nfl"
  },
  "9221": {
@@ -387,6 +401,7 @@
   "depth_chart_position": "RB",
   "active": true,
   "gsis_id": "00-0039139",
+  "espn_id": 4429795,
   "sport": "nfl"
  },
  "9493": {
@@ -413,6 +428,7 @@
   "depth_chart_position": "WR",
   "active": true,
   "gsis_id": "00-0039075",
+  "espn_id": 4426515,
   "sport": "nfl"
  },
  "9509": {
@@ -439,6 +455,7 @@
   "depth_chart_position": "RB",
   "active": true,
   "gsis_id": "00-0038542",
+  "espn_id": 4430807,
   "sport": "nfl"
  },
  "11533": {
@@ -465,6 +482,7 @@
   "depth_chart_position": "K",
   "active": true,
   "gsis_id": "00-0037692",
+  "espn_id": 3953687,
   "sport": "nfl"
  },
  "11604": {
@@ -491,6 +509,7 @@
   "depth_chart_position": "TE",
   "active": true,
   "gsis_id": "00-0039338",
+  "espn_id": 4432665,
   "sport": "nfl"
  },
  "90001": {

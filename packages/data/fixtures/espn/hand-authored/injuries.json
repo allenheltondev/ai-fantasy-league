@@ -1,0 +1,99 @@
+{
+ "timestamp": "2026-10-04T15:31:07Z",
+ "status": "success",
+ "season": { "year": 2026, "type": 2, "name": "Regular Season", "displayName": "2026" },
+ "injuries": [
+  {
+   "id": "25",
+   "displayName": "San Francisco 49ers",
+   "injuries": [
+    {
+     "id": "1480221",
+     "longComment": "McCaffrey (Achilles) is inactive for Sunday's game against the Rams.",
+     "shortComment": "McCaffrey (Achilles) is inactive for Sunday's game.",
+     "status": "Out",
+     "date": "2026-10-04T15:28Z",
+     "athlete": {
+      "firstName": "Christian",
+      "lastName": "McCaffrey",
+      "displayName": "Christian McCaffrey",
+      "shortName": "C. McCaffrey",
+      "links": [
+       { "rel": ["playercard", "desktop", "athlete"], "href": "https://www.espn.com/nfl/player/_/id/3117251/christian-mccaffrey" },
+       { "rel": ["stats", "desktop", "athlete"], "href": "https://www.espn.com/nfl/player/stats/_/id/3117251/christian-mccaffrey" }
+      ],
+      "jersey": "23",
+      "position": { "name": "Running Back", "displayName": "Running Back", "abbreviation": "RB" },
+      "team": { "id": "25", "displayName": "San Francisco 49ers", "abbreviation": "SF" }
+     },
+     "type": { "id": "1", "name": "INJURY_STATUS_OUT", "description": "out", "abbreviation": "O" },
+     "details": { "fantasyStatus": { "description": "OUT", "abbreviation": "OUT" }, "type": "Achilles", "returnDate": "2026-10-11" }
+    }
+   ]
+  },
+  {
+   "id": "16",
+   "displayName": "Minnesota Vikings",
+   "injuries": [
+    {
+     "id": "1480190",
+     "shortComment": "Jefferson (hamstring) is doubtful for Sunday.",
+     "status": "Doubtful",
+     "date": "2026-10-03T20:02Z",
+     "athlete": {
+      "id": "4262921",
+      "displayName": "Justin Jefferson",
+      "position": { "abbreviation": "WR" },
+      "team": { "abbreviation": "MIN" }
+     },
+     "type": { "id": "4", "name": "INJURY_STATUS_DOUBTFUL", "description": "doubtful", "abbreviation": "D" }
+    }
+   ]
+  },
+  {
+   "id": "4",
+   "displayName": "Cincinnati Bengals",
+   "injuries": [
+    {
+     "id": "1480177",
+     "shortComment": "Chase (ankle) is questionable for Sunday.",
+     "status": "Questionable",
+     "date": "2026-10-03T19:40Z",
+     "athlete": {
+      "displayName": "Ja'Marr Chase",
+      "position": { "abbreviation": "WR" },
+      "team": { "abbreviation": "CIN" }
+     }
+    },
+    {
+     "id": "1480178",
+     "status": "Day-To-Day",
+     "athlete": { "displayName": "Some Lineman", "position": { "abbreviation": "OT" }, "team": { "abbreviation": "CIN" } }
+    }
+   ]
+  },
+  {
+   "id": "28",
+   "displayName": "Washington Commanders",
+   "injuries": [
+    {
+     "id": "1480301",
+     "status": "Injured Reserve",
+     "date": "2026-09-30T16:00Z",
+     "athlete": {
+      "id": 4999999,
+      "displayName": "Practice Fixture",
+      "position": { "abbreviation": "WR" },
+      "team": { "abbreviation": "WSH" }
+     }
+    },
+    { "id": "1480302", "status": "Out" }
+   ]
+  },
+  {
+   "id": "12",
+   "displayName": "Kansas City Chiefs",
+   "injuries": []
+  }
+ ]
+}

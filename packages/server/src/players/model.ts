@@ -31,7 +31,20 @@ export interface Player {
   /** Consensus overall rank (lower is better), or null when unranked. */
   rank: number | null;
   updatedAt: string;
+  /**
+   * Where `injuryStatus` came from (#200): Sleeper's sync (the default when absent), or ESPN's
+   * game-day report, which is fresher on game day. A game-day status holds until
+   * `statusHeldUntil` (the end of that NFL week), so a later Sleeper sync with a stale value does
+   * not revert it.
+   */
+  statusSource?: StatusSource;
+  /** When the game-day status was read. */
+  statusAsOf?: string;
+  statusHeldUntil?: string;
 }
+
+export const STATUS_SOURCES = ['sleeper', 'espn_gameday'] as const;
+export type StatusSource = (typeof STATUS_SOURCES)[number];
 
 /**
  * A player's roster status for drafting and lineups. Sleeper leaves a team defense's status empty,

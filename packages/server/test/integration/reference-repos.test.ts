@@ -421,6 +421,30 @@ describe.each(backends)('%s reference repositories', (_name, make) => {
     expect((await repos.players.listIndex('TE')).map((p) => p.id)).toContain(id);
     expect((await reference.playerSync.listSources()).find((s) => s.id === id)).toEqual(source);
   });
+
+  it('reads profiles with their sources and game-day markers by id (#200)', async () => {
+    const { reference, repos } = make();
+    const id = `sync-${nextSeason()}`;
+    const source = sourcePlayer({
+      id,
+      name: 'Game Day',
+      position: 'RB',
+      espnId: '3117251',
+      injuryStatus: 'Out'
+    });
+    const player = {
+      ...toProfile(source, '2025-09-07T15:30:00.000Z')!,
+      statusSource: 'espn_gameday' as const,
+      statusAsOf: '2025-09-07T15:30:00.000Z',
+      statusHeldUntil: '2025-09-09T04:45:00.000Z'
+    };
+    await reference.playerSync.upsert([{ player, source }]);
+    expect(await reference.playerSync.getMany([id, 'nobody', id])).toEqual([
+      { player, source },
+      { player, source }
+    ]);
+    expect(await repos.players.get(id)).toEqual(player);
+  });
 });
 
 describe('DynamoDB job runs', () => {

@@ -1,8 +1,10 @@
 import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
   isRead,
   notificationLocalKeyOf,
   NOTIFICATION_UNREAD_CAP,
   type NotificationPage,
+  type NotificationPreferences,
   type NotificationRepository,
   type StoredNotification
 } from '../notifications/model.js';
@@ -19,6 +21,15 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   readonly #items = new Map<string, Map<string, StoredNotification>>();
   /** `lastReadAt` by `<leagueId>#<teamId>`. */
   readonly #marks = new Map<string, string>();
+  readonly #preferences = new Map<string, NotificationPreferences>();
+
+  async getPreferences(userId: string): Promise<NotificationPreferences> {
+    return { ...(this.#preferences.get(userId) ?? DEFAULT_NOTIFICATION_PREFERENCES) };
+  }
+
+  async putPreferences(userId: string, preferences: NotificationPreferences): Promise<void> {
+    this.#preferences.set(userId, { ...preferences });
+  }
 
   #inbox(leagueId: string, teamId: string): Map<string, StoredNotification> {
     const key = `${leagueId}#${teamId}`;
