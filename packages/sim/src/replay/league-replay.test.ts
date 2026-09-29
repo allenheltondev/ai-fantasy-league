@@ -42,8 +42,10 @@ describe('replayLeague: the real league on the simulated clock', () => {
     const model = new ScriptedModelClient();
     const report = await replayLeague({
       archive: await fixtureArchive(),
-      // With the agents' social check-ins (#196) the id sequence shifts; seed 'ci' then had no
-      // agent-to-agent deal clear its bar, so CI replays 'ci-2', whose season covers every path.
+      // Valuation noise is keyed by what an offer is, not its generated id (tasks/noise.ts), so
+      // unrelated activity no longer reshuffles trades. Judged on its merits, seed 'ci' has no
+      // agent-to-agent offer that clears its bar (its closest scores 1.8 against a bar of 2, on
+      // main's code as well), so this replay uses 'ci-2', whose season covers every path.
       seed: 'ci-2',
       weeks: 3,
       model,

@@ -11,7 +11,7 @@ import {
   type Heard
 } from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
-import { judgmentNoise } from './noise.js';
+import { judgmentNoise, offerSubject } from './noise.js';
 import { TaskUnavailableError } from './lineup.js';
 
 /**
@@ -144,8 +144,17 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
   const preview = parse(await ctx.tools.call('preview_trade', { tradeId: trade.id }), PreviewSchema);
   if (preview === null) return { trade, preview: null, roundsLeft: 0, suggestion: REJECT };
   const me = preview.sides[1];
-  // Keyed by the offer and its round, not the trigger, so it replays the same (see noise.ts).
-  const noise = judgmentNoise(ctx, 'trade', trade.id, trade.round);
+  // Keyed by what the offer is (teams, players, round), never an id, so it replays the same (noise.ts).
+  const noise = judgmentNoise(
+    ctx,
+    ...offerSubject({
+      fromTeamId: trade.fromTeam.id,
+      toTeamId: ctx.principal.teamId,
+      fromSends: trade.fromSends.map((p) => p.id),
+      toSends: trade.toSends.map((p) => p.id),
+      round: trade.round
+    })
+  );
   const score =
     Math.round(
       (me.lineupDelta + me.valueDelta * (1 - (ctx.config.valuation.recencyBias ?? 0))) * noise * 10

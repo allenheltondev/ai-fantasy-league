@@ -11,7 +11,7 @@ import {
   type Heard
 } from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
-import { judgmentNoise } from './noise.js';
+import { judgmentNoise, offerSubject } from './noise.js';
 import { TaskUnavailableError } from './lineup.js';
 
 /**
@@ -310,12 +310,16 @@ async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalP
   if (preview.fairness.lopsided) throw no('the trade value math calls it lopsided. No.');
   const [mySide, theirSide] = preview.sides;
   const recency = ctx.config.valuation.recencyBias ?? 0;
+  // Keyed by what the swap is (noise.ts), so the same pitch reads the same whatever the message id.
   const noise = judgmentNoise(
     ctx,
-    'proposal',
-    team.id,
-    ...sends.map((p) => p.id),
-    ...receives.map((p) => p.id)
+    ...offerSubject({
+      fromTeamId: state.yourTeam.id,
+      toTeamId: team.id,
+      fromSends: sends.map((p) => p.id),
+      toSends: receives.map((p) => p.id),
+      round: 0
+    })
   );
   const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
   const bar = Math.max(tradeAppetite(ctx.config).acceptEdge, MIN_PROPOSAL_GAIN);
