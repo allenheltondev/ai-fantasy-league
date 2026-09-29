@@ -56,7 +56,10 @@ describe('difficulty levers reach the model run', () => {
       const thinking = getModel(config.models.decision[0]!).thinkingBudget === true;
       const budget = thinking ? THINKING_BUDGET[levers.reasoningEffort] : 0;
       expect(run?.maxTokens).toBe(MAX_TOKENS[levers.reasoningEffort] + budget);
-      expect(run?.thinkingBudgetTokens).toBe(budget > 0 ? budget : undefined);
+      // Adaptive-thinking models take the effort itself; the rest take the budget.
+      const adaptive = getModel(config.models.decision[0]!).adaptiveThinking === true;
+      expect(run?.thinkingBudgetTokens).toBe(budget > 0 && !adaptive ? budget : undefined);
+      expect(run?.thinkingEffort).toBe(budget > 0 && adaptive ? levers.reasoningEffort : undefined);
       // Information access: a research tool is bound exactly when the tier allows it.
       for (const [tool, kind] of Object.entries(RESEARCH_TOOLS)) {
         // get_matchup_outlook is not built yet; its lever is ready for when it is.

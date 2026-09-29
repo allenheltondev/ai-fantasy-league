@@ -23,6 +23,11 @@ export interface ModelRunRequest<T> {
    * (`thinkingBudget`) at medium or high reasoning effort.
    */
   thinkingBudgetTokens?: number;
+  /**
+   * Reasoning effort for models on adaptive thinking (`adaptiveThinking`), sent as
+   * `output_config.effort`. Set instead of `thinkingBudgetTokens`, at medium or high effort.
+   */
+  thinkingEffort?: 'medium' | 'high';
   temperature: number;
   /** The structured decision the run must end with. */
   outputSchema: z.ZodType<T>;

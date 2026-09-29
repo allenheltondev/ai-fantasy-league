@@ -1,5 +1,5 @@
 import { runAgent, tool } from '@readysetcloud/agent';
-import { Agent, BedrockModel } from '@strands-agents/sdk';
+import { Agent, BedrockModel, type JSONValue } from '@strands-agents/sdk';
 import { MODEL_REGION } from '@fantasy/core';
 import type { z } from 'zod';
 import { estimateTokens, type ModelClient, type ModelRunRequest, type ModelRunResult } from './model.js';
@@ -70,8 +70,9 @@ export class StrandsModelClient implements ModelClient {
         }
       })
     );
+    const thinkingFields = thinkingRequestFields(request);
     const result =
-      request.thinkingBudgetTokens === undefined
+      thinkingFields === undefined
         ? await runAgent({
             input: request.input,
             systemPrompt: request.systemPrompt,
@@ -85,7 +86,7 @@ export class StrandsModelClient implements ModelClient {
             invocationState: request.invocationState,
             cancelSignal: request.signal
           })
-        : await runThinking(request, tools, this.region, request.thinkingBudgetTokens);
+        : await runThinking(request, tools, this.region, thinkingFields);
     const finalOutput = estimateTokens(result.text);
     const seen = last as UsageSnapshot | null;
     const usage =
@@ -104,19 +105,31 @@ export class StrandsModelClient implements ModelClient {
   }
 }
 
+/**
+ * Bedrock request fields for a thinking run: a budget for models that take one, or adaptive
+ * thinking with an effort for the Claude 5 models, which reject `thinking.type: enabled`.
+ */
+function thinkingRequestFields(request: ModelRunRequest<unknown>): Record<string, JSONValue> | undefined {
+  if (request.thinkingEffort !== undefined)
+    return { thinking: { type: 'adaptive' }, output_config: { effort: request.thinkingEffort } };
+  if (request.thinkingBudgetTokens !== undefined)
+    return { thinking: { type: 'enabled', budget_tokens: request.thinkingBudgetTokens } };
+  return undefined;
+}
+
 /** `runAgent` with an extended-thinking budget (see the file comment). */
 async function runThinking<T>(
   request: ModelRunRequest<T>,
   tools: ReturnType<typeof tool>[],
   region: string,
-  budgetTokens: number
+  fields: Record<string, JSONValue>
 ): Promise<{ output: unknown; text: string; stopReason: string }> {
   const agent = new Agent({
     model: new BedrockModel({
       region,
       modelId: request.modelId,
       maxTokens: request.maxTokens,
-      additionalRequestFields: { thinking: { type: 'enabled', budget_tokens: budgetTokens } }
+      additionalRequestFields: fields
     }),
     systemPrompt: request.systemPrompt,
     tools
