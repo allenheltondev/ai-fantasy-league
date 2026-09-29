@@ -84,6 +84,11 @@ describe('agent config helpers', () => {
       ...CONFIG,
       advanced: { levers: { research: { news: false } } }
     });
+    // Response delay (#189): cleared fields drop out, and an empty lever sends nothing.
+    expect(withAdvanced(CONFIG, { levers: { responseDelay: { multiplier: undefined } } })).toEqual(CONFIG);
+    expect(
+      withAdvanced(CONFIG, { levers: { responseDelay: { multiplier: undefined, immediateChance: 0.2 } } })
+    ).toEqual({ ...CONFIG, advanced: { levers: { responseDelay: { immediateChance: 0.2 } } } });
   });
 });
 
@@ -166,6 +171,37 @@ describe('AgentCard', () => {
       }
     });
     expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
+  });
+
+  it('edits the response delay lever and keeps an existing override (#189)', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <AgentCard
+        seatLabel="Seat 2"
+        config={{ ...CONFIG, advanced: { levers: { responseDelay: { immediateChance: 0.3 } } } }}
+        catalog={CATALOG}
+        onChange={onChange}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: 'Advanced' }));
+    const chance = screen.getByLabelText('Chance of answering at once (0-1)');
+    const multiplier = screen.getByLabelText('Response delay multiplier (0-5)');
+    expect(chance).toHaveValue(0.3);
+    expect(multiplier).toHaveValue(null);
+    await user.type(multiplier, '0.5');
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onChange).toHaveBeenCalledWith({
+      ...CONFIG,
+      advanced: { levers: { responseDelay: { immediateChance: 0.3, multiplier: 0.5 } } }
+    });
+
+    // Clearing both fields goes back to the difficulty default.
+    onChange.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Advanced' }));
+    await user.clear(screen.getByLabelText('Chance of answering at once (0-1)'));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onChange).toHaveBeenCalledWith(CONFIG);
   });
 
   it('closes the drawer with Escape', async () => {

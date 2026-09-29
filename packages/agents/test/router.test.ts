@@ -56,7 +56,8 @@ describe('routeEvent', () => {
         leagueId: LEAGUE_ID,
         decision: 'requested',
         kind: 'draft_pick',
-        taskId: taskIdFor('evt-1', 'team-3', 'draft_pick')
+        taskId: taskIdFor('evt-1', 'team-3', 'draft_pick'),
+        delayMs: 0
       }
     ]);
     expect(s.requested()[0]).toMatchObject({

@@ -487,6 +487,22 @@
                                                   }
                                                 },
                                                 "additionalProperties": false
+                                              },
+                                              "responseDelay": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "multiplier": {
+                                                    "type": "number",
+                                                    "minimum": 0,
+                                                    "maximum": 5
+                                                  },
+                                                  "immediateChance": {
+                                                    "type": "number",
+                                                    "minimum": 0,
+                                                    "maximum": 1
+                                                  }
+                                                },
+                                                "additionalProperties": false
                                               }
                                             },
                                             "additionalProperties": false
@@ -4207,6 +4223,22 @@
                                             }
                                           },
                                           "additionalProperties": false
+                                        },
+                                        "responseDelay": {
+                                          "type": "object",
+                                          "properties": {
+                                            "multiplier": {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 5
+                                            },
+                                            "immediateChance": {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 1
+                                            }
+                                          },
+                                          "additionalProperties": false
                                         }
                                       },
                                       "additionalProperties": false
@@ -4306,6 +4338,23 @@
                                     "matchupOutlook"
                                   ],
                                   "additionalProperties": false
+                                },
+                                "responseDelay": {
+                                  "type": "object",
+                                  "properties": {
+                                    "multiplier": {
+                                      "type": "number"
+                                    },
+                                    "immediateChance": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "multiplier",
+                                    "immediateChance"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "How long the agent waits before acting on a trigger: the multiplier on the typical delay, and the chance of answering at once."
                                 }
                               },
                               "required": [
@@ -4315,7 +4364,8 @@
                                 "actionsPerTrigger",
                                 "cooldownMinutes",
                                 "negotiationRounds",
-                                "research"
+                                "research",
+                                "responseDelay"
                               ],
                               "additionalProperties": false
                             }
@@ -4628,6 +4678,22 @@
                               },
                               "matchupOutlook": {
                                 "type": "boolean"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "responseDelay": {
+                            "type": "object",
+                            "properties": {
+                              "multiplier": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 5
+                              },
+                              "immediateChance": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
                               }
                             },
                             "additionalProperties": false
@@ -5007,6 +5073,22 @@
                                                     }
                                                   },
                                                   "additionalProperties": false
+                                                },
+                                                "responseDelay": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "multiplier": {
+                                                      "type": "number",
+                                                      "minimum": 0,
+                                                      "maximum": 5
+                                                    },
+                                                    "immediateChance": {
+                                                      "type": "number",
+                                                      "minimum": 0,
+                                                      "maximum": 1
+                                                    }
+                                                  },
+                                                  "additionalProperties": false
                                                 }
                                               },
                                               "additionalProperties": false
@@ -5106,6 +5188,23 @@
                                             "matchupOutlook"
                                           ],
                                           "additionalProperties": false
+                                        },
+                                        "responseDelay": {
+                                          "type": "object",
+                                          "properties": {
+                                            "multiplier": {
+                                              "type": "number"
+                                            },
+                                            "immediateChance": {
+                                              "type": "number"
+                                            }
+                                          },
+                                          "required": [
+                                            "multiplier",
+                                            "immediateChance"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "How long the agent waits before acting on a trigger: the multiplier on the typical delay, and the chance of answering at once."
                                         }
                                       },
                                       "required": [
@@ -5115,7 +5214,8 @@
                                         "actionsPerTrigger",
                                         "cooldownMinutes",
                                         "negotiationRounds",
-                                        "research"
+                                        "research",
+                                        "responseDelay"
                                       ],
                                       "additionalProperties": false
                                     }
@@ -5310,6 +5410,22 @@
                                                       },
                                                       "matchupOutlook": {
                                                         "type": "boolean"
+                                                      }
+                                                    },
+                                                    "additionalProperties": false
+                                                  },
+                                                  "responseDelay": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "multiplier": {
+                                                        "type": "number",
+                                                        "minimum": 0,
+                                                        "maximum": 5
+                                                      },
+                                                      "immediateChance": {
+                                                        "type": "number",
+                                                        "minimum": 0,
+                                                        "maximum": 1
                                                       }
                                                     },
                                                     "additionalProperties": false
@@ -5719,6 +5835,22 @@
                                               }
                                             },
                                             "additionalProperties": false
+                                          },
+                                          "responseDelay": {
+                                            "type": "object",
+                                            "properties": {
+                                              "multiplier": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "maximum": 5
+                                              },
+                                              "immediateChance": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "maximum": 1
+                                              }
+                                            },
+                                            "additionalProperties": false
                                           }
                                         },
                                         "additionalProperties": false
@@ -5818,6 +5950,23 @@
                                       "matchupOutlook"
                                     ],
                                     "additionalProperties": false
+                                  },
+                                  "responseDelay": {
+                                    "type": "object",
+                                    "properties": {
+                                      "multiplier": {
+                                        "type": "number"
+                                      },
+                                      "immediateChance": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "multiplier",
+                                      "immediateChance"
+                                    ],
+                                    "additionalProperties": false,
+                                    "description": "How long the agent waits before acting on a trigger: the multiplier on the typical delay, and the chance of answering at once."
                                   }
                                 },
                                 "required": [
@@ -5827,7 +5976,8 @@
                                   "actionsPerTrigger",
                                   "cooldownMinutes",
                                   "negotiationRounds",
-                                  "research"
+                                  "research",
+                                  "responseDelay"
                                 ],
                                 "additionalProperties": false
                               }

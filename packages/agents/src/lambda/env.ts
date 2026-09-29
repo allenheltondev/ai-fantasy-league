@@ -20,7 +20,9 @@ const EnvSchema = z.object({
   AGENT_KILL_SWITCH_PARAM: z.string().optional(),
   /** `1` uses the scripted fake model instead of Bedrock (tests, local dev). */
   FANTASY_FAKE_MODEL: z.string().optional(),
-  AGENT_MODEL_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(90_000)
+  AGENT_MODEL_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(90_000),
+  /** Human-like response delays before agent tasks (#189): on unless `off`, `0`, or `false`. */
+  AGENT_RESPONSE_DELAYS: z.string().optional()
 });
 export type AgentEnv = z.infer<typeof EnvSchema>;
 
@@ -45,6 +47,12 @@ export function createAgentServices(env: AgentEnv): Services {
 
 export function isFakeModel(env: Pick<AgentEnv, 'FANTASY_FAKE_MODEL'>): boolean {
   return env.FANTASY_FAKE_MODEL === '1' || env.FANTASY_FAKE_MODEL === 'true';
+}
+
+/** True unless `AGENT_RESPONSE_DELAYS` turns the router's response delays off. */
+export function responseDelaysOn(env: Pick<AgentEnv, 'AGENT_RESPONSE_DELAYS'>): boolean {
+  const flag = env.AGENT_RESPONSE_DELAYS?.trim().toLowerCase();
+  return flag !== 'off' && flag !== '0' && flag !== 'false';
 }
 
 /** The fake model when `FANTASY_FAKE_MODEL=1`; otherwise Bedrock (loaded lazily, so fake mode never loads the SDK). */

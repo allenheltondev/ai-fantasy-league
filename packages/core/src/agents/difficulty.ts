@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { seededRandom } from '../schedule/random.js';
 import { MODEL_TIERS } from './models.js';
+import { ResponseDelayLeverSchema } from './response-delay.js';
 
 /**
  * Difficulty tiers. Each tier bundles the levers an Advanced drawer can override one at a time:
  * which models it uses, what research it can see, how hard it thinks, how often it acts, how long it
- * negotiates, and how accurately it values players.
+ * negotiates, how accurately it values players, and how quickly it answers a trigger.
  */
 
 export const DIFFICULTIES = ['rookie', 'amateur', 'pro', 'all_pro', 'hall_of_famer'] as const;
@@ -46,7 +47,9 @@ export const DifficultyLeversSchema = z.strictObject({
   /** Counter-offers the agent may make in one trade negotiation. */
   negotiationRounds: z.number().int().min(0).max(10),
   /** Relative error on player values: 0.2 means values are off by up to ±20%. */
-  valuationNoise: z.number().min(0).max(0.5)
+  valuationNoise: z.number().min(0).max(0.5),
+  /** How long the agent waits before acting on a trigger (see response-delay.ts). */
+  responseDelay: ResponseDelayLeverSchema
 });
 export type DifficultyLevers = z.infer<typeof DifficultyLeversSchema>;
 
@@ -71,7 +74,8 @@ export const DIFFICULTY_TIERS: Readonly<Record<Difficulty, DifficultyTier>> = {
       actionsPerTrigger: 1,
       cooldownMinutes: 240,
       negotiationRounds: 1,
-      valuationNoise: 0.25
+      valuationNoise: 0.25,
+      responseDelay: { multiplier: 2, immediateChance: 0.05 }
     }
   },
   amateur: {
@@ -87,7 +91,8 @@ export const DIFFICULTY_TIERS: Readonly<Record<Difficulty, DifficultyTier>> = {
       actionsPerTrigger: 2,
       cooldownMinutes: 120,
       negotiationRounds: 1,
-      valuationNoise: 0.15
+      valuationNoise: 0.15,
+      responseDelay: { multiplier: 1.5, immediateChance: 0.1 }
     }
   },
   pro: {
@@ -103,7 +108,8 @@ export const DIFFICULTY_TIERS: Readonly<Record<Difficulty, DifficultyTier>> = {
       actionsPerTrigger: 3,
       cooldownMinutes: 60,
       negotiationRounds: 2,
-      valuationNoise: 0.08
+      valuationNoise: 0.08,
+      responseDelay: { multiplier: 1, immediateChance: 0.15 }
     }
   },
   all_pro: {
@@ -119,7 +125,8 @@ export const DIFFICULTY_TIERS: Readonly<Record<Difficulty, DifficultyTier>> = {
       actionsPerTrigger: 4,
       cooldownMinutes: 30,
       negotiationRounds: 3,
-      valuationNoise: 0.04
+      valuationNoise: 0.04,
+      responseDelay: { multiplier: 0.7, immediateChance: 0.2 }
     }
   },
   hall_of_famer: {
@@ -135,7 +142,8 @@ export const DIFFICULTY_TIERS: Readonly<Record<Difficulty, DifficultyTier>> = {
       actionsPerTrigger: 6,
       cooldownMinutes: 15,
       negotiationRounds: 4,
-      valuationNoise: 0
+      valuationNoise: 0,
+      responseDelay: { multiplier: 0.5, immediateChance: 0.25 }
     }
   }
 };

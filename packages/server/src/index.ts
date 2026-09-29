@@ -63,6 +63,7 @@ export {
 } from './chat/context.js';
 export type { TradeRecord, TradeRepository } from './repos/trades.js';
 export { scheduleTradeDeadline, tradeEventDetail } from './trades/lifecycle.js';
+export { nextLockAt } from './trades/world.js';
 export { handleTradeTimer, TRADE_TIMER_EVENTS } from './trades/handlers.js';
 export {
   postSystemMessage,

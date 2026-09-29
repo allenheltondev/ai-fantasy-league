@@ -7,12 +7,13 @@ import type { BusEvent } from '../events.js';
 import { recordLeagueMemory } from '../memory.js';
 import { leagueRosterIndex, routeEvent, type RouteDecision, type RouterDeps } from '../router.js';
 import { defaultTaskKinds } from '../tasks/index.js';
-import { createAgentServices, loadAgentEnv } from './env.js';
+import { createAgentServices, loadAgentEnv, responseDelaysOn } from './env.js';
 
 let deps: RouterDeps | null = null;
 
-export function createRouterDeps(services: Services): RouterDeps {
-  return { services, kinds: defaultTaskKinds, rosterIndex: leagueRosterIndex(services) };
+/** The router's dependencies; in the Lambda, human-like response delays are on (#189). */
+export function createRouterDeps(services: Services, responseDelays = true): RouterDeps {
+  return { services, kinds: defaultTaskKinds, rosterIndex: leagueRosterIndex(services), responseDelays };
 }
 
 /**
@@ -20,7 +21,10 @@ export function createRouterDeps(services: Services): RouterDeps {
  * is routed to agent tasks. A memory failure is logged and never blocks the routing.
  */
 export async function handler(event: BusEvent): Promise<{ decisions: RouteDecision[]; remembered: number }> {
-  deps ??= createRouterDeps(createAgentServices(loadAgentEnv(process.env)));
+  if (deps === null) {
+    const env = loadAgentEnv(process.env);
+    deps = createRouterDeps(createAgentServices(env), responseDelaysOn(env));
+  }
   let remembered = 0;
   try {
     remembered = await recordLeagueMemory(deps.services, event);
