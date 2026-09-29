@@ -13,6 +13,7 @@ import {
 import type { AgentTaskSeal, Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { effectiveBehavior } from '../situation.js';
+import { reviewCommitments } from '../commitments.js';
 import { quote } from './chat.js';
 import {
   BaseDecisionSchema,
@@ -78,6 +79,10 @@ import {
  *
  * The social side (#196, tasks/check-in-social.ts): a rename when the router asks for one
  * (`naming`), a board post, matchup talk, and a DM with a goal, all within the same decision.
+ *
+ * Commitments (#215, commitments.ts): before the look, the check-in reads what became of offers it
+ * promised in chat, expires looks never taken, and hands on at most one commitment (a lost one
+ * resumed, or a decline reconsidered after a new roster need), with or without a model call.
  *
  * Extending the check-in: add a probe to `CHECK_IN_PROBES` for a new reason to think, and
  * an action type to `CHECK_IN_ACTIONS` with a step in `ACTION_STEPS` that carries it out. The
@@ -501,9 +506,13 @@ export interface CheckInPrep {
   reasons: CheckInReason[];
   /** The standings and the week's matchup, for the prompt. */
   context: string[];
+  /** A commitment picked up again (#215): resumed or reconsidered, handed on with no model call. */
+  followUps: TaskFollowUp[];
 }
 
 async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep> {
+  // Deterministic and first: it reads offers' answers and may hand one commitment on (#215).
+  const followUps = await reviewCommitments(ctx);
   const lineup = await readLineupOrNull(ctx);
   const { unavailable, bye } =
     lineup === null ? { unavailable: [], bye: new Set<string>() } : unavailableStarters(lineup);
@@ -528,8 +537,9 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep>
   const social = await lookSocial(ctx, payload.naming, { trade });
   const look: CheckInLook = { payload, lineup, unavailable, waivers, trade, offers: offers.waiting, social };
   const reasons = checkInReasons(look);
-  if (reasons.length === 0) throw new TaskUnavailableError('nothing_to_do', undefined, nothingToDoLine(look));
-  return { look, reasons, context: await leagueContext(ctx) };
+  if (reasons.length === 0)
+    throw new TaskUnavailableError('nothing_to_do', undefined, nothingToDoLine(look), followUps);
+  return { look, reasons, context: await leagueContext(ctx), followUps };
 }
 
 const StandingsSchema = z.object({
@@ -765,7 +775,7 @@ async function act(
     .filter((s) => s !== '')
     .join(' ');
   const secret = run.waiverClaims.length > 0 || run.trades.length > 0;
-  const followUps = offerFollowUps(look);
+  const followUps = [...offerFollowUps(look), ...prep.followUps];
   return {
     action: run.done.length === 0 ? 'none' : [...new Set(run.done.map((d) => d.action))].join('+'),
     summary,

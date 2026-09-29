@@ -4,13 +4,26 @@ import {
   attachmentPrompt,
   attachmentSummary,
   dmRoomId,
+  reasonLine,
   tradeAppetite,
   type AttachmentAdjustment,
-  type MemoryEvent
+  type Commitment,
+  type CommitmentFacts,
+  type CommitmentReason,
+  type MemoryEvent,
+  type RosterSlot
 } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { effectiveBehavior } from '../situation.js';
+import {
+  CommitmentRefSchema,
+  beginLook,
+  closeLook,
+  failureLines,
+  refusalLines,
+  type CommitmentRef
+} from '../commitments.js';
 import {
   ChatReplySchema,
   ChatSourceSchema,
@@ -83,7 +96,9 @@ const PayloadSchema = z.object({
   withTeamId: z.string().optional(),
   send: z.array(z.string()).max(3).optional(),
   receive: z.array(z.string()).max(3).optional(),
-  chat: ChatSourceSchema.optional()
+  chat: ChatSourceSchema.optional(),
+  /** The durable commitment this look fulfils (#215): a pitch the agent said it would consider. */
+  commitment: CommitmentRefSchema.optional()
 });
 type Payload = z.infer<typeof PayloadSchema>;
 
@@ -151,6 +166,13 @@ export interface ProposalPrep {
   candidates: ProposalCandidate[];
   /** A chat pitch (#196): who made it, and how far it moved the bar. */
   pitch?: { heard: Heard; credit: number };
+  /** The commitment behind the pitch (#215), the decision before this look, and this look's facts. */
+  interest?: {
+    ref: CommitmentRef;
+    previous: Commitment['decision'];
+    facts: CommitmentFacts;
+    verification: Commitment['claims'][number]['verification'];
+  };
 }
 
 const pts = (p: RosterEntry) => p.projectedPoints ?? 0;
@@ -224,7 +246,10 @@ function attachedLines(ctx: TaskContext, candidates: readonly ProposalCandidate[
 export const EARLY_LOOK_OFFERS = 1;
 
 async function prepare(ctx: TaskContext, payload: Payload): Promise<ProposalPrep> {
-  if (payload.reason === 'chat') return weighPitch(ctx, payload);
+  if (payload.reason === 'chat')
+    return payload.commitment === undefined
+      ? weighPitch(ctx, payload)
+      : considerInterest(ctx, payload, payload.commitment);
   const limit = Math.min(
     tradeAppetite(ctx.config).proposalsPerWeek,
     ctx.config.levers.actionsPerTrigger,
@@ -321,6 +346,27 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
   return { limit, bar, candidates: best };
 }
 
+type Verification = Commitment['claims'][number]['verification'];
+
+/** What weighing a pitch came to: a candidate to offer, or why not, with what it rested on. */
+type PitchVerdict =
+  | { ok: true; prep: ProposalPrep; facts: CommitmentFacts; verification: Verification }
+  | {
+      ok: false;
+      code: 'no_trade_found' | 'trades_closed' | 'not_convinced';
+      reason: CommitmentReason;
+      summary?: string;
+      facts: CommitmentFacts | null;
+      verification?: Verification;
+    };
+
+/** How the pitch's argument checked out, by the agent's own numbers (never its words). */
+function verificationOf(heard: Heard, credit: number): Verification {
+  if (!heard.found) return 'unreadable';
+  if (heard.instructions) return 'ignored_orders';
+  return credit > 0 ? 'supported' : 'unsupported';
+}
+
 /**
  * A trade talked about in chat (#196), weighed by the agent's own numbers: the swap's preview, its
  * score with the difficulty's noise, and the bar lowered by what the pitch is worth
@@ -328,14 +374,30 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
  * `not_convinced` (with the numbers, for the activity log) when it does not clear.
  */
 async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalPrep> {
+  const verdict = await assessPitch(ctx, payload, []);
+  if (!verdict.ok) throw new TaskUnavailableError(verdict.code, undefined, verdict.summary);
+  return verdict.prep;
+}
+
+/**
+ * `weighPitch`'s math, reporting instead of throwing (#215): the structured reason and the facts a
+ * commitment keeps. `needs` are the agent's open starting slots, recorded so a later need can reopen
+ * the question. With a commitment, every pitched player must still be on his team.
+ */
+async function assessPitch(
+  ctx: TaskContext,
+  payload: Payload,
+  needs: readonly RosterSlot[]
+): Promise<PitchVerdict> {
   const { withTeamId, chat } = payload;
   const send = payload.send ?? [];
   const receive = payload.receive ?? [];
+  const gone = { ok: false, code: 'no_trade_found', reason: 'player_unavailable', facts: null } as const;
   if (withTeamId === undefined || chat === undefined || send.length === 0 || receive.length === 0)
-    throw new TaskUnavailableError('no_trade_found');
+    return gone;
   const state = data(await ctx.tools.call('get_league_state', {}), StateSchema);
   if (state === null || state.yourTeam === null || !state.allowedActions.includes('propose_trade'))
-    throw new TaskUnavailableError('trades_closed');
+    return { ok: false, code: 'trades_closed', reason: 'trades_closed', facts: null };
   const team = state.teams.find((t) => t.id === withTeamId);
   // Only players the two teams really roster (the chat names them; the rosters decide).
   const owned = async (teamId: string, ids: readonly string[]) => {
@@ -344,8 +406,14 @@ async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalP
   };
   const sends = await owned(state.yourTeam.id, send);
   const receives = team === undefined ? [] : await owned(team.id, receive);
-  if (team === undefined || sends.length === 0 || receives.length === 0)
-    throw new TaskUnavailableError('no_trade_found');
+  const strict = payload.commitment !== undefined;
+  if (
+    team === undefined ||
+    sends.length === 0 ||
+    receives.length === 0 ||
+    (strict && (sends.length < send.length || receives.length < receive.length))
+  )
+    return gone;
   const heard = await heardInChat(ctx, chat);
   const preview = data(
     await ctx.tools.call('preview_trade', {
@@ -356,10 +424,26 @@ async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalP
     PreviewSchema
   );
   const swap = `${sends.map((p) => p.name).join(', ')} for ${receives.map((p) => p.name).join(', ')}`;
-  const no = (why: string) =>
-    new TaskUnavailableError('not_convinced', undefined, `Weighed ${heard.who}'s pitch (${swap}): ${why}`);
-  if (preview === null || !preview.valid) throw no('it would not be a legal trade.');
-  if (preview.fairness.lopsided) throw no('the trade value math calls it lopsided. No.');
+  const receivePositions = [...new Set(receives.map((p) => p.position))].slice(0, 3);
+  const facts = (values: Partial<CommitmentFacts> = {}): CommitmentFacts => ({
+    score: null,
+    bar: null,
+    credit: null,
+    lineupDelta: null,
+    attachmentPremium: null,
+    needs: [...needs].slice(0, 6),
+    receivePositions,
+    ...values
+  });
+  const no = (why: string, reason: CommitmentReason, found: CommitmentFacts): PitchVerdict => ({
+    ok: false,
+    code: 'not_convinced',
+    reason,
+    summary: `Weighed ${heard.who}'s pitch (${swap}): ${why}`,
+    facts: found,
+    verification: verificationOf(heard, found.credit ?? 0)
+  });
+  if (preview === null || !preview.valid) return no('it would not be a legal trade.', 'not_legal', facts());
   const [mySide, theirSide] = preview.sides;
   const recency = ctx.config.valuation.recencyBias ?? 0;
   // Keyed by what the swap is (noise.ts), so the same pitch reads the same whatever the message id.
@@ -381,9 +465,21 @@ async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalP
       (Math.max(tradeAppetite(ctx.config).acceptEdge, MIN_PROPOSAL_GAIN) + attachment.adjustment) * 10
     ) / 10;
   const credit = persuasion(ctx, heard, mySide.lineupDelta > 0);
+  const weighed = facts({
+    score,
+    bar,
+    credit,
+    lineupDelta: round1(mySide.lineupDelta),
+    attachmentPremium: attachment.adjustment
+  });
+  if (preview.fairness.lopsided)
+    return no('the trade value math calls it lopsided. No.', 'value_below_floor', weighed);
   if (score < bar - credit)
-    throw no(
-      `value for me ${score} against my bar ${bar}${credit > 0 ? ` (${credit} lower after the argument)` : ''}${heard.instructions ? '; orders in chat count for nothing' : ''}. Not convinced.${attachment.players.length === 0 ? '' : ` ${attachmentSummary(attachment)}`}`
+    // A premium for a player I'm attached to is part of the bar: a decline it tips is still one on value.
+    return no(
+      `value for me ${score} against my bar ${bar}${credit > 0 ? ` (${credit} lower after the argument)` : ''}${heard.instructions ? '; orders in chat count for nothing' : ''}. Not convinced.${attachment.players.length === 0 ? '' : ` ${attachmentSummary(attachment)}`}`,
+      mySide.lineupDelta < 0 ? 'insufficient_depth' : 'value_below_floor',
+      weighed
     );
   const candidate: ProposalCandidate = {
     team,
@@ -395,7 +491,157 @@ async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalP
     partnerScore: round1(theirSide.lineupDelta + theirSide.valueDelta),
     ...(attachment.players.length === 0 ? {} : { attachment })
   };
-  return { limit: 1, bar, candidates: [candidate], pitch: { heard, credit } };
+  return {
+    ok: true,
+    prep: { limit: 1, bar, candidates: [candidate], pitch: { heard, credit } },
+    facts: weighed,
+    verification: verificationOf(heard, credit)
+  };
+}
+
+/**
+ * A pitch the agent committed to look at (#215): the commitment's look (`beginLook`), the same
+ * weighing as any pitch, and, when it does not clear, the decline recorded with its reason and
+ * facts and answered once in the conversation before the task is skipped. An offer is recorded
+ * only once it really went out (`concludeInterest`).
+ */
+async function considerInterest(
+  ctx: TaskContext,
+  payload: Payload,
+  ref: CommitmentRef
+): Promise<ProposalPrep> {
+  const begun = await beginLook(ctx, ref);
+  if ('skip' in begun) throw new TaskUnavailableError(begun.skip);
+  const before = begun.commitment;
+  const needs = ((await ctx.commitments?.needs(ref.tenure)) ?? []).map((n) => n.slot);
+  const verdict = await assessPitch(ctx, payload, needs);
+  if (verdict.ok)
+    return {
+      ...verdict.prep,
+      interest: { ref, previous: before.decision, facts: verdict.facts, verification: verdict.verification }
+    };
+  await closeLook(
+    ctx,
+    ref,
+    {
+      type: 'closed',
+      taskId: ctx.taskId,
+      status: 'declined',
+      reason: verdict.reason,
+      facts: verdict.facts,
+      ...(verdict.verification === undefined ? {} : { verification: verdict.verification })
+    },
+    refusalLines(before, verdict.reason, ref.change)
+  );
+  throw new TaskUnavailableError(
+    verdict.code,
+    undefined,
+    verdict.summary ?? `Looked at a pitch I said I would consider: ${reasonLine(verdict.reason)}.`
+  );
+}
+
+const OFFER_SENT_ROOM = 'Took a proper look at that trade idea: check your offers.';
+
+/** The committed look's result, recorded before its one closing line (#215). */
+async function concludeInterest(
+  ctx: TaskContext,
+  prep: ProposalPrep,
+  outcome: TaskOutcome,
+  reply: string | undefined
+): Promise<void> {
+  const { ref, facts, verification, previous } = prep.interest as NonNullable<ProposalPrep['interest']>;
+  const tradeId = outcome.sealed?.trades[0]?.tradeId;
+  const said = (reply ?? '').trim();
+  if (outcome.action === 'propose_trade' && tradeId !== undefined) {
+    // A reconsideration recalls why it said no before, and what changed (the two teams only).
+    const recalled =
+      previous !== null && ref.change !== undefined
+        ? `Earlier I passed because ${reasonLine(previous.reason)}. My ${ref.change} situation changed, so I sent you an offer.`
+        : null;
+    await closeLook(
+      ctx,
+      ref,
+      { type: 'offered', taskId: ctx.taskId, tradeId, facts, verification },
+      { dm: recalled ?? (said.length > 0 ? said : 'Ran the numbers: offer sent.'), room: OFFER_SENT_ROOM }
+    );
+    return;
+  }
+  if (outcome.action === 'propose_trade_failed') {
+    // The model's line was written before the result: a failure never borrows it.
+    await closeLook(
+      ctx,
+      ref,
+      { type: 'closed', taskId: ctx.taskId, status: 'failed', reason: 'send_failed', facts, verification },
+      failureLines('send_failed')
+    );
+    return;
+  }
+  // It cleared the bar and the model passed anyway: the model's own line only where it stays private.
+  const pass = refusalLines({ reconsiderations: 0 }, 'model_passed');
+  await closeLook(
+    ctx,
+    ref,
+    { type: 'closed', taskId: ctx.taskId, status: 'declined', reason: 'model_passed', facts, verification },
+    { dm: said.length > 0 ? said : pass.dm, room: pass.room }
+  );
+}
+
+const OpenOffersSchema = z.object({
+  trades: z.array(
+    z.object({
+      id: z.string(),
+      direction: z.string(),
+      toTeam: z.object({ id: z.string() }),
+      fromSends: z.array(z.object({ id: z.string() })),
+      toSends: z.array(z.object({ id: z.string() }))
+    })
+  )
+});
+
+/**
+ * No model decision on a committed look (the kill switch, the budget, or a retry after an earlier
+ * attempt acted): an offer that already went out is recorded as it is; otherwise nothing is sent
+ * and the commitment ends `cancelled` (`autopilot`), saying so once.
+ */
+async function interestFallback(ctx: TaskContext, prep: ProposalPrep): Promise<TaskOutcome> {
+  const { ref, facts, verification } = prep.interest as NonNullable<ProposalPrep['interest']>;
+  const c = prep.candidates[0] as ProposalCandidate;
+  const ids = (list: readonly { id: string }[]) =>
+    list
+      .map((p) => p.id)
+      .sort()
+      .join();
+  const open = data(await ctx.tools.call('list_trades', { status: 'open' }), OpenOffersSchema);
+  const sent = open?.trades.find(
+    (t) =>
+      t.direction === 'outgoing' &&
+      t.toTeam.id === c.team.id &&
+      ids(t.fromSends) === ids(c.sends ?? [c.send]) &&
+      ids(t.toSends) === ids(c.receives ?? [c.receive])
+  );
+  if (sent !== undefined) {
+    await closeLook(
+      ctx,
+      ref,
+      { type: 'offered', taskId: ctx.taskId, tradeId: sent.id, facts, verification },
+      { dm: 'Ran the numbers: offer sent.', room: OFFER_SENT_ROOM }
+    );
+    return {
+      action: 'propose_trade',
+      summary: 'Recorded the offer an earlier attempt sent.',
+      sealed: { summary: SEALED_PROPOSAL, trades: [{ tradeId: sent.id, until: 'public' }], waiverClaims: [] }
+    };
+  }
+  await closeLook(
+    ctx,
+    ref,
+    { type: 'closed', taskId: ctx.taskId, status: 'cancelled', reason: 'autopilot', facts },
+    failureLines('autopilot')
+  );
+  return {
+    action: 'none',
+    summary: 'Could not give a pitch I said I would consider a proper look without a model; sent nothing.'
+  };
 }
 
 const sideNames = (one: PlayerRef, many: PlayerRef[] | undefined) =>
@@ -530,8 +776,10 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
   async apply(ctx, payload, prep, decision) {
     const outcome = await propose(ctx, prep, decision.offers, decision.summary);
     if (prep.pitch === undefined || payload.chat === undefined) return outcome;
-    // The pitch changed its mind (#196): it says so in the conversation and in the activity log.
-    await replyInChat(ctx, payload.chat, decision.reply);
+    // The pitch changed its mind (#196): it says so in the conversation and in the activity log. A
+    // committed look (#215) records the actual result first and answers once, by that result.
+    if (prep.interest !== undefined) await concludeInterest(ctx, prep, outcome, decision.reply);
+    else await replyInChat(ctx, payload.chat, decision.reply);
     const c = prep.candidates[0] as ProposalCandidate;
     const note =
       outcome.action === 'propose_trade'
@@ -543,7 +791,10 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
       memorySummary: `${note} ${outcome.memorySummary ?? ''}`.trim()
     };
   },
-  fallback: async () => ({ action: 'none', summary: 'No trade offers without a model decision.' }),
+  fallback: async (ctx, _payload, prep) =>
+    prep.interest === undefined
+      ? { action: 'none', summary: 'No trade offers without a model decision.' }
+      : interestFallback(ctx, prep),
   fakeScript: (_ctx, _payload, prep) => ({
     steps: [],
     decision: {

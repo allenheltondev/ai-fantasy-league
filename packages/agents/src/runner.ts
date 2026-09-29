@@ -41,6 +41,7 @@ import type { AgentActionRequested } from './events.js';
 import { refreshAgenda } from './agenda.js';
 import { effectiveBehavior, readSituation } from './situation.js';
 import { ATTACHMENT_KINDS, refreshAttachments } from './attachments.js';
+import { commitmentAccess } from './commitments.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
 import {
@@ -303,6 +304,7 @@ export async function runAgentAction(
     clock,
     log,
     trigger: { detailType: request.trigger.detailType, eventId: request.trigger.eventId },
+    commitments: commitmentAccess(services, league.id, seat.agentId, seat.teamId),
     claimLimit: async (name, cap, windowMs) => {
       const result = await agents.claimLimit({
         leagueId: league.id,
@@ -348,6 +350,14 @@ export async function runAgentAction(
     prepared = await kind.prepare(ctx, request.payload);
   } catch (error) {
     if (error instanceof TaskUnavailableError) {
+      // Work it hands on anyway (#215) is dispatched idempotently, by task id, before the record.
+      if (error.followUps !== undefined && error.followUps.length > 0) {
+        try {
+          await attempt.dispatchFollowUps(error.followUps, league.id, seat.agentId);
+        } catch (dispatchError) {
+          return attempt.retryLater('follow_ups', dispatchError, []);
+        }
+      }
       return attempt.finish({
         ...skipped(error.message),
         toolsCalled: [...system.calls],

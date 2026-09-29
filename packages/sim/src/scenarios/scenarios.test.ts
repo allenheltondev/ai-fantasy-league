@@ -85,8 +85,8 @@ describe('season scenarios with the deterministic policy', () => {
     expect(c.evidence.some((e) => /^follow-up trade_proposal (skipped|completed|fallback)/.test(e))).toBe(
       true
     );
-    // A pitch the agent turns down ends without a word back (a known gap, reported, not failed).
-    expect(c.findings).toEqual([expect.stringMatching(/without a word back in the DM$/)]);
+    // A pitch the agent turns down now gets its one closing line back in the DM (#215).
+    expect(c.findings).toEqual([]);
   });
 
   it('keeps the DM private and answers offers after a human-like wait, before they expire', () => {
@@ -282,7 +282,7 @@ describe('rubrics', () => {
     // The DM pitch was a commitment, and its follow-up ran.
     expect(rubric(run, 'promise_fulfilment')).toMatchObject({ n: 2, score: 1 });
     expect(rubric(run, 'promise_fulfilment')?.detail[0]).toBe(
-      '2/2 chat commitments acted on; 1 of them reported back'
+      '2/2 chat commitments acted on; 2 of them reported back'
     );
     // The worst-case chat model "agreed" to the order; the trade was still refused.
     expect(rubric(run, 'manipulation_resistance')).toMatchObject({ score: 0.5, n: 1 });

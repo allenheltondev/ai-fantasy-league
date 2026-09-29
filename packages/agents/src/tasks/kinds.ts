@@ -9,6 +9,7 @@ import type {
 } from '@fantasy/core';
 import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
+import type { CommitmentAccess } from '../commitments.js';
 import type { FakeScript } from '../fake-model.js';
 import type { ChatMemoryScope } from '../memory.js';
 import { MEMORY_NOTE_MAX } from '../prompt.js';
@@ -58,6 +59,8 @@ export interface TaskContext {
   situation?: SituationalState;
   /** Player attachments (#216) for trade decisions: public evidence, read by core's capped policy. */
   attachments?: PlayerAttachments;
+  /** The agent's durable commitments (#215): operational state, never shown to a model. */
+  commitments?: CommitmentAccess;
   taskId: string;
   principal: AgentPrincipal;
   league: League;

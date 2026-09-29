@@ -8,13 +8,16 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import {
   AgentAgendaSchema,
+  CommitmentBookSchema,
   emptyAgenda,
+  emptyCommitments,
   AgentLeagueMemorySchema,
   PlayerAttachmentsSchema,
   emptyAttachments,
   type AgentAgenda,
   type AgentLeagueMemory,
-  type PlayerAttachments
+  type PlayerAttachments,
+  type CommitmentBook
 } from '@fantasy/core';
 import { z } from 'zod';
 import {
@@ -171,31 +174,28 @@ export class DynamoAgentRepository implements AgentRepository {
     update: (agenda: AgentAgenda) => AgentAgenda
   ): Promise<AgentAgenda> {
     const key = { pk: leaguePk(leagueId), sk: `AGENTAGENDA#${agentId}#${tenure}` };
-    for (let attempt = 0; ; attempt++) {
-      const result = await this.table.doc.send(
-        new GetCommand({
-          TableName: this.table.tableName,
-          Key: key,
-          ConsistentRead: true
-        })
-      );
-      const current = AgentAgendaSchema.parse(result.Item ?? emptyAgenda());
-      const rev = result.Item === undefined ? 0 : z.number().int().positive().parse(result.Item.rev);
-      const next = AgentAgendaSchema.parse(update(current));
-      try {
-        await this.table.doc.send(
-          new PutCommand({
-            TableName: this.table.tableName,
-            Item: { ...key, ...next, rev: rev + 1 },
-            ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
-            ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
-          })
-        );
-        return next;
-      } catch (error) {
-        if (!isConditionalCheckFailure(error) || attempt >= 2) throw error;
-      }
-    }
+    return this.#versioned(key, AgentAgendaSchema, emptyAgenda, update);
+  }
+
+  async getCommitments(leagueId: string, agentId: string, tenure: string): Promise<CommitmentBook> {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: { pk: leaguePk(leagueId), sk: `AGENTCOMMIT#${agentId}#${tenure}` },
+        ConsistentRead: true
+      })
+    );
+    return CommitmentBookSchema.parse(result.Item ?? emptyCommitments());
+  }
+
+  async updateCommitments(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (book: CommitmentBook) => CommitmentBook
+  ): Promise<CommitmentBook> {
+    const key = { pk: leaguePk(leagueId), sk: `AGENTCOMMIT#${agentId}#${tenure}` };
+    return this.#versioned(key, CommitmentBookSchema, emptyCommitments, update);
   }
 
   async getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null> {
@@ -285,27 +285,7 @@ export class DynamoAgentRepository implements AgentRepository {
     update: (attachments: PlayerAttachments) => PlayerAttachments
   ): Promise<PlayerAttachments> {
     const key = attachmentsKey(leagueId, agentId, tenure);
-    for (let attempt = 0; ; attempt++) {
-      const result = await this.table.doc.send(
-        new GetCommand({ TableName: this.table.tableName, Key: key, ConsistentRead: true })
-      );
-      const current = PlayerAttachmentsSchema.parse(result.Item ?? emptyAttachments());
-      const rev = result.Item === undefined ? 0 : z.number().int().positive().parse(result.Item.rev);
-      const next = PlayerAttachmentsSchema.parse(update(current));
-      try {
-        await this.table.doc.send(
-          new PutCommand({
-            TableName: this.table.tableName,
-            Item: { ...key, ...next, rev: rev + 1 },
-            ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
-            ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
-          })
-        );
-        return next;
-      } catch (error) {
-        if (!isConditionalCheckFailure(error) || attempt >= 2) throw error;
-      }
-    }
+    return this.#versioned(key, PlayerAttachmentsSchema, emptyAttachments, update);
   }
 
   async claimTask(input: AgentTaskClaimInput): Promise<AgentTaskClaim> {
@@ -861,6 +841,39 @@ export class DynamoAgentRepository implements AgentRepository {
       })
     );
     return result.Item;
+  }
+
+  /**
+   * One schema-versioned row read and replaced by `update` under a revision condition (the agenda,
+   * attachments, and commitments): up to three compare-and-swap attempts, then the conflict is thrown.
+   */
+  async #versioned<T extends object>(
+    key: { pk: string; sk: string },
+    schema: z.ZodType<T>,
+    empty: () => T,
+    update: (current: T) => T
+  ): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      const result = await this.table.doc.send(
+        new GetCommand({ TableName: this.table.tableName, Key: key, ConsistentRead: true })
+      );
+      const current = schema.parse(result.Item ?? empty());
+      const rev = result.Item === undefined ? 0 : z.number().int().positive().parse(result.Item.rev);
+      const next = schema.parse(update(current));
+      try {
+        await this.table.doc.send(
+          new PutCommand({
+            TableName: this.table.tableName,
+            Item: { ...key, ...next, rev: rev + 1 },
+            ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
+            ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
+          })
+        );
+        return next;
+      } catch (error) {
+        if (!isConditionalCheckFailure(error) || attempt >= 2) throw error;
+      }
+    }
   }
 
   async #queryPrefix(
