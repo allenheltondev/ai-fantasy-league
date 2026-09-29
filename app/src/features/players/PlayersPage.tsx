@@ -7,6 +7,7 @@ import { MyClaims } from './MyClaims';
 import { Transactions } from './Transactions';
 import { describeError, formatTime, type LeagueStateData, type SearchPlayer } from './types';
 import { TableScroll } from '../../components/TableScroll';
+import { PlayerLink } from '../../players/PlayerLink';
 
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
 const SEARCH_LIMIT = 50;
@@ -40,7 +41,7 @@ export function PlayersPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   /** The submitted search; the form fields above are only drafts until Search is pressed. */
-  const [criteria, setCriteria] = useState({ q: '', position: '' });
+  const [criteria, setCriteria] = useState({ q: '', position: '', availableOnly: true });
 
   useEffect(() => {
     const fail = (err: unknown) => setError(describeError(err));
@@ -52,6 +53,8 @@ export function PlayersPage() {
         q: criteria.q || undefined,
         position: criteria.position || undefined,
         leagueId,
+        // Filter on the server: the best 50 players overall are mostly rostered after a draft.
+        availability: criteria.availableOnly ? 'available' : undefined,
         limit: SEARCH_LIMIT
       }
     })
@@ -60,7 +63,7 @@ export function PlayersPage() {
   }, [leagueId, refreshKey, criteria]);
 
   const canClaim = state?.allowedActions.includes('claim_waiver') === true;
-  const shown = (players ?? []).filter((p) => !availableOnly || p.availability?.status !== 'rostered');
+  const shown = players ?? [];
   const refresh = () => setRefreshKey((k) => k + 1);
 
   return (
@@ -79,7 +82,7 @@ export function PlayersPage() {
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
-          setCriteria({ q: query.trim(), position });
+          setCriteria({ q: query.trim(), position, availableOnly });
         }}
       >
         <Input label="Search players" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -95,7 +98,12 @@ export function PlayersPage() {
           <input
             type="checkbox"
             checked={availableOnly}
-            onChange={(e) => setAvailableOnly(e.target.checked)}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setAvailableOnly(checked);
+              // The toggle applies at once, like a filter chip; the text search waits for Search.
+              setCriteria((c) => ({ ...c, availableOnly: checked }));
+            }}
           />
           Available only
         </label>
@@ -138,7 +146,9 @@ export function PlayersPage() {
                 const verb = status === 'waivers' ? 'Claim' : 'Add';
                 return (
                   <tr key={player.id}>
-                    <td>{player.name}</td>
+                    <td>
+                      <PlayerLink player={player} />
+                    </td>
                     <td>{player.position}</td>
                     <td>{player.team ?? 'FA'}</td>
                     <td>

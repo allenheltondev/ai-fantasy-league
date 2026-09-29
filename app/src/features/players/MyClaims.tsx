@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card, CardBody, CardHeader, CardTitle } from '@readysetcloud/ui';
 import { apiFetch } from '../../api';
 import { describeError, formatTime, type Claim } from './types';
+import { PlayerLink } from '../../players/PlayerLink';
 
 /** Pending waiver claims (list_waiver_claims), each with a cancel button (cancel_waiver_claim). */
 export function MyClaims({
@@ -47,8 +48,12 @@ export function MyClaims({
           {claims?.map((claim) => (
             <li key={claim.id} className="flex items-center justify-between gap-2">
               <span>
-                {claim.priority}. {claim.player.name} for ${claim.bid}
-                {claim.drop && `, dropping ${claim.drop.name}`}{' '}
+                {claim.priority}. <PlayerLink player={claim.player} /> for ${claim.bid}
+                {claim.drop && (
+                  <>
+                    , dropping <PlayerLink player={claim.drop} />
+                  </>
+                )}{' '}
                 <span className="text-sm text-muted-foreground">({formatTime(claim.processesAt)})</span>
               </span>
               <Button

@@ -8,6 +8,7 @@ import { useLoad } from '../../lib/useLoad';
 import { useArrivals } from '../../motion/useArrivals';
 import { RedZoneChip, redZoneClass, redZoneFor, usePrefersReducedMotion } from './RedZone';
 import './scoringLog.css';
+import { PlayerLink } from '../../players/PlayerLink';
 
 /** Entries per page. */
 export const SCORING_LOG_PAGE = 20;
@@ -265,7 +266,7 @@ function LogRow({
       <TeamMark side={side} teamName={teamName} mine={mine} />
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="break-words font-medium">{entry.player.name}</span>
+          <PlayerLink player={entry.player} className="break-words font-medium" />
           <span className="text-xs text-muted-foreground">
             {entry.player.position} · {entry.player.team ?? 'FA'}
           </span>

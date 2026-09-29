@@ -9950,7 +9950,7 @@
       "get": {
         "operationId": "get_data_status",
         "summary": "Check the NFL data behind projections and research",
-        "description": "Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with. Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
+        "description": "Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the research sets (last season’s stats, this season’s projections, and this season’s stats so far), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with. Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
         "tags": [
           "leagues"
         ],
@@ -10281,6 +10281,57 @@
                                 }
                               ],
                               "description": "This season's projections (the draft room's Proj); null if none."
+                            },
+                            "currentStats": {
+                              "description": "This season's weekly stats so far (the player card's season to date); null if none. Pulled during the regular season.",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "season": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "updatedAt": {
+                                      "type": "string",
+                                      "description": "When the set was last replaced."
+                                    },
+                                    "checkedAt": {
+                                      "description": "When the source was last checked (null before the first check that found no change).",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "players": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "weeks": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "description": "Weeks the source had lines for."
+                                    }
+                                  },
+                                  "required": [
+                                    "season",
+                                    "updatedAt",
+                                    "checkedAt",
+                                    "players",
+                                    "weeks"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -36313,10 +36364,11 @@
               "enum": [
                 "free_agent",
                 "waivers",
-                "rostered"
+                "rostered",
+                "available"
               ]
             },
-            "description": "League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him)."
+            "description": "League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), `available` (either of those: anyone not on a team), or `rostered` (on a team; only a trade can get him)."
           },
           {
             "name": "injury",
@@ -36585,8 +36637,8 @@
     "/api/v1/players/card": {
       "get": {
         "operationId": "get_player_card",
-        "summary": "Draft research for one player: last season week by week, the season projection, bye, and news",
-        "description": "Returns one player’s research card: last regular season’s fantasy points each week plus totals, points per game, and key stat totals for his position; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines. Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used. `lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published. Use it before a draft pick or a trade to see how a player actually produced. An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.",
+        "summary": "One player’s card: this season so far, next week’s projection and matchup, last season, the season projection, and news",
+        "description": "Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals (`thisSeason`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines. Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used. `lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade. An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.",
         "tags": [
           "research",
           "players"
@@ -36854,6 +36906,164 @@
                             }
                           ]
                         },
+                        "thisSeason": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "season": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "points": {
+                                  "type": "number",
+                                  "description": "Fantasy points this season so far."
+                                },
+                                "ppg": {
+                                  "type": "number",
+                                  "description": "Points per game played; 0 with no games."
+                                },
+                                "games": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "weekly": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "week": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "points": {
+                                        "type": "number"
+                                      }
+                                    },
+                                    "required": [
+                                      "week",
+                                      "points"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "Points each week he has a line for, in week order."
+                                },
+                                "totals": {
+                                  "type": "object",
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "additionalProperties": {
+                                    "type": "number"
+                                  },
+                                  "description": "Season totals by Sleeper stat key for the position: passing (pass_att, pass_cmp, pass_yd, pass_td, pass_int), rushing (rush_att = carries, rush_yd, rush_td), receiving (rec_tgt = targets, rec, rec_yd, rec_td), kicking (fgm, fga, fgm_50p, xpm, xpa), or team defense (sack, int, fum_rec, def_td, safe, pts_allow, yds_allow)."
+                                }
+                              },
+                              "required": [
+                                "season",
+                                "points",
+                                "ppg",
+                                "games",
+                                "weekly",
+                                "totals"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "This regular season so far, from the ingested weekly stats; null before his first stat line."
+                        },
+                        "nextWeek": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "season": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "week": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991,
+                                  "description": "The current NFL week: the one being played, or about to be."
+                                },
+                                "points": {
+                                  "description": "Projected fantasy points, or null before projections are out.",
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                },
+                                "totals": {
+                                  "type": "object",
+                                  "propertyNames": {
+                                    "type": "string"
+                                  },
+                                  "additionalProperties": {
+                                    "type": "number"
+                                  },
+                                  "description": "Projected stat totals for the week; empty when unprojected."
+                                },
+                                "bye": {
+                                  "type": "boolean",
+                                  "description": "True when his NFL team has no game this week."
+                                },
+                                "opponent": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "team": {
+                                          "type": "string",
+                                          "description": "The opposing NFL team, e.g. \"BUF\"."
+                                        },
+                                        "home": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "team",
+                                        "home"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "kickoff": {
+                                  "description": "Kickoff (ISO 8601), or null on a bye or unknown.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "season",
+                                "week",
+                                "points",
+                                "totals",
+                                "bye",
+                                "opponent",
+                                "kickoff"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The upcoming week: projection and matchup. Null in the offseason."
+                        },
                         "news": {
                           "type": "array",
                           "items": {
@@ -36894,6 +37104,8 @@
                         "injuryStatus",
                         "lastSeason",
                         "projection",
+                        "thisSeason",
+                        "nextWeek",
                         "news"
                       ],
                       "additionalProperties": false

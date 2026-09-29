@@ -563,7 +563,12 @@ export interface DataStatus {
     projections: { capturedAt: string; count: number; hash: string; source?: 'v1' | 'app' | null } | null;
     statLines: number;
   }[];
-  research: { stats: DataSeasonSet | null; projections: DataSeasonSet | null };
+  research: {
+    stats: DataSeasonSet | null;
+    projections: DataSeasonSet | null;
+    /** This season's stats so far (newer servers). */
+    currentStats?: DataSeasonSet | null;
+  };
   jobs: { job: string; latest: DataJobRun | null; lastOk: DataJobRun | null }[];
 }
 

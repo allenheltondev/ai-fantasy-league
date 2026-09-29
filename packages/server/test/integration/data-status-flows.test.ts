@@ -31,7 +31,11 @@ interface Status {
     projections: { capturedAt: string; count: number; source: 'v1' | 'app' | null } | null;
     statLines: number;
   }[];
-  research: { stats: unknown; projections: { season: number; players: number } | null };
+  research: {
+    stats: unknown;
+    projections: { season: number; players: number } | null;
+    currentStats?: unknown;
+  };
   jobs: { job: string; latest: { status: string; reason: string | null; summary: string | null } | null }[];
 }
 
@@ -70,7 +74,7 @@ describe('get_data_status (#181)', () => {
       [2, null, 0],
       [3, null, 0]
     ]);
-    expect(s.research).toEqual({ stats: null, projections: null });
+    expect(s.research).toEqual({ stats: null, projections: null, currentStats: null });
     expect(job(s, 'ingestProjections')).toEqual({ job: 'ingestProjections', latest: null, lastOk: null });
   });
 

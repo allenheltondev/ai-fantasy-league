@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PlayerDetailSchema, playerSelectorShape, toPlayerDetail } from '../../players/model.js';
+import { loadCurrentForm } from '../../players/current-form.js';
 import { cardTotals, loadResearch } from '../../players/research.js';
 import { defineOperation } from '../../registry/operation.js';
 import { leagueIdField, scoringFor } from './shared.js';
@@ -17,11 +18,12 @@ export const getPlayerCard = defineOperation({
   name: 'get_player_card',
   method: 'GET',
   path: '/players/card',
-  summary: 'Draft research for one player: last season week by week, the season projection, bye, and news',
+  summary:
+    'One player’s card: this season so far, next week’s projection and matchup, last season, the season projection, and news',
   description: [
-    'Returns one player’s research card: last regular season’s fantasy points each week plus totals, points per game, and key stat totals for his position; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines.',
+    'Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals (`thisSeason`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines.',
     'Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used.',
-    '`lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published. Use it before a draft pick or a trade to see how a player actually produced.',
+    '`lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade.',
     'An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.'
   ].join(' '),
   tags: ['research', 'players'],
@@ -55,6 +57,38 @@ export const getPlayerCard = defineOperation({
         totals: TotalsSchema
       })
       .nullable(),
+    thisSeason: z
+      .object({
+        season: z.number().int(),
+        points: z.number().describe('Fantasy points this season so far.'),
+        ppg: z.number().describe('Points per game played; 0 with no games.'),
+        games: z.number().int(),
+        weekly: z
+          .array(z.object({ week: z.number().int(), points: z.number() }))
+          .describe('Points each week he has a line for, in week order.'),
+        totals: TotalsSchema
+      })
+      .nullable()
+      .describe(
+        'This regular season so far, from the ingested weekly stats; null before his first stat line.'
+      ),
+    nextWeek: z
+      .object({
+        season: z.number().int(),
+        week: z.number().int().describe('The current NFL week: the one being played, or about to be.'),
+        points: z
+          .number()
+          .nullable()
+          .describe('Projected fantasy points, or null before projections are out.'),
+        totals: TotalsSchema.describe('Projected stat totals for the week; empty when unprojected.'),
+        bye: z.boolean().describe('True when his NFL team has no game this week.'),
+        opponent: z
+          .object({ team: z.string().describe('The opposing NFL team, e.g. "BUF".'), home: z.boolean() })
+          .nullable(),
+        kickoff: z.string().nullable().describe('Kickoff (ISO 8601), or null on a bye or unknown.')
+      })
+      .nullable()
+      .describe('The upcoming week: projection and matchup. Null in the offseason.'),
     news: z
       .array(
         z.object({
@@ -70,9 +104,10 @@ export const getPlayerCard = defineOperation({
   handler: async (ctx, input) => {
     const scoring = await scoringFor(ctx, input.leagueId);
     const player = await ctx.data.players.resolve(input);
-    const [research, news] = await Promise.all([
+    const [research, news, form] = await Promise.all([
       loadResearch(ctx, scoring.settings, [player.id]),
-      ctx.data.reference.news.listByPlayer(player.id, { limit: CARD_NEWS_LIMIT })
+      ctx.data.reference.news.listByPlayer(player.id, { limit: CARD_NEWS_LIMIT }),
+      loadCurrentForm(ctx, scoring.settings, player)
     ]);
     const last = research.lastSeason(player.id);
     const projection = research.projection(player.id);
@@ -100,6 +135,8 @@ export const getPlayerCard = defineOperation({
               points: projection.points,
               totals: cardTotals(projection.lines, player.position)
             },
+      thisSeason: form.thisSeason,
+      nextWeek: form.nextWeek,
       news: news.map((item) => ({
         id: item.id,
         title: item.title,

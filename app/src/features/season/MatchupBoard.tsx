@@ -20,6 +20,7 @@ import {
   versus
 } from './gameState';
 import './matchup.css';
+import { PlayerLink } from '../../players/PlayerLink';
 
 /**
  * The live matchup (#193): a sticky score bar with both teams' totals, live projections, and who is
@@ -302,12 +303,13 @@ function PlayerCell({
     >
       <span className={`flex min-w-0 items-center gap-1.5 ${end ? 'flex-row-reverse' : ''}`}>
         {live && <span className="motion-live-dot shrink-0" aria-hidden="true" />}
-        <span
+        <PlayerLink
+          player={entry.player}
           className={`min-w-0 truncate font-medium ${game.state === 'final' ? 'text-muted-foreground' : ''}`}
         >
           <span className="sm:hidden">{shortName(entry.player.name)}</span>
           <span className="max-sm:hidden">{entry.player.name}</span>
-        </span>
+        </PlayerLink>
         {showLock && entry.locked && <LockMark />}
       </span>
       <span className="block truncate text-xs text-muted-foreground">

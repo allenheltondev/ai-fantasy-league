@@ -139,7 +139,8 @@ describe('syncSeasonResearch', () => {
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [
         { kind: 'stats', stored: true, players: 1 },
-        { kind: 'projections', stored: true }
+        { kind: 'projections', stored: true },
+        { kind: 'stats', season: 2026 }
       ]
     });
     // The next hourly run leaves both alone; a day later they are checked again.
@@ -147,15 +148,20 @@ describe('syncSeasonResearch', () => {
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [
         { kind: 'stats', stored: false, reason: 'checked_recently' },
-        { kind: 'projections', stored: false, reason: 'checked_recently' }
+        { kind: 'projections', stored: false, reason: 'checked_recently' },
+        { kind: 'stats', season: 2026 }
       ]
     });
-    expect(provider.calls.some((c) => c.startsWith('getWeek'))).toBe(false);
+    // (This season's stats found nothing yet, so that set tries again every run.)
+    expect(provider.calls.some((c) => c.startsWith('getWeek') && !c.startsWith('getWeekStats:2026'))).toBe(
+      false
+    );
     deps.clock.advance(RESEARCH_RECHECK_MS);
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [
         { kind: 'stats', stored: false, reason: 'unchanged' },
-        { kind: 'projections', stored: false, reason: 'unchanged' }
+        { kind: 'projections', stored: false, reason: 'unchanged' },
+        { kind: 'stats', season: 2026 }
       ]
     });
     expect(await deps.reference.seasons.getMeta('stats', 2025)).toMatchObject({
@@ -173,11 +179,15 @@ describe('syncSeasonResearch', () => {
       Array.from({ length: 18 }, (_, i) => [i + 1, [line('1', 2026, i + 1, { rec: 5 })]])
     );
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
-      sets: [{ kind: 'stats' }, { kind: 'projections', stored: true, weeks: 18 }]
+      sets: [
+        { kind: 'stats' },
+        { kind: 'projections', stored: true, weeks: 18 },
+        { kind: 'stats', season: 2026 }
+      ]
     });
     provider.calls.length = 0;
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
-      sets: [{ kind: 'stats' }, { kind: 'projections', reason: 'in_season' }]
+      sets: [{ kind: 'stats' }, { kind: 'projections', reason: 'in_season' }, { kind: 'stats', season: 2026 }]
     });
     expect(provider.calls.some((c) => c.startsWith('getWeekProjections'))).toBe(false);
   });
@@ -194,7 +204,8 @@ describe('syncSeasonResearch', () => {
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [
         { kind: 'stats', stored: false, reason: 'no_data' },
-        { kind: 'projections', stored: false, reason: 'no_data' }
+        { kind: 'projections', stored: false, reason: 'no_data' },
+        { kind: 'stats', season: 2026, stored: false, reason: 'no_data' }
       ]
     });
     deps.clock.advance(3_600_000);
@@ -203,9 +214,36 @@ describe('syncSeasonResearch', () => {
     expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
       sets: [
         { kind: 'stats', stored: true, players: 1 },
-        { kind: 'projections', stored: true, players: 1 }
+        { kind: 'projections', stored: true, players: 1 },
+        { kind: 'stats', season: 2026 }
       ]
     });
+  });
+
+  it("stores this season's completed weeks in season, so the card's season so far has every week", async () => {
+    const { provider, deps } = await setup({ ...PRESEASON_2026, seasonType: 'regular', week: 4 });
+    // Only 2026 weeks 1-3 have stats; last season has week 1.
+    provider.getWeekStats = async (season: number, week: number) => {
+      provider.calls.push(`getWeekStats:${season}:${week}`);
+      if (season === 2026 && week <= 3) return [line('1', 2026, week, { gp: 1, rec: week })];
+      if (season === 2025 && week === 1) return [line('1', 2025, 1, { gp: 1, rec: 9 })];
+      return [];
+    };
+    expect(await syncSeasonResearch(deps, deps.clock)).toMatchObject({
+      sets: [
+        { kind: 'stats', season: 2025, stored: true },
+        { kind: 'projections' },
+        { kind: 'stats', season: 2026, stored: true, players: 1, weeks: 3 }
+      ]
+    });
+    const [current] = await deps.reference.seasons.get('stats', 2026);
+    expect(current?.weeks.map((w) => w.week)).toEqual([1, 2, 3]);
+    expect(await deps.reference.seasons.getMeta('stats', 2026)).toMatchObject({ weeks: [1, 2, 3] });
+
+    // In the preseason there is no season so far to pull.
+    const pre = await setup(PRESEASON_2026);
+    const result = await syncSeasonResearch(pre.deps, pre.deps.clock);
+    expect(result).toMatchObject({ sets: [{ kind: 'stats' }, { kind: 'projections' }] });
   });
 
   it('fails the run on a source error, so the schedule retries it', async () => {

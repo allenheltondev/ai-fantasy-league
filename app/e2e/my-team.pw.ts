@@ -63,7 +63,12 @@ test('another team is read-only, with Propose trade as its only action', async (
   await expect(page.getByRole('heading', { level: 2, name: 'Team 2' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Team 2 lineup' })).toContainText('Lamar Jackson');
   const view = page.getByTestId('team-view');
-  await expect(view.getByRole('button')).toHaveCount(0);
+  // No roster actions: the only buttons are player names, which open their cards.
+  await expect(view.locator('button:not([data-player-link])')).toHaveCount(0);
+  await view.getByRole('button', { name: 'Lamar Jackson' }).click();
+  await expect(page.getByTestId('player-card')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('player-card')).toBeHidden();
   await view.getByRole('link', { name: 'Propose trade' }).click();
   await expect(page).toHaveURL(/\/team\/trades\?with=team-2$/);
   await expect(page.getByRole('region', { name: 'Trade builder' }).getByLabel('Trade with')).toHaveValue(
