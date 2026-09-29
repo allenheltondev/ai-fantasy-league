@@ -84,7 +84,7 @@ export function RoomChat({
         >
           {room.title}
         </h2>
-        <p className="shrink-0 text-sm text-muted-foreground" data-testid="chat-status">
+        <p className="ml-auto shrink-0 text-sm text-muted-foreground" data-testid="chat-status">
           {chat.status === 'live'
             ? 'Live'
             : chat.status === 'polling'
