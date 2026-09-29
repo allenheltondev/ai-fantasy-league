@@ -168,7 +168,11 @@ describe('StrandsModelClient', () => {
       stopReason: 'endTurn',
       toString: () => '{"summary":"adaptive"}'
     });
-    await new StrandsModelClient('us-east-1').run({ ...run, thinkingBudgetTokens: undefined, thinkingEffort: 'high' });
+    await new StrandsModelClient('us-east-1').run({
+      ...run,
+      thinkingBudgetTokens: undefined,
+      thinkingEffort: 'high'
+    });
     expect(strands.models.at(-1)).toMatchObject({
       additionalRequestFields: { thinking: { type: 'adaptive' }, output_config: { effort: 'high' } }
     });
