@@ -46,17 +46,29 @@ const MoveSideSchema = TeamRefSchema.extend({
   cost: z.number().int().nullable().describe('FAAB paid (waiver awards).')
 });
 
+/** The move board's entries: roster moves, plus team renames (#194). */
+const BOARD_MOVE_TYPES = [...MOVE_TYPES, 'team_renamed'] as const;
+
 const MoveSchema = z.object({
-  id: z.string().describe('The trade id for a trade, else the transaction id.'),
+  id: z.string().describe('The trade id for a trade, else the transaction id (or `rename:<teamId>:<at>`).'),
   type: z
-    .enum(MOVE_TYPES)
+    .enum(BOARD_MOVE_TYPES)
     .describe(
-      '`trade`: a processed trade (both teams); `add`: a free-agent pickup (with any drop); `waiver`: a waiver award; `drop`: a release.'
+      '`trade`: a processed trade (both teams); `add`: a free-agent pickup (with any drop); `waiver`: a waiver award; `drop`: a release; `team_renamed`: a team took a new name (see `rename`).'
     ),
   at: z.string(),
   week: z.number().int(),
-  teams: z.array(MoveSideSchema).describe('Each team in the move: one, or two for a trade.')
+  teams: z.array(MoveSideSchema).describe('Each team in the move: one, or two for a trade.'),
+  rename: z
+    .object({
+      from: z.string(),
+      to: z.string(),
+      by: z.enum(['owner', 'commissioner', 'agent']).describe('Who renamed it (`agent`: its AI manager).')
+    })
+    .nullable()
+    .describe('For `team_renamed`: the old and new names; null for roster moves.')
 });
+type BoardMove = z.infer<typeof MoveSchema>;
 
 const DraftStatusSchema = z.object({
   status: z.enum(['not_started', 'in_progress', 'paused', 'complete']),
@@ -85,7 +97,7 @@ export const getLeagueDashboard = defineOperation({
   path: '/leagues/{leagueId}/dashboard',
   summary: "The league at a glance: this week's matchups, standings, and the latest moves",
   description: [
-    "One read for the league's home page: every matchup this week with scores and each side's manager, the standings (compact rows), and the move board, the latest trades, adds, drops, and waiver awards, each grouped into one move with its teams, players in and out, and FAAB paid.",
+    "One read for the league's home page: every matchup this week with scores and each side's manager, the standings (compact rows), and the move board, the latest trades, adds, drops, and waiver awards, each grouped into one move with its teams, players in and out, and FAAB paid, plus team renames (`team_renamed`).",
     'Before and during the draft `matchups` and `standings` are empty and `draft` says when it starts, how many seats are filled, and who is on the clock. Once the season is complete `champion` names the winner.',
     'Scores are the stored ones, refreshed every few minutes while games are live; for a live lineup-level view of one matchup, use get_matchup. `moves` sets how many moves to return (default 10); `hasMoreMoves` says whether older ones exist (page them with list_transactions). Only members can read it.'
   ].join(' '),
@@ -176,23 +188,54 @@ export const getLeagueDashboard = defineOperation({
           streak: row.streak
         }))
       },
-      moves: board.moves.map((move) => ({
-        id: move.id,
-        type: move.type,
-        at: move.at,
-        week: move.week,
-        teams: moveSides(move).map((s) => ({
-          ...ref(s.teamId),
-          added: s.added.map((id) => refOf(refs, id)),
-          dropped: s.dropped.map((id) => refOf(refs, id)),
-          cost: s.cost
-        }))
-      })),
-      hasMoreMoves: board.hasMore,
+      ...withRenames(
+        board.moves.map((move): BoardMove => ({
+          id: move.id,
+          type: move.type,
+          at: move.at,
+          week: move.week,
+          teams: moveSides(move).map((s) => ({
+            ...ref(s.teamId),
+            added: s.added.map((id) => refOf(refs, id)),
+            dropped: s.dropped.map((id) => refOf(refs, id)),
+            cost: s.cost
+          })),
+          rename: null
+        })),
+        board.hasMore,
+        teams,
+        ref,
+        input.moves
+      ),
       champion: championTeamId === null ? null : ref(championTeamId)
     };
   }
 });
+
+/**
+ * The board with the teams' renames (#194) merged in by time, newest first, cut to `limit`. Renames
+ * live on the teams (the last few each), so older moves than the log page read may hide some.
+ */
+function withRenames(
+  moves: BoardMove[],
+  hasMore: boolean,
+  teams: readonly Team[],
+  ref: (teamId: string) => TeamRef,
+  limit: number
+): { moves: BoardMove[]; hasMoreMoves: boolean } {
+  const renames = teams.flatMap((team) =>
+    (team.renames ?? []).map((r): BoardMove => ({
+      id: `rename:${team.id}:${r.at}`,
+      type: 'team_renamed',
+      at: r.at,
+      week: r.week,
+      teams: [{ ...ref(team.id), added: [], dropped: [], cost: null }],
+      rename: { from: r.from, to: r.to, by: r.by }
+    }))
+  );
+  const all = [...moves, ...renames].sort((a, b) => b.at.localeCompare(a.at));
+  return { moves: all.slice(0, limit), hasMoreMoves: hasMore || all.length > limit };
+}
 
 function teamRef(teams: readonly Team[], managers: ManagerLookup, teamId: string): TeamRef {
   const team = teams.find((t) => t.id === teamId);

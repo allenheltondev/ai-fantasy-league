@@ -22,10 +22,12 @@ export interface AgentGridProps {
   busy?: boolean;
   /** Leave out for a read-only grid. */
   editor?: AgentGridEditor;
+  /** Show each card's "Let this manager name its team" switch (commissioner only, #194). */
+  namingToggle?: boolean;
 }
 
 /** The AI manager cards, with "Randomize all" (new personalities, names, and avatars) and one difficulty for every card. */
-export function AgentGrid({ seats, catalog, busy = false, editor }: AgentGridProps) {
+export function AgentGrid({ seats, catalog, busy = false, editor, namingToggle = false }: AgentGridProps) {
   return (
     <div className="space-y-4">
       {editor && (
@@ -64,6 +66,7 @@ export function AgentGrid({ seats, catalog, busy = false, editor }: AgentGridPro
               index
             )}
             busy={busy}
+            namingToggle={namingToggle}
             {...(editor
               ? {
                   onChange: (config: AgentSeatConfig) => editor.onChange(index, config),

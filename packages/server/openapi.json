@@ -395,6 +395,10 @@
                                         "maxLength": 40,
                                         "pattern": "^[A-Za-z0-9_-]+$"
                                       },
+                                      "namesTeam": {
+                                        "description": "Let this manager name its team (#194). On (the default): it replaces a generic name like \"Team 3\" and may rebrand in character, and a name the commissioner gives the team stays the manager's to change. Off: it never renames, and a name the commissioner gives the team is locked.",
+                                        "type": "boolean"
+                                      },
                                       "advanced": {
                                         "description": "Advanced drawer settings.",
                                         "type": "object",
@@ -1252,6 +1256,23 @@
                                 }
                               ]
                             },
+                            "nameSetBy": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "commissioner",
+                                "agent",
+                                "default"
+                              ],
+                              "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                            },
+                            "renamedFrom": {
+                              "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                               "type": [
@@ -1287,6 +1308,8 @@
                             "ownerName",
                             "draftSlot",
                             "avatarSeed",
+                            "nameSetBy",
+                            "renamedFrom",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -2038,6 +2061,23 @@
                                   }
                                 ]
                               },
+                              "nameSetBy": {
+                                "type": "string",
+                                "enum": [
+                                  "owner",
+                                  "commissioner",
+                                  "agent",
+                                  "default"
+                                ],
+                                "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                              },
+                              "renamedFrom": {
+                                "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "ownerUserId": {
                                 "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                                 "type": [
@@ -2073,6 +2113,8 @@
                               "ownerName",
                               "draftSlot",
                               "avatarSeed",
+                              "nameSetBy",
+                              "renamedFrom",
                               "ownerUserId",
                               "agentConfigId",
                               "faabRemaining",
@@ -3297,6 +3339,23 @@
                                   }
                                 ]
                               },
+                              "nameSetBy": {
+                                "type": "string",
+                                "enum": [
+                                  "owner",
+                                  "commissioner",
+                                  "agent",
+                                  "default"
+                                ],
+                                "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                              },
+                              "renamedFrom": {
+                                "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "ownerUserId": {
                                 "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                                 "type": [
@@ -3332,6 +3391,8 @@
                               "ownerName",
                               "draftSlot",
                               "avatarSeed",
+                              "nameSetBy",
+                              "renamedFrom",
                               "ownerUserId",
                               "agentConfigId",
                               "faabRemaining",
@@ -3993,7 +4054,7 @@
       "put": {
         "operationId": "configure_agent_seat",
         "summary": "Set an agent seat's manager name, avatar, personality, difficulty, and strategy",
-        "description": "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat. Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor). `name` (1-40 characters on one line, unique in the league) is what the manager calls itself in chat; `avatarSeed` picks its avatar picture. Leave either out to keep the seat's current one. Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite. Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids, out-of-range levers, a malformed name or avatar seed, or a name another manager in the league already uses.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup, drafting, regular_season, playoffs.",
+        "description": "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat. Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor). `name` (1-40 characters on one line, unique in the league) is what the manager calls itself in chat; `avatarSeed` picks its avatar picture. Leave either out to keep the seat's current one. `namesTeam` (on by default) lets the manager name its team: it replaces a placeholder like \"Team 3\" in character and may rebrand now and then. Turned off, it never renames, and a name you give the team (rename_team) is locked. Leave it out to keep the current setting. Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite. Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids, out-of-range levers, a malformed name or avatar seed, or a name another manager in the league already uses.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log. Allowed league phases: setup, drafting, regular_season, playoffs.",
         "tags": [
           "agents"
         ],
@@ -4130,6 +4191,10 @@
                                   "minLength": 1,
                                   "maxLength": 40,
                                   "pattern": "^[A-Za-z0-9_-]+$"
+                                },
+                                "namesTeam": {
+                                  "description": "Let this manager name its team (#194). On (the default): it replaces a generic name like \"Team 3\" and may rebrand in character, and a name the commissioner gives the team stays the manager's to change. Off: it never renames, and a name the commissioner gives the team is locked.",
+                                  "type": "boolean"
                                 },
                                 "advanced": {
                                   "description": "Advanced drawer settings.",
@@ -4589,6 +4654,10 @@
                     "maxLength": 40,
                     "pattern": "^[A-Za-z0-9_-]+$"
                   },
+                  "namesTeam": {
+                    "description": "Let this manager name its team (#194). On (the default): it replaces a generic name like \"Team 3\" and may rebrand in character, and a name the commissioner gives the team stays the manager's to change. Off: it never renames, and a name the commissioner gives the team is locked.",
+                    "type": "boolean"
+                  },
                   "advanced": {
                     "description": "Advanced drawer settings.",
                     "type": "object",
@@ -4981,6 +5050,10 @@
                                           "maxLength": 40,
                                           "pattern": "^[A-Za-z0-9_-]+$"
                                         },
+                                        "namesTeam": {
+                                          "description": "Let this manager name its team (#194). On (the default): it replaces a generic name like \"Team 3\" and may rebrand in character, and a name the commissioner gives the team stays the manager's to change. Off: it never renames, and a name the commissioner gives the team is locked.",
+                                          "type": "boolean"
+                                        },
                                         "advanced": {
                                           "description": "Advanced drawer settings.",
                                           "type": "object",
@@ -5320,6 +5393,10 @@
                                             "minLength": 1,
                                             "maxLength": 40,
                                             "pattern": "^[A-Za-z0-9_-]+$"
+                                          },
+                                          "namesTeam": {
+                                            "description": "Let this manager name its team (#194). On (the default): it replaces a generic name like \"Team 3\" and may rebrand in character, and a name the commissioner gives the team stays the manager's to change. Off: it never renames, and a name the commissioner gives the team is locked.",
+                                            "type": "boolean"
                                           },
                                           "advanced": {
                                             "description": "Advanced drawer settings.",
@@ -5742,6 +5819,10 @@
                                     "minLength": 1,
                                     "maxLength": 40,
                                     "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "namesTeam": {
+                                    "description": "Let this manager name its team (#194). On (the default): it replaces a generic name like \"Team 3\" and may rebrand in character, and a name the commissioner gives the team stays the manager's to change. Off: it never renames, and a name the commissioner gives the team is locked.",
+                                    "type": "boolean"
                                   },
                                   "advanced": {
                                     "description": "Advanced drawer settings.",
@@ -8862,7 +8943,7 @@
       "get": {
         "operationId": "get_league_dashboard",
         "summary": "The league at a glance: this week's matchups, standings, and the latest moves",
-        "description": "One read for the league's home page: every matchup this week with scores and each side's manager, the standings (compact rows), and the move board, the latest trades, adds, drops, and waiver awards, each grouped into one move with its teams, players in and out, and FAAB paid. Before and during the draft `matchups` and `standings` are empty and `draft` says when it starts, how many seats are filled, and who is on the clock. Once the season is complete `champion` names the winner. Scores are the stored ones, refreshed every few minutes while games are live; for a live lineup-level view of one matchup, use get_matchup. `moves` sets how many moves to return (default 10); `hasMoreMoves` says whether older ones exist (page them with list_transactions). Only members can read it.",
+        "description": "One read for the league's home page: every matchup this week with scores and each side's manager, the standings (compact rows), and the move board, the latest trades, adds, drops, and waiver awards, each grouped into one move with its teams, players in and out, and FAAB paid, plus team renames (`team_renamed`). Before and during the draft `matchups` and `standings` are empty and `draft` says when it starts, how many seats are filled, and who is on the clock. Once the season is complete `champion` names the winner. Scores are the stored ones, refreshed every few minutes while games are live; for a live lineup-level view of one matchup, use get_matchup. `moves` sets how many moves to return (default 10); `hasMoreMoves` says whether older ones exist (page them with list_transactions). Only members can read it.",
         "tags": [
           "leagues",
           "season"
@@ -9415,7 +9496,7 @@
                             "properties": {
                               "id": {
                                 "type": "string",
-                                "description": "The trade id for a trade, else the transaction id."
+                                "description": "The trade id for a trade, else the transaction id (or `rename:<teamId>:<at>`)."
                               },
                               "type": {
                                 "type": "string",
@@ -9423,9 +9504,10 @@
                                   "trade",
                                   "add",
                                   "drop",
-                                  "waiver"
+                                  "waiver",
+                                  "team_renamed"
                                 ],
-                                "description": "`trade`: a processed trade (both teams); `add`: a free-agent pickup (with any drop); `waiver`: a waiver award; `drop`: a release."
+                                "description": "`trade`: a processed trade (both teams); `add`: a free-agent pickup (with any drop); `waiver`: a waiver award; `drop`: a release; `team_renamed`: a team took a new name (see `rename`)."
                               },
                               "at": {
                                 "type": "string"
@@ -9602,6 +9684,40 @@
                                   "additionalProperties": false
                                 },
                                 "description": "Each team in the move: one, or two for a trade."
+                              },
+                              "rename": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "from": {
+                                        "type": "string"
+                                      },
+                                      "to": {
+                                        "type": "string"
+                                      },
+                                      "by": {
+                                        "type": "string",
+                                        "enum": [
+                                          "owner",
+                                          "commissioner",
+                                          "agent"
+                                        ],
+                                        "description": "Who renamed it (`agent`: its AI manager)."
+                                      }
+                                    },
+                                    "required": [
+                                      "from",
+                                      "to",
+                                      "by"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "For `team_renamed`: the old and new names; null for roster moves."
                               }
                             },
                             "required": [
@@ -9609,7 +9725,8 @@
                               "type",
                               "at",
                               "week",
-                              "teams"
+                              "teams",
+                              "rename"
                             ],
                             "additionalProperties": false
                           },
@@ -17758,6 +17875,23 @@
                                 }
                               ]
                             },
+                            "nameSetBy": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "commissioner",
+                                "agent",
+                                "default"
+                              ],
+                              "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                            },
+                            "renamedFrom": {
+                              "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                               "type": [
@@ -17793,6 +17927,8 @@
                             "ownerName",
                             "draftSlot",
                             "avatarSeed",
+                            "nameSetBy",
+                            "renamedFrom",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -20757,6 +20893,23 @@
                                 }
                               ]
                             },
+                            "nameSetBy": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "commissioner",
+                                "agent",
+                                "default"
+                              ],
+                              "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                            },
+                            "renamedFrom": {
+                              "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                               "type": [
@@ -20792,6 +20945,8 @@
                             "ownerName",
                             "draftSlot",
                             "avatarSeed",
+                            "nameSetBy",
+                            "renamedFrom",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -23845,6 +24000,23 @@
                                     }
                                   ]
                                 },
+                                "nameSetBy": {
+                                  "type": "string",
+                                  "enum": [
+                                    "owner",
+                                    "commissioner",
+                                    "agent",
+                                    "default"
+                                  ],
+                                  "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                                },
+                                "renamedFrom": {
+                                  "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "ownerUserId": {
                                   "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                                   "type": [
@@ -23880,6 +24052,8 @@
                                 "ownerName",
                                 "draftSlot",
                                 "avatarSeed",
+                                "nameSetBy",
+                                "renamedFrom",
                                 "ownerUserId",
                                 "agentConfigId",
                                 "faabRemaining",
@@ -24051,6 +24225,23 @@
                                   }
                                 ]
                               },
+                              "nameSetBy": {
+                                "type": "string",
+                                "enum": [
+                                  "owner",
+                                  "commissioner",
+                                  "agent",
+                                  "default"
+                                ],
+                                "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                              },
+                              "renamedFrom": {
+                                "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "faabRemaining": {
                                 "description": "FAAB left. Present when `detail` is true.",
                                 "type": "number"
@@ -24075,7 +24266,9 @@
                               "open",
                               "ownerName",
                               "draftSlot",
-                              "avatarSeed"
+                              "avatarSeed",
+                              "nameSetBy",
+                              "renamedFrom"
                             ],
                             "additionalProperties": false
                           }
@@ -25352,7 +25545,7 @@
       "put": {
         "operationId": "rename_team",
         "summary": "Rename a team or change its avatar",
-        "description": "Sets a team's profile: its name, its avatar, or both. You can change your own team; an agent can rename the team it plays; the commissioner can also rename seats no person holds (agent seats and open seats). Anyone else's team returns FORBIDDEN. Names are 1-40 characters and must be unique in the league, ignoring case and extra spaces (CONFLICT otherwise). `avatarSeed` picks the avatar picture of a team a person holds; an AI manager's avatar belongs to its seat (configure_agent_seat). Send at least one of `name` and `avatarSeed`. Allowed until the league is complete.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Sets a team's profile: its name, its avatar, or both. You can change your own team; an agent can rename the team it plays; the commissioner can also rename seats no person holds (agent seats and open seats). Anyone else's team returns FORBIDDEN. Names are 1-40 characters and must be unique in the league, ignoring case and extra spaces (CONFLICT otherwise). An AI manager naming its own team picks a real name of 3-30 characters: not a placeholder like \"Team 3\", no slurs or strong profanity, and no other manager's name in it (INVALID_INPUT, with a fix, otherwise). It cannot change a name the commissioner locked, or rename at all when its seat does not let it name its team (FORBIDDEN). The commissioner's rename of an AI manager's seat is locked unless that seat lets its manager name its team (configure_agent_seat `namesTeam`). Every rename is kept in the team's history (`renamedFrom`) and shows on the league's move board. `avatarSeed` picks the avatar picture of a team a person holds; an AI manager's avatar belongs to its seat (configure_agent_seat). Send at least one of `name` and `avatarSeed`. Allowed until the league is complete.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues"
         ],
@@ -25475,6 +25668,23 @@
                                 }
                               ]
                             },
+                            "nameSetBy": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "commissioner",
+                                "agent",
+                                "default"
+                              ],
+                              "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                            },
+                            "renamedFrom": {
+                              "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                               "type": [
@@ -25510,6 +25720,8 @@
                             "ownerName",
                             "draftSlot",
                             "avatarSeed",
+                            "nameSetBy",
+                            "renamedFrom",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -26539,6 +26751,23 @@
                                 }
                               ]
                             },
+                            "nameSetBy": {
+                              "type": "string",
+                              "enum": [
+                                "owner",
+                                "commissioner",
+                                "agent",
+                                "default"
+                              ],
+                              "description": "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+                            },
+                            "renamedFrom": {
+                              "description": "The name the team had before its last rename, e.g. \"Team 3\"; null if it was never renamed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "ownerUserId": {
                               "description": "The owner's user id; pass it to transfer_commissioner or remove_member.",
                               "type": [
@@ -26574,6 +26803,8 @@
                             "ownerName",
                             "draftSlot",
                             "avatarSeed",
+                            "nameSetBy",
+                            "renamedFrom",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",

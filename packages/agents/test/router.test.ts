@@ -9,7 +9,7 @@ import {
   leagueRosterIndex,
   routeEvent,
   taskIdFor,
-  TRIGGER_RULES
+  triggerKinds
 } from '../src/router.js';
 import { DEFAULT_TASK_KINDS } from '../src/tasks/index.js';
 import { createTaskKindRegistry, type TaskKind } from '../src/tasks/kinds.js';
@@ -25,7 +25,7 @@ function event(detailType: string, detail: Record<string, unknown>, id = 'evt-1'
 
 /** Every trigger kind registered (as no-ops), so the router's mapping can be tested end to end. */
 const allKinds = createTaskKindRegistry(
-  [...new Set(Object.values(TRIGGER_RULES).map((r) => r.kind))].map((kind): TaskKind => ({
+  triggerKinds().map((kind): TaskKind => ({
     ...noopTask,
     kind
   }))

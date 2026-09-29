@@ -424,6 +424,15 @@ export const EVENT_DETAIL_SCHEMAS = {
       )
       .min(1)
   }),
+  'Team Renamed': z.object({
+    leagueId: id,
+    teamId: id,
+    from: z.string().describe('The old name.'),
+    to: z.string().describe('The new name.'),
+    by: z
+      .enum(['owner', 'commissioner', 'agent'])
+      .describe('Who renamed it. The chat announces renames by people; an AI manager announces its own.')
+  }),
   'Agent Budget Exceeded': z.object({
     leagueId: id,
     week: z.number().int().min(0).describe('The budget week (the league week, 0 before the season).'),

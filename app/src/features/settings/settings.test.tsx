@@ -223,6 +223,48 @@ describe('settings: AI managers', () => {
     });
   });
 
+  it('lets the commissioner turn off "Let this manager name its team" (#194)', async () => {
+    const user = userEvent.setup();
+    const api = await open();
+    const card = await screen.findByTestId('agent-card');
+    const toggle = within(card).getByRole('checkbox', { name: /Let this manager name its team/ });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    expect(api.configureAgentSeat).toHaveBeenCalledWith(
+      'L1',
+      'team-4',
+      expect.objectContaining({ namesTeam: false })
+    );
+    await waitFor(() => expect(within(card).getByRole('checkbox')).not.toBeChecked());
+    expect(card).toHaveTextContent('Off: it keeps the name you give it.');
+  });
+
+  it('never shows the naming switch to anyone but the commissioner (#194)', async () => {
+    // A member, even one the league somehow lets configure seats, sees no switch.
+    signInAs({ sub: 'bob', given_name: 'Bob' });
+    const detail = league();
+    await open(
+      fakeApi({
+        getLeagueState: vi.fn(async () =>
+          state({
+            youAreCommissioner: false,
+            yourTeam: detail.teams[1]!,
+            allowedActions: ['rename_team', 'configure_agent_seat']
+          })
+        )
+      })
+    );
+    const card = await screen.findByTestId('agent-card');
+    expect(within(card).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Let this manager name its team/)).not.toBeInTheDocument();
+  });
+
+  it('hides the naming switch from a commissioner who cannot configure seats now', async () => {
+    await open(fakeApi({ getLeagueState: vi.fn(async () => state({ allowedActions: ['rename_team'] })) }));
+    const card = await screen.findByTestId('agent-card');
+    expect(within(card).queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
   it('renames a manager through configure_agent_seat (#159)', async () => {
     const user = userEvent.setup();
     const api = await open();

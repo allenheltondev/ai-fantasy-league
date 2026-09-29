@@ -248,8 +248,8 @@ export async function runAgentAction(
     services,
     principal,
     research: config.levers.research,
-    ...(kind.tools === undefined ? {} : { allow: kind.tools }),
-    actionsPerTrigger: config.levers.actionsPerTrigger,
+    ...((prepared.tools ?? kind.tools) === undefined ? {} : { allow: prepared.tools ?? kind.tools }),
+    actionsPerTrigger: kind.modelActions ?? config.levers.actionsPerTrigger,
     idempotencyPrefix: prefix
   });
   const [memory, teams] = await Promise.all([

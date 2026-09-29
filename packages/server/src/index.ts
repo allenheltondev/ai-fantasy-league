@@ -30,7 +30,7 @@ export { createLogger, silentLogger, type Logger } from './log.js';
 export * from './repos/reference.js';
 export { createInMemoryReferenceStore } from './repos/memory-reference.js';
 export { JOBS, JOB_NAMES, type Job, type JobDeps, type JobResult, type NewsSource } from './jobs/index.js';
-export { newTeam } from './league/seats.js';
+export { newTeam, teamNameSetBy } from './league/seats.js';
 export {
   advanceLeague,
   scheduleLockWarnings,

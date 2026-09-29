@@ -2,7 +2,6 @@ import {
   PlayerStatusSchema,
   PositionSchema,
   SLOT_ELIGIBILITY,
-  hashString,
   rosterHoles,
   suggestFaabBid,
   waiverMinGain,
@@ -12,6 +11,7 @@ import {
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
+import { judgmentNoise } from './noise.js';
 
 /**
  * Waiver task (#57): when a waiver window opens, the agent looks at trending pickups, checks each
@@ -101,11 +101,9 @@ function optional<T>(envelope: Envelope, schema: z.ZodType<T>): T | null {
   return 'error' in envelope ? null : schema.parse(envelope.data);
 }
 
-/** A deterministic multiplier in [1 - noise, 1 + noise] per task and player. */
+/** A deterministic multiplier in [1 - noise, 1 + noise] for this agent, week, and player (noise.ts). */
 function noiseFor(ctx: TaskContext, playerId: string): number {
-  const spread = ctx.config.levers.valuationNoise;
-  const unit = (hashString(`${ctx.taskId}|${playerId}`) % 2001) / 1000 - 1;
-  return 1 + unit * spread;
+  return judgmentNoise(ctx, 'waiver', playerId);
 }
 
 /** A player worth a closer look, from trending adds or a roster hole. */

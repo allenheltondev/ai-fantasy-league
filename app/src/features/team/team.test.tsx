@@ -130,6 +130,18 @@ describe('My Team › Team profile', () => {
     await waitFor(() => expect(api.getLeagueState).toHaveBeenCalledTimes(2));
   });
 
+  it('says what the team was called before its last rename (#194)', async () => {
+    const renamed = { ...TEAMS[0]!, name: 'Gridiron Gang', renamedFrom: "Alice's Team" };
+    open('/leagues/L1/team/profile', {
+      getLeagueState: vi.fn(async () => ({
+        ...inSeason(),
+        teams: [renamed, ...TEAMS.slice(1)],
+        yourTeam: renamed
+      }))
+    });
+    expect(await screen.findByTestId('renamed-from')).toHaveTextContent("Renamed from Alice's Team");
+  });
+
   it('sends only what changed, and can undo', async () => {
     const user = userEvent.setup();
     const api = open('/leagues/L1/team/profile');

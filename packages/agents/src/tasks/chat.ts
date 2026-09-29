@@ -315,6 +315,19 @@ export async function prepareChat(
   };
 }
 
+/**
+ * The league room for a task whose chat post is a side part of it (the post-draft kickoff, a team
+ * name announcement): the room, or null and why the agent stays quiet (budget spent, room gone).
+ */
+export async function leagueChatOrQuiet(ctx: TaskContext): Promise<{ chat: ChatPrep | null; quiet: string }> {
+  try {
+    return { chat: await prepareChat(ctx, DEFAULT_ROOM_ID, null, () => null), quiet: '' };
+  } catch (error) {
+    if (!(error instanceof TaskUnavailableError)) throw error;
+    return { chat: null, quiet: error.message };
+  }
+}
+
 /** The room's facts, fenced: numbers from the league, names from people. */
 export function factsSection(prep: Pick<ChatPrep, 'facts' | 'roster' | 'dossier'>): string | null {
   if (prep.facts.length === 0 && prep.roster.length === 0 && prep.dossier.length === 0) return null;

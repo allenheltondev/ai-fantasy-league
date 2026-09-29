@@ -123,7 +123,12 @@ export function SettingsPage() {
           </Section>
           {agents.length > 0 && (
             <Section id="agents" title="AI managers">
-              <AgentManagers leagueId={league.id} teams={agents} canConfigure={can('configure_agent_seat')} />
+              <AgentManagers
+                leagueId={league.id}
+                teams={agents}
+                canConfigure={can('configure_agent_seat')}
+                canNameTeams={state.youAreCommissioner && can('configure_agent_seat')}
+              />
             </Section>
           )}
           {state.youAreCommissioner && league.phase === 'setup' && (

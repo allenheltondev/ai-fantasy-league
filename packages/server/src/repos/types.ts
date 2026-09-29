@@ -1,4 +1,11 @@
-import type { ReportCardGrade, DraftState, LeagueSettings, LineupEntry, StandingsRow } from '@fantasy/core';
+import type {
+  ReportCardGrade,
+  DraftState,
+  LeagueSettings,
+  LineupEntry,
+  NameSetBy,
+  StandingsRow
+} from '@fantasy/core';
 import type { Player, Position } from '../players/model.js';
 import type { ChatRepository } from '../chat/model.js';
 import type { AgentRepository } from './agents.js';
@@ -186,6 +193,14 @@ export interface Team {
    * as an AI manager's. Absent until set with rename_team; an AI manager's avatar comes from its seat.
    */
   avatarSeed?: string;
+  /**
+   * Who last set the name (#194): its owner, the commissioner, the AI manager, or nobody (`default`:
+   * the seat's own "Team N", or a name the commissioner left for the AI manager to keep or change).
+   * Absent on teams stored before it was tracked; `teamNameSetBy` fills it in.
+   */
+  nameSetBy?: NameSetBy;
+  /** The team's renames, oldest first, the last `TEAM_RENAME_HISTORY` of them (#194). */
+  renames?: TeamRename[];
   /** The agent config (personality, difficulty, model) for agent seats; null until configured. */
   agentConfigId: string | null;
   /** 1-based position in the round-1 draft order. */
@@ -206,6 +221,17 @@ export interface Team {
   createdAt: string;
   updatedAt: string;
   version: number;
+}
+
+/** One rename (#194): shown on the team page ("renamed from Team 3") and the move board. */
+export interface TeamRename {
+  from: string;
+  to: string;
+  /** Who renamed it: the team's owner, the commissioner, or its AI manager. */
+  by: 'owner' | 'commissioner' | 'agent';
+  at: string;
+  /** The league week it happened in (the first week before the season starts). */
+  week: number;
 }
 
 /** When the team's current occupant took the seat. */

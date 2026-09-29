@@ -25,7 +25,7 @@ test('randomize the AI managers, rename one, and see the name after saving', asy
   // Rename the first manager inline.
   const first = cards.first();
   await first.getByRole('button', { name: /^Rename / }).click();
-  await first.getByLabel('Manager name').fill('Zelda "Waivers" Quinn');
+  await first.getByLabel('Manager name', { exact: true }).fill('Zelda "Waivers" Quinn');
   await first.getByRole('button', { name: 'Save name' }).click();
   await expect(first.getByRole('heading', { name: 'Zelda "Waivers" Quinn' })).toBeVisible();
 
@@ -42,8 +42,8 @@ test('randomize the AI managers, rename one, and see the name after saving', asy
   // Rename again from settings, then reroll another manager's name and avatar.
   const card = page.getByTestId('agent-card').first();
   await card.getByRole('button', { name: /^Rename / }).click();
-  await card.getByLabel('Manager name').fill('Imani Castillo');
-  await card.getByLabel('Manager name').press('Enter');
+  await card.getByLabel('Manager name', { exact: true }).fill('Imani Castillo');
+  await card.getByLabel('Manager name', { exact: true }).press('Enter');
   await expect(card.getByRole('heading')).toHaveText('Imani Castillo');
   const second = page.getByTestId('agent-card').nth(1);
   const secondName = await second.getByRole('heading').innerText();
