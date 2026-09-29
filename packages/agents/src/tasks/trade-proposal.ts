@@ -1,6 +1,7 @@
 import { agendaPriority, dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import { effectiveBehavior } from '../situation.js';
 import {
   ChatReplySchema,
   ChatSourceSchema,
@@ -225,6 +226,8 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
     mine = await rosterOf(me);
   }
   const ideas: (ReturnType<typeof swapIdeas>[number] & { team: ProposalCandidate['team'] })[] = [];
+  // A contender keeps its last healthy cover at a thin position (#217): those players are not offered.
+  const protectedDepth = new Set<string>(effectiveBehavior(ctx).protectDepth);
   for (const team of state.teams) {
     if (team.id === me || pending.has(team.id)) continue;
     const theirs = await rosterOf(team.id);
@@ -232,6 +235,7 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
     // after legality and value checks, so a failed repair idea cannot hide a valid fallback.
     ideas.push(
       ...swapIdeas(mine, theirs)
+        .filter((idea) => !protectedDepth.has(idea.send.player.position))
         .slice(0, PER_TEAM)
         .map((idea) => ({ ...idea, team }))
     );

@@ -2,11 +2,9 @@ import {
   CHECK_IN_SLOTS,
   SLOT_ELIGIBILITY,
   WILL_NOT_PLAY_STATUSES,
-  checkInTradeChance,
   instantMs,
   seededRandom,
   tradeAppetite,
-  waiverMinGain,
   wantsEarlyTradeLook,
   type MemoryEvent,
   type RosterPlayer,
@@ -14,6 +12,7 @@ import {
 } from '@fantasy/core';
 import type { AgentTaskSeal, Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import { effectiveBehavior } from '../situation.js';
 import { quote } from './chat.js';
 import {
   BaseDecisionSchema,
@@ -59,6 +58,7 @@ import {
  *    weakest player on the roster, by the archetype's `waiverMinGain`; and pickups for starting
  *    slots nobody healthy can fill), a trade look when the archetype's appetite roll passes
  *    (`checkInTradeChance`) and it has offers left this week, and offers waiting on an answer.
+ *    Both levers are the situation-bent values of `effectiveBehavior` (#217), within core's caps.
  * 2. The pre-check: each probe in `CHECK_IN_PROBES` turns part of the look into a reason to think.
  *    No reason, no model call: the task is recorded as `nothing_to_do` with a one-line reason
  *    ("Looked at waivers; nobody beats my bench."). Doing nothing is a fine answer.
@@ -395,7 +395,7 @@ async function lookAtWaivers(
     ctx,
     team.faabRemaining,
     await waiverLeads(ctx),
-    waiverMinGain(ctx.config.waiverAggressiveness),
+    effectiveBehavior(ctx).waiverMinGain,
     keep
   );
   // Players already claimed (or promised as drops) by a pending claim, or by a pickup below.
@@ -472,9 +472,7 @@ async function lookAtTrades(
   const roll = seededRandom(`check-in-trade:${ctx.trigger.eventId}:${ctx.principal.teamId}`)();
   const shopping =
     offersLeft > 0 &&
-    (payload.firstLook
-      ? wantsEarlyTradeLook(ctx.config)
-      : roll < checkInTradeChance(ctx.config.tradeFrequency));
+    (payload.firstLook ? wantsEarlyTradeLook(ctx.config) : roll < effectiveBehavior(ctx).tradeLookChance);
   if (!shopping) return { shopping, offersLeft, prep: null };
   const limit = Math.min(
     offersLeft,

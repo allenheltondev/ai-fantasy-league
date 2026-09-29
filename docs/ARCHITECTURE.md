@@ -136,6 +136,10 @@ Handlers receive `ctx = { principal, clock, repos, events, data, log, limits }`.
 
 Roster decisions share a typed, tenure-scoped agenda separate from prompt memory. The first goal, `repair_position`, persists across check-ins and prefers eligible waiver/trade candidates until an authorized roster observation verifies cover. Core owns reconciliation; both agent repositories store bounded state with optimistic concurrency in DynamoDB. The runner refreshes before roster-task preparation and after actions, without adding model calls or scheduled work. Chat receives no agenda context. Lifecycle, privacy boundaries, and remaining scope are documented in [ADR 004](adr/004-agent-agendas.md).
 
+## Situational adaptation
+
+Before an in-season task prepares, the runner reads the finalized matchups and the team's designations from the repositories. Core `computeSituation` turns them into an urgency level (`clinched` and `eliminated` exact; `contender`, `bubble`, and `long_shot` labelled heuristic; `baseline` without evidence), a planning horizon, and per-position roster pressure. A heuristic change waits for two consecutive finalized weeks, and the state is recomputed rather than stored, so live scores, duplicates, and replays cannot move it. `composeBehavior` bends three levers within hard caps: the check-in's trade-look chance, waiver aggressiveness, and lineup risk tolerance. Contenders also protect depth at thin positions. Trade cadence, accept edges and floors, FAAB limits, locks, action limits, and tools are unchanged, and eliminated teams keep the baseline. Decision and chat prompts receive the same league-visible situation lines. See [ADR 005](adr/005-situational-adaptation.md).
+
 ## Data
 
 - **One table, `FantasyTable`.** The key design is in `docs/adr/001-table-design.md`, which is owned by issue #20. Repositories are interfaces in `packages/server/src/repos/` with two implementations each: DynamoDB and in-memory (for unit tests).

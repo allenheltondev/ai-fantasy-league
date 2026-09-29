@@ -33,6 +33,9 @@ import type { ResolvedAgentConfig } from './seat-config.js';
  * - Strategy adaptation from outcomes: none yet. Nothing in this module moves with results, and a
  *   note the model wrote cannot change it. A future adaptation must be an explicit, bounded function
  *   of records (never beliefs), added here, and measured by a controlled evaluation first (#211).
+ * - Situational adaptation (#217): `situation.ts` bends three of these levers (trade-look chance,
+ *   waiver aggressiveness, lineup risk tolerance) within hard caps, from finalized standings and
+ *   injury designations only. Trade appetite, floors, and limits here are never among them.
  */
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0));
