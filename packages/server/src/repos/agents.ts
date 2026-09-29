@@ -58,7 +58,12 @@ export const AgentTaskSealSchema = z.object({
    */
   trades: z.array(z.object({ tradeId: z.string(), until: z.enum(['public', 'final']) })).default([]),
   /** Waiver claims (ids) the summary describes: sealed while any of them is pending. */
-  waiverClaims: z.array(z.string()).default([])
+  waiverClaims: z.array(z.string()).default([]),
+  /**
+   * True when the task's prompt held private memory that never becomes public (a rejected offer, a
+   * note from before memory visibility, #206): the summary stays sealed for good.
+   */
+  withheld: z.boolean().optional()
 });
 export type AgentTaskSeal = z.infer<typeof AgentTaskSealSchema>;
 

@@ -18,6 +18,12 @@ import { z } from 'zod';
  *
  * Memory is private to one agent: it is keyed by league and agent id and only that agent's tasks
  * read it. Everything here is pure; the storage lives behind `AgentMemoryStore` in the runtime.
+ *
+ * Visibility (#206): what a prompt produces reaches other people (a league room, a DM partner, a
+ * trade note, the commissioner's activity log), so some memories may reach only some prompts. Each
+ * note, decision, trade, and rivalry has a `MemoryVisibility`: `public`, or a `MemorySeal` naming
+ * the teams that already know it and the moves (trades, waiver claims) whose resolution releases
+ * it. `memoryForAudience` keeps what a prompt's audience may hear, before the prompt is assembled.
  */
 
 export const MEMORY_LIMITS = {
@@ -43,13 +49,34 @@ export const MEMORY_LIMITS = {
 
 const Text = z.string().max(MEMORY_LIMITS.text);
 
+/**
+ * A private memory (#206): sealed with the same release rules as the activity log (#122). `teams`
+ * are the other teams that already know it (the other side of a private offer); `trades` and
+ * `waiverClaims` are the moves whose resolution makes it public. A seal naming no moves never lifts
+ * (a rejected offer, or a memory from before visibility was recorded).
+ */
+export const MemorySealSchema = z.object({
+  teams: z.array(z.string()).default([]),
+  trades: z.array(z.object({ tradeId: z.string(), until: z.enum(['public', 'final']) })).default([]),
+  waiverClaims: z.array(z.string()).default([])
+});
+export type MemorySeal = z.infer<typeof MemorySealSchema>;
+
+export const MemoryVisibilitySchema = z.union([z.literal('public'), MemorySealSchema]);
+export type MemoryVisibility = z.infer<typeof MemoryVisibilitySchema>;
+
+/** Known to this agent alone, for good. */
+export const OWNER_ONLY: MemorySeal = { teams: [], trades: [], waiverClaims: [] };
+
 export const RivalSchema = z.object({
   teamId: z.string(),
   /** Grows with every loss to them, trade spat, and chat jab; the biggest grudges are kept. */
   grudge: z.number().int().min(0),
   /** The latest reason, in words. */
   reason: Text,
-  at: z.string()
+  at: z.string(),
+  /** Who may hear the reason (a private offer's rejection is private); see `rivalVisibility`. */
+  visibility: MemoryVisibilitySchema.optional()
 });
 export type Rival = z.infer<typeof RivalSchema>;
 
@@ -84,9 +111,18 @@ export const DecisionMemorySchema = z.object({
   kind: z.string(),
   action: z.string(),
   summary: Text,
-  at: z.string()
+  at: z.string(),
+  /** Absent on decisions from before #206: see `decisionVisibility`. */
+  visibility: MemoryVisibilitySchema.optional()
 });
 export type DecisionMemory = z.infer<typeof DecisionMemorySchema>;
+
+export const NoteSchema = z.object({
+  text: Text,
+  /** Absent on notes from before #206, which are kept to the agent alone. */
+  visibility: MemoryVisibilitySchema.optional()
+});
+export type NoteMemory = z.infer<typeof NoteSchema>;
 
 export const ChatMemorySchema = z.object({ author: z.string(), text: Text, at: z.string() });
 export type ChatMemory = z.infer<typeof ChatMemorySchema>;
@@ -111,7 +147,8 @@ export type Relationship = z.infer<typeof RelationshipSchema>;
  * dropped on read (unknown keys are stripped), since nobody can say which room it belongs to.
  */
 export const AgentLeagueMemorySchema = z.object({
-  notes: z.array(Text).default([]),
+  /** Notes stored before #206 are bare strings: read as notes with no visibility. */
+  notes: z.array(z.union([Text.transform((text): NoteMemory => ({ text })), NoteSchema])).default([]),
   rivals: z.array(RivalSchema).default([]),
   trades: z.array(TradeMemorySchema).default([]),
   decisions: z.array(DecisionMemorySchema).default([]),
@@ -126,8 +163,16 @@ export function emptyMemory(): AgentLeagueMemory {
 }
 
 export type MemoryEvent =
-  | { type: 'note'; text: string }
-  | { type: 'decision'; kind: string; action: string; summary: string; at: string }
+  /** Notes and decisions without a visibility are kept to the agent alone (`OWNER_ONLY`). */
+  | { type: 'note'; text: string; visibility?: MemoryVisibility }
+  | {
+      type: 'decision';
+      kind: string;
+      action: string;
+      summary: string;
+      at: string;
+      visibility?: MemoryVisibility;
+    }
   | {
       type: 'matchup';
       opponentTeamId: string;
@@ -179,11 +224,18 @@ function bumpRival(
   teamId: string,
   points: number,
   reason: string,
-  at: string
+  at: string,
+  visibility: MemoryVisibility
 ): Rival[] {
   if (points <= 0) return [...rivals];
   const current = rivals.find((r) => r.teamId === teamId);
-  const next: Rival = { teamId, grudge: (current?.grudge ?? 0) + points, reason: clip(reason), at };
+  const next: Rival = {
+    teamId,
+    grudge: (current?.grudge ?? 0) + points,
+    reason: clip(reason),
+    at,
+    visibility
+  };
   return [...rivals.filter((r) => r.teamId !== teamId), next]
     .sort((a, b) => b.grudge - a.grudge || b.at.localeCompare(a.at) || a.teamId.localeCompare(b.teamId))
     .slice(0, MEMORY_LIMITS.rivals);
@@ -214,14 +266,21 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
     case 'note': {
       const text = clip(event.text);
       if (text.length === 0) return memory;
-      return { ...memory, notes: [...memory.notes, text].slice(-MEMORY_LIMITS.notes) };
+      const note: NoteMemory = { text, visibility: event.visibility ?? OWNER_ONLY };
+      return { ...memory, notes: [...memory.notes, note].slice(-MEMORY_LIMITS.notes) };
     }
     case 'decision':
       return {
         ...memory,
         decisions: [
           ...memory.decisions,
-          { kind: event.kind, action: event.action, summary: clip(event.summary), at: event.at }
+          {
+            kind: event.kind,
+            action: event.action,
+            summary: clip(event.summary),
+            at: event.at,
+            visibility: event.visibility ?? OWNER_ONLY
+          }
         ].slice(-MEMORY_LIMITS.decisions)
       };
     case 'matchup': {
@@ -231,7 +290,10 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
       // Losing builds a grudge; a blowout loss builds a bigger one. Winning is remembered as bragging rights.
       const points = margin < 0 ? (margin <= -30 ? 3 : 2) : 1;
       return markSeen(
-        { ...memory, rivals: bumpRival(memory.rivals, event.opponentTeamId, points, reason, event.at) },
+        {
+          ...memory,
+          rivals: bumpRival(memory.rivals, event.opponentTeamId, points, reason, event.at, 'public')
+        },
         event.eventId
       );
     }
@@ -262,7 +324,8 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
             event.teamId,
             TRADE_GRUDGE[event.outcome],
             `Trade ${event.outcome}: ${event.summary}`,
-            event.at
+            event.at,
+            tradeVisibility(entry)
           )
         },
         event.eventId
@@ -333,7 +396,7 @@ export function summarizeMemory(
     [...memory.trades]
       .reverse()
       .map((t) => `Trade with ${name(t.teamId)} (${t.outcome}): ${t.summary}${tradeDetail(t)}`),
-    [...memory.notes].reverse().map((n) => `Your note: ${n}`),
+    [...memory.notes].reverse().map((n) => `Your note: ${n.text}`),
     [...memory.decisions].reverse().map((d) => `You did ${d.kind} -> ${d.action}: ${d.summary}`),
     [...memory.relationships].reverse().map((r) => `Between you and ${name(r.teamId)}: ${r.note}`),
     [...memory.chatRooms]
@@ -354,4 +417,115 @@ export function summarizeMemory(
     }
   }
   return lines;
+}
+
+/** Trade outcomes other teams can see (the trade is public from acceptance on). */
+const PUBLIC_TRADE_OUTCOMES: ReadonlySet<string> = new Set(['accepted', 'processed', 'vetoed']);
+
+/**
+ * Decision kinds whose summaries can hold sealed moves (bids, offers, votes). A decision stored
+ * before #206 has no visibility: from these kinds it is kept to the agent alone; from the rest
+ * (lineups, draft picks, names) it was never secret.
+ */
+export const SEALABLE_DECISION_KINDS: ReadonlySet<string> = new Set([
+  'waivers',
+  'trade_proposal',
+  'trade_response',
+  'trade_vote',
+  'check_in',
+  'post_draft'
+]);
+
+export function noteVisibility(note: NoteMemory): MemoryVisibility {
+  return note.visibility ?? OWNER_ONLY;
+}
+
+export function decisionVisibility(decision: DecisionMemory): MemoryVisibility {
+  return decision.visibility ?? (SEALABLE_DECISION_KINDS.has(decision.kind) ? OWNER_ONLY : 'public');
+}
+
+/**
+ * A trade is private to its two teams until it is accepted, and a rejected or expired offer stays
+ * private for good. The entry carries its latest outcome; the seal also lifts once the trade itself
+ * is public, in case an event went missing.
+ */
+export function tradeVisibility(
+  trade: Pick<TradeMemory, 'teamId' | 'tradeId' | 'outcome'>
+): MemoryVisibility {
+  if (PUBLIC_TRADE_OUTCOMES.has(trade.outcome)) return 'public';
+  return { teams: [trade.teamId], trades: [{ tradeId: trade.tradeId, until: 'public' }], waiverClaims: [] };
+}
+
+/** A rivalry's reason, when it was bumped before #206: one about a private offer stays with that team. */
+export function rivalVisibility(rival: Rival): MemoryVisibility {
+  if (rival.visibility !== undefined) return rival.visibility;
+  return /^Trade (proposed|countered|rejected|expired)\b/.test(rival.reason)
+    ? { teams: [rival.teamId], trades: [], waiverClaims: [] }
+    : 'public';
+}
+
+/**
+ * Who reads what a prompt produces, besides the agent's own team:
+ * - `owner`: nobody else. The output is a sealed move (a waiver bid, a veto vote) and its activity
+ *   log entry stays sealed while any private memory it saw is (the runner extends the seal).
+ * - `{ teams }`: those teams (a DM with them, an answer to their offer).
+ * - `public`: anyone (a league room, notes to any team, an activity summary that is not sealed).
+ */
+export type MemoryAudience = 'owner' | 'public' | { teams: readonly string[] };
+
+/** True while a seal holds; a seal naming no moves always holds. */
+export type SealCheck = (seal: MemorySeal) => boolean;
+
+/** Whether `audience` may hear a memory with this visibility. */
+export function mayHear(visibility: MemoryVisibility, audience: MemoryAudience, sealed: SealCheck): boolean {
+  if (visibility === 'public' || !sealed(visibility)) return true;
+  if (audience === 'public') return false;
+  // A sealed move's own prompt sees what only the agent knows, not what it shares with a team.
+  if (audience === 'owner') return visibility.teams.length === 0;
+  return audience.teams.length > 0 && audience.teams.every((t) => visibility.teams.includes(t));
+}
+
+export interface AudienceMemory {
+  memory: AgentLeagueMemory;
+  /** The still-sealed memories kept: whatever the prompt produces is sealed until they lift. */
+  seals: MemorySeal[];
+}
+
+/**
+ * The memory a prompt with this audience may see (#206): public memories, released ones, and
+ * sealed ones every reader already knows. A rivalry whose reason is withheld is left out whole (its
+ * grudge would give the offer away). Chat snapshots and relationship notes are not filtered here:
+ * they are untrusted chat, scoped by room (`memoryForPrompt` in the runtime).
+ */
+export function memoryForAudience(
+  memory: AgentLeagueMemory,
+  audience: MemoryAudience,
+  sealed: SealCheck
+): AudienceMemory {
+  const seals: MemorySeal[] = [];
+  const keep = (visibility: MemoryVisibility): boolean => {
+    if (!mayHear(visibility, audience, sealed)) return false;
+    if (visibility !== 'public' && sealed(visibility)) seals.push(visibility);
+    return true;
+  };
+  return {
+    memory: {
+      ...memory,
+      notes: memory.notes.filter((n) => keep(noteVisibility(n))),
+      decisions: memory.decisions.filter((d) => keep(decisionVisibility(d))),
+      trades: memory.trades.filter((t) => keep(tradeVisibility(t))),
+      rivals: memory.rivals.filter((r) => keep(rivalVisibility(r)))
+    },
+    seals
+  };
+}
+
+/** Every seal in a memory, for looking up which moves are still unresolved. */
+export function memorySeals(memory: AgentLeagueMemory): MemorySeal[] {
+  return [
+    ...memory.notes.map(noteVisibility),
+    ...memory.decisions.map(decisionVisibility),
+    ...memory.trades.map(tradeVisibility),
+    ...memory.rivals.map(rivalVisibility)
+  ].filter((v): v is MemorySeal => v !== 'public');
 }

@@ -1,10 +1,15 @@
-import { canonicalEvent } from '@fantasy/server';
+import { canonicalEvent, stillSealed, type AgentTaskSeal } from '@fantasy/server';
 import {
   MEMORY_TOKEN_BUDGET,
+  memorySeals,
   rememberEvent,
   type AgentLeagueMemory,
+  type MemoryAudience,
   type MemoryEvent,
-  type ReasoningEffort
+  type MemorySeal,
+  type MemoryVisibility,
+  type ReasoningEffort,
+  type SealCheck
 } from '@fantasy/core';
 import type { AgentRepository, Services } from '@fantasy/server';
 import { z } from 'zod';
@@ -24,6 +29,11 @@ import type { BusEvent } from './events.js';
  * is untrusted text. It is shown only to chat tasks, which have no tools; decision tasks never see
  * it (see `memoryForPrompt`). A chat task sees only its own room's snapshot, and relationship notes
  * only for the teams in that conversation; a DM task sees neither (#153).
+ *
+ * Visibility (#206): sealed decisions, notes, private offers, and the grudges they left are shown
+ * only to prompts whose readers may know them (core `memoryForAudience`), checked against the
+ * league's trades and claims before the prompt is assembled (`sealChecker`). Prompt instructions are
+ * not the guard: what a prompt may not repeat is never in it.
  */
 
 export interface AgentMemoryStore {
@@ -71,6 +81,88 @@ export function memoryForPrompt(
     chatRooms: memory.chatRooms.filter((r) => r.roomId === scope.roomId),
     relationships: memory.relationships.filter((r) => scope.teamIds.includes(r.teamId))
   };
+}
+
+/** Who reads a task's output when its kind does not say: a DM's other teams, or anyone. */
+export function defaultAudience(role: 'decision' | 'chat', scope?: ChatMemoryScope): MemoryAudience {
+  return role === 'chat' && scope?.dm === true && scope.teamIds.length > 0
+    ? { teams: scope.teamIds }
+    : 'public';
+}
+
+const sealKey = (seal: MemorySeal) => JSON.stringify([seal.trades, seal.waiverClaims]);
+
+/**
+ * Which of a memory's seals still hold, read once from the league's trades and waiver claims (the
+ * activity log's rules, server `stillSealed`). A seal naming no moves always holds; so does one
+ * that cannot be read (a failed lookup keeps a secret, it never releases one).
+ */
+export async function sealChecker(
+  services: Pick<Services, 'repos' | 'log'>,
+  leagueId: string,
+  memory: AgentLeagueMemory
+): Promise<SealCheck> {
+  const holds = new Map<string, boolean>();
+  for (const seal of memorySeals(memory)) {
+    const key = sealKey(seal);
+    if (holds.has(key)) continue;
+    if (seal.trades.length === 0 && seal.waiverClaims.length === 0) {
+      holds.set(key, true);
+      continue;
+    }
+    try {
+      holds.set(key, await stillSealed(services.repos, leagueId, seal));
+    } catch (error) {
+      services.log.warn('memory seal check failed; kept sealed', { error });
+      holds.set(key, true);
+    }
+  }
+  return (seal) => holds.get(sealKey(seal)) ?? true;
+}
+
+/**
+ * The task's activity seal, extended by the private memories its prompt held: what the model wrote
+ * may repeat them, so the summary stays sealed until they lift too (for good, when one never does).
+ * A task with no seal of its own gets one that names what it is.
+ */
+export function sealWithMemory(
+  seal: AgentTaskSeal | undefined,
+  heard: readonly MemorySeal[],
+  title: string
+): AgentTaskSeal | undefined {
+  if (heard.length === 0) return seal;
+  const base: AgentTaskSeal = seal ?? {
+    summary: `${title}: withheld while private moves it drew on are unresolved.`,
+    trades: [],
+    waiverClaims: []
+  };
+  const trades = [...base.trades];
+  for (const ref of heard.flatMap((h) => h.trades)) {
+    if (!trades.some((t) => t.tradeId === ref.tradeId && t.until === ref.until)) trades.push(ref);
+  }
+  const withheld =
+    base.withheld === true || heard.some((h) => h.trades.length === 0 && h.waiverClaims.length === 0);
+  return {
+    ...base,
+    trades,
+    waiverClaims: [...new Set([...base.waiverClaims, ...heard.flatMap((h) => h.waiverClaims)])],
+    ...(withheld ? { withheld: true } : {})
+  };
+}
+
+/**
+ * How a task's decision and note are remembered: public when the task's summary is not sealed;
+ * otherwise sealed with the same moves, known to the teams that read the task's output.
+ */
+export function outcomeVisibility(
+  seal: AgentTaskSeal | undefined,
+  audience: MemoryAudience
+): MemoryVisibility {
+  if (seal === undefined) return 'public';
+  const teams = typeof audience === 'object' ? [...audience.teams] : [];
+  return seal.withheld === true
+    ? { teams, trades: [], waiverClaims: [] }
+    : { teams, trades: [...seal.trades], waiverClaims: [...seal.waiverClaims] };
 }
 
 /** League events that write agent memory. The router function receives them with its triggers. */
