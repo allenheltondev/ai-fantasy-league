@@ -35,6 +35,14 @@ describe('FaabExplainer', () => {
     expect(panel.style.transform).toBe('translateX(-221px)');
   });
 
+  it('slides right when it would run off the left edge', async () => {
+    vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(375);
+    fakeRect(-20, 288);
+    render(<FaabExplainer />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'What is FAAB?' }));
+    expect(screen.getByRole('region', { name: 'About FAAB' }).style.transform).toBe('translateX(28px)');
+  });
+
   it('stays put when it fits', async () => {
     vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1024);
     fakeRect(100, 288);
