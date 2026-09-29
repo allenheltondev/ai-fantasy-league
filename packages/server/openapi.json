@@ -34,6 +34,9 @@
       "name": "research"
     },
     {
+      "name": "research:trending"
+    },
+    {
       "name": "season"
     },
     {
@@ -3754,6 +3757,12 @@
                               },
                               "finishedAt": {
                                 "type": "string"
+                              },
+                              "attempts": {
+                                "description": "Deliveries this task took when more than one: it was retried or recovered after a failure.",
+                                "type": "integer",
+                                "minimum": 2,
+                                "maximum": 9007199254740991
                               },
                               "redacted": {
                                 "type": "boolean",
@@ -18728,6 +18737,34 @@
                                               }
                                             ]
                                           },
+                                          "seasonAverage": {
+                                            "description": "His average over this season before this week, or null with no games yet. Present on get_roster.",
+                                            "anyOf": [
+                                              {
+                                                "type": "object",
+                                                "properties": {
+                                                  "average": {
+                                                    "type": "number",
+                                                    "description": "Average points per game under league scoring."
+                                                  },
+                                                  "games": {
+                                                    "type": "integer",
+                                                    "minimum": -9007199254740991,
+                                                    "maximum": 9007199254740991,
+                                                    "description": "Games played before this week."
+                                                  }
+                                                },
+                                                "required": [
+                                                  "average",
+                                                  "games"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
                                           "eligibleSlots": {
                                             "description": "Starting slots this league uses that he can fill (for set_lineup). Present when `detail` is true.",
                                             "type": "array",
@@ -19125,6 +19162,34 @@
                                                     "minimum": -9007199254740991,
                                                     "maximum": 9007199254740991,
                                                     "description": "Games averaged (at most 3; weeks without a stat line are skipped)."
+                                                  }
+                                                },
+                                                "required": [
+                                                  "average",
+                                                  "games"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "seasonAverage": {
+                                            "description": "His average over this season before this week, or null with no games yet. Present on get_roster.",
+                                            "anyOf": [
+                                              {
+                                                "type": "object",
+                                                "properties": {
+                                                  "average": {
+                                                    "type": "number",
+                                                    "description": "Average points per game under league scoring."
+                                                  },
+                                                  "games": {
+                                                    "type": "integer",
+                                                    "minimum": -9007199254740991,
+                                                    "maximum": 9007199254740991,
+                                                    "description": "Games played before this week."
                                                   }
                                                 },
                                                 "required": [
@@ -22311,6 +22376,722 @@
         "x-mutation": false
       }
     },
+    "/api/v1/leagues/{leagueId}/players": {
+      "get": {
+        "operationId": "list_league_players",
+        "summary": "The player market: available players with projections, games, and trends, sorted and paged",
+        "description": "Lists players for a pickup or trade decision in your league, a page at a time. By default it lists available players (free agents and players on waivers), best projection this week first. Each row has where he stands in the league (`availability`), his game this week (`game`: opponent, kickoff, or live score), bye week, injury, projected points this week and rest of season, season points and average under league scoring, and the crowd’s adds and drops (`trend`). `sort`: projected_week (default), projected_ros, season_points, average, trending (adds minus drops), or rank (consensus). Players without the value sort last; ties go to consensus rank. Filter with `position` (QB, RB, WR, TE, K, DEF, or FLEX for RB/WR/TE), `team`, `q` (a name), `healthy: true` (no injury designation), and `availability` (available, free_agent, waivers, rostered, or all). Without `q` it lists players on NFL teams. Page with `offset` and `limit` (at most 50): pass `nextOffset` back for the next page; it is null on the last. The order is stable, so pages never repeat a player. Add a free agent or claim a waiver player with claim_waiver; `faabRemaining` and `dropClearsAt` (when a player you drop now clears waivers) help plan the move.",
+        "tags": [
+          "players",
+          "waivers",
+          "research:trending"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "description": "Name, nickname, or partial name."
+          },
+          {
+            "name": "position",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "QB",
+                "RB",
+                "WR",
+                "TE",
+                "K",
+                "DEF",
+                "FLEX"
+              ]
+            },
+            "description": "QB, RB, WR, TE, K, DEF, or FLEX (RB, WR, and TE)."
+          },
+          {
+            "name": "team",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ARI",
+                "ATL",
+                "BAL",
+                "BUF",
+                "CAR",
+                "CHI",
+                "CIN",
+                "CLE",
+                "DAL",
+                "DEN",
+                "DET",
+                "GB",
+                "HOU",
+                "IND",
+                "JAX",
+                "KC",
+                "LAC",
+                "LAR",
+                "LV",
+                "MIA",
+                "MIN",
+                "NE",
+                "NO",
+                "NYG",
+                "NYJ",
+                "PHI",
+                "PIT",
+                "SEA",
+                "SF",
+                "TB",
+                "TEN",
+                "WAS"
+              ]
+            },
+            "description": "NFL team abbreviation, e.g. \"SF\"."
+          },
+          {
+            "name": "availability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "available",
+              "type": "string",
+              "enum": [
+                "free_agent",
+                "waivers",
+                "rostered",
+                "available",
+                "all"
+              ]
+            },
+            "description": "`available` (default: free agents and waivers), `free_agent`, `waivers`, `rostered` (on a team: trade targets), or `all`."
+          },
+          {
+            "name": "healthy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "description": "Set true to leave out players with any injury designation."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "projected_week",
+              "type": "string",
+              "enum": [
+                "projected_week",
+                "projected_ros",
+                "season_points",
+                "average",
+                "trending",
+                "rank"
+              ]
+            },
+            "description": "projected_week (default), projected_ros, season_points, average, trending, or rank."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000
+            },
+            "description": "Rows to skip: the previous page’s `nextOffset`."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "Rows per page (1-50, default 25)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "season": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "week": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "The league week the projections and games are for."
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "Players matching the filters, across every page."
+                        },
+                        "nextOffset": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The `offset` of the next page, or null on the last page."
+                        },
+                        "trendHours": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The trending window in hours, or null when no trending data is stored."
+                        },
+                        "waiverType": {
+                          "type": "string",
+                          "enum": [
+                            "faab",
+                            "rolling"
+                          ],
+                          "description": "FAAB bids, or rolling waiver priority."
+                        },
+                        "faabRemaining": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Your FAAB left, or null when you manage no team."
+                        },
+                        "dropClearsAt": {
+                          "description": "When a player you drop now would clear waivers (ISO 8601), or null with no waiver period.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "players": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "player": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "description": "Full display name."
+                                  },
+                                  "team": {
+                                    "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "position": {
+                                    "type": "string",
+                                    "enum": [
+                                      "QB",
+                                      "RB",
+                                      "WR",
+                                      "TE",
+                                      "K",
+                                      "DEF"
+                                    ],
+                                    "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                  },
+                                  "status": {
+                                    "description": "Roster status. Present when `detail` is true.",
+                                    "type": "string",
+                                    "enum": [
+                                      "active",
+                                      "inactive",
+                                      "injured_reserve"
+                                    ]
+                                  },
+                                  "injuryStatus": {
+                                    "description": "Injury designation such as \"Questionable\" or \"Out\", or null. Present when `detail` is true.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "aliases": {
+                                    "description": "Nicknames accepted by name resolution.",
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "rank": {
+                                    "description": "Consensus overall rank, lower is better.",
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "team",
+                                  "position"
+                                ],
+                                "additionalProperties": false,
+                                "description": "A player. Compact responses include only id, name, team, and position; `detail: true` adds the rest."
+                              },
+                              "availability": {
+                                "type": "object",
+                                "properties": {
+                                  "status": {
+                                    "type": "string",
+                                    "enum": [
+                                      "free_agent",
+                                      "waivers",
+                                      "rostered"
+                                    ]
+                                  },
+                                  "teamId": {
+                                    "description": "The team rostering him (status `rostered`).",
+                                    "type": "string"
+                                  },
+                                  "clearsAt": {
+                                    "description": "When he clears waivers and becomes a free agent (status `waivers`).",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "status"
+                                ],
+                                "additionalProperties": false,
+                                "description": "Where the player stands in the league. Present when `leagueId` is passed."
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "questionable",
+                                  "doubtful",
+                                  "out",
+                                  "ir",
+                                  "pup",
+                                  "nfi",
+                                  "suspended",
+                                  "covid",
+                                  "na"
+                                ],
+                                "description": "Availability to play: active, questionable, doubtful, out, ir, pup, nfi, suspended, covid, na."
+                              },
+                              "injuryStatus": {
+                                "description": "The raw injury designation, e.g. \"Questionable\", or null.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "byeWeek": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "His NFL team's bye week, or null when unknown."
+                              },
+                              "game": {
+                                "type": "object",
+                                "properties": {
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "upcoming",
+                                      "live",
+                                      "final",
+                                      "bye"
+                                    ],
+                                    "description": "upcoming (not kicked off), live (kicked off and not over; a started game with no live read yet counts as live), final, or bye (no game this week)."
+                                  },
+                                  "opponent": {
+                                    "description": "The opposing NFL team, or null on a bye.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "home": {
+                                    "description": "True when his team is at home; null on a bye.",
+                                    "type": [
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "kickoff": {
+                                    "description": "Kickoff (ISO 8601), or null on a bye.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "period": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "The quarter once under way (5 and up is overtime)."
+                                  },
+                                  "clock": {
+                                    "description": "The game clock while live, e.g. \"8:42\".",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "teamScore": {
+                                    "description": "His NFL team's score once under way.",
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "opponentScore": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "possession": {
+                                    "type": "boolean",
+                                    "description": "His team has the ball (live only)."
+                                  },
+                                  "redZone": {
+                                    "type": "boolean",
+                                    "description": "His team has the ball inside the opponent's 20 (live only)."
+                                  },
+                                  "progress": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "maximum": 1
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "Share of the game played: 0 before kickoff, 1 when final, null when unknown or on a bye."
+                                  }
+                                },
+                                "required": [
+                                  "state",
+                                  "opponent",
+                                  "home",
+                                  "kickoff",
+                                  "period",
+                                  "clock",
+                                  "teamScore",
+                                  "opponentScore",
+                                  "possession",
+                                  "redZone",
+                                  "progress"
+                                ],
+                                "additionalProperties": false,
+                                "description": "His NFL game as it stands: the same state the matchup, the outlook, and the lineup locks use (#193)."
+                              },
+                              "projectedPoints": {
+                                "description": "Projected points this week under league scoring, or null (bye, or not projected).",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "projectedRos": {
+                                "description": "Projected points from this week through week 18 under league scoring, or null.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "seasonPoints": {
+                                "description": "Points scored this season under league scoring, or null.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "average": {
+                                "description": "Points per game played this season, or null with no games.",
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "games": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Games played this season."
+                              },
+                              "trend": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "adds": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Adds across Sleeper leagues in the trending window."
+                                      },
+                                      "drops": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Drops across Sleeper leagues in the trending window."
+                                      }
+                                    },
+                                    "required": [
+                                      "adds",
+                                      "drops"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The crowd’s adds and drops over `trendHours`, or null when no trending data is stored."
+                              }
+                            },
+                            "required": [
+                              "player",
+                              "availability",
+                              "status",
+                              "injuryStatus",
+                              "byeWeek",
+                              "game",
+                              "projectedPoints",
+                              "projectedRos",
+                              "seasonPoints",
+                              "average",
+                              "games",
+                              "trend"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "season",
+                        "week",
+                        "total",
+                        "nextOffset",
+                        "trendHours",
+                        "waiverType",
+                        "faabRemaining",
+                        "dropClearsAt",
+                        "players"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/leagues/{leagueId}/playoffs": {
       "get": {
         "operationId": "get_playoff_bracket",
@@ -25357,6 +26138,34 @@
                                   }
                                 ]
                               },
+                              "seasonAverage": {
+                                "description": "His average over this season before this week, or null with no games yet. Present on get_roster.",
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "average": {
+                                        "type": "number",
+                                        "description": "Average points per game under league scoring."
+                                      },
+                                      "games": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Games played before this week."
+                                      }
+                                    },
+                                    "required": [
+                                      "average",
+                                      "games"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "eligibleSlots": {
                                 "description": "Starting slots this league uses that he can fill (for set_lineup). Present when `detail` is true.",
                                 "type": "array",
@@ -25957,7 +26766,7 @@
       "get": {
         "operationId": "get_roster",
         "summary": "A team's roster and lineup for a week",
-        "description": "Returns a team's players and where each sits in the week's lineup (a starting slot, BN for bench, or IR), with position, NFL team, opponent, kickoff, bye week, injury status, projected and actual points, the average of his last 3 weeks, and whether he is locked. A player locks at his own game's kickoff: after that he cannot change slots until next week (set_lineup returns PLAYER_LOCKED). The week defaults to the current one. A week with no saved lineup shows the latest earlier lineup carried forward (`carriedFromWeek`); new players sit on the bench. `projectedPoints` is the starters’ projection under league scoring (starters on bye or ruled out count 0). `optimal` is the best legal lineup (locked players stay put; Out, IR, and bye players never start) and the set_lineup `moves` that reach it: pass them to set_lineup as they are to apply it. It ranks players by projection, or by consensus rank when no projections are stored for the week (`optimal.basis: rank`). Warnings flag starters on bye or ruled out and empty starting slots, so you can fix them with set_lineup before lock. `slots` lists how many of each slot the league uses. Any member can read any team. Use get_league_state for your own teamId. `detail: true` adds each player’s full record (status, injury designation, rank) and the starting slots he can fill.",
+        "description": "Returns a team's players and where each sits in the week's lineup (a starting slot, BN for bench, or IR), with position, NFL team, opponent, kickoff, bye week, injury status, projected and actual points, his average over the last 3 weeks and over the season so far, and whether he is locked. A player locks at his own game's kickoff: after that he cannot change slots until next week (set_lineup returns PLAYER_LOCKED). The week defaults to the current one. A week with no saved lineup shows the latest earlier lineup carried forward (`carriedFromWeek`); new players sit on the bench. `projectedPoints` is the starters’ projection under league scoring (starters on bye or ruled out count 0). `optimal` is the best legal lineup (locked players stay put; Out, IR, and bye players never start) and the set_lineup `moves` that reach it: pass them to set_lineup as they are to apply it. It ranks players by projection, or by consensus rank when no projections are stored for the week (`optimal.basis: rank`). Warnings flag starters on bye or ruled out and empty starting slots, so you can fix them with set_lineup before lock. `slots` lists how many of each slot the league uses. Any member can read any team. Use get_league_state for your own teamId. `detail: true` adds each player’s full record (status, injury designation, rank) and the starting slots he can fill.",
         "tags": [
           "season"
         ],
@@ -26417,6 +27226,34 @@
                                         "minimum": -9007199254740991,
                                         "maximum": 9007199254740991,
                                         "description": "Games averaged (at most 3; weeks without a stat line are skipped)."
+                                      }
+                                    },
+                                    "required": [
+                                      "average",
+                                      "games"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "seasonAverage": {
+                                "description": "His average over this season before this week, or null with no games yet. Present on get_roster.",
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "average": {
+                                        "type": "number",
+                                        "description": "Average points per game under league scoring."
+                                      },
+                                      "games": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "Games played before this week."
                                       }
                                     },
                                     "required": [
@@ -33490,7 +34327,7 @@
       "delete": {
         "operationId": "cancel_waiver_claim",
         "summary": "Cancel one of your pending waiver claims",
-        "description": "Cancels a pending claim before the waiver run processes it. Only your own team's pending claims can be cancelled; WAIVER_CLAIM_NOT_PENDING means it was already processed or cancelled. To change a bid or drop, cancel the claim and make a new one.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Cancels a pending claim before the waiver run processes it. Only your own team's pending claims can be cancelled; WAIVER_CLAIM_NOT_PENDING means it was already processed or cancelled. To change a bid or drop, use update_waiver_claim instead.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "waivers"
         ],
@@ -33872,6 +34709,420 @@
           }
         ],
         "x-mutation": true
+      },
+      "patch": {
+        "operationId": "update_waiver_claim",
+        "summary": "Change the bid or the drop player of one of your pending waiver claims",
+        "description": "Edits a pending claim before the waiver run: a new FAAB `bid`, a new drop player (`dropPlayerId` or `dropPlayer`), or no drop (`clearDrop: true`). Fields you leave out keep their value; the claim keeps its place in your order (reorder_waiver_claims changes that). The edit is checked like a new claim: INSUFFICIENT_FAAB, ZERO_BID_NOT_ALLOWED, ROSTER_FULL (a full roster needs a drop), DROP_PLAYER_NOT_ON_ROSTER, and PLAYER_LOCKED (the drop player will be locked when the claim runs). WAIVER_CLAIM_NOT_PENDING means it was already processed or cancelled.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "waivers"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "claimId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Waiver claim id, from claim_waiver or list_waiver_claims."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "claim": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "Claim id; pass it to cancel_waiver_claim or reorder_waiver_claims."
+                            },
+                            "teamId": {
+                              "type": "string"
+                            },
+                            "teamName": {
+                              "type": "string"
+                            },
+                            "player": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "description": "Full display name."
+                                },
+                                "team": {
+                                  "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "position": {
+                                  "type": "string",
+                                  "enum": [
+                                    "QB",
+                                    "RB",
+                                    "WR",
+                                    "TE",
+                                    "K",
+                                    "DEF"
+                                  ],
+                                  "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "name",
+                                "team",
+                                "position"
+                              ],
+                              "additionalProperties": false,
+                              "description": "A player reference: always id, name, team, and position."
+                            },
+                            "drop": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "description": "Full display name."
+                                    },
+                                    "team": {
+                                      "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "position": {
+                                      "type": "string",
+                                      "enum": [
+                                        "QB",
+                                        "RB",
+                                        "WR",
+                                        "TE",
+                                        "K",
+                                        "DEF"
+                                      ],
+                                      "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name",
+                                    "team",
+                                    "position"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "A player reference: always id, name, team, and position."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "bid": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "priority": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991,
+                              "description": "The team's own order for its claims: 1 is processed first."
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "pending",
+                                "awarded",
+                                "failed",
+                                "cancelled"
+                              ]
+                            },
+                            "processesAt": {
+                              "type": "string",
+                              "description": "The waiver run that will process the claim (ISO 8601)."
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "resolvedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "cost": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "FAAB paid, when awarded."
+                            },
+                            "failure": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "code": {
+                                      "type": "string"
+                                    },
+                                    "message": {
+                                      "type": "string"
+                                    },
+                                    "fix": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "code",
+                                    "message",
+                                    "fix"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Why a failed claim lost, e.g. PLAYER_CLAIMED (outbid) or ROSTER_FULL."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "teamId",
+                            "teamName",
+                            "player",
+                            "drop",
+                            "bid",
+                            "priority",
+                            "status",
+                            "processesAt",
+                            "createdAt",
+                            "resolvedAt",
+                            "cost",
+                            "failure"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "claim"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "teamId": {
+                    "description": "Your team id. Defaults to the team you manage; you can only act for your own team.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "bid": {
+                    "description": "The new whole-dollar FAAB bid. Leave out to keep the current bid.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "dropPlayerId": {
+                    "description": "The new drop player. Leave out to keep the current one.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dropPlayer": {
+                    "description": "The new drop player by name, when you do not have the id.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "clearDrop": {
+                    "default": false,
+                    "description": "Set true to drop nobody when the claim wins (only while your roster has room).",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/leagues/{leagueId}/waivers/claims/order": {

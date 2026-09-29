@@ -174,6 +174,23 @@ describe('TradesPage', () => {
     await waitFor(() => expect(api.roster).toHaveBeenCalledWith('L1', ROBO.id));
   });
 
+  it('starts with players picked from the roster workspace (?send=, ?receive=, #205)', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi([]);
+    renderPage(api, fixedNow, noConnect, `/leagues/L1/trades?send=${CMC.id}`);
+    expect(await screen.findByLabelText('You send: Christian McCaffrey')).toBeChecked();
+    // Picking a partner keeps the player you are sending.
+    await user.selectOptions(screen.getByLabelText('Trade with'), 'team-2');
+    expect(await screen.findByLabelText('You receive: Bijan Robinson')).not.toBeChecked();
+    expect(screen.getByLabelText('You send: Christian McCaffrey')).toBeChecked();
+  });
+
+  it('starts with another team and its player picked from the market', async () => {
+    const api = fakeApi([]);
+    renderPage(api, fixedNow, noConnect, `/leagues/L1/trades?with=team-2&receive=${BIJAN.id}`);
+    expect(await screen.findByLabelText('You receive: Bijan Robinson')).toBeChecked();
+  });
+
   it('builds an offer with a live preview and proposes it', async () => {
     const user = userEvent.setup();
     const api = fakeApi([]);

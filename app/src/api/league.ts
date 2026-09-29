@@ -17,19 +17,25 @@ import type {
   LeagueHistoryData,
   LeagueSettings,
   LeagueState,
+  ClaimPreview,
+  ClaimResult,
   LineupMove,
+  MarketPage,
+  MarketQuery,
   MatchupData,
   MatchupOutlook,
   NflGamesData,
   ModelLeaderboard,
   MyLeague,
+  PlayerRef,
   PlayoffBracketData,
   Roster,
   ScoringLogData,
   ScoringPreset,
   SeatType,
   StandingsData,
-  TeamDetail
+  TeamDetail,
+  WaiverClaim
 } from './types';
 
 /** Typed calls for the league setup operations, each returning the unwrapped `data`. */
@@ -106,6 +112,36 @@ export function createLeagueApi(api: ApiFetch) {
       id: string,
       query: { includeBench?: boolean; limit?: number; cursor?: string; teamId?: string } = {}
     ) => call<ScoringLogData>(`${league(id)}/matchup/scoring-log`, { query }),
+    // Roster workspace (#205): the player market, adds and claims, drops, and pending claims
+    listLeaguePlayers: (id: string, query: MarketQuery) =>
+      call<MarketPage>(`${league(id)}/players`, { query: { ...query } }),
+    previewClaim: (id: string, query: { playerId: string; dropPlayerId?: string; bid?: number }) =>
+      call<ClaimPreview>(`${league(id)}/waivers/preview`, { query }),
+    claimPlayer: (id: string, body: { playerId: string; dropPlayerId?: string; bid?: number }) =>
+      call<ClaimResult>(`${league(id)}/waivers/claims`, { method: 'POST', body }),
+    dropPlayer: (id: string, playerId: string) =>
+      call<{ dropped: PlayerRef; clearsAt: string }>(`${league(id)}/drops`, {
+        method: 'POST',
+        body: { playerId }
+      }),
+    listClaims: (id: string) =>
+      call<{ claims: WaiverClaim[] }>(`${league(id)}/waivers/claims`).then((d) => d.claims),
+    updateClaim: (
+      id: string,
+      claimId: string,
+      changes: { bid?: number; dropPlayerId?: string; clearDrop?: boolean }
+    ) =>
+      call<{ claim: WaiverClaim }>(`${league(id)}/waivers/claims/${encodeURIComponent(claimId)}`, {
+        method: 'PATCH',
+        body: changes
+      }).then((d) => d.claim),
+    cancelClaim: (id: string, claimId: string) =>
+      call<unknown>(`${league(id)}/waivers/claims/${encodeURIComponent(claimId)}`, { method: 'DELETE' }),
+    reorderClaims: (id: string, claimIds: string[]) =>
+      call<{ claims: WaiverClaim[] }>(`${league(id)}/waivers/claims/order`, {
+        method: 'PUT',
+        body: { claimIds }
+      }).then((d) => d.claims),
     getMatchupOutlook: (id: string) => call<MatchupOutlook>(`${league(id)}/matchup/outlook`),
     /** get_nfl_games (#132): the week's NFL games, for the games strip and the red-zone highlights. */
     getNflGames: (id: string) => call<NflGamesData>(`${league(id)}/nfl-games`),

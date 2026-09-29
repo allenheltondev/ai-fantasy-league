@@ -31,9 +31,15 @@ describe('agent infrastructure', () => {
   it('routes every trigger event to the router and requested tasks to the task handler', () => {
     const router = section('  AgentRouterFunction:', '  AgentTaskFunction:');
     expect(router).toContain('Handler: agent-router.handler');
-    // Least privilege: Get, Put, and Query only (no DynamoDBCrudPolicy).
+    // Least privilege: Get, Put, Update (gates and the dispatch outbox, #207), and Query only (no
+    // DynamoDBCrudPolicy).
     expect(router).not.toContain('DynamoDBCrudPolicy');
-    expect([...router.matchAll(/dynamodb:(\w+)/g)].map((m) => m[1])).toEqual(['GetItem', 'PutItem', 'Query']);
+    expect([...router.matchAll(/dynamodb:(\w+)/g)].map((m) => m[1])).toEqual([
+      'GetItem',
+      'PutItem',
+      'UpdateItem',
+      'Query'
+    ]);
     // Exactly the shared ingestion set (#211): the in-process loop subscribes to the same events.
     expect(new Set(routerRuleEvents())).toEqual(new Set(INGESTED_EVENTS));
     const task = section('  AgentTaskFunction:', 'End of agent platform section');
@@ -44,6 +50,8 @@ describe('agent infrastructure', () => {
     expect(task).toContain(policy);
     expect(template).not.toContain('AWS::IAM::ManagedPolicy');
     expect(task).toContain('AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter');
+    // The recovery sweep (#207) runs in the task function on a schedule.
+    expect(task).toMatch(/AgentRecovery:\n\s+Type: ScheduleV2[\s\S]*?Input: '\{"sweep":"agent-recovery"\}'/);
   });
 
   it('gives the API the spend guard settings and read access to the kill switch', () => {

@@ -21,6 +21,8 @@ describe('agent Lambda environment', () => {
   it('builds services, the model, and the kill switch', async () => {
     const services = env.createAgentServices(env.loadAgentEnv({ TABLE_NAME: 't' }));
     expect(services.repos.agents).toBeDefined();
+    // The agents' tools read the schedule, projections, and news from DynamoDB, not an empty store.
+    expect(services.data.reference.schedule.constructor.name).toBe('DynamoNflScheduleRepository');
     expect(env.isFakeModel({ FANTASY_FAKE_MODEL: '1' })).toBe(true);
     expect(env.isFakeModel({})).toBe(false);
     expect(await env.modelFromEnv({ FANTASY_FAKE_MODEL: 'true' })).toBeInstanceOf(ScriptedModelClient);
@@ -80,6 +82,26 @@ describe('agent Lambda handlers', () => {
     });
     expect(record).toMatchObject({ status: 'completed', finalAction: 'set_lineup', teamId: AGENT_TEAM });
     expect(await s.savedLineups()).toHaveLength(1);
+  });
+
+  it('runs the recovery sweep on its schedule (#207)', async () => {
+    const s = await setup();
+    vi.stubEnv('TABLE_NAME', 'unused');
+    vi.stubEnv('FANTASY_FAKE_MODEL', '1');
+    vi.resetModules();
+    vi.doMock('../src/lambda/env.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/lambda/env.js')>()),
+      createAgentServices: () => s.services
+    }));
+    const task = await import('../src/lambda/task.js');
+    expect(await task.handler({ sweep: 'agent-recovery' })).toEqual({
+      leases: 0,
+      redelivered: 0,
+      dispatches: 0,
+      sent: 0,
+      failed: 0,
+      abandoned: 0
+    });
   });
 
   it('writes agent memory for league events before routing, and survives a memory failure', async () => {

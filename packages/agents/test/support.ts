@@ -101,9 +101,9 @@ export function league(overrides: Partial<League> = {}): League {
 }
 
 export async function setup(
-  options: { withLineupOps?: boolean; league?: Partial<League> } = {}
+  options: { withLineupOps?: boolean; league?: Partial<League>; repos?: Repos } = {}
 ): Promise<Setup> {
-  const repos = createInMemoryRepos();
+  const repos = options.repos ?? createInMemoryRepos();
   const l = league(options.league);
   await seedLeague(repos, l);
   const clock = new FixedClock(START);

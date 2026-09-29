@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Ctx } from '../context.js';
-import { requireMember } from '../league/access.js';
+import { requireMember, type LeagueAccess } from '../league/access.js';
 import { weekLocks } from '../season/lineups.js';
 import { leaguePlayers, type PlayerStanding } from '../waivers/rosters.js';
 import type { Player } from './model.js';
@@ -47,21 +47,30 @@ export async function applyAvailability(
   ctx: Ctx,
   players: Player[],
   filter: { leagueId: string; availability?: AvailabilityFilter | undefined }
-): Promise<{ players: Player[]; standingOf: (player: Pick<Player, 'id' | 'team'>) => PlayerStanding }> {
-  const { league, teams } = await requireMember(ctx, filter.leagueId);
-  const now = ctx.clock.now();
-  const locks = await weekLocks(ctx.data.reference, league, now);
-  const standings = await leaguePlayers(ctx.repos, league, teams, now, locks);
-  const standingOf = (p: Pick<Player, 'id' | 'team'>) => standings.standing(p.id, p.team);
+): Promise<{ players: Player[]; standingOf: StandingOf }> {
+  const standingOf = await leagueStandings(ctx, await requireMember(ctx, filter.leagueId));
   const wanted = filter.availability;
   return {
     players:
-      wanted === undefined
-        ? players
-        : players.filter((p) => {
-            const status = standingOf(p).status;
-            return wanted === 'available' ? status !== 'rostered' : status === wanted;
-          }),
+      wanted === undefined ? players : players.filter((p) => matchesAvailability(standingOf(p), wanted)),
     standingOf
   };
+}
+
+export type StandingOf = (player: Pick<Player, 'id' | 'team'>) => PlayerStanding;
+
+/** Where each player stands in the league right now (the caller has checked membership). */
+export async function leagueStandings(
+  ctx: Ctx,
+  access: Pick<LeagueAccess, 'league' | 'teams'>
+): Promise<StandingOf> {
+  const now = ctx.clock.now();
+  const locks = await weekLocks(ctx.data.reference, access.league, now);
+  const standings = await leaguePlayers(ctx.repos, access.league, access.teams, now, locks);
+  return (p) => standings.standing(p.id, p.team);
+}
+
+/** Whether a standing passes an availability filter (`available`: anyone not on a team). */
+export function matchesAvailability(standing: PlayerStanding, wanted: AvailabilityFilter): boolean {
+  return wanted === 'available' ? standing.status !== 'rostered' : standing.status === wanted;
 }

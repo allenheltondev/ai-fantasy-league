@@ -134,6 +134,16 @@ export const RosterEntrySchema = z.object({
     .describe(
       'His average over the last 3 NFL weeks before this one, or null with no games yet. Present on get_roster.'
     ),
+  seasonAverage: z
+    .object({
+      average: z.number().describe('Average points per game under league scoring.'),
+      games: z.number().int().describe('Games played before this week.')
+    })
+    .nullable()
+    .optional()
+    .describe(
+      'His average over this season before this week, or null with no games yet. Present on get_roster.'
+    ),
   eligibleSlots: z
     .array(RosterSlotSchema)
     .optional()
@@ -181,7 +191,11 @@ export async function loadWeekData(
     reference.stats.getWeek(league.season, week),
     reference.nflGames.get(league.season, week)
   ]);
-  const projections = snapshot === null ? [] : await reference.projections.getLines(snapshot, playerIds);
+  // Above 100 players (the player market) one partition query beats batched point reads.
+  const projections =
+    snapshot === null
+      ? []
+      : await reference.projections.getLines(snapshot, playerIds.length > 100 ? undefined : playerIds);
   const score = (stats: Record<string, number>) => scorePlayer(league.settings, stats).points;
   const wanted = new Set(playerIds);
   const mine = lines.filter((l) => wanted.has(l.playerId));

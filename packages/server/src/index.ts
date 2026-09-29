@@ -21,6 +21,7 @@ export { createRegistry, type Registry } from './registry/registry.js';
 export { createInMemoryRepos } from './repos/memory.js';
 export * from './repos/agents.js';
 export { createDynamoRepos } from './repos/dynamo/index.js';
+export { createDynamoReferenceStore } from './repos/dynamo/reference.js';
 export { createDocumentClient, type TableContext } from './repos/dynamo/table.js';
 export { EventBridgePublisher } from './events/eventbridge.js';
 export { leagueBudget, budgetWeek, type LeagueBudget } from './operations/agents/budget.js';
