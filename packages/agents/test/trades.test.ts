@@ -13,6 +13,7 @@ import {
   acceptBar,
   countersUsed
 } from '../src/tasks/trades.js';
+import { judgmentNoise } from '../src/tasks/noise.js';
 import { AGENT_TEAM, LEAGUE_ID, roster, setup, START, type Setup } from './support.js';
 
 const AGENT_ID = `${LEAGUE_ID}.${AGENT_TEAM}`;
@@ -104,6 +105,46 @@ describe('trade response task', () => {
     expect(record).toMatchObject({ status: 'completed', finalAction: 'accept_trade' });
     expect(model.transcript[0]?.systemPrompt).toContain('Suggested: accept');
     expect(await status(s, offer.id)).toBe('in_review');
+  });
+
+  it('judges an offer the same whatever unrelated events came before it', async () => {
+    // A rookie's valuation noise is large (±25%): keyed by the trigger it would move with every
+    // event any change adds to the log. It is keyed by the agent, week, and offer instead.
+    const score = async (eventId: string, noise: boolean) => {
+      const s = await tradeLeague(ROOKIE);
+      // The same offer in each league: only the events around it differ.
+      let n = 0;
+      (s.services as { ids?: { uuid(): string } }).ids = { uuid: () => `fixed-${++n}` };
+      if (noise) {
+        await s.services.events.publish('Team Renamed', {
+          leagueId: LEAGUE_ID,
+          teamId: 'team-3',
+          from: 'Team 3',
+          to: 'Unrelated',
+          by: 'commissioner'
+        });
+      }
+      const offer = await allen(s, 'propose_trade', {
+        withTeamId: AGENT_TEAM,
+        send: ['rb3'],
+        receive: ['rb4']
+      });
+      const model = new ScriptedModelClient();
+      await runAgentAction(s.deps(model), request(offer.id, eventId));
+      return /Your score (-?[\d.]+)/.exec(model.transcript[0]?.systemPrompt ?? '')?.[1];
+    };
+    const base = await score('evt-7', false);
+    expect(base).toBeDefined();
+    expect(await score('evt-8', true)).toBe(base);
+    expect(await score('9b1c3f2e-uuid-like', true)).toBe(base);
+    // Different subjects still get their own noise.
+    const ctx = {
+      config: resolveAgentConfig(ROOKIE),
+      seat: { agentId: AGENT_ID },
+      league: { week: 5 }
+    } as never;
+    expect(judgmentNoise(ctx, 'trade', 't1', 0)).toBe(judgmentNoise(ctx, 'trade', 't1', 0));
+    expect(judgmentNoise(ctx, 'trade', 't1', 0)).not.toBe(judgmentNoise(ctx, 'trade', 't2', 0));
   });
 
   it('counters a weak offer, and the chain ends when the person accepts the counter', async () => {

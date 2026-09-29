@@ -99,6 +99,33 @@ describe('settings: AI activity', () => {
     expect(api.getAgentActivity).toHaveBeenCalledWith('L1', { limit: 50 });
   });
 
+  it('labels a manager check-in and shows its one-line reason, even when it did nothing', async () => {
+    const reason = 'Lineup is set. Looked at waivers; nobody beats my bench. Not shopping for trades today.';
+    const api = fakeApi({
+      getAgentActivity: vi.fn(async () =>
+        activity({
+          tasks: [
+            task({
+              kind: 'check_in',
+              trigger: { detailType: 'Manager Check-In', eventId: 'e9' },
+              status: 'skipped',
+              fallbackReason: 'nothing_to_do',
+              finalAction: 'none',
+              reasoningSummary: reason,
+              toolsCalled: [],
+              costUsd: 0
+            })
+          ]
+        })
+      )
+    });
+    await openAi(api);
+    const log = screen.getByRole('list', { name: 'Agent decisions' });
+    expect(log).toHaveTextContent('Check-in · Manager Check-In');
+    expect(log).toHaveTextContent(reason);
+    expect(log).toHaveTextContent('Skipped');
+  });
+
   it('filters the log by team and handles an empty log with the kill switch off', async () => {
     const api = fakeApi({
       getAgentActivity: vi.fn(async () =>

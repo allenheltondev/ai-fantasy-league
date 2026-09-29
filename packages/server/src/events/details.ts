@@ -1,4 +1,4 @@
-import { ACHIEVEMENT_IDS, NOTABLE_PICK_KINDS, TRADE_STATUSES } from '@fantasy/core';
+import { ACHIEVEMENT_IDS, CHECK_IN_SLOTS, NOTABLE_PICK_KINDS, TRADE_STATUSES } from '@fantasy/core';
 import { z } from 'zod';
 import { CHAT_MESSAGE_KINDS, ChatMessageSchema } from '../chat/model.js';
 import { NotificationSchema } from '../notifications/model.js';
@@ -424,11 +424,28 @@ export const EVENT_DETAIL_SCHEMAS = {
       )
       .min(1)
   }),
+  'Team Renamed': z.object({
+    leagueId: id,
+    teamId: id,
+    from: z.string().describe('The old name.'),
+    to: z.string().describe('The new name.'),
+    by: z
+      .enum(['owner', 'commissioner', 'agent'])
+      .describe('Who renamed it. The chat announces renames by people; an AI manager announces its own.')
+  }),
   'Agent Budget Exceeded': z.object({
     leagueId: id,
     week: z.number().int().min(0).describe('The budget week (the league week, 0 before the season).'),
     spentUsd: z.number().min(0).describe('Estimated model spend this week.'),
     ceilingUsd: z.number().min(0).describe('The league’s weekly ceiling.')
+  }),
+  'Manager Check-In': z.object({
+    leagueId: id,
+    slot: z.enum(CHECK_IN_SLOTS),
+    date: z.string().describe('The local (US Eastern) date of the check-in; with `slot`, its once-only key.'),
+    at: iso.describe('When the check-in was scheduled.'),
+    nextAt: iso.describe('When the next check-in is: agents act before it.'),
+    week: week.nullable()
   }),
   'Settings Changed': z.object({
     leagueId: id,

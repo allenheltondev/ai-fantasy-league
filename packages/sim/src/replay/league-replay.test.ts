@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
+import { FixedClock, isGenericTeamName, yahooDefaultSettings } from '@fantasy/core';
 import { ScriptedModelClient } from '@fantasy/agents';
 import {
   InMemoryEventPublisher,
@@ -62,6 +62,10 @@ describe('replayLeague: the real league on the simulated clock', () => {
     // Seat 1 is the scripted human; the other seven are agents that acted through the router and runner.
     expect(report.teams.filter((t) => t.seat === 'human').map((t) => t.id)).toEqual(['team-1']);
     expect(report.teams.filter((t) => t.agent !== null)).toHaveLength(7);
+    // Every AI manager named its team at the kickoff, and no two picked the same name (#194).
+    const agentNames = report.teams.filter((t) => t.agent !== null).map((t) => t.name);
+    expect(agentNames.filter((n) => isGenericTeamName(n))).toEqual([]);
+    expect(new Set(agentNames).size).toBe(7);
     expect(report.human.actions.make_draft_pick).toBeGreaterThanOrEqual(16);
     expect(report.agents.totals.byKind.draft_pick).toBe(7 * 16);
     expect(report.agents.totals.byKind.lineup).toBeGreaterThan(0);
@@ -91,6 +95,12 @@ describe('replayLeague: the real league on the simulated clock', () => {
     // The jobs ran on their cadences, and deferred events (pick deadlines, lock warnings) fired.
     expect(report.events.jobRuns.advanceSeason).toBeGreaterThan(100);
     expect(report.events.jobRuns.processWaivers).toBeGreaterThan(10);
+    // Three check-ins a day (#195): every agent looks at its team, and some of them act.
+    expect(report.events.jobRuns.managerCheckIns).toBeGreaterThan(20);
+    expect(report.agents.totals.byKind.check_in).toBeGreaterThan(7 * 20);
+    expect(report.decisions.some((d) => d.kind === 'check_in' && d.action.includes('claim_waiver'))).toBe(
+      true
+    );
     expect(report.events.deferredReleased).toBeGreaterThan(0);
     expect(report.events.delivered['Lineup Lock Approaching']).toBeGreaterThan(0);
     expect(report.chat.byKind.system).toBeGreaterThan(0);

@@ -6,13 +6,17 @@ import { leagueTabPath } from '../../routes/leagueRoutes';
 import { managerName, TeamAvatar } from './TeamBadge';
 import { PlayerLink } from '../../players/PlayerLink';
 
-/** The move board (#166): the league's trades, pickups, drops, and waiver awards, one card per move. */
+/**
+ * The move board (#166): the league's trades, pickups, drops, and waiver awards, one card per move,
+ * and team renames (#194): "Team 3 is now Regression to the Mean".
+ */
 
 const LABELS: Record<MoveType, string> = {
   trade: 'Trade',
   add: 'Free-agent add',
   drop: 'Drop',
-  waiver: 'Waiver claim'
+  waiver: 'Waiver claim',
+  team_renamed: 'New team name'
 };
 
 /** Icon tile colours per move type (literal class names, so Tailwind keeps them). */
@@ -20,7 +24,8 @@ const TONES: Record<MoveType, string> = {
   trade: 'bg-primary-100 text-primary-700',
   add: 'bg-success-100 text-success-700',
   drop: 'bg-error-100 text-error-700',
-  waiver: 'bg-warning-100 text-warning-700'
+  waiver: 'bg-warning-100 text-warning-700',
+  team_renamed: 'bg-secondary-100 text-secondary-700'
 };
 
 const PATHS: Record<MoveType, string> = {
@@ -29,7 +34,9 @@ const PATHS: Record<MoveType, string> = {
   add: 'M12 5v14M5 12h14',
   drop: 'M5 12h14',
   // A gavel.
-  waiver: 'm14 5 5 5m-7-3 5 5m-9 2 6-6m-9 9 5-5m-2 7h8'
+  waiver: 'm14 5 5 5m-7-3 5 5m-9 2 6-6m-9 9 5-5m-2 7h8',
+  // A name tag.
+  team_renamed: 'M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01'
 };
 
 export function MoveIcon({ type }: { type: MoveType }) {
@@ -106,6 +113,42 @@ function SideSummary({ side, you, verb }: { side: MoveSide; you: boolean; verb: 
   );
 }
 
+/** Who renamed a team, as the card says it. */
+const RENAMED_BY = {
+  owner: 'its manager',
+  commissioner: 'the commissioner',
+  agent: 'its AI manager'
+} as const;
+
+function RenameSummary({
+  side,
+  rename,
+  you
+}: {
+  side: MoveSide;
+  rename: NonNullable<Move['rename']>;
+  you: boolean;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="flex min-w-0 items-center gap-2">
+        <TeamAvatar team={side} size={24} />
+        <span className="min-w-0">
+          <span className="block break-words font-medium">
+            {rename.to}
+            {you && <span className="ml-1 text-xs font-normal text-primary-700">(you)</span>}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">{managerName(side)}</span>
+        </span>
+      </p>
+      <p className="break-words text-sm text-muted-foreground" data-testid="renamed-from">
+        Renamed from <span className="line-through decoration-muted-foreground">{rename.from}</span> by{' '}
+        {RENAMED_BY[rename.by]}
+      </p>
+    </div>
+  );
+}
+
 export function MoveCard({ move, yourTeamId }: { move: Move; yourTeamId: string | null }) {
   const [first] = move.teams;
   const cost = first?.cost ?? null;
@@ -113,7 +156,11 @@ export function MoveCard({ move, yourTeamId }: { move: Move; yourTeamId: string 
   return (
     <article
       data-testid={`move-${move.type}`}
-      aria-label={`${LABELS[move.type]}: ${move.teams.map((t) => t.teamName).join(' and ')}`}
+      aria-label={
+        move.rename
+          ? `${LABELS[move.type]}: ${move.rename.from} is now ${move.rename.to}`
+          : `${LABELS[move.type]}: ${move.teams.map((t) => t.teamName).join(' and ')}`
+      }
       className={`flex gap-3 rounded-lg border p-3 ${
         move.teams.some((t) => t.teamId === yourTeamId) ? 'border-primary-200 bg-primary-50' : 'border-border'
       }`}
@@ -132,9 +179,18 @@ export function MoveCard({ move, yourTeamId }: { move: Move; yourTeamId: string 
           <span className="text-xs text-muted-foreground">{moveWhen(move)}</span>
         </p>
         <div className={move.teams.length > 1 ? 'grid gap-3 sm:grid-cols-2' : undefined}>
-          {move.teams.map((side) => (
-            <SideSummary key={side.teamId} side={side} you={side.teamId === yourTeamId} verb={verb} />
-          ))}
+          {move.teams.map((side) =>
+            move.rename ? (
+              <RenameSummary
+                key={side.teamId}
+                side={side}
+                rename={move.rename}
+                you={side.teamId === yourTeamId}
+              />
+            ) : (
+              <SideSummary key={side.teamId} side={side} you={side.teamId === yourTeamId} verb={verb} />
+            )
+          )}
         </div>
       </div>
     </article>
@@ -166,7 +222,9 @@ export function MoveBoard({
     <Card role="region" aria-label="Move board">
       <CardHeader>
         <CardTitle>Move board</CardTitle>
-        <p className="text-sm text-muted-foreground">Trades, pickups, drops, and waiver awards.</p>
+        <p className="text-sm text-muted-foreground">
+          Trades, pickups, drops, waiver awards, and new team names.
+        </p>
       </CardHeader>
       <CardBody className="space-y-3">
         {moves.length === 0 ? (

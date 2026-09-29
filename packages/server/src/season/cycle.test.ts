@@ -357,7 +357,7 @@ describe('season jobs with nothing to do', () => {
 });
 
 describe('scheduleLockWarnings', () => {
-  it('schedules one warning per upcoming window, sent right away when the lead has passed', async () => {
+  it('schedules one warning per upcoming kickoff time, sent right away when the lead has passed', async () => {
     const { deps, league } = await setup();
     const games = await deps.reference.schedule.getWeek(SEASON, 1);
     // 30 minutes before the Sunday 1pm window: Thursday is over, Sunday's lead time has passed.
@@ -367,11 +367,65 @@ describe('scheduleLockWarnings', () => {
     expect(first?.detail).toMatchObject({
       at: now.toISOString(),
       whenPast: 'send',
-      name: 'lineup-lock-lg-cycle-W01-2',
+      name: 'lineup-lock-lg-cycle-W01-20260913T1700Z',
       event: {
         detail: { lockAt: '2026-09-13T17:00:00.000Z', nflTeams: ['ARI', 'BUF', 'CIN', 'DET', 'MIA', 'SF'] }
       }
     });
+  });
+
+  it('gives a lone later kickoff in the same window its own warning, an hour before it (#193)', async () => {
+    const { deps, league } = await setup();
+    const game = (gameId: string, kickoff: string, homeTeam: string, awayTeam: string) => ({
+      gameId,
+      season: SEASON,
+      seasonType: 'regular' as const,
+      week: 1,
+      kickoff,
+      homeTeam,
+      awayTeam,
+      status: 'scheduled' as const
+    });
+    const games = [
+      game('a', '2026-09-13T17:00:00.000Z', 'BUF', 'MIA'),
+      game('b', '2026-09-13T17:00:00.000Z', 'DET', 'CHI'),
+      // 35 minutes later: the same game window, but its players lock at their own kickoff.
+      game('c', '2026-09-13T17:35:00.000Z', 'LAR', 'SF'),
+      game('d', '2026-09-15T00:15:00.000Z', 'NYG', 'DAL')
+    ];
+    const now = new Date('2026-09-13T12:00:00.000Z');
+    expect(await scheduleLockWarnings(deps, league, games, now)).toBe(3);
+    const scheduled = deps.events.events.map(
+      (e) =>
+        e.detail as { at: string; name: string; event: { detail: { lockAt: string; nflTeams: string[] } } }
+    );
+    expect(scheduled.map((d) => [d.at, d.name, d.event.detail.lockAt, d.event.detail.nflTeams])).toEqual([
+      [
+        '2026-09-13T16:00:00.000Z',
+        'lineup-lock-lg-cycle-W01-20260913T1700Z',
+        '2026-09-13T17:00:00.000Z',
+        ['BUF', 'CHI', 'DET', 'MIA']
+      ],
+      [
+        '2026-09-13T16:35:00.000Z',
+        'lineup-lock-lg-cycle-W01-20260913T1735Z',
+        '2026-09-13T17:35:00.000Z',
+        ['LAR', 'SF']
+      ],
+      [
+        '2026-09-14T23:15:00.000Z',
+        'lineup-lock-lg-cycle-W01-20260915T0015Z',
+        '2026-09-15T00:15:00.000Z',
+        ['DAL', 'NYG']
+      ]
+    ]);
+    // After the first kickoff only the later ones are (re)scheduled, under the same names.
+    deps.events.events.length = 0;
+    expect(await scheduleLockWarnings(deps, league, games, new Date('2026-09-13T17:10:00.000Z'))).toBe(2);
+    expect(deps.events.events.map((e) => (e.detail as { name: string }).name)).toEqual([
+      'lineup-lock-lg-cycle-W01-20260913T1735Z',
+      'lineup-lock-lg-cycle-W01-20260915T0015Z'
+    ]);
   });
 });
 

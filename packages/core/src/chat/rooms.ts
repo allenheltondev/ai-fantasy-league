@@ -136,6 +136,7 @@ export const SYSTEM_MESSAGE_ROUTES: Readonly<Record<string, SystemMessageRoute>>
   'Model Power Rankings': { room: 'league' },
   'Member Joined': { room: 'league' },
   'Member Left': { room: 'league' },
+  'Team Renamed': { room: 'league' },
   'Agent Seat Changed': { room: 'league' },
   'Agent Budget Exceeded': { room: 'league' },
   'Settings Changed': { room: 'league' }

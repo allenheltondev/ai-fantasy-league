@@ -40,7 +40,13 @@ function SideNav() {
   const current = useCurrentLeague();
   const offers = useNotifications().offersWaiting(current?.leagueId ?? '');
   const unread = useChatUnread(current?.leagueId ?? null, pathname);
-  const items = navItems({ pathname, phase: current?.state.data?.phase ?? null, offers, unread });
+  const items = navItems({
+    pathname,
+    phase: current?.state.data?.phase ?? null,
+    offers,
+    unread,
+    commissioner: current?.state.data?.youAreCommissioner === true
+  });
   return (
     <AppNav
       appName={APP_NAME}

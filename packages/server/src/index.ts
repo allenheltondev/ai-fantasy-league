@@ -30,7 +30,7 @@ export { createLogger, silentLogger, type Logger } from './log.js';
 export * from './repos/reference.js';
 export { createInMemoryReferenceStore } from './repos/memory-reference.js';
 export { JOBS, JOB_NAMES, type Job, type JobDeps, type JobResult, type NewsSource } from './jobs/index.js';
-export { newTeam } from './league/seats.js';
+export { newTeam, teamNameSetBy } from './league/seats.js';
 export {
   advanceLeague,
   scheduleLockWarnings,
@@ -86,7 +86,13 @@ export {
 export { canonicalEvent, type BusEvent } from './events/bus.js';
 export * from './events/loop.js';
 export { serverSubscribers } from './events/subscribers.js';
-export { JOB_SCHEDULE_EXPRESSIONS, nextRunFn, recurringJobs, seasonJobs } from './jobs/schedules.js';
+export {
+  JOB_SCHEDULE_EXPRESSIONS,
+  JOB_SCHEDULE_TIMEZONES,
+  nextRunFn,
+  recurringJobs,
+  seasonJobs
+} from './jobs/schedules.js';
 export type { JobName } from './jobs/index.js';
 export * from './agents/kill-switch.js';
 export { newsAlertDetail } from './jobs/ingest-news.js';

@@ -99,6 +99,13 @@ export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
   decision: z.ZodType<D>;
   /** Tools the model may call for this kind; undefined means every tool the agent may use. */
   tools?: readonly string[];
+  /** Narrows `tools` for one run, from what `prepare` found (the kickoff binds rename_team only to name a team). */
+  toolsFor?(ctx: TaskContext, payload: P, prep: Prep): readonly string[];
+  /**
+   * Mutations the model may make in one run, instead of the difficulty's `actionsPerTrigger`: the
+   * naming kinds allow one rename and one retry, whatever the tier.
+   */
+  modelActions?: number;
   /**
    * False for kinds whose model reads text other people wrote (trade kinds): the model's
    * `memoryNote` is not persisted, so nothing it was talked into survives into later prompts.
@@ -121,6 +128,8 @@ export interface PreparedTask {
   fallback(): Promise<TaskOutcome>;
   fakeScript?: () => FakeScript;
   memoryScope?: ChatMemoryScope;
+  /** The model's tools for this run, when the kind narrows them (`toolsFor`). */
+  tools?: readonly string[];
 }
 
 export interface TaskKind {
@@ -128,6 +137,7 @@ export interface TaskKind {
   title: string;
   modelRole: 'decision' | 'chat';
   tools?: readonly string[];
+  modelActions?: number;
   modelNotes?: boolean;
   prepare(ctx: TaskContext, payload: unknown): Promise<PreparedTask>;
 }
@@ -138,19 +148,22 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
     title: spec.title,
     modelRole: spec.modelRole,
     ...(spec.tools === undefined ? {} : { tools: spec.tools }),
+    ...(spec.modelActions === undefined ? {} : { modelActions: spec.modelActions }),
     ...(spec.modelNotes === undefined ? {} : { modelNotes: spec.modelNotes }),
     async prepare(ctx, rawPayload) {
       const payload = spec.payload.parse(rawPayload);
       const prep = await spec.prepare(ctx, payload);
       const fakeScript = spec.fakeScript;
       const memoryScope = spec.memoryScope?.(ctx, payload, prep);
+      const tools = spec.toolsFor?.(ctx, payload, prep);
       return {
         instructions: spec.instructions(ctx, payload, prep),
         decision: spec.decision,
         apply: (decision) => spec.apply(ctx, payload, prep, spec.decision.parse(decision)),
         fallback: () => spec.fallback(ctx, payload, prep),
         ...(fakeScript === undefined ? {} : { fakeScript: () => fakeScript(ctx, payload, prep) }),
-        ...(memoryScope === undefined ? {} : { memoryScope })
+        ...(memoryScope === undefined ? {} : { memoryScope }),
+        ...(tools === undefined ? {} : { tools })
       };
     }
   };

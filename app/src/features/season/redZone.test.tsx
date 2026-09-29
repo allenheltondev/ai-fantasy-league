@@ -1,6 +1,6 @@
 import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LeagueApiContext } from '../../api/league';
 import type { MatchupData, NflGame, NflGamesData, RosterEntry } from '../../api/types';
 import type { EventConnect, LeagueEvent } from '../../realtime/leagueEvents';
@@ -223,6 +223,29 @@ describe('the NFL games strip', () => {
   });
 });
 
+/** PHI has the ball: in the red zone while `drive.redZone` (the server's per-player game state, #193). */
+const drive = { redZone: true };
+
+function onDrive(e: RosterEntry): RosterEntry {
+  if (e.player.team !== 'PHI') return e;
+  return {
+    ...e,
+    game: {
+      state: 'live',
+      opponent: 'DAL',
+      home: true,
+      kickoff: '2026-10-04T17:00:00.000Z',
+      period: 2,
+      clock: '8:32',
+      teamScore: 14,
+      opponentScore: 10,
+      possession: true,
+      redZone: drive.redZone,
+      progress: 0.4
+    }
+  };
+}
+
 function matchup(): MatchupData {
   return {
     week: 4,
@@ -243,7 +266,7 @@ function matchup(): MatchupData {
           entry('eagles', 'DEF', 'PHI'),
           entry('bench', 'RB', 'PHI', 'BN'),
           entry('fa', 'WR', null)
-        ]
+        ].map(onDrive)
       },
       away: { teamId: 'team-2', points: 12, players: [entry('mclaurin', 'WR', 'WAS')] }
     }
@@ -281,47 +304,64 @@ function renderMatchup(games: () => NflGamesData) {
   return { api, push: (event: LeagueEvent) => act(() => push(event)) };
 }
 
+const cell = (id: string) => screen.getByTestId(`h2h-player-${id}`);
+
 describe('MatchupPage red zone and NFL games', () => {
+  beforeEach(() => {
+    drive.redZone = true;
+  });
+
   it('highlights started offensive players in the red zone, and clears it when the drive ends', async () => {
     reducedMotion(false);
     let games = gamesData([RED, DRIVING, FINAL]);
     const { api, push } = renderMatchup(() => games);
-    const hurts = await screen.findByTestId('matchup-row-hurts');
-    await waitFor(() => expect(hurts).toHaveClass('red-zone-row', 'red-zone-pulse'));
-    expect(within(hurts).getByTestId('red-zone-chip')).toHaveTextContent('Red zone·2nd & 4 at DAL 7');
-    expect(screen.getByTestId('matchup-row-brown')).toHaveClass('red-zone-row');
-    expect(screen.getByTestId('matchup-row-eagles')).not.toHaveClass('red-zone-row');
-    expect(screen.getByTestId('matchup-row-fa')).not.toHaveClass('red-zone-row');
-    expect(screen.getByTestId('matchup-row-mclaurin')).not.toHaveClass('red-zone-row');
+    const hurts = await screen.findByTestId('h2h-player-hurts');
+    expect(hurts).toHaveClass('h2h-redzone', 'h2h-pulse', 'h2h-edge-start');
+    // The drive's down and distance come from the week's games once they load.
+    await waitFor(() =>
+      expect(within(hurts).getByTestId('red-zone-chip')).toHaveTextContent('Red zone·2nd & 4 at DAL 7')
+    );
+    expect(cell('brown')).toHaveClass('h2h-redzone');
+    // A defense is not highlighted (its offense has the ball), nor a player without a team.
+    expect(cell('eagles')).not.toHaveClass('h2h-redzone');
+    expect(cell('eagles')).toHaveClass('h2h-live');
+    expect(cell('fa')).not.toHaveClass('h2h-redzone');
+    expect(cell('mclaurin')).not.toHaveClass('h2h-redzone');
     // My started players' game leads the strip.
     const strip = screen.getByRole('region', { name: 'NFL games · week 4' });
     expect(within(strip).getAllByRole('article')[0]).toHaveAccessibleName('DAL at PHI');
 
     await waitFor(() => expect(api.getRealtime).toHaveBeenCalled());
     games = gamesData([{ ...RED, possessionTeam: 'DAL', isRedZone: false, homeScore: 21 }, DRIVING, FINAL]);
+    drive.redZone = false;
     push({ detailType: 'Scores Updated', leagueId: null });
     expect(api.getNflGames).toHaveBeenCalledTimes(1);
     push({ detailType: 'NFL Games Updated', leagueId: null });
-    await waitFor(() => expect(screen.getByTestId('matchup-row-hurts')).not.toHaveClass('red-zone-row'));
-    expect(screen.queryByTestId('red-zone-chip')).not.toBeInTheDocument();
+    // NFL Games Updated reloads both the games and the matchup, where the game states live.
+    await waitFor(() => expect(cell('hurts')).not.toHaveClass('h2h-redzone'));
+    expect(cell('hurts')).toHaveClass('h2h-live');
+    expect(screen.queryByTestId('red-zone-chip')).toBeNull();
     expect(screen.getByRole('article', { name: 'DAL at PHI' })).toHaveTextContent('21');
   });
 
   it('keeps the highlight but drops the pulse for reduced motion', async () => {
     reducedMotion(true);
     renderMatchup(() => gamesData([RED]));
-    const hurts = await screen.findByTestId('matchup-row-hurts');
-    await waitFor(() => expect(hurts).toHaveClass('red-zone-row'));
-    expect(hurts).not.toHaveClass('red-zone-pulse');
-    expect(screen.getByRole('article', { name: 'DAL at PHI' })).not.toHaveClass('red-zone-pulse');
+    const hurts = await screen.findByTestId('h2h-player-hurts');
+    expect(hurts).toHaveClass('h2h-redzone');
+    expect(hurts).not.toHaveClass('h2h-pulse');
+    await waitFor(() =>
+      expect(screen.getByRole('article', { name: 'DAL at PHI' })).not.toHaveClass('red-zone-pulse')
+    );
   });
 
-  it('shows the matchup without games when they fail to load', async () => {
+  it('shows the matchup without games when they fail to load, the chip without its down and distance', async () => {
     const { api } = renderMatchup(() => {
       throw new Error('down');
     });
-    expect(await screen.findByTestId('matchup-row-hurts')).not.toHaveClass('red-zone-row');
+    const hurts = await screen.findByTestId('h2h-player-hurts');
     await waitFor(() => expect(api.getNflGames).toHaveBeenCalled());
+    expect(within(hurts).getByTestId('red-zone-chip')).toHaveTextContent(/^Red zone$/);
     expect(screen.queryByTestId('nfl-games')).not.toBeInTheDocument();
   });
 });

@@ -38,7 +38,16 @@ export function redZoneClass(base: 'red-zone-row' | 'red-zone-card', reducedMoti
  * "Red zone · 2nd & 4 at DAL 7": the text says it, so the highlight never relies on color alone,
  * and screen readers read it with the row.
  */
-export function RedZoneChip({ zone, className = 'ml-2' }: { zone: RedZoneTeam; className?: string }) {
+export function RedZoneChip({
+  zone,
+  className = 'ml-2',
+  compact = false
+}: {
+  zone: RedZoneTeam;
+  className?: string;
+  /** In a narrow cell (the matchup's head-to-head, #193): the down and distance only from `sm` up. */
+  compact?: boolean;
+}) {
   return (
     <span
       data-testid="red-zone-chip"
@@ -46,10 +55,10 @@ export function RedZoneChip({ zone, className = 'ml-2' }: { zone: RedZoneTeam; c
     >
       Red zone
       {zone.downDistance !== null && (
-        <>
+        <span className={`inline-flex items-center gap-1${compact ? ' max-sm:hidden' : ''}`}>
           <span aria-hidden="true">·</span>
           <span>{zone.downDistance}</span>
-        </>
+        </span>
       )}
     </span>
   );

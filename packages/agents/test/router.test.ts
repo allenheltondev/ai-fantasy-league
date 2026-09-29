@@ -9,7 +9,7 @@ import {
   leagueRosterIndex,
   routeEvent,
   taskIdFor,
-  TRIGGER_RULES
+  triggerKinds
 } from '../src/router.js';
 import { DEFAULT_TASK_KINDS } from '../src/tasks/index.js';
 import { createTaskKindRegistry, type TaskKind } from '../src/tasks/kinds.js';
@@ -25,7 +25,7 @@ function event(detailType: string, detail: Record<string, unknown>, id = 'evt-1'
 
 /** Every trigger kind registered (as no-ops), so the router's mapping can be tested end to end. */
 const allKinds = createTaskKindRegistry(
-  [...new Set(Object.values(TRIGGER_RULES).map((r) => r.kind))].map((kind): TaskKind => ({
+  triggerKinds().map((kind): TaskKind => ({
     ...noopTask,
     kind
   }))
@@ -135,9 +135,12 @@ describe('routeEvent', () => {
 
   it('checks every agent lineup for a lock', async () => {
     const s = await withSeats();
-    const all = await s.route(event('Lineup Lock Approaching', { leagueId: LEAGUE_ID, week: 5 }));
+    const all = await s.route(
+      event('Lineup Lock Approaching', { leagueId: LEAGUE_ID, week: 5, nflTeams: ['BUF', 'MIA'] })
+    );
     expect(all.map((d) => d.teamId)).toEqual(['team-2', 'team-3', 'team-4']);
-    expect(s.requested()[0]?.payload).toEqual({ reason: 'lock', week: 5 });
+    // The kickoff's teams ride along, so a team with nobody playing then skips without a model call.
+    expect(s.requested()[0]?.payload).toEqual({ reason: 'lock', week: 5, nflTeams: ['BUF', 'MIA'] });
   });
 
   it('routes player news only to agents rostering the player', async () => {

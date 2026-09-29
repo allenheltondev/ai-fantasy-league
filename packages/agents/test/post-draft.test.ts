@@ -136,7 +136,10 @@ describe('post-draft kickoff', () => {
     if ('error' in board) throw new Error(board.error.message);
     const picks = (board.data as { picks: { teamId: string; player: { name: string } }[] }).picks;
     for (const m of posted) {
-      expect(m.text).toMatch(/^Grading my own draft: [A-F]\.|^Draft done/);
+      // Every agent had a placeholder name: the reaction opens by introducing its new one (#194).
+      expect(m.text).toMatch(
+        /^New name, same .+\. Say hello to .+?\. (Grading my own draft: [A-F]\.|Draft done)/
+      );
       const own = picks.filter((p) => p.teamId === m.author.teamId).map((p) => p.player.name);
       expect(
         own.some((name) => m.text.includes(name)),
@@ -149,9 +152,19 @@ describe('post-draft kickoff', () => {
     expect(reactionRuns).toHaveLength(AGENTS.length);
     for (const run of reactionRuns) {
       expect(run.toolNames.length).toBeGreaterThan(0);
-      expect(run.toolNames.every((n) => (CHAT_TOOLS as readonly string[]).includes(n))).toBe(true);
+      // Read-only lookups, plus rename_team for the team's first name.
+      expect(run.toolNames.every((n) => [...CHAT_TOOLS, 'rename_team'].includes(n))).toBe(true);
+      expect(run.toolNames).toContain('rename_team');
       expect(run.systemPrompt).toContain("Who's who (tag a team with @ and its name):");
+      expect(run.systemPrompt).toContain('First, name your team.');
     }
+
+    // 0. Each agent named its team in character, and none took another's name.
+    const named = await Promise.all(AGENTS.map((id) => s.repos.teams.get(s.leagueId, id)));
+    expect(named.map((t) => t?.nameSetBy)).toEqual(AGENTS.map(() => 'agent'));
+    expect(new Set(named.map((t) => t?.name)).size).toBe(AGENTS.length);
+    expect(named.find((t) => t?.id === 'team-2')?.name).toBe("Let's Gooo Brigade");
+    expect(named.map((t) => t?.renames?.[0]?.from)).toEqual(['Team 2', 'Team 3', 'Team 4']);
 
     // 3. The agent whose kicker went on IR claimed a healthy kicker; the others needed nothing.
     const claims = await s.repos.waivers.listClaims(s.leagueId, 'pending');
@@ -187,6 +200,9 @@ describe('post-draft kickoff', () => {
     expect(kickoffs.every((t) => t.reasoningSummary.includes('Lineup:'))).toBe(true);
     expect(await reactions()).toEqual([]);
     expect(await tasks('trade_proposal')).toEqual([]);
+    // Naming is the model's part: without one, the teams keep their names for a later look.
+    for (const teamId of AGENTS)
+      expect((await s.repos.teams.get(s.leagueId, teamId))?.nameSetBy).toBe('default');
   });
 });
 
@@ -215,6 +231,33 @@ describe('post_draft task', () => {
     ).toMatchObject({ status: 'skipped', fallbackReason: 'get_draft_board failed: FORBIDDEN' });
   });
 
+  it('leaves a name the commissioner locked, and a seat that does not name its team (#194)', async () => {
+    const { s } = await drafted();
+    const team2 = await s.repos.teams.get(s.leagueId, 'team-2');
+    await s.repos.teams.update({ ...team2!, name: 'Commish Pick', nameSetBy: 'commissioner' });
+    await s.run('configure_agent_seat', {
+      leagueId: s.leagueId,
+      teamId: 'team-3',
+      ...SEATS['team-3'],
+      namesTeam: false
+    });
+    // A real name the manager already picked stays too.
+    const team4 = await s.repos.teams.get(s.leagueId, 'team-4');
+    await s.repos.teams.update({ ...team4!, name: 'Big Brain Ball', nameSetBy: 'agent' });
+    const model = new ScriptedModelClient();
+    for (const teamId of ['team-2', 'team-3', 'team-4']) {
+      const record = await runAgentAction(s.deps(model), kickoff(s, teamId));
+      expect(record).toMatchObject({ status: 'completed', finalAction: 'post_draft' });
+      expect(record.reasoningSummary).not.toContain('Name:');
+    }
+    for (const run of model.transcript) {
+      expect(run.toolNames).not.toContain('rename_team');
+      expect(run.systemPrompt).not.toContain('First, name your team.');
+    }
+    expect((await s.repos.teams.get(s.leagueId, 'team-2'))?.name).toBe('Commish Pick');
+    expect((await s.repos.teams.get(s.leagueId, 'team-3'))?.name).toBe('Team 3');
+  });
+
   it('goes on without a roster or a chat room: no lineup, no claims, and nothing said', async () => {
     const { s } = await drafted();
     const model = new ScriptedModelClient();
@@ -224,7 +267,7 @@ describe('post_draft task', () => {
     );
     expect(record).toMatchObject({ status: 'completed', finalAction: 'post_draft' });
     expect(record.reasoningSummary).toBe(
-      'Lineup: Not set: get_roster failed: FORBIDDEN The tool "get_roster" is not available to you. Chat: Stayed quiet (list_chat_rooms failed: FORBIDDEN). Waivers: No roster holes.'
+      'Name: Renamed "Team 3" to "Regression to the Mean Machine". Lineup: Not set: get_roster failed: FORBIDDEN The tool "get_roster" is not available to you. Chat: Stayed quiet (list_chat_rooms failed: FORBIDDEN). Waivers: No roster holes.'
     );
     expect(model.transcript[0]?.systemPrompt).toContain('You cannot post in the chat right now');
     expect(await s.repos.waivers.listClaims(s.leagueId, 'pending')).toEqual([]);

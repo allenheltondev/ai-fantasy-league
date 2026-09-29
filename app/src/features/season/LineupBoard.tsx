@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/core';
 import { Button, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
+import { ApiError } from '../../api/client';
 import type { Roster, RosterEntry } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { AnimatedNumber } from '../../motion/AnimatedNumber';
@@ -36,6 +37,7 @@ import {
   type Placement,
   type Target
 } from './slots';
+import { locksIn, periodLabel } from './gameState';
 import { PlayerLink, useOpenPlayerCard } from '../../players/PlayerLink';
 
 const pts = (n: number) => n.toFixed(1);
@@ -96,6 +98,13 @@ export function LineupBoard(props: {
   teamId: string;
   data: Roster;
   onSaved: (warnings: { code: string; message: string }[]) => void;
+  /**
+   * A save lost the race with a kickoff (PLAYER_LOCKED, #193): the names of the players who locked.
+   * The page says so and reloads the lineup.
+   */
+  onLocked?: (names: string[]) => void;
+  /** The clock the lock countdowns read (ms); the page ticks it. */
+  now: number;
 }) {
   const { data } = props;
   const api = useLeagueApi();
@@ -192,6 +201,10 @@ export function LineupBoard(props: {
       },
       (error: unknown) => {
         setSaving(false);
+        if (error instanceof ApiError && error.code === 'PLAYER_LOCKED' && props.onLocked !== undefined) {
+          props.onLocked(lockedNames(error.details, data.players));
+          return;
+        }
         setProblem(error);
       }
     );
@@ -212,7 +225,7 @@ export function LineupBoard(props: {
   const bench = rows.filter((p) => p.slot === 'BN');
   const ir = rows.filter((p) => p.slot === 'IR');
   const irRoom = data.slots.find((s) => s.slot === 'IR')?.count ?? 0;
-  const board = { rows, moving, attempt, moveTo, choose, selected, saving };
+  const board = { rows, moving, attempt, moveTo, choose, selected, saving, now: props.now };
 
   // Nobody starts (right after the draft, say): offer the optimizer's lineup as one tap.
   const emptyLineup = !data.players.some((p) => isStarter(p.slot)) && pending.length === 0;
@@ -406,6 +419,51 @@ interface Board {
   choose: (entry: RosterEntry) => void;
   selected: string | null;
   saving: boolean;
+  now: number;
+}
+
+/** The players a PLAYER_LOCKED refusal names (`details.lockedPlayerIds`), by name. */
+export function lockedNames(details: unknown, players: readonly RosterEntry[]): string[] {
+  const ids = (details as { lockedPlayerIds?: unknown } | null)?.lockedPlayerIds;
+  if (!Array.isArray(ids)) return [];
+  return ids.flatMap((id) => {
+    const name = players.find((p) => p.player.id === id)?.player.name;
+    return name === undefined ? [] : [name];
+  });
+}
+
+/** "Locked · Q2 8:42", "Locked · Final", or "Locks in 12m" in the hour before his kickoff. */
+function LockStatus({ entry, now }: { entry: RosterEntry; now: number }) {
+  if (entry.locked) {
+    // The server's game state when it sent one; a lock by the clock alone just says Locked.
+    const game = entry.game;
+    const when =
+      game === undefined
+        ? null
+        : game.state === 'final'
+          ? 'Final'
+          : game.state === 'live'
+            ? (periodLabel(game.period, game.clock) ?? 'Live')
+            : null;
+    return (
+      <StatusBadge tone="neutral" data-testid="lock-status">
+        <svg aria-hidden="true" viewBox="0 0 16 16" className="mr-1 inline h-3 w-3 align-[-2px]">
+          <path
+            fill="currentColor"
+            d="M5 7V5a3 3 0 1 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z"
+          />
+        </svg>
+        Locked{when === null ? '' : ` · ${when}`}
+      </StatusBadge>
+    );
+  }
+  const soon = locksIn(entry, now);
+  if (soon === null) return null;
+  return (
+    <StatusBadge tone="warning" data-testid="lock-status">
+      {soon}
+    </StatusBadge>
+  );
 }
 
 /** The week's projection, how the unsaved changes move it, and the Optimize button. */
@@ -636,7 +694,7 @@ function PlayerCard(props: {
           {/* On a bye the badge says so. */}
           {!entry.onBye && <span data-testid="game-line">{gameLine(entry)}</span>}
           {entry.byeWeek !== null && !entry.onBye && <span>· bye {entry.byeWeek}</span>}
-          {entry.locked && <StatusBadge tone="neutral">Locked</StatusBadge>}
+          <LockStatus entry={entry} now={board.now} />
           {status !== null && (
             <StatusBadge
               tone={entry.onBye || ['questionable', 'doubtful'].includes(entry.status) ? 'warning' : 'error'}

@@ -22,6 +22,11 @@ export interface AgentCardProps {
   onChange?: (config: AgentSeatConfig) => void;
   onShuffle?: () => void;
   busy?: boolean;
+  /**
+   * Show the "Let this manager name its team" switch (#194). Commissioner only: the settings page
+   * turns it on for the commissioner when configure_agent_seat is allowed.
+   */
+  namingToggle?: boolean;
 }
 
 /** The manager's name: the seat's own (#159), else its personality's title for older seats. */
@@ -89,7 +94,8 @@ export function AgentCard({
   takenNames = [],
   onChange,
   onShuffle,
-  busy = false
+  busy = false,
+  namingToggle = false
 }: AgentCardProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -183,6 +189,25 @@ export function AgentCard({
           <p className="break-words text-sm">
             <span className="text-muted-foreground">Strategy:</span> {archetype.displayName}
           </p>
+        )}
+        {onChange && namingToggle && (
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 accent-primary-600"
+              checked={config.namesTeam !== false}
+              disabled={busy}
+              onChange={(e) => onChange({ ...config, namesTeam: e.target.checked })}
+            />
+            <span>
+              Let this manager name its team
+              <span className="block text-xs text-muted-foreground">
+                {config.namesTeam === false
+                  ? 'Off: it keeps the name you give it.'
+                  : 'On: it picks a name in character and may rebrand now and then.'}
+              </span>
+            </span>
+          </label>
         )}
         {onChange && (
           <div className="flex flex-wrap items-end gap-2">

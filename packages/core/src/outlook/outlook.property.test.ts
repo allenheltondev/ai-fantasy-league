@@ -25,7 +25,8 @@ const playerArb = (id: string) =>
     ),
     positions: fc.constantFrom(['QB'], ['RB'], ['WR'], ['TE'], ['K'], ['DEF'], ['RB', 'WR']),
     status: fc.constantFrom(...PLAYER_STATUSES),
-    game: fc.constantFrom('bye', 'pending', 'live', 'final'),
+    game: fc.constantFrom('bye', 'upcoming', 'live', 'final'),
+    progress: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), { nil: null }),
     projected: fc.option(points, { nil: null }),
     actual: fc.option(points, { nil: null })
   }) as fc.Arbitrary<OutlookPlayer>;
@@ -83,7 +84,26 @@ describe('outlook properties', () => {
         expect(f.remaining).toBeGreaterThanOrEqual(0);
         expect(f.variance).toBeGreaterThanOrEqual(0);
         if (p.game === 'final' || p.game === 'bye') expect(f.variance).toBe(0);
+        // A final game has no remaining projection.
+        if (p.game === 'final') expect(f.remaining).toBe(0);
       })
+    );
+  });
+
+  it('the further a live game has gone, the less of his projection remains', () => {
+    fc.assert(
+      fc.property(
+        playerArb('p'),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        fc.double({ min: 0, max: 1, noNaN: true }),
+        (p, a, b) => {
+          const live = { ...p, game: 'live' as const };
+          const [early, late] = a <= b ? [a, b] : [b, a];
+          expect(forecastPlayer({ ...live, progress: late }).remaining).toBeLessThanOrEqual(
+            forecastPlayer({ ...live, progress: early }).remaining + 1e-9
+          );
+        }
+      )
     );
   });
 
@@ -92,7 +112,8 @@ describe('outlook properties', () => {
       fc.property(teamArb('t'), (team) => {
         const f = forecastTeam(team);
         expect(f.projected).toBeGreaterThanOrEqual(f.current - 0.01);
-        expect(f.yetToPlay + f.inProgress).toBeLessThanOrEqual(
+        // Every starter is counted exactly once.
+        expect(f.yetToPlay + f.inProgress + f.done + f.notPlaying).toBe(
           team.filter((p) => isStarterSlot(p.slot)).length
         );
         expect(forecastTeam(team.filter((p) => isStarterSlot(p.slot)))).toEqual(f);

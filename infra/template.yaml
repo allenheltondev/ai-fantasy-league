@@ -393,6 +393,8 @@ Resources:
           # packages/server/src/season/achievements.ts); rsc-core's catalog has the
           # fantasy.* badges (rsc-core #244). Set to 'false' to stop reporting them.
           BADGE_CHEST_ENABLED: 'true'
+          # Manager check-ins (#195) stop while the agent kill switch is on.
+          AGENT_KILL_SWITCH_PARAM: !Ref AgentKillSwitchParameter
           NODE_OPTIONS: --enable-source-maps
       # An asynchronous invocation (EventBridge rule or schedule) that still
       # fails after Lambda's retries goes to the default bus as "Lambda Function
@@ -424,13 +426,18 @@ Resources:
                 - !Sub ${FantasyTable.Arn}/index/*
             # Player Status Changed, Week Rolled Over, Scores Updated, NFL Games Updated, Player News Alert,
             # Waivers Processed, Waiver Window Opened, Week Provisionally Final, and
-            # Schedule Event (rsc-core deferred events for Lineup Lock Approaching).
+            # Schedule Event (rsc-core deferred events for Lineup Lock Approaching),
+            # and Manager Check-In.
             - Effect: Allow
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
             - Effect: Allow
               Action: ssm:GetParameter
               Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${NewsFeedsParameter}
+            # The agent kill switch, read-only (manager check-ins skip while it is on).
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/agents/kill-switch
       Events:
         # 1-2x a day: the Sleeper universe is a large payload.
         SyncPlayers:
@@ -544,6 +551,18 @@ Resources:
             Description: Apply stat corrections and make last week official
             ScheduleExpression: cron(0 15 ? * THU,FRI *)
             Input: '{"job":"officialFinal"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+        # Manager check-ins (#195): 9 AM, 2 PM, and 8 PM US Eastern, through daylight
+        # saving. One Manager Check-In per drafted league with agents; the agent
+        # router fires once per league, date, and slot, so a retry changes nothing.
+        ManagerCheckIns:
+          Type: ScheduleV2
+          Properties:
+            Description: Agents look at their teams (lineup, waivers, trades)
+            ScheduleExpressionTimezone: America/New_York
+            ScheduleExpression: cron(0 9,14,20 * * ? *)
+            Input: '{"job":"managerCheckIns"}'
             RetryPolicy:
               MaximumRetryAttempts: 2
 
@@ -854,9 +873,15 @@ Resources:
                 - Chat Moment
                 # Agents shop for trades once a league week (#66).
                 - Week Rolled Over
+                # Three times a day every agent looks at its team (#195).
+                - Manager Check-In
                 # The post-draft kickoff (#175): each agent's task is scheduled
                 # (a rsc-core Schedule Event through the PutEvents grant above).
                 - Draft Completed
+                # Agents name their teams (#194): a seat an agent takes over, or
+                # changed after the draft, gets a name if it still has a placeholder.
+                - Member Left
+                - Agent Seat Changed
                 # Agent memory (#44): results and trade steps the agents remember;
                 # Trade Accepted also sends agents to vote in league-vote review (#122).
                 - Week Provisionally Final
@@ -1067,6 +1092,7 @@ Resources:
                 - Model Power Rankings
                 - Member Joined
                 - Member Left
+                - Team Renamed
                 - Settings Changed
                 - Agent Seat Changed
                 - Agent Budget Exceeded

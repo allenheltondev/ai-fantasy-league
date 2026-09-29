@@ -21,7 +21,7 @@ const player = (
   slot,
   positions: [slot === 'BN' || slot === 'IR' || slot === 'W/R/T' ? 'WR' : (slot as 'QB')],
   status: 'active',
-  game: 'pending',
+  game: 'upcoming',
   projected: 10,
   actual: null,
   ...extra
@@ -39,7 +39,25 @@ describe('forecastPlayer', () => {
     expect(forecastPlayer(player('a', 'WR', { projected: null }))).toMatchObject({ mean: 0, variance: 0 });
   });
 
-  it('keeps half the unmet projection for a live game and none for a final one', () => {
+  it('scales the unmet projection by the share of a live game left', () => {
+    // Q3 8:42: about 60% played, so 40% of the 12 unmet points remain.
+    expect(
+      forecastPlayer(player('a', 'WR', { game: 'live', progress: 0.6, projected: 20, actual: 8 }))
+    ).toMatchObject({ current: 8, mean: 12.8 });
+    expect(
+      forecastPlayer(player('a', 'WR', { game: 'live', progress: 0.6, projected: 20, actual: 8 })).remaining
+    ).toBeCloseTo(4.8, 9);
+    // Overtime or the final whistle: nothing left.
+    expect(
+      forecastPlayer(player('a', 'WR', { game: 'live', progress: 1, projected: 20, actual: 8 }))
+    ).toMatchObject({ remaining: 0, variance: 0 });
+    // Out-of-range progress is clamped.
+    expect(
+      forecastPlayer(player('a', 'WR', { game: 'live', progress: -1, projected: 20, actual: 8 })).remaining
+    ).toBe(12);
+  });
+
+  it('keeps half the unmet projection when progress is unknown, and none for a final game', () => {
     expect(forecastPlayer(player('a', 'WR', { game: 'live', projected: 20, actual: 8 }))).toMatchObject({
       mean: 14,
       current: 8,
@@ -60,6 +78,17 @@ describe('forecastPlayer', () => {
   it('expects nothing from players on bye or ruled out', () => {
     expect(forecastPlayer(player('a', 'WR', { game: 'bye' })).mean).toBe(0);
     expect(forecastPlayer(player('a', 'WR', { status: 'out' })).mean).toBe(0);
+    // Ruled out and his team kicked off: still nothing to come.
+    expect(forecastPlayer(player('a', 'WR', { status: 'out', game: 'live', progress: 0.2 }))).toEqual({
+      mean: 0,
+      variance: 0,
+      current: 0,
+      remaining: 0
+    });
+    expect(forecastTeam([player('a', 'WR', { status: 'out', game: 'live' })])).toMatchObject({
+      inProgress: 0,
+      notPlaying: 1
+    });
   });
 });
 
@@ -72,7 +101,15 @@ describe('forecastTeam and winProbability', () => {
       player('rb', 'RB', { game: 'bye' }),
       player('bn', 'BN', { projected: 30 })
     ]);
-    expect(team).toMatchObject({ current: 11, projected: 35, remaining: 24, yetToPlay: 1, inProgress: 1 });
+    expect(team).toMatchObject({
+      current: 11,
+      projected: 35,
+      remaining: 24,
+      yetToPlay: 1,
+      inProgress: 1,
+      done: 1,
+      notPlaying: 1
+    });
     expect(team.stdDev).toBeCloseTo(Math.sqrt(81 + 1.8 * 1.8), 2);
   });
 

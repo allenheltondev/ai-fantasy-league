@@ -1,7 +1,8 @@
-import { dmRoomId, hashString, tradeAppetite, type MemoryEvent } from '@fantasy/core';
+import { dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
+import { judgmentNoise } from './noise.js';
 import { TaskUnavailableError } from './lineup.js';
 
 /**
@@ -99,7 +100,7 @@ export interface ProposalCandidate {
   partnerScore: number;
 }
 
-interface ProposalPrep {
+export interface ProposalPrep {
   limit: number;
   bar: number;
   candidates: ProposalCandidate[];
@@ -153,13 +154,23 @@ export function swapIdeas(
 export const EARLY_LOOK_OFFERS = 1;
 
 async function prepare(ctx: TaskContext, payload: Payload): Promise<ProposalPrep> {
-  const appetite = tradeAppetite(ctx.config);
   const limit = Math.min(
-    appetite.proposalsPerWeek,
+    tradeAppetite(ctx.config).proposalsPerWeek,
     ctx.config.levers.actionsPerTrigger,
     payload.reason === 'draft_complete' ? EARLY_LOOK_OFFERS : Number.POSITIVE_INFINITY
   );
   if (limit === 0) throw new TaskUnavailableError('no_trade_appetite');
+  return scoutProposals(ctx, limit);
+}
+
+/**
+ * The trade search (see the top of this file): the vetted one-for-one offers, at most one per
+ * team, best first, for up to `limit` offers. Throws `TaskUnavailableError` when trades are closed
+ * (`trades_closed`) or nothing clears the bars (`no_trade_found`). The check-in (#195) shops with it
+ * too.
+ */
+export async function scoutProposals(ctx: TaskContext, limit: number): Promise<ProposalPrep> {
+  const appetite = tradeAppetite(ctx.config);
   const state = data(await ctx.tools.call('get_league_state', {}), StateSchema);
   if (state === null || state.yourTeam === null || !state.allowedActions.includes('propose_trade'))
     throw new TaskUnavailableError('trades_closed');
@@ -208,11 +219,8 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<ProposalPrep
     );
     if (preview === null || !preview.valid || preview.fairness.lopsided) continue;
     const [mySide, theirSide] = preview.sides;
-    const unit =
-      (hashString(`${ctx.taskId}|${idea.send.player.id}|${idea.receive.player.id}`) % 2001) / 1000 - 1;
-    const score = round1(
-      (mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * (1 + unit * ctx.config.levers.valuationNoise)
-    );
+    const noise = judgmentNoise(ctx, 'proposal', idea.team.id, idea.send.player.id, idea.receive.player.id);
+    const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
     const partnerScore = round1(theirSide.lineupDelta + theirSide.valueDelta);
     if (score < bar || partnerScore < PARTNER_FLOOR) continue;
     candidates.push({
@@ -230,11 +238,11 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<ProposalPrep
   return { limit, bar, candidates: best };
 }
 
-function describe(c: ProposalCandidate, i: number): string {
+export function describeCandidate(c: ProposalCandidate, i: number): string {
   return `${i + 1}. To ${c.team.name}: your ${c.send.name} (${c.send.position}) for their ${c.receive.name} (${c.receive.position}). Value for you ${c.score}, for them ${c.partnerScore}.`;
 }
 
-async function propose(
+export async function propose(
   ctx: TaskContext,
   prep: ProposalPrep,
   picks: TradeProposalDecision['offers'],
@@ -332,7 +340,7 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
         ? `The draft just ended and you like to deal: take an early look for a trade. You may send up to ${prep.limit} offer(s) now.`
         : `A new week: time to shop for trades. You may send up to ${prep.limit} offer(s) this week, one per team.`,
       `Your scouting found these one-for-one swaps that help your roster by the trade value math (your bar is ${prep.bar}); each is legal and fair enough to offer:`,
-      ...prep.candidates.map(describe),
+      ...prep.candidates.map(describeCandidate),
       'Check anything you doubt with your tools, then answer with `offers`: the candidate numbers to send, best first, each with an optional short `message` to the other manager. You cannot change the players. An empty list sends nothing.'
     ].join('\n');
   },
