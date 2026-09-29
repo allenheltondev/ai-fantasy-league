@@ -18,6 +18,10 @@ describe('PlayerHeadshot', () => {
     // The name is always beside it, so it is hidden from assistive tech and has no alt text.
     expect(img).toHaveAttribute('alt', '');
     expect(container.querySelector('[data-headshot]')).toHaveAttribute('aria-hidden', 'true');
+    // The box is sized in CSS from this, larger on a wide screen (index.css).
+    expect(
+      container.querySelector<HTMLElement>('[data-headshot]')!.style.getPropertyValue('--headshot')
+    ).toBe('28px');
   });
 
   it('loads eagerly when it is always on screen, and uses the full size for a large picture', () => {
