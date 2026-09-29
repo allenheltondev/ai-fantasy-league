@@ -10,7 +10,6 @@ import {
   RosterSlotSchema,
   willNotPlay,
   winProbability,
-  type GameState,
   type OutlookPlayer
 } from '@fantasy/core';
 import { z } from 'zod';
@@ -26,7 +25,7 @@ import { resolveLineup, rosterPlayers, toRosterPlayer } from '../../season/lineu
 import { detailFlag } from '../players.js';
 import { leagueWeek, loadWeekData, rosterEntries, type RosterEntry } from './views.js';
 
-const GAME_STATES = ['bye', 'pending', 'live', 'final'] as const;
+const GAME_STATES = ['upcoming', 'live', 'final', 'bye'] as const;
 
 const SideSchema = z.object({
   teamId: z.string(),
@@ -37,6 +36,11 @@ const SideSchema = z.object({
   stdDev: z.number().describe('Uncertainty in the final score (one standard deviation, in points).'),
   playersYetToPlay: z.number().int().describe('Starters whose game has not kicked off.'),
   playersInProgress: z.number().int().describe('Starters whose game is under way.'),
+  playersDone: z.number().int().describe('Starters whose game is final.'),
+  playersNotPlaying: z
+    .number()
+    .int()
+    .describe('Starters on bye or ruled out before their game: they score nothing (bench them if you can).'),
   winProbability: z
     .number()
     .nullable()
@@ -46,7 +50,7 @@ const SideSchema = z.object({
       z.object({
         player: PlayerRefSchema,
         slot: RosterSlotSchema,
-        game: z.enum(GAME_STATES).describe('His NFL game: bye, pending (not started), live, or final.'),
+        game: z.enum(GAME_STATES).describe('His NFL game: upcoming (not started), live, final, or bye.'),
         projectedPoints: z.number().nullable(),
         points: z.number().nullable(),
         expectedPoints: z.number().describe('Expected final points: actual so far plus what remains.')
@@ -126,7 +130,7 @@ export const getMatchupOutlook = defineOperation({
     'Answers "how does my week look?" for a team\'s matchup: each side\'s current score, expected final score (points so far plus the projection still to come), and win probability from a simple normal model of projections.',
     "`insights` flags your own lineup: starters on bye or ruled out, empty slots, bench players projected above a starter they can replace (with the gain), players already locked, and the best lineup's projected points. Fix what it flags with set_lineup before each player's kickoff.",
     "`opponentWeakSpots` lists the opponent's empty, bye, ruled-out, and out-projected slots.",
-    'While games are live, `currentPoints`, `remainingPoints`, and `playersYetToPlay` track the week; a player in a live game is assumed to have half his unmet projection left.',
+    "While games are live, `currentPoints`, `remainingPoints`, and the player counts track the week: a player in a live game has his unmet projection times the share of the game still to play left (from the quarter and clock; half when the game has started but not been read yet), and a final game (the scoreboard's final, at once) has nothing left.",
     'Defaults: your own team and the current week. Projections use league scoring; with none stored yet a NO_PROJECTIONS warning says so. Before the draft there is no schedule (NO_SCHEDULE_YET). `detail: true` adds every player row for both sides. Only members can read it.'
   ].join(' '),
   tags: ['season'],
@@ -238,25 +242,17 @@ async function loadSide(ctx: Ctx, league: League, team: Team, week: number): Pro
     loadWeekData(ctx, league, week, team.roster)
   ]);
   const entries = rosterEntries(lineup.entries, players, data, now);
-  const outlook = entries.map((e): OutlookPlayer => {
-    const nflTeam = e.player.team;
-    const game: GameState = e.onBye
-      ? 'bye'
-      : nflTeam !== null && data.finalTeams.has(nflTeam)
-        ? 'final'
-        : e.locked
-          ? 'live'
-          : 'pending';
-    return {
-      playerId: e.player.id,
-      slot: e.slot,
-      positions: players.has(e.player.id) ? [e.player.position] : [],
-      status: e.status,
-      game,
-      projected: e.projectedPoints,
-      actual: e.points
-    };
-  });
+  // Each player's game state comes from core `playerGame`, as on the matchup and the lineup (#193).
+  const outlook = entries.map((e): OutlookPlayer => ({
+    playerId: e.player.id,
+    slot: e.slot,
+    positions: players.has(e.player.id) ? [e.player.position] : [],
+    status: e.status,
+    game: e.game.state,
+    progress: e.game.progress,
+    projected: e.projectedPoints,
+    actual: e.points
+  }));
   const optimal = optimizeLineup(
     league.settings,
     team.roster.map((id) => toRosterPlayer(id, players.get(id))),
@@ -282,6 +278,8 @@ function sideView(
     stdDev: forecast.stdDev,
     playersYetToPlay: forecast.yetToPlay,
     playersInProgress: forecast.inProgress,
+    playersDone: forecast.done,
+    playersNotPlaying: forecast.notPlaying,
     winProbability: other === null ? null : winProbability(forecast, other),
     ...(detail
       ? {

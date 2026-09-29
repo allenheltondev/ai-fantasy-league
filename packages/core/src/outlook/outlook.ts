@@ -9,6 +9,7 @@ import {
 } from '../rules/positions.js';
 import { slotCount, type LeagueSettings } from '../rules/settings.js';
 import { roundPoints } from '../scoring/engine.js';
+import type { PlayerGameState } from './game-state.js';
 
 /**
  * Matchup outlook math (SPEC §6 `get_matchup_outlook`): a projected outcome with a win probability
@@ -16,8 +17,8 @@ import { roundPoints } from '../scoring/engine.js';
  * far, and each player's game state.
  */
 
-/** Where a player's NFL game stands this week. */
-export type GameState = 'bye' | 'pending' | 'live' | 'final';
+/** Where a player's NFL game stands this week (core `playerGame`, #193). */
+export type GameState = PlayerGameState;
 
 export interface OutlookPlayer {
   playerId: string;
@@ -25,6 +26,11 @@ export interface OutlookPlayer {
   positions: readonly Position[];
   status: PlayerStatus;
   game: GameState;
+  /**
+   * Share of a live game played (core `playerGame`), 0-1, or null/absent when unknown: then
+   * `liveRemainingShare` of his unmet projection is assumed to remain.
+   */
+  progress?: number | null;
   /** Projected points for the whole game under league scoring, or null when unprojected. */
   projected: number | null;
   /** Points so far, or null before he has stats. */
@@ -32,11 +38,12 @@ export interface OutlookPlayer {
 }
 
 /**
- * The variance model. A pending player's score is normal with mean = projection and standard
+ * The variance model. An upcoming player's score is normal with mean = projection and standard
  * deviation = `sdRatio` × projection (at least `sdFloor` when projected above 0); weekly fantasy
- * scores have a standard deviation of roughly 40-50% of the mean. A live game has no clock in our
- * data, so half the unmet projection is assumed to remain (`liveRemainingShare`). Final games, byes,
- * and players ruled out carry no uncertainty.
+ * scores have a standard deviation of roughly 40-50% of the mean. A live player has his unmet
+ * projection times the share of the game still to play left (from the quarter and clock, #193); when
+ * that is unknown (a started game not read yet), `liveRemainingShare` of it. Final games, byes, and
+ * players ruled out carry no uncertainty.
  */
 export const OUTLOOK_MODEL = { sdRatio: 0.45, sdFloor: 2, liveRemainingShare: 0.5 } as const;
 
@@ -68,7 +75,10 @@ export function forecastPlayer(player: OutlookPlayer): PlayerForecast {
     return { mean: current, variance: 0, current, remaining: 0 };
   }
   if (player.game === 'live') {
-    const remaining = Math.max(projected - current, 0) * OUTLOOK_MODEL.liveRemainingShare;
+    const progress = player.progress ?? null;
+    const left =
+      progress === null ? OUTLOOK_MODEL.liveRemainingShare : 1 - Math.min(1, Math.max(0, progress));
+    const remaining = Math.max(projected - current, 0) * left;
     const spread = OUTLOOK_MODEL.sdRatio * remaining;
     return { mean: current + remaining, variance: spread * spread, current, remaining };
   }
@@ -87,6 +97,10 @@ export interface TeamForecast {
   yetToPlay: number;
   /** Starters whose game is under way. */
   inProgress: number;
+  /** Starters whose game is final. */
+  done: number;
+  /** Starters on bye or ruled out before their game: they score nothing. */
+  notPlaying: number;
 }
 
 /** The starters' combined forecast; players on the bench or IR do not count. */
@@ -96,6 +110,8 @@ export function forecastTeam(players: readonly OutlookPlayer[]): TeamForecast {
   let variance = 0;
   let yetToPlay = 0;
   let inProgress = 0;
+  let done = 0;
+  let notPlaying = 0;
   for (const player of players) {
     if (!isStarterSlot(player.slot)) continue;
     const f = forecastPlayer(player);
@@ -103,7 +119,9 @@ export function forecastTeam(players: readonly OutlookPlayer[]): TeamForecast {
     mean += f.mean;
     variance += f.variance;
     if (player.game === 'live') inProgress++;
-    else if (player.game === 'pending' && !willNotPlay(player)) yetToPlay++;
+    else if (player.game === 'final') done++;
+    else if (willNotPlay(player)) notPlaying++;
+    else yetToPlay++;
   }
   return {
     current: roundPoints(current),
@@ -111,7 +129,9 @@ export function forecastTeam(players: readonly OutlookPlayer[]): TeamForecast {
     remaining: roundPoints(mean - current),
     stdDev: roundPoints(Math.sqrt(variance)),
     yetToPlay,
-    inProgress
+    inProgress,
+    done,
+    notPlaying
   };
 }
 

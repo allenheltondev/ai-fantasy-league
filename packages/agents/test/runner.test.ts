@@ -125,6 +125,19 @@ describe('runAgentAction with the fake model', () => {
     expect(starters((await illegal.savedLineups())[0]?.lineup)).toMatchObject({ qb1: 'QB', k1: 'K' });
   });
 
+  it('tells the model which players are already locked, from the shared game state (#193)', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, PRO);
+    // SF, every rostered player's team, kicked off ten minutes ago.
+    s.clock.set(new Date(Date.parse(SF_KICKOFF) + 10 * 60_000));
+    const model = new ScriptedModelClient();
+    const record = await runAgentAction(s.deps(model), request());
+    expect(model.transcript[0]?.systemPrompt).toContain('Already locked, their games have started');
+    expect(model.transcript[0]?.systemPrompt).toContain('RB3');
+    // Nothing can move once everyone is locked.
+    expect(record.finalAction).toBe('lineup_unchanged');
+  });
+
   it('does nothing when the lineup is already optimal', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, PRO);
