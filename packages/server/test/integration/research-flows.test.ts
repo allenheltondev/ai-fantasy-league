@@ -161,6 +161,15 @@ describe('research operations over seeded reference data', () => {
       `/api/v1/players?q=williams&leagueId=${RESEARCH_LEAGUE_ID}&availability=rostered`
     );
     expect(rostered.body.data.players).toEqual([]);
+    // `available` is free agents and players on waivers together: everyone not on a team.
+    const available = await get(
+      h,
+      `/api/v1/players?q=williams&leagueId=${RESEARCH_LEAGUE_ID}&availability=available`
+    );
+    expect(available.status).toBe(200);
+    const open = available.body.data.players as { availability: { status: string } }[];
+    expect(open.length).toBeGreaterThanOrEqual(4);
+    expect(open.every((p) => p.availability.status !== 'rostered')).toBe(true);
     const noLeague = await get(h, '/api/v1/players?q=williams&availability=rostered');
     expect(noLeague.status).toBe(400);
   });
