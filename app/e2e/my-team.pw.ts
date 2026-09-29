@@ -99,9 +99,11 @@ test('the side nav groups the league under a quiet header bar', async ({ browser
   for (const name of ['Standings', 'Playoffs', 'Transactions', 'Players']) {
     await expect(nav.getByRole('link', { name })).toBeVisible();
   }
-  await nav.getByRole('link', { name: 'League info' }).click();
+  // The commissioner's last item is Settings, everyone else's League info.
+  const info = nav.getByRole('link', { name: /^(Settings|League info)$/ });
+  await info.click();
   await page.getByRole('button', { name: 'Draft results' }).click();
   await expect(page).toHaveURL(/\/settings\?view=draft$/);
-  await expect(nav.getByRole('link', { name: 'League info' })).toHaveAttribute('aria-current', 'page');
+  await expect(info).toHaveAttribute('aria-current', 'page');
   await context.close();
 });

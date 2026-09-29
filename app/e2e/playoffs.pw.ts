@@ -28,12 +28,12 @@ test('a manager checks the projected playoff bracket and the league history', as
   await expect(page.getByRole('heading', { name: 'Best and worst trades' })).toBeVisible();
   await expect(page.getByText("No trade has changed a team's value yet.")).toBeVisible();
 
-  await pages.getByRole('link', { name: 'Standings' }).click();
+  await page.getByRole('link', { name: 'Standings' }).click();
   await expect(page.getByRole('table', { name: 'Standings' })).toBeVisible();
 
   // So does an old link to one of its tabs.
   await page.goto('/leagues/demo-season/standings?view=history');
-  await expect(page).toHaveURL(/\/league\/history$/);
+  await expect(page).toHaveURL(/\/settings\?view=history$/);
   await expect(page.getByText('No completed seasons yet.')).toBeVisible();
   await context.close();
 });
