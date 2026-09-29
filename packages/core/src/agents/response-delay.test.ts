@@ -12,7 +12,6 @@ import {
 } from './index.js';
 
 const NOW = new Date('2026-10-04T15:00:00.000Z');
-const PRO = DIFFICULTY_TIERS.pro.levers.responseDelay;
 
 const lever = fc.record({
   multiplier: fc.double({ min: 0, max: 5, noNaN: true }),
@@ -28,25 +27,18 @@ const deadline = fc.option(
 describe('responseDelay', () => {
   it('stays in [0, cap × multiplier], never past the deadline clamp, and replays the same', () => {
     fc.assert(
-      fc.property(
-        eventClass,
-        fc.string(),
-        lever,
-        deadline,
-        fc.boolean(),
-        (cls, seed, l: ResponseDelayLever, at, quick) => {
-          const input = { eventClass: cls, seed, lever: l, now: NOW, deadline: at, quick };
-          const { delayMs, reason } = responseDelay(input);
-          expect(Number.isInteger(delayMs)).toBe(true);
-          expect(delayMs).toBeGreaterThanOrEqual(0);
-          expect(delayMs).toBeLessThanOrEqual(RESPONSE_DELAY_PROFILES[cls].capMs * l.multiplier);
-          expect(delayMs).toBeLessThanOrEqual(deadlineLimitMs(cls, NOW, at));
-          if (at !== undefined)
-            expect(NOW.getTime() + delayMs).toBeLessThanOrEqual(Math.max(NOW.getTime(), at.getTime()));
-          if (reason === 'immediate') expect(delayMs).toBe(0);
-          expect(responseDelay({ ...input, deadline: at?.toISOString() })).toEqual({ delayMs, reason });
-        }
-      )
+      fc.property(eventClass, fc.string(), lever, deadline, (cls, seed, l: ResponseDelayLever, at) => {
+        const input = { eventClass: cls, seed, lever: l, now: NOW, deadline: at };
+        const { delayMs, reason } = responseDelay(input);
+        expect(Number.isInteger(delayMs)).toBe(true);
+        expect(delayMs).toBeGreaterThanOrEqual(0);
+        expect(delayMs).toBeLessThanOrEqual(RESPONSE_DELAY_PROFILES[cls].capMs * l.multiplier);
+        expect(delayMs).toBeLessThanOrEqual(deadlineLimitMs(cls, NOW, at));
+        if (at !== undefined)
+          expect(NOW.getTime() + delayMs).toBeLessThanOrEqual(Math.max(NOW.getTime(), at.getTime()));
+        if (reason === 'immediate') expect(delayMs).toBe(0);
+        expect(responseDelay({ ...input, deadline: at?.toISOString() })).toEqual({ delayMs, reason });
+      })
     );
   });
 
@@ -70,34 +62,17 @@ describe('responseDelay', () => {
     const samples = (l: ResponseDelayLever) =>
       Array.from(
         { length: 2001 },
-        (_, i) => responseDelay({ eventClass: 'chat', seed: `m${i}`, lever: l, now: NOW }).delayMs
+        (_, i) => responseDelay({ eventClass: 'trade', seed: `m${i}`, lever: l, now: NOW }).delayMs
       ).sort((a, b) => a - b);
     const base = samples({ multiplier: 1, immediateChance: 0 });
     const median = base[1000] as number;
     const mean = base.reduce((a, b) => a + b, 0) / base.length;
-    expect(median).toBeGreaterThan(30_000);
-    expect(median).toBeLessThan(60_000);
+    expect(median).toBeGreaterThan(30 * 60_000);
+    expect(median).toBeLessThan(60 * 60_000);
     expect(mean).toBeGreaterThan(median);
-    expect(base.at(-1)).toBe(RESPONSE_DELAY_PROFILES.chat.capMs);
+    expect(base.at(-1)).toBe(RESPONSE_DELAY_PROFILES.trade.capMs);
     const slow = samples({ multiplier: 2, immediateChance: 0 });
     expect(slow[1000]).toBeGreaterThan(median * 1.8);
-  });
-
-  it('keeps a direct message to the lower end', () => {
-    const quick = responseDelay({
-      eventClass: 'chat',
-      seed: 's',
-      lever: { ...PRO, immediateChance: 0 },
-      now: NOW,
-      quick: true
-    });
-    const slow = responseDelay({
-      eventClass: 'chat',
-      seed: 's',
-      lever: { ...PRO, immediateChance: 0 },
-      now: NOW
-    });
-    expect(quick.delayMs).toBeLessThan(slow.delayMs);
   });
 
   it('clamps to a share of the time left: half before a trade expires, 40% of the pick clock', () => {

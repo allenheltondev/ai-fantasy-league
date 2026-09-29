@@ -44,7 +44,7 @@ function delayedId(
   cls: ResponseDelayClass,
   teamId: string,
   lever: ResponseDelayLever,
-  options: { quick?: boolean; deadline?: string } = {}
+  options: { deadline?: string } = {}
 ): string {
   for (let i = 0; i < 1000; i++) {
     const id = `evt-${cls}-${i}`;
@@ -206,9 +206,8 @@ describe('router response delays', () => {
       expect(d.decision === 'requested' && d.delayMs <= RESPONSE_DELAY_PROFILES.roster.capMs * 2).toBe(true);
   });
 
-  it('answers chat like someone typing, and a person’s DM at the quicker end', async () => {
+  it('answers chat right away: the chat cooldowns pace it, not a delay', async () => {
     const s = await withSeats();
-    const id = delayedId('chat', 'team-2', ROOKIE_LEVER, { quick: true });
     const dm = {
       leagueId: LEAGUE_ID,
       roomId: 'dm-team-1-team-2',
@@ -218,15 +217,7 @@ describe('router response delays', () => {
       mentionedTeamIds: ['team-2'],
       replyToAgentDepth: 0
     };
-    const quick = delayOf(await s.route(event('Chat Mention', dm, id)), 'team-2');
-    const seed = `${id}:team-2`;
-    expect(quick).toBe(
-      responseDelay({ eventClass: 'chat', seed, lever: ROOKIE_LEVER, now: NOW, quick: true }).delayMs
-    );
-    expect(quick).toBeLessThan(
-      responseDelay({ eventClass: 'chat', seed, lever: ROOKIE_LEVER, now: NOW }).delayMs
-    );
-    expect(quick).toBeLessThanOrEqual(RESPONSE_DELAY_PROFILES.chat.capMs * ROOKIE_LEVER.multiplier);
+    expect(delayOf(await s.route(event('Chat Mention', dm, 'evt-dm')), 'team-2')).toBe(0);
     // A chat moment (team-2's chat slot is cooling down after the DM; the Hall of Famer reacts).
     const moment = await s.route(
       event(
@@ -235,9 +226,8 @@ describe('router response delays', () => {
         'evt-m'
       )
     );
-    expect(delayOf(moment, 'team-3')).toBeLessThanOrEqual(
-      RESPONSE_DELAY_PROFILES.chat.capMs * HOF_LEVER.multiplier
-    );
+    expect(delayOf(moment, 'team-3')).toBe(0);
+    expect(s.scheduled()).toEqual([]);
   });
 
   it('jitters the post-draft kickoff on top of the stagger', async () => {

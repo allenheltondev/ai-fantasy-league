@@ -38,8 +38,8 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Player News Alert                            | lineup         | teams rostering any `detail.playerIds`  | no     | roster, ≤ half the time to next lock   |
  * | Player Status Changed                        | lineup         | teams rostering `detail.playerId`       | no     | roster, ≤ half the time to next lock   |
  * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    | none (the deadline is the point)       |
- * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     | chat (a person's DM: the lower end)    |
- * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     | chat                                   |
+ * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     | none (chat cooldowns pace it)          |
+ * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     | none (chat cooldowns pace it)          |
  * | Draft Completed (once per draft)             | post_draft     | every agent team, staggered             | yes    | stagger + post_draft jitter            |
  *
  * Response delays (#189): a person does not answer the instant an offer lands, so neither does an
@@ -52,7 +52,8 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * id, so a redelivered trigger moves it instead of doubling it); cooldowns are still checked and
  * spent here, at route time. The task re-reads the league when it runs, so one that went stale
  * meanwhile (an offer withdrawn or answered, a message already answered, a pick already made) is a
- * no-op. Each `requested` decision logs its `delayMs`. Delays are on only when `RouterDeps` says
+ * no-op. Chat is not delayed: an agent answers a mention or reacts to a moment at once, and the
+ * chat cooldowns and budgets pace it. Each `requested` decision logs its `delayMs`. Delays are on only when `RouterDeps` says
  * so (`responseDelays`): the router Lambda turns them on (`AGENT_RESPONSE_DELAYS`, on unless
  * `off`), and the in-process loop of the dev server, the e2e suite, and the season simulator keeps
  * them off, so tests and demos never wait.
@@ -193,7 +194,7 @@ export const POST_DRAFT_KICKOFF = { firstMs: 60_000, spacingMs: 45_000, tradeLoo
  */
 function humanDelay<T extends FantasyEventType>(
   eventClass: ResponseDelayClass,
-  options: { deadline?: (d: RuleDetail<T>) => unknown; quick?: (d: RuleDetail<T>) => boolean } = {}
+  options: { deadline?: (d: RuleDetail<T>) => unknown } = {}
 ) {
   return (input: DelayInput<T>): number => {
     const own = str(options.deadline?.(input.detail));
@@ -207,8 +208,7 @@ function humanDelay<T extends FantasyEventType>(
       seed: `${input.eventId}:${input.teamId}`,
       lever: input.levers.responseDelay,
       now: input.now,
-      deadline: Number.isFinite(soonest) ? new Date(soonest) : null,
-      quick: options.quick?.(input.detail) ?? false
+      deadline: Number.isFinite(soonest) ? new Date(soonest) : null
     }).delayMs;
   };
 }
@@ -337,8 +337,6 @@ export const TRIGGER_RULES: RuleMap = {
     kind: 'chat_reply',
     urgent: false,
     cooldown: (d) => (agentMention(d) ? CHAT_COOLDOWNS.banter : CHAT_COOLDOWNS.reply),
-    // A person's direct message gets the quicker end of the typing range.
-    delay: humanDelay('chat', { quick: (d) => !agentMention(d) && isDmRoomId(str(d.roomId) ?? '') }),
     // An agent's mention reaches other agents only as a depth-0 mention outside a DM.
     teams: (d, agents) =>
       agentMention(d) && (mentionDepth(d) > 0 || isDmRoomId(str(d.roomId) ?? 'dm-'))
@@ -354,7 +352,6 @@ export const TRIGGER_RULES: RuleMap = {
     kind: 'chat_moment',
     urgent: false,
     cooldown: CHAT_COOLDOWNS.moment,
-    delay: humanDelay('chat'),
     teams: (d, agents, eventId) => {
       const playing = only(strs(d.teamIds), agents);
       return [...(playing.length > 0 ? playing : agents)]
