@@ -11,6 +11,7 @@ import {
   kickoffTimes,
   nextKickoff,
   nextLeagueWeek,
+  openGameDay,
   playoffBracket,
   playoffMatchups,
   reconcileLineup,
@@ -68,6 +69,49 @@ const WEEK = [
   game('2026-09-19T00:20:00.000Z', 'PHI', 'WAS'),
   game('2026-09-20T00:15:00.000Z', 'BUF', 'MIA')
 ];
+
+describe('openGameDay (#200)', () => {
+  it("is open from 3 hours before a day's first kickoff until its last kickoff", () => {
+    expect(openGameDay(WEEK, '2026-09-18T13:59:00.000Z')).toBeNull();
+    expect(openGameDay(WEEK, '2026-09-18T14:00:00.000Z')).toEqual({
+      firstKickoff: '2026-09-18T17:00:00.000Z',
+      lastKickoff: '2026-09-19T00:20:00.000Z',
+      teams: ['ARI', 'CHI', 'DAL', 'DET', 'LAR', 'NYG', 'PHI', 'SEA', 'SF', 'WAS']
+    });
+    expect(openGameDay(WEEK, '2026-09-19T00:20:00.000Z')?.teams).toHaveLength(10);
+    expect(openGameDay(WEEK, '2026-09-19T00:21:00.000Z')).toBeNull();
+    // Monday night is a day of its own, and Thursday night too.
+    expect(openGameDay(WEEK, '2026-09-19T22:00:00.000Z')?.teams).toEqual(['BUF', 'MIA']);
+    expect(openGameDay(WEEK, '2026-09-10T22:00:00.000Z', HOUR_MS)).toBeNull();
+    expect(openGameDay(WEEK, '2026-09-10T23:30:00.000Z', HOUR_MS)?.teams).toEqual(['BAL', 'KC']);
+    expect(openGameDay([], '2026-09-18T17:00:00.000Z')).toBeNull();
+  });
+
+  it('only opens around a kickoff, and every team it names plays that day', () => {
+    const kickoff = fc
+      .integer({ min: 0, max: 7 * 24 * 60 })
+      .map((m) => new Date(Date.UTC(2026, 8, 13) + m * 60_000));
+    fc.assert(
+      fc.property(
+        fc.array(kickoff, { minLength: 1, maxLength: 8 }),
+        fc.integer({ min: -600, max: 8 * 24 * 60 }),
+        (times, offset) => {
+          const games = times.map((t, i) => game(t.toISOString(), `H${i}`, `A${i}`));
+          const now = Date.UTC(2026, 8, 13) + offset * 60_000;
+          const day = openGameDay(games, new Date(now));
+          const near = times.some((t) => t.getTime() >= now && t.getTime() - now <= 3 * HOUR_MS);
+          if (near && day === null) return false;
+          if (day === null) return true;
+          return (
+            now >= Date.parse(day.firstKickoff) - 3 * HOUR_MS &&
+            now <= Date.parse(day.lastKickoff) &&
+            day.teams.every((team) => games.some((g) => g.homeTeam === team || g.awayTeam === team))
+          );
+        }
+      )
+    );
+  });
+});
 
 describe('gameWindows', () => {
   it('groups kickoffs into windows in time order', () => {

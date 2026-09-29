@@ -5,13 +5,14 @@ import {
   PLAYER_STATUSES,
   POSITIONS,
   PositionSchema,
+  STATUS_SOURCES,
   type Player,
   type Position
 } from '../../players/model.js';
 import type { PlayerRepository } from '../types.js';
 import { chunk, TABLE_KEYS, type TableContext } from './table.js';
 
-const PlayerRecordSchema = z.object({
+export const PlayerRecordSchema = z.object({
   id: z.string(),
   name: z.string(),
   firstName: z.string(),
@@ -22,7 +23,10 @@ const PlayerRecordSchema = z.object({
   injuryStatus: z.string().nullable(),
   aliases: z.array(z.string()),
   rank: z.number().nullable(),
-  updatedAt: z.string()
+  updatedAt: z.string(),
+  statusSource: z.enum(STATUS_SOURCES).optional(),
+  statusAsOf: z.string().optional(),
+  statusHeldUntil: z.string().optional()
 });
 
 export const playerKey = (id: string) => ({ pk: `PLAYER#${id}`, sk: 'PROFILE' });

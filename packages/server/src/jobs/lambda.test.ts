@@ -62,7 +62,8 @@ describe('runJob', () => {
       'officialFinal',
       'processWaivers',
       'syncSeasonResearch',
-      'managerCheckIns'
+      'managerCheckIns',
+      'syncGameDayInjuries'
     ]);
     expect(isJobName('syncPlayers')).toBe(true);
     expect(isJobName('toString')).toBe(false);

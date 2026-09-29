@@ -1,10 +1,18 @@
 import { HttpClient, type FetchLike, type RetryPolicy } from '../http/http-client.js';
 import type { Sleep } from '../http/rate-limiter.js';
 import { parseOrDrift } from '../validation.js';
-import { espnScoreboardSchema, espnSummarySchema, type EspnScoreboard, type EspnSummary } from './schemas.js';
+import {
+  espnInjuriesSchema,
+  espnScoreboardSchema,
+  espnSummarySchema,
+  type EspnInjuries,
+  type EspnScoreboard,
+  type EspnSummary
+} from './schemas.js';
 
 export const ESPN_SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 export const ESPN_SUMMARY_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary';
+export const ESPN_INJURIES_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
 
 export interface EspnClientOptions {
   fetch?: FetchLike;
@@ -18,6 +26,8 @@ export interface EspnClientOptions {
   scoreboardUrl?: string;
   /** The game summary URL (tests and a proxy). */
   summaryUrl?: string;
+  /** The injury report URL (tests and a proxy). */
+  injuriesUrl?: string;
 }
 
 /** ESPN's season type ids on the scoreboard's `seasontype` parameter. */
@@ -32,10 +42,12 @@ export class EspnClient {
   readonly #http: HttpClient;
   readonly #url: string;
   readonly #summaryUrl: string;
+  readonly #injuriesUrl: string;
 
   constructor(options: EspnClientOptions = {}) {
     this.#url = options.scoreboardUrl ?? ESPN_SCOREBOARD_URL;
     this.#summaryUrl = options.summaryUrl ?? ESPN_SUMMARY_URL;
+    this.#injuriesUrl = options.injuriesUrl ?? ESPN_INJURIES_URL;
     this.#http = new HttpClient({
       retry: { maxRetries: 1, baseDelayMs: 250, maxDelayMs: 1_000, ...options.retry },
       timeoutMs: options.timeoutMs ?? 5_000,
@@ -69,5 +81,11 @@ export class EspnClient {
     const params = new URLSearchParams({ event: eventId });
     const body = await this.#http.getJson(`${this.#summaryUrl}?${params.toString()}`);
     return parseOrDrift(espnSummarySchema, body, 'espn /summary');
+  }
+
+  /** The league-wide injury report (#200): every team's designations and game-day inactives. */
+  async injuries(): Promise<EspnInjuries> {
+    const body = await this.#http.getJson(this.#injuriesUrl);
+    return parseOrDrift(espnInjuriesSchema, body, 'espn /injuries');
   }
 }

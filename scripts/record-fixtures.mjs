@@ -9,6 +9,7 @@
 //   node scripts/record-fixtures.mjs --season 2025 --weeks 1,2 --out /tmp/fixtures
 //   node scripts/record-fixtures.mjs --scoring --weeks 1,2     # scoring validation sets (below)
 //   node scripts/record-fixtures.mjs --espn-summary 401772901  # only one ESPN game summary (#164)
+//   node scripts/record-fixtures.mjs --espn-injuries           # only ESPN's injury report (#200)
 //   node scripts/record-fixtures.mjs --sleeper-app-projections 2026 4  # both projection endpoints (#184)
 //
 // --sleeper-app-projections <season> <week> records one week's projections from both Sleeper
@@ -84,6 +85,7 @@ const { values, positionals } = parseArgs({
     nflverse: { type: 'boolean', default: false },
     scoring: { type: 'boolean', default: false },
     'espn-summary': { type: 'string' },
+    'espn-injuries': { type: 'boolean', default: false },
     'sleeper-app-projections': { type: 'string' }
   },
   allowPositionals: true
@@ -296,6 +298,25 @@ async function recordEspnSummary(eventId) {
   console.log(`espn summary ${eventId}: ${kept.scoringPlays.length} scoring plays -> ${dir}`);
 }
 
+/**
+ * ESPN's league-wide injury report (#200), as returned, to fixtures/espn/injuries.json (the
+ * hand-authored stand-in is fixtures/espn/hand-authored/injuries.json). Record it on a game day,
+ * about 90 minutes before a kickoff, to capture the inactives. The report is small (a few hundred
+ * entries), so it is kept whole; the summary line counts entries and the status words ESPN used.
+ */
+async function recordEspnInjuries() {
+  const dir = join(out, 'espn');
+  mkdirSync(dir, { recursive: true });
+  const body = JSON.parse(await get('https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries'));
+  writeJson(join(dir, 'injuries.json'), body);
+  const entries = (body.injuries ?? []).flatMap((team) => team.injuries ?? []);
+  const statuses = [...new Set(entries.map((e) => e.status))].sort();
+  const withId = entries.filter((e) => e.athlete?.id !== undefined).length;
+  console.log(
+    `espn injuries: ${(body.injuries ?? []).length} teams, ${entries.length} entries (${withId} with athlete.id), statuses: ${statuses.join(', ')} -> ${dir}`
+  );
+}
+
 /** Fetches without throwing on an HTTP error, so a failing endpoint is recorded, not fatal. */
 async function tryGet(url) {
   try {
@@ -391,6 +412,8 @@ if (values['sleeper-app-projections'] !== undefined) {
   await recordProjectionSources(Number(values['sleeper-app-projections']), Number(positionals[0]));
 } else if (values['espn-summary'] !== undefined) {
   await recordEspnSummary(values['espn-summary']);
+} else if (values['espn-injuries']) {
+  await recordEspnInjuries();
 } else if (values.scoring) {
   if (doNflverse) await recordScoringNflverse();
   if (doSleeper) await recordScoringSleeper();

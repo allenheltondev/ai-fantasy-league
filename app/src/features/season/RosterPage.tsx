@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
 import { Alert, EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
@@ -9,8 +9,11 @@ import { LineupBoard } from './LineupBoard';
 import { nextKickoff, useNow, withLocksAt } from './gameState';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
 
-/** The week's games changed (a kickoff, a quarter, a final): the locks may have too (#193). */
-const LINEUP_EVENTS = ['NFL Games Updated'] as const;
+/**
+ * The week's games changed (a kickoff, a quarter, a final): the locks may have too (#193). A
+ * player's status changed (#200, e.g. ruled out on game day): the OUT chip shows without a reload.
+ */
+const LINEUP_EVENTS = ['NFL Games Updated', 'Player Status Changed'] as const;
 /** How often the lock countdowns tick; each kickoff also lands exactly on time. */
 export const LOCK_TICK_MS = 30_000;
 
@@ -50,6 +53,9 @@ function LineupEditor({
   connect: EventConnect;
 }) {
   const api = useLeagueApi();
+  // `?player=` comes from a player notification (#200): highlight him on the board.
+  const [params] = useSearchParams();
+  const highlight = params.get('player');
   const roster = useLoad(() => api.getRoster(leagueId, teamId), `${leagueId}:${teamId}`);
   const [warnings, setWarnings] = useState<{ code: string; message: string }[]>([]);
   // A save that lost the race with a kickoff: who locked, and a fresh board from the server's lineup.
@@ -60,7 +66,17 @@ function LineupEditor({
     global: true,
     realtime: api.getRealtime,
     connect,
-    onEvent: () => roster.reload()
+    onEvent: (event) => {
+      // Another team's player changing status changes nothing here.
+      const playerId = event.detail?.playerId;
+      if (
+        event.detailType === 'Player Status Changed' &&
+        !(roster.data?.players ?? []).some((p) => p.player.id === playerId)
+      ) {
+        return;
+      }
+      roster.reload();
+    }
   });
   const players = roster.data?.players;
   const now = useNow(LOCK_TICK_MS, (n) => (players === undefined ? null : nextKickoff(players, n)));
@@ -109,13 +125,15 @@ function LineupEditor({
           {w.message}
         </Alert>
       ))}
-      {/* A fresh board for each loaded lineup, so a save starts from what the server kept. */}
+      {/* A fresh board for each loaded lineup, so a save starts from what the server kept, and for
+          each player a notification points at (#200), so he starts picked up. */}
       <LineupBoard
-        key={`${data.week}:${lockRace?.round ?? 0}:${data.players.map((p) => `${p.player.id}=${p.slot}`).join(',')}`}
+        key={`${data.week}:${lockRace?.round ?? 0}:${highlight ?? ''}:${data.players.map((p) => `${p.player.id}=${p.slot}`).join(',')}`}
         leagueId={leagueId}
         teamId={teamId}
         data={data}
         now={now}
+        highlight={highlight}
         onSaved={(next) => {
           setWarnings(next);
           setLockRace(null);

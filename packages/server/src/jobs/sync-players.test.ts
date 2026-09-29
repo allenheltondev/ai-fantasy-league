@@ -97,7 +97,8 @@ describe('syncPlayers diffs', () => {
             { field: 'injuryStatus', from: null, to: 'Out' },
             { field: 'depthChartOrder', from: 1, to: 2 }
           ],
-          changedAt: '2025-09-04T13:00:00.000Z'
+          changedAt: '2025-09-04T13:00:00.000Z',
+          source: 'sleeper'
         }
       },
       {
@@ -109,7 +110,8 @@ describe('syncPlayers diffs', () => {
           team: 'BUF',
           position: 'WR',
           changes: [{ field: 'team', from: 'KC', to: 'BUF' }],
-          changedAt: '2025-09-04T13:00:00.000Z'
+          changedAt: '2025-09-04T13:00:00.000Z',
+          source: 'sleeper'
         }
       }
     ]);

@@ -55,6 +55,55 @@ export function gameWindows(games: readonly WeekGame[], gapMs: number = GAME_WIN
   }));
 }
 
+/**
+ * Kickoffs closer together than this share a game day: Sunday's 1pm to its 8:20pm game is about 7
+ * hours; Sunday night to Monday night is a day.
+ */
+export const GAME_DAY_GAP_MS = 12 * HOUR_MS;
+/** A game day's final designations start this long before its first kickoff (#200). */
+export const GAME_DAY_LEAD_MS = 3 * HOUR_MS;
+
+export interface GameDay {
+  /** The day's first and last kickoffs. */
+  firstKickoff: string;
+  lastKickoff: string;
+  /** NFL teams playing that day. */
+  teams: string[];
+}
+
+/**
+ * The game day open at `now` (#200): from `leadMs` before its first kickoff until its last kickoff,
+ * when game-day statuses (final designations, then inactives about 90 minutes before each kickoff)
+ * are coming in. Null outside every game day.
+ */
+export function openGameDay(
+  games: readonly WeekGame[],
+  now: Instant,
+  leadMs: number = GAME_DAY_LEAD_MS
+): GameDay | null {
+  const at = instantMs(now);
+  const sorted = [...games].sort((a, b) => instantMs(a.kickoff) - instantMs(b.kickoff));
+  const days: { first: number; last: number; teams: string[] }[] = [];
+  for (const game of sorted) {
+    const kickoff = instantMs(game.kickoff);
+    const current = days.at(-1);
+    if (current !== undefined && kickoff - current.last <= GAME_DAY_GAP_MS) {
+      current.last = kickoff;
+      current.teams.push(game.homeTeam, game.awayTeam);
+    } else {
+      days.push({ first: kickoff, last: kickoff, teams: [game.homeTeam, game.awayTeam] });
+    }
+  }
+  const open = days.find((d) => at >= d.first - leadMs && at <= d.last);
+  return open === undefined
+    ? null
+    : {
+        firstKickoff: new Date(open.first).toISOString(),
+        lastKickoff: new Date(open.last).toISOString(),
+        teams: [...new Set(open.teams)].sort()
+      };
+}
+
 /** The first kickoff of the week, or null when there are no games. */
 export function firstKickoff(games: readonly WeekGame[]): string | null {
   return gameWindows(games)[0]?.startsAt ?? null;

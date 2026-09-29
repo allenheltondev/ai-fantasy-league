@@ -21,6 +21,7 @@ export * from './state/nfl-state.js';
 export * from './espn/schemas.js';
 export * from './espn/client.js';
 export * from './espn/normalize.js';
+export * from './espn/injuries.js';
 export * from './providers/historical.js';
 export * from './providers/fixture.js';
 export * from './providers/live.js';

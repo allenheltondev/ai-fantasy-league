@@ -48,3 +48,4 @@ export * from './outlook/game-state.js';
 export * from './scoring/stat-line.js';
 export * from './scoring/validate.js';
 export * from './notifications/inbox.js';
+export * from './notifications/player.js';

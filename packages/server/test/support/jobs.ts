@@ -1,7 +1,8 @@
-import { FixedClock } from '@fantasy/core';
+import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
 import type {
   ByeWeeks,
   DataProvider,
+  InjuryReport,
   NflState,
   Player as SourcePlayer,
   ProjectionLine,
@@ -18,7 +19,9 @@ import type { FeedConfig } from '../../src/jobs/news/feeds.js';
 import { silentLogger } from '../../src/log.js';
 import { PlayerDirectory } from '../../src/players/directory.js';
 import { createInMemoryReferenceStore } from '../../src/repos/memory-reference.js';
+import { newTeam } from '../../src/league/seats.js';
 import { createInMemoryRepos, InMemoryPlayerRepository } from '../../src/repos/memory.js';
+import type { League, Repos } from '../../src/repos/types.js';
 
 /**
  * A DataProvider whose answers tests set directly. Every call is recorded; an unset answer
@@ -34,6 +37,8 @@ export class StubProvider implements DataProvider {
   trending: Partial<Record<TrendingType, TrendingEntry[]>> = {};
   schedule: ScheduledGame[] | null = null;
   byes: ByeWeeks = {};
+  /** ESPN's injury report (#200). */
+  injuries: InjuryReport[] | null = null;
   readonly calls: string[] = [];
   readonly trendingOptions: TrendingOptions[] = [];
 
@@ -79,6 +84,11 @@ export class StubProvider implements DataProvider {
   async getByeWeeks(season: number): Promise<ByeWeeks> {
     this.calls.push(`getByeWeeks:${season}`);
     return structuredClone(this.byes);
+  }
+
+  async getInjuries(): Promise<InjuryReport[]> {
+    this.calls.push('getInjuries');
+    return structuredClone(required(this.injuries, 'injuries'));
   }
 }
 
@@ -159,6 +169,56 @@ export function game(overrides: Partial<ScheduledGame> & { gameId: string; kicko
     status: 'scheduled',
     ...overrides
   };
+}
+
+/**
+ * An in-season league (`regular_season`, week `week`) whose teams roster the given players: a
+ * team with an `owner` is a person's seat, one without is an agent's. For the roster index (#200).
+ */
+export async function seedRosteredLeague(
+  repos: Repos,
+  options: {
+    leagueId: string;
+    season?: number;
+    week: number;
+    teams: { id: string; owner?: string; roster: string[] }[];
+  }
+): Promise<League> {
+  const settings = yahooDefaultSettings(Math.max(4, options.teams.length));
+  const now = new Date('2025-08-01T00:00:00.000Z');
+  const league: League = {
+    id: options.leagueId,
+    name: `League ${options.leagueId}`,
+    season: options.season ?? 2025,
+    phase: 'regular_season',
+    week: options.week,
+    settings,
+    commissionerId: 'comm',
+    commissionerName: 'Comm',
+    createdBy: 'comm',
+    scheduleSeed: 's',
+    deadlines: { draftStartsAt: null, nextLineupLockAt: null, nextWaiverRunAt: null, tradeDeadlineAt: null },
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    version: 1
+  };
+  await repos.leagues.create(league);
+  await repos.teams.create(
+    options.teams.map((t, i) => ({
+      ...newTeam({
+        leagueId: league.id,
+        id: t.id,
+        draftSlot: i + 1,
+        settings,
+        now,
+        ...(t.owner === undefined
+          ? {}
+          : { owner: { userId: t.owner, name: t.owner, teamName: `${t.owner}'s team` } })
+      }),
+      roster: t.roster
+    }))
+  );
+  return league;
 }
 
 export function nflState(overrides: Partial<NflState> = {}): NflState {

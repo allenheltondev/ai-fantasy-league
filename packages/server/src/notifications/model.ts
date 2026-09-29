@@ -23,8 +23,15 @@ export const NOTIFICATION_PAGE = { default: 20, max: 50 } as const;
 
 export const NotificationTargetSchema = z
   .object({
-    section: z.enum(NOTIFICATION_SECTIONS).describe('The league section to open: trades, roster, or draft.'),
-    tradeId: z.string().nullable().describe('The trade to show, for trade notifications.')
+    section: z
+      .enum(NOTIFICATION_SECTIONS)
+      .describe('The league section to open: trades, roster, draft, or lineup (player status and news).'),
+    tradeId: z.string().nullable().describe('The trade to show, for trade notifications.'),
+    playerId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('The player to highlight on the lineup, for player status and news notifications.')
   })
   .describe('Where the notification leads.');
 
@@ -36,6 +43,12 @@ export const NotificationSchema = z.object({
   title: z.string(),
   body: z.string(),
   target: NotificationTargetSchema,
+  urgent: z
+    .boolean()
+    .optional()
+    .describe(
+      'True when it needs action now: a starter ruled out (or doubtful) before his game. Show it first; fix it with set_lineup.'
+    ),
   event: z.object({ detailType: z.string(), eventId: z.string() }).describe('The league event it came from.'),
   createdAt: z.string(),
   read: z.boolean(),
@@ -52,6 +65,17 @@ export type Notification = z.infer<typeof NotificationSchema>;
 
 /** A notification as stored: `read` is derived when it is listed. */
 export type StoredNotification = Omit<Notification, 'read'>;
+
+/** A person's notification settings (#200), the same in every league. */
+export const NotificationPreferencesSchema = z.object({
+  playerNews: z
+    .boolean()
+    .describe(
+      'Inbox items for news stories about your players (at most one per player an hour). Status alerts about your starters always come.'
+    )
+});
+export type NotificationPreferences = z.infer<typeof NotificationPreferencesSchema>;
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = { playerNews: true };
 
 export interface NotificationPage {
   /** Newest first. */
@@ -77,6 +101,9 @@ export interface NotificationRepository {
   markAllRead(leagueId: string, teamId: string, at: string): Promise<void>;
   /** Sets `deliveredAt` on each of the team's items that has none; unknown ids are ignored. */
   markDelivered(leagueId: string, teamId: string, ids: readonly string[], at: string): Promise<void>;
+  /** A person's settings (`USER#<sub>` / `NOTIFPREFS`), or the defaults when none are stored. */
+  getPreferences(userId: string): Promise<NotificationPreferences>;
+  putPreferences(userId: string, preferences: NotificationPreferences): Promise<void>;
 }
 
 /** The part of the sort key after the team: `<createdAt>#<eventId>[-<key>]`. */

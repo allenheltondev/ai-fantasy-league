@@ -1,4 +1,5 @@
 import type { EspnClient } from '../espn/client.js';
+import { normalizeInjuries } from '../espn/injuries.js';
 import { normalizeScoreboard, normalizeScoringPlays } from '../espn/normalize.js';
 import type { NflverseClient } from '../nflverse/client.js';
 import {
@@ -19,6 +20,7 @@ import {
 } from '../sleeper/normalize.js';
 import type {
   ByeWeeks,
+  InjuryReport,
   LiveGame,
   NflState,
   Player,
@@ -163,5 +165,12 @@ export class LiveDataProvider implements DataProvider {
     const espn = this.#options.espn;
     if (espn === undefined) return [];
     return normalizeScoringPlays(await espn.summary(espnId));
+  }
+
+  /** ESPN's injury report (#200); [] without an ESPN client. */
+  async getInjuries(_asOf: Date): Promise<InjuryReport[]> {
+    const espn = this.#options.espn;
+    if (espn === undefined) return [];
+    return normalizeInjuries(await espn.injuries());
   }
 }

@@ -2,6 +2,7 @@ import type { IdCrosswalk } from './nflverse/crosswalk.js';
 import type { ProjectionSource } from './sleeper/client.js';
 import type {
   ByeWeeks,
+  InjuryReport,
   LiveGame,
   NflState,
   Player,
@@ -71,4 +72,9 @@ export interface DataProvider {
    * `espnId`), in game order. Only a live source has it, like `getLiveGames`.
    */
   getScoringPlays?(espnId: string, asOf: Date): Promise<ScoringPlay[]>;
+  /**
+   * ESPN's league-wide injury report as it stands (#200): every listed player's designation,
+   * including the game-day inactives. Only a live source has it, like `getLiveGames`.
+   */
+  getInjuries?(asOf: Date): Promise<InjuryReport[]>;
 }

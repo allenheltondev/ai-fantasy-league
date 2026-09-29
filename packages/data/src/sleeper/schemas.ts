@@ -23,6 +23,8 @@ export const sleeperPlayerSchema = z.object({
   depth_chart_position: nullableString,
   active: z.boolean().nullable().optional(),
   gsis_id: nullableString,
+  /** ESPN's athlete id: a number in the live payload, a string in some older ones. */
+  espn_id: z.union([z.number(), z.string()]).nullable().optional(),
   age: nullableNumber,
   years_exp: nullableNumber,
   /** Sleeper's consensus rank; 9999999 means unranked. */

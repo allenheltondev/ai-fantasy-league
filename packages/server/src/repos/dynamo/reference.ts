@@ -43,7 +43,7 @@ import {
   type TrendingSnapshot
 } from '../reference.js';
 import { batchDelete, batchGet, batchPut, queryAll } from './batch.js';
-import { playerItem } from './players.js';
+import { playerItem, playerKey, PlayerRecordSchema } from './players.js';
 import { epochSeconds, isConditionalCheckFailure, TABLE_KEYS, type TableContext } from './table.js';
 
 const DAY_MS = 86_400_000;
@@ -229,6 +229,7 @@ const SourcePlayerSchema = z.object({
   active: z.boolean(),
   byeWeek: z.number().optional(),
   gsisId: z.string().optional(),
+  espnId: z.string().optional(),
   age: z.number().optional(),
   yearsExp: z.number().optional(),
   number: z.number().optional(),
@@ -763,6 +764,18 @@ export class DynamoPlayerSyncRepository implements PlayerSyncRepository {
       const parsed = SourcePlayerSchema.safeParse(item.source);
       return parsed.success ? [parsed.data] : [];
     });
+  }
+
+  async getMany(ids: readonly string[]): Promise<SyncedPlayer[]> {
+    const items = await batchGet(this.table, [...new Set(ids)].map(playerKey));
+    const found = new Map<string, SyncedPlayer>();
+    for (const item of items) {
+      const player = PlayerRecordSchema.safeParse(item);
+      const source = SourcePlayerSchema.safeParse(item.source);
+      if (player.success && source.success)
+        found.set(player.data.id, { player: player.data, source: source.data });
+    }
+    return ids.flatMap((id) => found.get(id) ?? []);
   }
 
   async upsert(records: readonly SyncedPlayer[]): Promise<void> {

@@ -24,7 +24,8 @@ export const JOB_SCHEDULE_EXPRESSIONS: Record<JobName, string> = {
   officialFinal: 'cron(0 15 ? * THU,FRI *)',
   processWaivers: 'cron(0 8 * * ? *)',
   syncSeasonResearch: 'rate(1 hour)',
-  managerCheckIns: 'cron(0 9,14,20 * * ? *)'
+  managerCheckIns: 'cron(0 9,14,20 * * ? *)',
+  syncGameDayInjuries: 'rate(15 minutes)'
 };
 
 /**

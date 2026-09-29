@@ -281,6 +281,15 @@ export class InMemoryPlayerSyncRepository implements PlayerSyncRepository {
     return [...this.#sources.values()].map(clone);
   }
 
+  async getMany(ids: readonly string[]): Promise<SyncedPlayer[]> {
+    const players = new Map((await this.players.getMany(ids)).map((p) => [p.id, p]));
+    return ids.flatMap((id) => {
+      const player = players.get(id);
+      const source = this.#sources.get(id);
+      return player === undefined || source === undefined ? [] : [{ player, source: clone(source) }];
+    });
+  }
+
   async upsert(records: readonly SyncedPlayer[]): Promise<void> {
     await this.players.putMany(records.map((r) => r.player));
     for (const record of records) this.#sources.set(record.source.id, clone(record.source));
