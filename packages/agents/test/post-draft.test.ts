@@ -14,6 +14,7 @@ import type { KillSwitch } from '../src/kill-switch.js';
 import { agentSubscribers, inProcessAgentDeps } from '../src/loop.js';
 import { POST_DRAFT_KICKOFF, routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
+import { CHAT_TOOLS } from '../src/tasks/chat.js';
 import { draftFacts, draftReactionLine, managerName, renderDraftFacts } from '../src/tasks/post-draft.js';
 import { draftSetup, type DraftSetup } from './draft-support.js';
 
@@ -141,6 +142,15 @@ describe('post-draft kickoff', () => {
         own.some((name) => m.text.includes(name)),
         m.text
       ).toBe(true);
+    }
+
+    // The reaction gets what its instructions promise: the read-only lookups and who's who.
+    const reactionRuns = model.transcript.filter((t) => t.systemPrompt.includes('The draft just ended.'));
+    expect(reactionRuns).toHaveLength(AGENTS.length);
+    for (const run of reactionRuns) {
+      expect(run.toolNames.length).toBeGreaterThan(0);
+      expect(run.toolNames.every((n) => (CHAT_TOOLS as readonly string[]).includes(n))).toBe(true);
+      expect(run.systemPrompt).toContain("Who's who (tag a team with @ and its name):");
     }
 
     // 3. The agent whose kicker went on IR claimed a healthy kicker; the others needed nothing.
