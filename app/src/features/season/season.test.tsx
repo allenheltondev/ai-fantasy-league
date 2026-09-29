@@ -269,7 +269,8 @@ describe('MatchupPage', () => {
     expect(await screen.findByTestId('score-team-1')).toHaveTextContent('10.00');
     expect(screen.queryByTestId('lock-mark')).toBeNull();
     expect(screen.queryByRole('link', { name: 'Edit lineup' })).toBeNull();
-    expect(api.getMatchupOutlook).toHaveBeenCalled();
+    // The outlook panel loads on its own, after the board: wait for its read rather than race it.
+    await waitFor(() => expect(api.getMatchupOutlook).toHaveBeenCalled());
   });
 
   it("keeps another team's empty week free of your outlook", async () => {
