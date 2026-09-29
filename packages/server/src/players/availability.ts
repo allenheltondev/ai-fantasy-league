@@ -8,10 +8,14 @@ import type { Player } from './model.js';
 export const AVAILABILITY = ['free_agent', 'waivers', 'rostered'] as const;
 export type Availability = (typeof AVAILABILITY)[number];
 
+/** The filter values: each standing, plus `available` (free agent or on waivers: not rostered). */
+export const AVAILABILITY_FILTERS = [...AVAILABILITY, 'available'] as const;
+export type AvailabilityFilter = (typeof AVAILABILITY_FILTERS)[number];
+
 export const AvailabilitySchema = z
-  .enum(AVAILABILITY)
+  .enum(AVAILABILITY_FILTERS)
   .describe(
-    'League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), or `rostered` (on a team; only a trade can get him).'
+    'League availability filter (needs `leagueId`): `free_agent` (add now with claim_waiver), `waivers` (recently dropped, undrafted right after the draft, or his game this week has kicked off; claim_waiver queues a claim that is processed when he clears), `available` (either of those: anyone not on a team), or `rostered` (on a team; only a trade can get him).'
   );
 
 /** How many players to search before filtering by availability, so filters still fill a page. */
@@ -42,7 +46,7 @@ export function standingView(s: PlayerStanding): z.infer<typeof StandingSchema> 
 export async function applyAvailability(
   ctx: Ctx,
   players: Player[],
-  filter: { leagueId: string; availability?: Availability | undefined }
+  filter: { leagueId: string; availability?: AvailabilityFilter | undefined }
 ): Promise<{ players: Player[]; standingOf: (player: Pick<Player, 'id' | 'team'>) => PlayerStanding }> {
   const { league, teams } = await requireMember(ctx, filter.leagueId);
   const now = ctx.clock.now();
@@ -51,7 +55,13 @@ export async function applyAvailability(
   const standingOf = (p: Pick<Player, 'id' | 'team'>) => standings.standing(p.id, p.team);
   const wanted = filter.availability;
   return {
-    players: wanted === undefined ? players : players.filter((p) => standingOf(p).status === wanted),
+    players:
+      wanted === undefined
+        ? players
+        : players.filter((p) => {
+            const status = standingOf(p).status;
+            return wanted === 'available' ? status !== 'rostered' : status === wanted;
+          }),
     standingOf
   };
 }
