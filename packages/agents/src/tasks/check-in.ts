@@ -126,7 +126,7 @@ export const CheckInActionSchema = z.object({
   type: z
     .enum(CHECK_IN_ACTIONS)
     .describe(
-      'set_lineup: start the proposed lineup. add_drop: add a free agent now (`pickup`). claim: bid on a player on waivers (`pickup`, `bid`). propose_trade: send a trade offer (`candidate`, optional `message`). rename_team: rename your team (`teamName`). post_chat: post on a league board (`message`, optional `room`). matchup_post: talk in your matchup room (`message`). send_dm: a direct message for a listed goal (`goal`, `message`). none: do nothing.'
+      'set_lineup: start the proposed lineup. add_drop: add a free agent now (`pickup`). claim: claim a player on waivers (`pickup`; `bid` only in FAAB leagues). propose_trade: send a trade offer (`candidate`, optional `message`). rename_team: rename your team (`teamName`). post_chat: post on a league board (`message`, optional `room`). matchup_post: talk in your matchup room (`message`). send_dm: a direct message for a listed goal (`goal`, `message`). none: do nothing.'
     ),
   pickup: z
     .number()
@@ -569,8 +569,11 @@ async function leagueContext(ctx: TaskContext): Promise<string[]> {
 }
 
 /** One pickup as the model sees it: projected points only with projections research (#122). */
-function describePickup(p: Pickup, i: number, projections: boolean): string {
-  const how = p.kind === 'add_now' ? 'free agent: add_drop' : `on waivers: claim, suggested bid $${p.bid}`;
+function describePickup(p: Pickup, i: number, projections: boolean, faab: boolean): string {
+  const waivers = faab
+    ? `on waivers: claim, suggested bid $${p.bid}`
+    : 'on waivers: claim (no bid, rolling waivers)';
+  const how = p.kind === 'add_now' ? 'free agent: add_drop' : waivers;
   const drop = p.drop === null ? '' : `, dropping ${quote(p.drop.name, 40)}`;
   const why =
     p.hole !== null
@@ -595,6 +598,7 @@ function instructions(ctx: TaskContext, prep: CheckInPrep): string {
             (e) =>
               `${quote(lineup.roster.find((p) => p.playerId === e.playerId)?.name ?? e.playerId, 40)} to ${e.slot}`
           );
+  const faab = ctx.league.settings.waivers.type === 'faab';
   return [
     look.payload.firstLook
       ? 'Your first real look at your team since the draft: set your lineup, fill any holes, and see if a trade makes sense.'
@@ -608,7 +612,7 @@ function instructions(ctx: TaskContext, prep: CheckInPrep): string {
         : `The optimizer would start: ${changes.join(', ')} (set_lineup).`,
     look.waivers.pickups.length === 0
       ? 'No pickups worth making.'
-      : `Pickups your scouting vetted (FAAB left: $${look.waivers.faabRemaining}):\n${look.waivers.pickups.map((p, i) => describePickup(p, i, ctx.config.levers.research.projections)).join('\n')}`,
+      : `Pickups your scouting vetted${faab ? ` (FAAB left: $${look.waivers.faabRemaining})` : ''}:\n${look.waivers.pickups.map((p, i) => describePickup(p, i, ctx.config.levers.research.projections, faab)).join('\n')}`,
     look.trade.prep === null
       ? 'No trade offers to send this time.'
       : `Trade ideas (propose_trade, at most ${look.trade.prep.limit}):\n${look.trade.prep.candidates.map(describeCandidate).join('\n')}`,

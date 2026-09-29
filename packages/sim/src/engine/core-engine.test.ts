@@ -12,7 +12,8 @@ import { replaySettings } from '../runner/settings.js';
 import { CoreOnlyEngine, EngineStateError, createCoreOnlyEngine } from './core-engine.js';
 
 const TEAMS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-const settings = replaySettings(8, 1, 4);
+const base = replaySettings(8, 1, 4);
+const settings = { ...base, waivers: { ...base.waivers, type: 'faab' as const } };
 
 interface Harness {
   archive: SimArchive;

@@ -1,5 +1,5 @@
 import { AGENT_CHAT_BUDGETS } from '../../src/chat/model.js';
-import { matchupRoomId } from '@fantasy/core';
+import { matchupRoomId, yahooDefaultSettings } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { agentPrincipal } from '../../src/auth/principal.js';
 import type { ChatContextPack } from '../../src/chat/context.js';
@@ -54,10 +54,20 @@ beforeAll(async () => {
   alice = as(h, ALICE);
   bob = as(h, BOB);
   carol = as(h, CAROL);
+  const faabSettings = () => {
+    const settings = yahooDefaultSettings(4);
+    settings.roster.slots = { QB: 1, RB: 1, BN: 1 };
+    settings.waivers.type = 'faab';
+    return settings;
+  };
   const deps = { repos: h.repos, reference: h.services.data.reference };
   await seedNflSchedule(deps.reference);
   // team-1 Alice, team-2 Bob, team-3 an agent, team-4 Carol; week 3, weeks 1-2 final.
-  await seedSeasonLeague(deps, { id: LG, owners: [ALICE, BOB, null, CAROL], overrides: { week: 3 } });
+  await seedSeasonLeague(deps, {
+    id: LG,
+    owners: [ALICE, BOB, null, CAROL],
+    overrides: { week: 3, settings: faabSettings() }
+  });
   const played = (await h.repos.schedule.listMatchups(LG)).filter((m) => m.week <= 2);
   await h.repos.schedule.putMatchups(
     played.map((m, i) => ({ ...m, status: 'final' as const, homeScore: 100 + i * 10, awayScore: 95 + i }))

@@ -278,6 +278,7 @@ describe('check-in decisions', () => {
 
   it('passes on a claim whose drop would be locked by the time it runs', async () => {
     const settings = yahooDefaultSettings(4);
+    settings.waivers.type = 'faab';
     settings.roster.slots = { QB: 1, RB: 1, BN: 1 };
     const s = await setup({ league: { settings } });
     await s.seat(AGENT_TEAM, HAWK);

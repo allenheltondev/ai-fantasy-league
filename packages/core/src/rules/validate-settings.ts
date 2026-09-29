@@ -370,7 +370,7 @@ export const SETTINGS_EDITABILITY: Readonly<Record<string, SettingEditability>> 
   'roster.slots': 'pre_draft',
   'roster.irEligibleStatuses': 'any_time',
   scoring: 'pre_draft',
-  'waivers.type': 'pre_draft',
+  'waivers.type': 'any_time',
   'waivers.faabBudget': 'pre_draft',
   'waivers.priorityOrder': 'pre_draft',
   'waivers.postDraftPlayers': 'pre_draft',

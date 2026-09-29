@@ -143,7 +143,10 @@ describe('waiver resolution properties', () => {
   });
 
   it('under the reverse_standings tiebreak, a tied bid goes to the worse team', () => {
-    const settings = { ...base, waivers: { ...base.waivers, faabTiebreak: 'reverse_standings' as const } };
+    const settings = {
+      ...base,
+      waivers: { ...base.waivers, type: 'faab' as const, faabTiebreak: 'reverse_standings' as const }
+    };
     const team = { roster: [], faabRemaining: 50 };
     const claim = (teamId: string) => ({
       claimId: `c-${teamId}`,

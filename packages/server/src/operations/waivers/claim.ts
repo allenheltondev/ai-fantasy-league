@@ -44,9 +44,9 @@ export const claimWaiver = defineOperation({
   name: 'claim_waiver',
   method: 'POST',
   path: '/leagues/{leagueId}/waivers/claims',
-  summary: 'Add a free agent now, or claim a player on waivers with a FAAB bid',
+  summary: 'Add a free agent now, or claim a player on waivers (with a FAAB bid in FAAB leagues)',
   description: [
-    'Adds a player to your roster. A free agent (not on a roster and not on waivers) joins immediately at no cost (`outcome: "added"`). A player on waivers (recently dropped) gets a pending claim instead (`outcome: "claim_pending"`), resolved at the waiver run in `claim.processesAt`: the highest FAAB bid wins, ties go to waiver priority, and your own claims run in their `priority` order.',
+    'Adds a player to your roster. A free agent (not on a roster and not on waivers) joins immediately at no cost (`outcome: "added"`). A player on waivers (recently dropped) gets a pending claim instead (`outcome: "claim_pending"`), resolved at the waiver run in `claim.processesAt`. In a FAAB league the highest bid wins and ties go to waiver priority; in a rolling league (no bids, `bid` is ignored) the team highest on the waiver priority list wins. Your own claims run in their `priority` order.',
     'Pass `dropPlayerId` to release someone in the same move; it is required when your roster is full (ROSTER_FULL lists the players you can drop). The dropped player goes on waivers for the league waiver period.',
     "Call preview_waiver_claim first to check the outcome and the resulting roster. Errors: PLAYER_NOT_AVAILABLE (on a roster), INSUFFICIENT_FAAB (bid over your budget), ZERO_BID_NOT_ALLOWED, DUPLICATE_WAIVER_CLAIM (cancel the old one first), ACQUISITION_LIMIT_REACHED, PLAYER_LOCKED (the drop player's game has kicked off, or will have when the claim runs), PLAYER_IN_TRADE (the drop player is leaving in a trade being processed right now), and PHASE_NOT_ALLOWED outside the season.",
     'A player is on waivers after a drop, right after the draft (`postDraftPlayers: waivers`), and once his game this week has kicked off (game-time waivers, until the first run after the week).'

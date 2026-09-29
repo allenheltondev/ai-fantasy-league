@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
@@ -402,6 +402,32 @@ describe('the roster workspace on a phone', () => {
         limit: 25
       })
     );
+  });
+
+  it('shows what an add costs on each row: $0 for a free agent, your budget for a waiver claim', async () => {
+    open('/leagues/L1/team/moves?market=');
+    const sheet = await screen.findByRole('list', { name: 'Available players' });
+    const fa = within(await within(sheet).findByTestId('market-row-fa'));
+    const wv = within(within(sheet).getByTestId('market-row-wv'));
+    expect(fa.getByTestId('market-cost')).toHaveTextContent('$0 · free');
+    expect(wv.getByTestId('market-cost')).toHaveTextContent('Bid up to $88');
+  });
+
+  it('asks for a bid without a number when you manage no team, and shows no cost in rolling leagues', async () => {
+    open('/leagues/L1/team/moves?market=', {
+      listLeaguePlayers: vi.fn(async () => page(MARKET, { faabRemaining: null }))
+    });
+    const sheet = await screen.findByRole('list', { name: 'Available players' });
+    expect(
+      await within(within(sheet).getByTestId('market-row-wv')).findByTestId('market-cost')
+    ).toHaveTextContent('Bid to claim');
+    cleanup();
+    open('/leagues/L1/team/moves?market=', {
+      listLeaguePlayers: vi.fn(async () => page(MARKET, { waiverType: 'rolling' }))
+    });
+    const rolling = await screen.findByRole('list', { name: 'Available players' });
+    await within(rolling).findByTestId('market-row-wv');
+    expect(within(rolling).queryByTestId('market-cost')).not.toBeInTheDocument();
   });
 
   it('adds a free agent with a drop from the full roster, comparing the two', async () => {

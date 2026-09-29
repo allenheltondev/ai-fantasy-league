@@ -194,7 +194,9 @@ describe('validateLeagueSettings: cross-field rules', () => {
 
   it('FAAB must allow at least one legal bid', () => {
     expect(
-      codes(validateLeagueSettings(patched({ waivers: { faabBudget: 0, allowZeroBids: false } })))
+      codes(
+        validateLeagueSettings(patched({ waivers: { type: 'faab', faabBudget: 0, allowZeroBids: false } }))
+      )
     ).toEqual(['FAAB_NO_LEGAL_BID']);
     expect(
       validateLeagueSettings(patched({ waivers: { type: 'rolling', faabBudget: 0, allowZeroBids: false } }))

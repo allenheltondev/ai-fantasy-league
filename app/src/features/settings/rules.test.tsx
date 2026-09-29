@@ -150,8 +150,8 @@ describe('RulesEditor', () => {
     await user.click(screen.getByLabelText('out'));
     await user.clear(screen.getByLabelText('Receptions'));
     await user.type(screen.getByLabelText('Receptions'), '1');
-    await user.selectOptions(screen.getByLabelText('Waiver type'), 'rolling');
     await user.selectOptions(screen.getByLabelText('Allow $0 bids'), 'no');
+    await user.selectOptions(screen.getByLabelText('FAAB bidding'), 'rolling');
     await user.type(screen.getByLabelText('Max adds per week'), '5');
     await user.selectOptions(screen.getByLabelText('Teams'), '6');
     expect(screen.getByTestId('rule-roster.irEligibleStatuses')).toHaveTextContent('Yahoo default: ir, out');

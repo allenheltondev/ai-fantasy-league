@@ -29,7 +29,7 @@ describe('yahooDefaultSettings', () => {
     expect(s.roster.slots).toEqual({ QB: 1, WR: 3, RB: 2, TE: 1, 'W/R/T': 1, K: 1, DEF: 1, BN: 6, IR: 1 });
     expect(s.scoring.perStat.rec).toBe(0.5);
     expect(s.waivers).toMatchObject({
-      type: 'faab',
+      type: 'rolling',
       faabBudget: 100,
       waiverPeriodDays: 2,
       allowZeroBids: true

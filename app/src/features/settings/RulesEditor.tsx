@@ -11,6 +11,7 @@ import {
   isEditableInPhase,
   ruleSections,
   sameValue,
+  getPath,
   setPath,
   settingsPatch,
   tierStatLabel,
@@ -92,8 +93,8 @@ export function RulesEditor({ league, defaults, canEdit, onSaved }: RulesEditorP
       )}
       {canEdit && league.phase !== 'setup' && (
         <Alert variant="info">
-          The draft has started: only trade settings, waiver timing and tiebreaks, and IR statuses can still
-          change.
+          The draft has started: only trade settings, FAAB on or off, waiver timing and tiebreaks, and IR
+          statuses can still change.
         </Alert>
       )}
       <ApiErrorAlert error={error} />
@@ -103,6 +104,8 @@ export function RulesEditor({ league, defaults, canEdit, onSaved }: RulesEditorP
             <h3 className="text-lg font-semibold">{section.title}</h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {section.fields.map((field) => {
+                if (field.showWhen && getPath(draft, field.showWhen.path) !== field.showWhen.equals)
+                  return null;
                 const value = fieldValue(draft, field);
                 const fallback = fieldValue(defaults.settings, field);
                 const changed = !sameValue(value, fallback);

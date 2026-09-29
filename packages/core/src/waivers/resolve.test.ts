@@ -9,7 +9,7 @@ function settingsWith(waivers: Partial<LeagueSettings['waivers']> = {}): LeagueS
   return {
     ...base,
     roster: { ...base.roster, slots: { QB: 1, BN: 2, IR: 1 } },
-    waivers: { ...base.waivers, ...waivers }
+    waivers: { ...base.waivers, type: 'faab', ...waivers }
   };
 }
 
