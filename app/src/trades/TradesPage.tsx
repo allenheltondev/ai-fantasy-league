@@ -248,10 +248,13 @@ export function TradesPage({
     const tick = setInterval(() => setClock(now()), COUNTDOWN_TICK_MS);
     return () => clearInterval(tick);
   }, [now]);
-  // `?with=<teamId>` (another team's page, #178) starts the builder with that team picked.
+  // `?with=<teamId>` (another team's page, #178) starts the builder with that team picked;
+  // `?send=` and `?receive=` (the roster workspace and the player market, #205) with players picked.
   const [selection, setSelection] = useState<Selection>(() => ({
     ...EMPTY,
-    withTeamId: params.get('with') ?? ''
+    withTeamId: params.get('with') ?? '',
+    send: params.getAll('send'),
+    receive: params.getAll('receive')
   }));
   const [countering, setCountering] = useState<TradeView | null>(null);
   const [mine, setMine] = useState<PlayerRef[] | null>(null);
@@ -356,7 +359,7 @@ export function TradesPage({
             label="Trade with"
             value={selection.withTeamId}
             disabled={countering !== null}
-            onChange={(e) => setSelection({ ...EMPTY, withTeamId: e.target.value })}
+            onChange={(e) => setSelection((s) => ({ ...EMPTY, send: s.send, withTeamId: e.target.value }))}
           >
             <option value="">Pick a team</option>
             {others.map((t) => (

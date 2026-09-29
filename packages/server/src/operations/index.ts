@@ -2,6 +2,7 @@ import { createRegistry, type Registry } from '../registry/registry.js';
 import { draftOperations } from './draft/index.js';
 import { leagueOperations } from './league/index.js';
 import { getPlayer, searchPlayers } from './players.js';
+import { listLeaguePlayers } from './league-players.js';
 import { getHealth, getMe } from './system.js';
 import { getAgentActivity } from './agents/activity.js';
 import { getAgentCatalog } from './agents/catalog.js';
@@ -43,6 +44,8 @@ export const operations = [
   getModelLeaderboard,
   // Waivers and free agency (#55)
   ...waiverOperations,
+  // The player market (#205)
+  listLeaguePlayers,
   // Group chat and realtime (#68, #69)
   ...chatOperations,
   // Trades (#63, #64, #65, #79)

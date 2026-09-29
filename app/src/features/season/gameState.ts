@@ -67,7 +67,11 @@ export function sitsOut(entry: RosterEntry): boolean {
  * `Final · W 27–20`, or `BYE`. Always text, so no state relies on color.
  */
 export function gameContext(entry: RosterEntry): string {
-  const game = gameOf(entry);
+  return gameText(gameOf(entry));
+}
+
+/** `gameContext` for a game on its own (the player market's rows, #205). */
+export function gameText(game: PlayerGame): string {
   switch (game.state) {
     case 'bye':
       return 'BYE';

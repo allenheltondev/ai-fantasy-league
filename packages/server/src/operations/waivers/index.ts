@@ -1,5 +1,5 @@
 import { claimWaiver, previewWaiverClaim } from './claim.js';
-import { cancelWaiverClaim, listWaiverClaims, reorderWaiverClaims } from './claims.js';
+import { cancelWaiverClaim, listWaiverClaims, reorderWaiverClaims, updateWaiverClaim } from './claims.js';
 import { dropPlayer } from './drop.js';
 import { listTransactions } from './transactions.js';
 
@@ -9,6 +9,7 @@ export const waiverOperations = [
   previewWaiverClaim,
   listWaiverClaims,
   cancelWaiverClaim,
+  updateWaiverClaim,
   reorderWaiverClaims,
   dropPlayer,
   listTransactions

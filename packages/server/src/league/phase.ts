@@ -239,6 +239,7 @@ export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
     }
   },
   cancel_waiver_claim: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
+  update_waiver_claim: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
   reorder_waiver_claims: { phases: IN_SEASON, roles: PLAYERS, roleFix: PLAYER_FIX },
   propose_trade: tradeRule(),
   counter_trade: tradeRule(),
