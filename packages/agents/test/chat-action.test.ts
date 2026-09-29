@@ -308,6 +308,27 @@ describe('chat → trade answer: arguments go through the agent’s own numbers'
     expect(record.reasoningSummary).toContain('The trade value math rules it out');
     expect(await tradeStatus(s, id)).toBe('rejected');
   });
+
+  it('a persuasive pitch cannot carry a lopsided counter either (#208)', async () => {
+    const s = await borderline('startup-founder');
+    const id = await offer(s, ['h-wr'], ['wr4']);
+    await answer(s, await tell(s, PITCH), TRADE_TALK);
+    // Talked round, the model counters by throwing in its best players for Allen's H WR.
+    const model = said({
+      summary: 'Allen is right, I will sweeten it.',
+      action: 'counter',
+      send: ['wr4', 'wr1', 'rb1'],
+      receive: ['h-wr'],
+      message: 'You win, take them all.'
+    });
+    const { record } = await followUp(s, model);
+    expect(record.finalAction).toBe('reject_trade');
+    expect(record.reasoningSummary).toMatch(
+      /^Weighed Allen's pitch\. Allen is right, I will sweeten it\. That counter would cost me too much by the trade value math \(score -[\d.]+, floor -3\), so rejecting\.$/
+    );
+    expect(await tradeStatus(s, id)).toBe('rejected');
+    expect((await s.repos.trades.list(LEAGUE_ID)).filter((t) => t.trade.counterOf === id)).toEqual([]);
+  });
 });
 
 describe('chat → trade offer: a pitch without an offer', () => {
