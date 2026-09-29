@@ -3755,6 +3755,12 @@
                               "finishedAt": {
                                 "type": "string"
                               },
+                              "attempts": {
+                                "description": "Deliveries this task took when more than one: it was retried or recovered after a failure.",
+                                "type": "integer",
+                                "minimum": 2,
+                                "maximum": 9007199254740991
+                              },
                               "redacted": {
                                 "type": "boolean",
                                 "description": "True when the task is withheld because it holds sealed information (a waiver bid still pending, a trade offer only its two teams can see, a vote while the review is open): `reasoningSummary` says what kind of move it was, `finalAction` is `sealed`, and the tools, status, and cost are masked. The real record appears once the claim or trade resolves; the weekly spend totals always include it."

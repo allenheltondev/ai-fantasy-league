@@ -5,6 +5,7 @@ import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import type { ModelClient, ModelRunRequest, ModelRunResult } from '../src/model.js';
 import { taskIdFor } from '../src/router.js';
+import { recoverAgentTasks } from '../src/recovery.js';
 import { runAgentAction } from '../src/runner.js';
 import { lineupTask } from '../src/tasks/lineup.js';
 import { noopTask } from '../src/tasks/noop.js';
@@ -320,14 +321,16 @@ describe('runAgentAction with the fake model', () => {
         }),
         request({ kind: 'noop', payload: {} })
       );
+      // A permanent failure (a bug, not throttling) is recorded at once; the error's message, which
+      // could quote sealed details, stays out of the summary.
       expect(record).toMatchObject({
         status: 'failed',
         fallbackReason: 'kill_switch',
-        reasoningSummary: 'Fallback failed: cannot'
+        reasoningSummary: 'Fallback failed (Error).'
       });
     });
 
-    it('records a decision that cannot be applied', async () => {
+    it('falls back when a decision cannot be applied and nothing was done yet', async () => {
       const s = await setup();
       await s.seat(AGENT_TEAM, PRO);
       const broken = defineTaskKind({
@@ -341,8 +344,9 @@ describe('runAgentAction with the fake model', () => {
         request({ kind: 'noop', payload: {} })
       );
       expect(record).toMatchObject({
-        status: 'failed',
-        reasoningSummary: 'Could not apply the decision: bad apply'
+        status: 'fallback',
+        fallbackReason: 'apply_failed',
+        reasoningSummary: 'ok'
       });
     });
   });
@@ -368,14 +372,18 @@ describe('runAgentAction with the fake model', () => {
       expect(record.fallbackReason).toMatch(/get_roster failed: FORBIDDEN/);
     });
 
-    it('skips when prepare throws unexpectedly', async () => {
+    it('records a failure (not a skip) when prepare throws a permanent error', async () => {
       const s = await setup();
       await s.seat(AGENT_TEAM, PRO);
       const record = await runAgentAction(
         s.deps(new ScriptedModelClient()),
         request({ payload: { week: 99 } })
       );
-      expect(record).toMatchObject({ status: 'skipped', fallbackReason: 'prepare_failed' });
+      expect(record).toMatchObject({
+        status: 'failed',
+        fallbackReason: 'prepare_failed',
+        reasoningSummary: 'Could not prepare the task (ZodError).'
+      });
     });
 
     it('reports a task another container is running', async () => {
@@ -409,7 +417,7 @@ describe('runAgentAction with the fake model', () => {
     expect(model.transcript[0]?.input).toContain('Lineup Lock Approaching');
   });
 
-  it('requests follow-up tasks from an outcome, and a failed request never fails the task', async () => {
+  it('requests follow-up tasks from an outcome, and a failed request is kept for the relay', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, PRO);
     const handOff = {
@@ -443,9 +451,11 @@ describe('runAgentAction with the fake model', () => {
     expect(Date.parse(later.at) - s.clock.now().getTime()).toBe(60_000);
     expect(later.event.detail.taskId).toBe(taskIdFor('evt-1', AGENT_TEAM, 'noop2'));
 
-    // The follow-up is lost when the bus refuses it; the task's own decision stands.
+    // The bus refuses the follow-up: the task's own decision stands, and the follow-up waits in the
+    // outbox until the recovery sweep sends it (#207).
     const broken = await setup();
     await broken.seat(AGENT_TEAM, PRO);
+    const publish = broken.services.events.publish.bind(broken.services.events);
     broken.services.events.publish = async () => {
       throw new Error('bus down');
     };
@@ -454,7 +464,20 @@ describe('runAgentAction with the fake model', () => {
       request({ kind: 'kickoff', payload: {} })
     );
     expect(kept.status).toBe('completed');
-    expect(broken.logs.some((l) => l.includes('follow-up task could not be requested'))).toBe(true);
+    expect(broken.logs.some((l) => l.includes('agent task dispatch failed; the relay will retry'))).toBe(
+      true
+    );
+    const lost = taskIdFor('evt-1', AGENT_TEAM, 'noop');
+    expect(await broken.repos.agents.getDispatch(lost)).toMatchObject({ state: 'reserved', attempts: 1 });
+    broken.services.events.publish = publish;
+    broken.clock.advance(60_000);
+    expect(await recoverAgentTasks(broken.services)).toMatchObject({ sent: 1, failed: 0 });
+    expect(broken.events.events.find((e) => e.detailType === 'Agent Action Requested')?.detail).toMatchObject(
+      {
+        taskId: lost
+      }
+    );
+    expect(await broken.repos.agents.getDispatch(lost)).toMatchObject({ state: 'dispatched' });
   });
 
   describe('security', () => {

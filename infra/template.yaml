@@ -853,11 +853,14 @@ Resources:
         - Version: '2012-10-17'
           Statement:
             # Reads agent seats, teams, and in-season leagues (GSI2), and reads and
-            # writes trigger state (cooldowns, once-per-week keys). Nothing else.
+            # writes trigger state (cooldowns, once-per-week keys) and the agent
+            # task dispatch outbox (#207: conditional updates, and transactions of
+            # a cooldown with its reservation). Nothing else.
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
+                - dynamodb:UpdateItem
                 - dynamodb:Query
               Resource:
                 - !GetAtt FantasyTable.Arn
@@ -1010,6 +1013,18 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
+        # The recovery sweep (#207, packages/agents/src/recovery.ts): delivers
+        # again the tasks whose worker crashed or stalled past its lease, or
+        # whose retry is due, and resends the agent task dispatches that never
+        # went out, so lost agent work never waits for a later league event.
+        AgentRecovery:
+          Type: ScheduleV2
+          Properties:
+            Description: Recover abandoned agent tasks and resend undelivered dispatches
+            ScheduleExpression: rate(2 minutes)
+            Input: '{"sweep":"agent-recovery"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 0
 
   # ===========================================================================
   # End of agent platform section

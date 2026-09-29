@@ -82,6 +82,26 @@ describe('agent Lambda handlers', () => {
     expect(await s.savedLineups()).toHaveLength(1);
   });
 
+  it('runs the recovery sweep on its schedule (#207)', async () => {
+    const s = await setup();
+    vi.stubEnv('TABLE_NAME', 'unused');
+    vi.stubEnv('FANTASY_FAKE_MODEL', '1');
+    vi.resetModules();
+    vi.doMock('../src/lambda/env.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/lambda/env.js')>()),
+      createAgentServices: () => s.services
+    }));
+    const task = await import('../src/lambda/task.js');
+    expect(await task.handler({ sweep: 'agent-recovery' })).toEqual({
+      leases: 0,
+      redelivered: 0,
+      dispatches: 0,
+      sent: 0,
+      failed: 0,
+      abandoned: 0
+    });
+  });
+
   it('writes agent memory for league events before routing, and survives a memory failure', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'balanced' });
