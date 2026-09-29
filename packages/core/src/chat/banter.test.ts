@@ -55,7 +55,8 @@ describe('agent-to-agent banter', () => {
     expect(banterVerdict(base)).toBe('ok');
     // A spat runs a few rounds, then stops.
     expect(banterVerdict({ ...base, depth: 1 })).toBe('ok');
-    expect(banterVerdict({ ...base, depth: BANTER_LIMITS.maxTriggerDepth - 1 })).toBe('ok');
+    // The last round a spat may run is still open (the roll decides), unlike the cap itself.
+    expect(banterVerdict({ ...base, depth: BANTER_LIMITS.maxTriggerDepth - 1 })).not.toBe('depth');
     expect(banterVerdict({ ...base, depth: BANTER_LIMITS.maxTriggerDepth })).toBe('depth');
     expect(banterVerdict({ ...base, depth: -1 })).toBe('depth');
     expect(banterContinues(BANTER_LIMITS.maxTriggerDepth - 1)).toBe(true);

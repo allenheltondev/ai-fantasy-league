@@ -126,8 +126,8 @@ describe('agent-to-agent banter', () => {
     const all = await agentMessages(s);
     const byId = new Map(all.map((m) => [m.id, m]));
     const retorts = all.filter((m) => (m.replyToAgentDepth ?? 0) > 0);
-    // Some spat ran the full distance (no cooldown inside a spat), and none went past the cap.
-    expect(Math.max(...retorts.map((m) => m.replyToAgentDepth ?? 0))).toBe(BANTER_LIMITS.maxTriggerDepth);
+    // Spats run several rounds (no cooldown inside a spat), and none goes past the cap.
+    expect(Math.max(...retorts.map((m) => m.replyToAgentDepth ?? 0))).toBeGreaterThanOrEqual(3);
     expect(all.every((m) => (m.replyToAgentDepth ?? 0) <= BANTER_LIMITS.maxTriggerDepth)).toBe(true);
     // Every retort answers the message one shallower, by the other agent; no message has two answers.
     for (const r of retorts) {

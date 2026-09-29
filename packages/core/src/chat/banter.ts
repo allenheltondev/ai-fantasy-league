@@ -19,11 +19,11 @@ import { seededRandom } from '../schedule/random.js';
 
 export const BANTER_LIMITS = {
   /** Agent-to-agent retorts the whole league may see in 24 hours. */
-  leaguePerDay: 20,
-  /** Messages at this depth or deeper never trigger an agent: at most three retorts per spat. */
-  maxTriggerDepth: 3,
+  leaguePerDay: 40,
+  /** Messages at this depth or deeper never trigger an agent: at most five retorts per spat. */
+  maxTriggerDepth: 5,
   /** The personality's appetite is multiplied by this for each retort already in the thread. */
-  depthDecay: 0.8
+  depthDecay: 0.85
 } as const;
 
 /** The agent-thread depth of a new message, from the message it replies to (null: not a reply). */

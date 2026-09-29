@@ -33,7 +33,8 @@ function agentMessage(i: number, teamId = AGENT_TEAM): ChatMessage {
     author: { teamId, teamName: teamId, name: teamId },
     text: `beep ${i}`,
     mentionedTeamIds: [],
-    createdAt: new Date(Date.parse(START) - (i + 1) * 60 * 60_000).toISOString()
+    // Half an hour apart, so a full day's budget fits inside the 24-hour window.
+    createdAt: new Date(Date.parse(START) - (i + 1) * 30 * 60_000).toISOString()
   });
 }
 
