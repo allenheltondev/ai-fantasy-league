@@ -1,4 +1,4 @@
-import { dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
+import { agendaPriority, dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import {
@@ -230,11 +230,22 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
     const theirs = await rosterOf(team.id);
     ideas.push(
       ...swapIdeas(mine, theirs)
+        .sort(
+          (a, b) =>
+            agendaPriority(ctx.agenda, b.receive.player.position) -
+              agendaPriority(ctx.agenda, a.receive.player.position) || b.rough - a.rough
+        )
         .slice(0, PER_TEAM)
         .map((idea) => ({ ...idea, team }))
     );
   }
-  ideas.sort((a, b) => b.rough - a.rough || a.team.id.localeCompare(b.team.id));
+  ideas.sort(
+    (a, b) =>
+      agendaPriority(ctx.agenda, b.receive.player.position) -
+        agendaPriority(ctx.agenda, a.receive.player.position) ||
+      b.rough - a.rough ||
+      a.team.id.localeCompare(b.team.id)
+  );
 
   const bar = Math.max(appetite.acceptEdge, MIN_PROPOSAL_GAIN);
   const recency = ctx.config.valuation.recencyBias ?? 0;
@@ -262,7 +273,12 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
       partnerScore
     });
   }
-  candidates.sort((a, b) => b.score - a.score || b.partnerScore - a.partnerScore);
+  candidates.sort(
+    (a, b) =>
+      agendaPriority(ctx.agenda, b.receive.position) - agendaPriority(ctx.agenda, a.receive.position) ||
+      b.score - a.score ||
+      b.partnerScore - a.partnerScore
+  );
   // One offer per team: the best one.
   const best = candidates.filter((c, i) => candidates.findIndex((d) => d.team.id === c.team.id) === i);
   if (best.length === 0) throw new TaskUnavailableError('no_trade_found');

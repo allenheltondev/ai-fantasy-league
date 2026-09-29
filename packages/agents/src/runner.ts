@@ -1,6 +1,7 @@
 import {
   RESEARCH_KINDS,
   SOCIAL_LIMITS,
+  agendaPrompt,
   estimateCostUsd,
   getModel,
   resolveAgentConfig,
@@ -36,6 +37,7 @@ import {
 import { ZodError } from 'zod';
 import { dispatchTask, errorName } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
+import { AGENDA_KINDS, refreshAgenda } from './agenda.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
 import {
@@ -310,6 +312,11 @@ export async function runAgentAction(
     }
   };
 
+  const usesAgenda = kind.modelRole === 'decision' && AGENDA_KINDS.has(kind.kind);
+  if (usesAgenda) {
+    const agenda = await refreshAgenda(services, ctx);
+    if (agenda !== undefined) ctx.agenda = agenda;
+  }
   let prepared: PreparedTask;
   try {
     prepared = await kind.prepare(ctx, request.payload);
@@ -333,6 +340,8 @@ export async function runAgentAction(
   const memoryStore = deps.memory ?? tableMemoryStore(agents);
   const audience = prepared.memoryAudience ?? defaultAudience(kind.modelRole, prepared.memoryScope);
   attempt.remember = async (outcome: TaskOutcome, note?: string) => {
+    // Only a new authoritative snapshot can finish a goal; pending offers/claims do not.
+    if (usesAgenda && system.actionsTaken > 0) await refreshAgenda(services, ctx);
     const events: MemoryEvent[] = [];
     // The decision and its note are as private as the task's summary (#206).
     const visibility = outcomeVisibility(outcome.sealed, audience);
@@ -425,7 +434,18 @@ export async function runAgentAction(
       now: clock.now().toISOString(),
       focus: recallFocus(kind, prepared, audience)
     }),
-    task: { title: kind.title, instructions: prepared.instructions }
+    task: {
+      title: kind.title,
+      instructions: [
+        ...(ctx.agenda === undefined || agendaPrompt(ctx.agenda).length === 0
+          ? []
+          : [
+              'Your current private roster priorities (do not disclose private plans):',
+              ...agendaPrompt(ctx.agenda)
+            ]),
+        prepared.instructions
+      ].join('\n')
+    }
   });
   const chain: ModelKey[] = kind.modelRole === 'chat' ? config.models.chat : config.models.decision;
   const usage: AgentModelUsage[] = [];

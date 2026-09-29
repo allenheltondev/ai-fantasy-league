@@ -56,7 +56,12 @@ describe('runAgentAction with the fake model', () => {
       week: 5,
       trigger: { detailType: 'Lineup Lock Approaching', eventId: 'evt-1' }
     });
-    expect(record.toolsCalled.map((c) => c.name)).toEqual(['get_news', 'get_roster', 'set_lineup']);
+    expect(record.toolsCalled.map((c) => c.name)).toEqual([
+      'get_news',
+      'get_roster',
+      'get_roster',
+      'set_lineup'
+    ]);
     expect(record.usage).toHaveLength(1);
     expect(record.usage[0]).toMatchObject({ modelKey: 'kimi-k2-thinking', estimatedTokens: true });
     expect(record.costUsd).toBeGreaterThan(0);

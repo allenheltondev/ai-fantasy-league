@@ -1,4 +1,4 @@
-import type { Clock, MemoryAudience, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
+import type { AgentAgenda, Clock, MemoryAudience, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
 import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
 import type { FakeScript } from '../fake-model.js';
@@ -41,6 +41,8 @@ export const BaseDecisionSchema = z.object({
 export type BaseDecision = z.infer<typeof BaseDecisionSchema>;
 
 export interface TaskContext {
+  /** Verified private priorities for this decision only; never supplied to chat tasks. */
+  agenda?: AgentAgenda;
   taskId: string;
   principal: AgentPrincipal;
   league: League;
