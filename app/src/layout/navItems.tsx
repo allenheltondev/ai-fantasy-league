@@ -3,7 +3,14 @@ import type { AppNavItem } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
 import type { Phase } from '../api/types';
 import { countLabel } from '../notifications/types';
-import { draftIsLive, leaguePath, TEAM_PAGES, type TeamPagePath } from '../routes/leagueRoutes';
+import {
+  draftIsLive,
+  LEAGUE_PAGES,
+  leaguePath,
+  TEAM_PAGES,
+  type LeagueTabPath,
+  type TeamPagePath
+} from '../routes/leagueRoutes';
 import {
   AchievementsIcon,
   ChatIcon,
@@ -11,16 +18,28 @@ import {
   DraftIcon,
   HomeIcon,
   InfoIcon,
-  LeagueIcon,
   LeaguesIcon,
   LineupIcon,
   MatchupIcon,
   MovesIcon,
+  PlayersIcon,
+  PlayoffsIcon,
   ProfileIcon,
+  ScoreboardIcon,
   SettingsIcon,
+  StandingsIcon,
   TeamsIcon,
-  TradesIcon
+  TradesIcon,
+  TransactionsIcon
 } from './navIcons';
+
+const LEAGUE_ICONS: Record<LeagueTabPath, ReactNode> = {
+  scoreboard: <ScoreboardIcon />,
+  standings: <StandingsIcon />,
+  playoffs: <PlayoffsIcon />,
+  transactions: <TransactionsIcon />,
+  players: <PlayersIcon />
+};
 
 /** How often the nav re-reads chat unread counts (the chat page itself keeps its own live). */
 export const CHAT_UNREAD_POLL_MS = 30_000;
@@ -50,7 +69,7 @@ export function leagueSubpath(pathname: string, leagueId: string): string {
 
 /**
  * The side nav (#178), as `AppNav` items. Outside a league: My Leagues and Create League. In one:
- * My Leagues, then the league (Home, the Draft while it is on, Scoreboard, Chat), then My
+ * My Leagues, then the league (Home, the Draft while it is on, Scoreboard, Standings, Playoffs, Transactions, Players, Chat), then My
  * Team's pages, then Settings, with the trade-offer and chat-unread badges. Only the commissioner
  * can change anything there, so everyone else sees the same page as League info.
  */
@@ -115,15 +134,14 @@ export function navItems({
     });
   }
   items.push(
-    {
-      id: 'league',
-      label: 'Scoreboard',
-      href: href('league'),
-      icon: <LeagueIcon />,
-      // After the draft, its results are a League page (the old /draft link still works).
-      active: on('league') || (phase !== null && !draftIsLive(phase) && on('draft')),
+    ...LEAGUE_PAGES.map((page): AppNavItem => ({
+      id: page.path,
+      label: page.label,
+      href: href(`league/${page.path}`),
+      icon: LEAGUE_ICONS[page.path],
+      active: on(`league/${page.path}`),
       section: 'League'
-    },
+    })),
     {
       id: 'chat',
       label: 'Chat',
@@ -155,7 +173,8 @@ export function navItems({
       label: commissioner ? 'Settings' : 'League info',
       href: href('settings'),
       icon: commissioner ? <SettingsIcon /> : <InfoIcon />,
-      active: on('settings')
+      // After the draft, its results (and the league's history) are League info views.
+      active: on('settings') || on('league/history') || (!draftIsLive(phase) && phase !== null && on('draft'))
     }
   );
   return items;

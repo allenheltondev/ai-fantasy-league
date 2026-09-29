@@ -322,11 +322,18 @@ describe('League pages', () => {
     expect(within(region).getByRole('img', { name: "Bob's Team avatar" })).toBeInTheDocument();
   });
 
-  it('has no Scoreboard before the draft, and lists Draft results only after it', async () => {
+  it('has no Scoreboard before the draft', async () => {
     open('/leagues/L1/league/scoreboard', { getLeagueState: vi.fn(async () => state({ teams: TEAMS })) });
     expect(await screen.findByText('No matchups yet')).toBeInTheDocument();
-    const pages = screen.getByRole('navigation', { name: 'League pages' });
-    expect(within(pages).queryByRole('link', { name: 'Draft results' })).not.toBeInTheDocument();
+  });
+
+  it('shows History in League info, and Draft results only once the draft is over', async () => {
+    open('/leagues/L1/settings', {
+      getLeagueState: vi.fn(async () => state({ teams: TEAMS, phase: 'setup' }))
+    });
+    const views = await screen.findByRole('group', { name: 'Settings view' });
+    expect(within(views).getByRole('button', { name: 'History' })).toBeInTheDocument();
+    expect(within(views).queryByRole('button', { name: 'Draft results' })).not.toBeInTheDocument();
   });
 
   it('shows the move board and the full log on Transactions', async () => {
@@ -334,11 +341,6 @@ describe('League pages', () => {
     expect(await screen.findByRole('region', { name: 'Move board' })).toBeInTheDocument();
     const log = screen.getByRole('region', { name: 'Transactions' });
     expect(await within(log).findByText(/Zach Charbonnet/)).toBeInTheDocument();
-    const pages = screen.getByRole('navigation', { name: 'League pages' });
-    expect(within(pages).getByRole('link', { name: 'Draft results' })).toHaveAttribute(
-      'href',
-      '/leagues/L1/league/draft'
-    );
   });
 
   it('reports a dashboard that fails to load', async () => {

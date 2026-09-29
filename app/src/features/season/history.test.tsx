@@ -1,5 +1,4 @@
-import { screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import type { LeagueApi } from '../../api/league';
@@ -80,11 +79,8 @@ const bracket: PlayoffBracketData = {
 
 describe('Playoffs tab', () => {
   it('shows the champion, a tie decided by seed, and the consolation bracket', async () => {
-    const user = userEvent.setup();
-    open('/leagues/L1/standings', { getPlayoffBracket: vi.fn(async () => bracket) });
-    const pages = await screen.findByRole('navigation', { name: 'League pages' });
-    await user.click(within(pages).getByRole('link', { name: 'Playoffs' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Champion: Team t1');
+    open('/leagues/L1/standings?view=playoffs', { getPlayoffBracket: vi.fn(async () => bracket) });
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Champion: Team t1'));
     expect(screen.getByText(/Playoffs complete\. 4 teams, 0 byes, fixed bracket\./)).toBeInTheDocument();
     expect(screen.getByText('Tie: the better seed advances.')).toBeInTheDocument();
     const consolation = screen.getByRole('region', { name: 'Consolation bracket' });
@@ -242,10 +238,7 @@ const history: LeagueHistoryData = {
 
 describe('History tab', () => {
   it('shows champions, records, head-to-head, achievements, and trades', async () => {
-    const user = userEvent.setup();
-    open('/leagues/L1/standings', { getLeagueHistory: vi.fn(async () => history) });
-    const pages = await screen.findByRole('navigation', { name: 'League pages' });
-    await user.click(within(pages).getByRole('link', { name: 'History' }));
+    open('/leagues/L1/standings?view=history', { getLeagueHistory: vi.fn(async () => history) });
     expect(await screen.findByText('No champion')).toBeInTheDocument();
     const records = screen.getByLabelText('2026 records', { selector: 'dl' });
     expect(records).toHaveTextContent('Team t1, 160.50 (week 3)');
@@ -262,10 +255,6 @@ describe('History tab', () => {
       'Team t1 +42.3 (week 5): got Player One for nothing from Team t2'
     );
     expect(screen.getByText('None yet.')).toBeInTheDocument();
-    // Each page renders afresh, its tab row too.
-    const again = screen.getByRole('navigation', { name: 'League pages' });
-    await user.click(within(again).getByRole('link', { name: 'Standings' }));
-    expect(await screen.findByText('No standings yet')).toBeInTheDocument();
   });
 
   it('shows an empty history', async () => {

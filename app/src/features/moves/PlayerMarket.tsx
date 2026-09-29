@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { Button, Select, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
@@ -66,6 +66,13 @@ export function PlayerMarket(props: MarketProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const { leagueId, onContext } = props;
+  // Rows are memoized, so they get callbacks that never change identity: a page-level re-render
+  // (the market's context arriving, a filter toggling) leaves the 25+ rows alone.
+  const latest = useRef(props);
+  latest.current = props;
+  const teamName = useCallback((id: string) => latest.current.teamName(id), []);
+  const tradeHref = useCallback((r: MarketPlayer) => latest.current.tradeHref(r), []);
+  const onAdd = useCallback((r: MarketPlayer) => latest.current.onAdd(r), []);
 
   useEffect(() => setPosition(props.position), [props.position, props.positionKey]);
 
@@ -210,7 +217,16 @@ export function PlayerMarket(props: MarketProps) {
           className="divide-y divide-border rounded-lg border border-border bg-surface"
         >
           {rows.map((row) => (
-            <MarketRow key={row.player.id} row={row} {...props} />
+            <MarketRow
+              key={row.player.id}
+              row={row}
+              yourTeamId={props.yourTeamId}
+              canAdd={props.canAdd}
+              canTrade={props.canTrade}
+              teamName={teamName}
+              tradeHref={tradeHref}
+              onAdd={onAdd}
+            />
           ))}
         </ul>
       )}
@@ -229,7 +245,14 @@ export function PlayerMarket(props: MarketProps) {
   );
 }
 
-function MarketRow(props: MarketProps & { row: MarketPlayer }) {
+interface RowProps extends Pick<
+  MarketProps,
+  'yourTeamId' | 'canAdd' | 'canTrade' | 'teamName' | 'tradeHref' | 'onAdd'
+> {
+  row: MarketPlayer;
+}
+
+const MarketRow = memo(function MarketRow(props: RowProps) {
   const openCard = useOpenPlayerCard();
   const { row } = props;
   const { player, availability } = row;
@@ -238,7 +261,10 @@ function MarketRow(props: MarketProps & { row: MarketPlayer }) {
   const injured = row.status !== 'active';
   const standing = mine ? 'Your team' : standingText(availability, props.teamName);
   return (
-    <li className="flex items-center gap-3 px-3 py-2.5" data-testid={`market-row-${player.id}`}>
+    <li
+      className="flex items-center gap-3 px-3 py-2.5 [contain-intrinsic-size:auto_4.5rem] [content-visibility:auto]"
+      data-testid={`market-row-${player.id}`}
+    >
       <button
         type="button"
         onClick={() => openCard?.(row.player)}
@@ -320,4 +346,4 @@ function MarketRow(props: MarketProps & { row: MarketPlayer }) {
       </div>
     </li>
   );
-}
+});

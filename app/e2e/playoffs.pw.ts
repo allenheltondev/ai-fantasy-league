@@ -14,15 +14,15 @@ test('a manager checks the projected playoff bracket and the league history', as
   // The old Standings URL still lands there.
   await page.goto('/leagues/demo-season/standings');
   await expect(page).toHaveURL(/\/league\/standings$/);
-  const pages = page.getByRole('navigation', { name: 'League pages' });
-  await pages.getByRole('link', { name: 'Playoffs' }).click();
+  await page.getByRole('link', { name: 'Playoffs' }).click();
   await expect(page).toHaveURL(/\/league\/playoffs$/);
   await expect(page.getByText(/Projected: the bracket if the regular season ended today\./)).toBeVisible();
   const bracket = page.getByRole('region', { name: 'Championship bracket' });
   await expect(bracket.getByText('Week 16')).toBeVisible();
   await expect(bracket.getByText(/^Winner of championship-r1-g/).first()).toBeVisible();
 
-  await pages.getByRole('link', { name: 'History' }).click();
+  await page.goto('/leagues/demo-season/settings');
+  await page.getByRole('button', { name: 'History' }).click();
   await expect(page.getByText('No completed seasons yet.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Head to head' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Best and worst trades' })).toBeVisible();

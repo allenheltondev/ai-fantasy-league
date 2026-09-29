@@ -1,54 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useOutletContext, useParams } from 'react-router';
+import { useState } from 'react';
+import { useParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton } from '../../motion/decor';
-import type { LeagueOutletContext } from '../../routes/leagueContext';
-import { leagueTabs } from '../../routes/leagueRoutes';
 import { MatchupsCard } from '../home/DashboardCards';
 import { MAX_MOVES, MORE_MOVES, MOVES_PAGE, MoveBoard } from '../home/MoveBoard';
 import { Transactions } from '../players/Transactions';
-import { HistoryPanel } from '../season/HistoryPanel';
 import { PlayoffsPanel } from '../season/PlayoffsPanel';
-
-/** Tab-row link: a 44px target, the current page tinted. */
-const TAB = ({ isActive }: { isActive: boolean }) =>
-  `inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-    isActive ? 'bg-primary-100 text-primary-800' : 'text-muted-foreground hover:text-foreground'
-  }`;
-
-/**
- * League (#178): everything about the league as a whole, one tab per page. On a phone the tabs are
- * one row that scrolls sideways, fading at the edges; the current tab scrolls into view.
- */
-export function LeagueSectionLayout() {
-  const context = useOutletContext<LeagueOutletContext | undefined>();
-  const { pathname } = useLocation();
-  const row = useRef<HTMLElement>(null);
-  useEffect(() => {
-    row.current
-      ?.querySelector('[aria-current="page"]')
-      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [pathname]);
-  return (
-    <div data-testid="league-section-league" className="space-y-4">
-      <nav
-        ref={row}
-        aria-label="League pages"
-        className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 pb-2 [mask-image:linear-gradient(to_right,transparent,#000_1rem,#000_calc(100%-1rem),transparent)] [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:[mask-image:none]"
-      >
-        {leagueTabs(context?.phase ?? null).map((tab) => (
-          <NavLink key={tab.path} to={tab.path} className={TAB}>
-            {tab.label}
-          </NavLink>
-        ))}
-      </nav>
-      <Outlet context={context} />
-    </div>
-  );
-}
 
 /** League › Scoreboard: every matchup this week. */
 export function ScoreboardPage() {
@@ -82,15 +42,6 @@ export function PlayoffsPage() {
   return (
     <div data-testid="league-page-playoffs">
       <PlayoffsPanel />
-    </div>
-  );
-}
-
-/** League › History. */
-export function HistoryPage() {
-  return (
-    <div data-testid="league-page-history">
-      <HistoryPanel />
     </div>
   );
 }

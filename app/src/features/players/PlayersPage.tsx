@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams } from 'react-router';
 import { useToast } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
@@ -30,7 +30,23 @@ export function PlayersPage() {
   const [adding, setAdding] = useState<MarketPlayer | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const allowed = (action: string) => state?.allowedActions.includes(action) === true;
-  const teamName = (id: string) => state?.teams?.find((t) => t.id === id)?.name ?? 'Another team';
+  const teams = state?.teams;
+  const teamName = useCallback(
+    (id: string) => teams?.find((t) => t.id === id)?.name ?? 'Another team',
+    [teams]
+  );
+  // A refresh that reads the same FAAB and waiver type leaves the page (and the market) alone.
+  const onContext = useCallback(
+    (page: MarketPage) =>
+      setContext((current) =>
+        current?.faabRemaining === page.faabRemaining &&
+        current?.waiverType === page.waiverType &&
+        current?.dropClearsAt === page.dropClearsAt
+          ? current
+          : page
+      ),
+    []
+  );
   const faab = context?.faabRemaining ?? null;
 
   return (
@@ -51,7 +67,7 @@ export function PlayersPage() {
         canAdd={allowed('claim_waiver') && roster.data !== null}
         canTrade={allowed('propose_trade')}
         refreshKey={refreshKey}
-        onContext={setContext}
+        onContext={onContext}
         tradeHref={(row) =>
           tradeLink(leagueId, { playerId: row.player.id, teamId: row.availability.teamId as string })
         }
