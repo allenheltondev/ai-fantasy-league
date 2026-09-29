@@ -193,6 +193,20 @@ describe('StrandsModelClient', () => {
 
     strands.metrics = { accumulatedUsage: { inputTokens: 10, outputTokens: 5 } };
     strands.invoke.mockResolvedValueOnce({
+      structuredOutput: { summary: 'adaptive' },
+      stopReason: 'endTurn',
+      toString: () => '{"summary":"adaptive"}'
+    });
+    await new StrandsModelClient('us-east-1').run({
+      ...run,
+      thinkingBudgetTokens: undefined,
+      thinkingEffort: 'high'
+    });
+    expect(strands.models.at(-1)).toMatchObject({
+      additionalRequestFields: { thinking: { type: 'adaptive' }, output_config: { effort: 'high' } }
+    });
+
+    strands.invoke.mockResolvedValueOnce({
       structuredOutput: undefined,
       stopReason: 'endTurn',
       toString: () => ''

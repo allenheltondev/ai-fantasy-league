@@ -457,7 +457,11 @@ export async function runAgentAction(
         tools: modelTools.tools,
         maxIterations: config.levers.maxToolSteps,
         maxTokens,
-        ...(thinking > 0 ? { thinkingBudgetTokens: thinking } : {}),
+        ...(thinking > 0
+          ? model.adaptiveThinking === true
+            ? { thinkingEffort: effort as 'medium' | 'high' }
+            : { thinkingBudgetTokens: thinking }
+          : {}),
         temperature: kind.modelRole === 'chat' ? 0.8 : 0.4,
         outputSchema: prepared.decision,
         signal: controller.signal,

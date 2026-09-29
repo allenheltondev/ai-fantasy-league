@@ -1,5 +1,5 @@
 import { tool } from '@readysetcloud/agent';
-import { Agent, BedrockModel } from '@strands-agents/sdk';
+import { Agent, BedrockModel, type JSONValue } from '@strands-agents/sdk';
 import { MODEL_REGION } from '@fantasy/core';
 import type { z } from 'zod';
 import {
@@ -27,10 +27,10 @@ import {
  * metrics plus the final turn's context and text, or from the prompt alone (`estimated: true`).
  *
  * Reasoning effort: for catalog models that take an extended-thinking budget the runner sets
- * `thinkingBudgetTokens`, and the run goes to Bedrock with Anthropic's `thinking` request field.
- * Strands drops `thinking` by itself on a turn that forces a tool (the structured answer), which
- * Bedrock does not allow together; temperature is left unset because thinking only accepts the
- * default.
+ * `thinkingBudgetTokens`, and the run goes to Bedrock with Anthropic's `thinking` request field; for
+ * models on adaptive thinking it sets `thinkingEffort` (`thinkingRequestFields`). Strands drops
+ * `thinking` by itself on a turn that forces a tool (the structured answer), which Bedrock does not
+ * allow together; temperature is left unset because thinking only accepts the default.
  */
 
 interface UsageSnapshot {
@@ -86,7 +86,7 @@ export class StrandsModelClient implements ModelClient {
         }
       })
     );
-    const thinking = request.thinkingBudgetTokens;
+    const thinking = thinkingRequestFields(request);
     const agent = new Agent({
       model: new BedrockModel({
         region: this.region,
@@ -94,7 +94,7 @@ export class StrandsModelClient implements ModelClient {
         maxTokens: request.maxTokens,
         ...(thinking === undefined
           ? { temperature: request.temperature }
-          : { additionalRequestFields: { thinking: { type: 'enabled', budget_tokens: thinking } } })
+          : { additionalRequestFields: thinking })
       }),
       systemPrompt: request.systemPrompt,
       tools
@@ -131,4 +131,16 @@ export class StrandsModelClient implements ModelClient {
     }
     return { decision: result.structuredOutput as T, stopReason: result.stopReason, usage };
   }
+}
+
+/**
+ * Bedrock request fields for a thinking run: a budget for models that take one, or adaptive
+ * thinking with an effort for the Claude 5 models, which reject `thinking.type: enabled`.
+ */
+function thinkingRequestFields(request: ModelRunRequest<unknown>): Record<string, JSONValue> | undefined {
+  if (request.thinkingEffort !== undefined)
+    return { thinking: { type: 'adaptive' }, output_config: { effort: request.thinkingEffort } };
+  if (request.thinkingBudgetTokens !== undefined)
+    return { thinking: { type: 'enabled', budget_tokens: request.thinkingBudgetTokens } };
+  return undefined;
 }

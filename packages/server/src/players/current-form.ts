@@ -1,4 +1,12 @@
-import { seasonPoints, type ScoringSettings, type WeekPoints } from '@fantasy/core';
+import {
+  playedWeek,
+  scorePlayer,
+  seasonPoints,
+  statLabel,
+  type ScoreBreakdownItem,
+  type ScoringSettings,
+  type WeekPoints
+} from '@fantasy/core';
 import type { Ctx } from '../context.js';
 import type { Player } from './model.js';
 import { cardTotals } from './research.js';
@@ -13,6 +21,24 @@ import { cardTotals } from './research.js';
 /** Regular-season weeks only: the postseason is not part of a fantasy season's stats. */
 const LAST_REGULAR_WEEK = 18;
 
+/** One line of a game's scoring: what he did and the points it earned ("82 rec yds", 8.2). */
+export interface GameScoreLine {
+  stat: string;
+  text: string;
+  points: number;
+}
+
+/** One of his last games in detail: the points, how they compare with his average, and where they came from. */
+export interface RecentGame {
+  week: number;
+  points: number;
+  /** Points above (+) or below (-) his points per game this season. */
+  vsAverage: number;
+  opponent: { team: string; home: boolean } | null;
+  /** Where the points came from, biggest first and penalties last; the small rest is `other`. */
+  breakdown: GameScoreLine[];
+}
+
 export interface ThisSeason {
   season: number;
   points: number;
@@ -20,6 +46,44 @@ export interface ThisSeason {
   games: number;
   weekly: WeekPoints[];
   totals: Record<string, number>;
+  /** His last three games played, newest first. */
+  recent: RecentGame[];
+}
+
+/** Games shown in the recent-games detail. */
+export const RECENT_GAMES = 3;
+/** Scoring lines shown per game; the rest fold into one `other` line. */
+const BREAKDOWN_LINES = 5;
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+function lineText(item: ScoreBreakdownItem): string {
+  return item.tier === undefined
+    ? `${round1(item.value)} ${statLabel(item.stat, item.value)}`
+    : `${statLabel(item.stat, item.value)} bonus`;
+}
+
+/** A game's scoring as lines: the biggest earners first, penalties last, the small rest as `other`. */
+export function gameBreakdown(items: readonly ScoreBreakdownItem[]): GameScoreLine[] {
+  const ordered = [...items]
+    .filter((i) => i.points !== 0)
+    .sort((a, b) => Math.sign(b.points) - Math.sign(a.points) || Math.abs(b.points) - Math.abs(a.points));
+  const lines = ordered.slice(0, BREAKDOWN_LINES).map((i) => ({
+    stat: i.stat,
+    text: lineText(i),
+    points: i.points
+  }));
+  const rest = ordered.slice(BREAKDOWN_LINES);
+  return rest.length === 0
+    ? lines
+    : [
+        ...lines,
+        {
+          stat: 'other',
+          text: 'other',
+          points: Math.round(rest.reduce((sum, i) => sum + i.points, 0) * 100) / 100
+        }
+      ];
 }
 
 export interface NextWeek {
@@ -88,13 +152,28 @@ export async function loadCurrentForm(
   let thisSeason: ThisSeason | null = null;
   if (played.length > 0) {
     const scored = seasonPoints(scoring, played);
+    const lastGames = played.filter((p) => playedWeek(p.stats)).slice(-RECENT_GAMES);
+    const opponents = await Promise.all(lastGames.map((g) => reference.schedule.getWeek(season, g.week)));
+    const recent = lastGames
+      .map((g, i): RecentGame => {
+        const result = scorePlayer(scoring, g.stats);
+        return {
+          week: g.week,
+          points: result.points,
+          vsAverage: round1(result.points - scored.ppg),
+          opponent: opponentIn(opponents[i] ?? [], player.team),
+          breakdown: gameBreakdown(result.breakdown)
+        };
+      })
+      .reverse();
     thisSeason = {
       season,
       points: scored.points,
       ppg: scored.ppg,
       games: scored.games,
       weekly: scored.weekly,
-      totals: cardTotals({ playerId: player.id, season, weeks: played }, player.position)
+      totals: cardTotals({ playerId: player.id, season, weeks: played }, player.position),
+      recent
     };
   }
 
@@ -114,13 +193,19 @@ export async function loadCurrentForm(
         : cardTotals({ playerId: player.id, season, weeks: projected }, player.position),
     // No game this week means a bye, once the week's schedule is known.
     bye: games.length > 0 && game === undefined,
-    opponent:
-      game === undefined
-        ? null
-        : game.homeTeam === player.team
-          ? { team: game.awayTeam, home: true }
-          : { team: game.homeTeam, home: false },
+    opponent: opponentIn(games, player.team),
     kickoff: game?.kickoff ?? null
   };
   return { thisSeason, nextWeek };
+}
+
+/** Who his team played in a week's games, or null when it did not (or he has no team). */
+function opponentIn(
+  games: readonly { homeTeam: string; awayTeam: string }[],
+  team: string | null
+): { team: string; home: boolean } | null {
+  if (team === null) return null;
+  const game = games.find((g) => g.homeTeam === team || g.awayTeam === team);
+  if (game === undefined) return null;
+  return game.homeTeam === team ? { team: game.awayTeam, home: true } : { team: game.homeTeam, home: false };
 }
