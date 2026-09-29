@@ -126,6 +126,13 @@ test('a manager claims a player on waivers with a drop and a FAAB bid', async ({
   await page.getByRole('button', { name: 'Search' }).click();
   await expect(page.getByRole('cell', { name: 'Bijan Robinson' })).toHaveCount(0);
 
+  // Sleeper's CDN pictures: a lazy headshot in a fixed box, and the team's logo.
+  const row = page.getByRole('row', { name: /Christian McCaffrey/ });
+  const headshot = row.locator('img[src*="/content/nfl/players/thumb/fx-cmc.jpg"]');
+  await expect(headshot).toHaveAttribute('loading', 'lazy');
+  await expect(headshot).toHaveAttribute('width', '28');
+  await expect(row.locator('img[src$="/team_logos/nfl/sf.png"]')).toHaveAttribute('loading', 'lazy');
+
   await page.getByRole('button', { name: 'Claim Christian McCaffrey' }).click();
   const panel = page.getByRole('region', { name: 'Claim Christian McCaffrey' });
   await expect(panel.getByText('Your roster is full. Pick a drop.')).toBeVisible();

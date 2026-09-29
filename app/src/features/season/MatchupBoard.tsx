@@ -20,6 +20,7 @@ import {
   versus
 } from './gameState';
 import './matchup.css';
+import { PlayerHeadshot } from '../../players/PlayerHeadshot';
 import { PlayerLink } from '../../players/PlayerLink';
 
 /**
@@ -303,6 +304,7 @@ function PlayerCell({
     >
       <span className={`flex min-w-0 items-center gap-1.5 ${end ? 'flex-row-reverse' : ''}`}>
         {live && <span className="motion-live-dot shrink-0" aria-hidden="true" />}
+        <PlayerHeadshot player={entry.player} size={24} className="max-sm:hidden" />
         <PlayerLink
           player={entry.player}
           className={`min-w-0 truncate font-medium ${game.state === 'final' ? 'text-muted-foreground' : ''}`}

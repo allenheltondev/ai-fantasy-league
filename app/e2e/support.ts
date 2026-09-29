@@ -5,7 +5,22 @@ import type { BrowserContext, Page } from '@playwright/test';
 // placeholder client id is enough here.
 export const AUTH_CONFIG = { region: 'us-east-1', userPoolId: 'us-east-1_e2e', clientId: 'e2e-client' };
 
+// A 1x1 transparent PNG: player headshots and team logos come from Sleeper's CDN (#222), which
+// tests never reach. Serving a real image keeps the loaded path honest; the fallback path is
+// covered by component tests.
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64'
+);
+
+export async function stubSleeperCdn(target: Page | BrowserContext): Promise<void> {
+  await target.route('**/sleepercdn.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
+  );
+}
+
 export async function serveAuthConfig(target: Page | BrowserContext): Promise<void> {
+  await stubSleeperCdn(target);
   await target.route('**/auth-config.json', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(AUTH_CONFIG) })
   );
