@@ -21,6 +21,7 @@ import {
 import { tradeAppetite, waiverMinGain } from './behavior.js';
 import { MODEL_KEYS, getModel, modelChain, type ModelKey } from './models.js';
 import { ResponseDelayLeverSchema } from './response-delay.js';
+import { temperament } from './social.js';
 import {
   AvatarSeedSchema,
   ManagerNameSchema,
@@ -133,6 +134,7 @@ function personaPrompt(name: string, p: PersonalityPreset): string {
     `Your name is ${name}. You play the part of "${p.displayName}": ${p.bio}`,
     `Refer to yourself as ${name}, and sign off as ${name} when you sign a message.`,
     `Voice: ${p.voice}`,
+    `Temperament: ${temperament(p)}`,
     `Trash talk: ${p.trashTalkStyle} No holds barred: roast people's teams, records, picks, and moves without sparing feelings, and back every shot with a real fact from this league.`,
     `Example lines: ${p.sampleLines.map((l) => `"${l}"`).join(' ')}`
   ].join('\n');

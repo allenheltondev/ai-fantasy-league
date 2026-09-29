@@ -6,7 +6,9 @@ import {
   type AgentTaskClaim,
   type AgentTaskRecord,
   type AgentTriggerState,
-  type AgentUsageRow
+  type AgentUsageRow,
+  type LimitClaim,
+  type LimitClaimResult
 } from './agents.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -23,6 +25,7 @@ export class InMemoryAgentRepository implements AgentRepository {
   readonly #tasks = new Map<string, TaskSlot>();
   readonly #usage = new Map<string, AgentUsageRow>();
   readonly #state = new Map<string, AgentTriggerState>();
+  readonly #limits = new Map<string, number[]>();
 
   async getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null> {
     const seat = this.#seats.get(`${leagueId}\u0000${teamId}`);
@@ -119,5 +122,15 @@ export class InMemoryAgentRepository implements AgentRepository {
 
   async putTriggerState(state: AgentTriggerState): Promise<void> {
     this.#state.set(`${state.leagueId}\u0000${state.agentId}`, clone(state));
+  }
+
+  /** Same semantics as DynamoDB's conditional write: the read and the write cannot interleave here. */
+  async claimLimit(input: LimitClaim): Promise<LimitClaimResult> {
+    const key = `${input.leagueId}\u0000${input.key}`;
+    const since = input.now.getTime() - input.windowMs;
+    const uses = (this.#limits.get(key) ?? []).filter((at) => at > since);
+    if (uses.length >= input.cap) return 'full';
+    this.#limits.set(key, [...uses, input.now.getTime()]);
+    return 'claimed';
   }
 }

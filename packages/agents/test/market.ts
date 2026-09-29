@@ -51,12 +51,19 @@ export async function market(config: AgentSeatConfig = HAPPY): Promise<Setup> {
     const team = await s.repos.teams.get(LEAGUE_ID, teamId);
     await s.repos.teams.update({ ...team!, roster: ids });
   }
-  const line = (playerId: string, stats: Record<string, number>) => ({
-    playerId,
-    season: 2026,
-    week: 5,
-    stats
-  });
+  await projectMarket(s);
+  return s;
+}
+
+const line = (playerId: string, stats: Record<string, number>) => ({
+  playerId,
+  season: 2026,
+  week: 5,
+  stats
+});
+
+/** The market's week-5 projections, plus `extra` lines (a later snapshot replaces the earlier one). */
+export async function projectMarket(s: Setup, extra: Record<string, Record<string, number>> = {}) {
   const lines = [
     line('qb1', { pass_yd: 750 }),
     line('qb2', { pass_yd: 625 }),
@@ -66,11 +73,18 @@ export async function market(config: AgentSeatConfig = HAPPY): Promise<Setup> {
     line('rb3', { rush_yd: 300 }),
     ...['wr1', 'wr2', 'wr3', 'wr4'].map((id) => line(id, { rec_yd: 200 })),
     ...['xrb1', 'xrb2'].map((id) => line(id, { rush_yd: 290 })),
-    ...['xwr1', 'xwr2', 'xwr3', 'xwr4'].map((id) => line(id, { rec_yd: 300 }))
+    ...['xwr1', 'xwr2', 'xwr3', 'xwr4'].map((id) => line(id, { rec_yd: 300 })),
+    ...Object.entries(extra).map(([id, stats]) => line(id, stats))
   ];
+  const n = Object.keys(extra).length;
   await s.services.data.reference.projections.putSnapshot(
-    { season: 2026, week: 5, capturedAt: '2026-10-02T12:00:00.000Z', hash: 'market', count: lines.length },
+    {
+      season: 2026,
+      week: 5,
+      capturedAt: `2026-10-02T12:0${n}:00.000Z`,
+      hash: n === 0 ? 'market' : `market-${JSON.stringify(extra)}`,
+      count: lines.length
+    },
     lines
   );
-  return s;
 }

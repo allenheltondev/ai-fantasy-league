@@ -1,5 +1,6 @@
 import { canonicalEvent, scheduleName } from '@fantasy/server';
 import {
+  CHECK_INS_PER_WEEK,
   IMMEDIATE_RESPONSE,
   agentMayRename,
   banterContinues,
@@ -47,7 +48,7 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     | none (chat cooldowns pace it)          |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     | none (chat cooldowns pace it)          |
  * | Draft Completed (once per draft)             | post_draft     | every agent team, staggered             | yes    | stagger + post_draft jitter            |
- * | Manager Check-In (once per date and slot)    | check_in       | every agent team in the league          | no     | roster, ≤ half the time to next check-in or lock |
+ * | Manager Check-In (once per date and slot)    | check_in       | every agent team (+ `naming`, #196)     | no     | roster, ≤ half the time to next check-in or lock |
  * | Member Left / Agent Seat Changed             | team_identity  | `detail.teamId`, if it needs a name     | no     | roster                                 |
  * | Week Rolled Over (once per league week)      | team_identity  | placeholder names; rare rebrand rolls   | no     | roster                                 |
  *
@@ -343,32 +344,78 @@ export const NAMING_COOLDOWN = {
  * window, when the personality's roll hits.
  */
 function admitNaming(rebrand: boolean) {
-  return async (input: AdmitInput): Promise<GateDecision | null> => {
-    const { services, seat, leagueId } = input;
-    const [league, team] = await Promise.all([
-      services.repos.leagues.get(leagueId),
-      services.repos.teams.get(leagueId, seat.teamId)
-    ]);
-    if (league === null || team === null || team.ownerUserId !== null || team.seatType !== 'agent')
-      return 'declined';
-    if (league.phase === 'setup' || league.phase === 'drafting' || league.phase === 'complete')
-      return 'declined';
-    if (!agentMayRename(seat.config, teamNameSetBy(team))) return 'declined';
-    const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
-    if (isGenericTeamName(team.name, { managerName: config.name })) return null;
-    if (!rebrand) return 'declined';
-    const last = (team.renames ?? []).filter((r) => r.by === 'agent').at(-1);
-    const window = rebrandWindow({
-      phase: league.phase,
-      week: league.week,
-      lastRenameWeek: last?.week ?? null
-    });
-    if (window !== 'ok') return 'declined';
-    // One roll per team and week, whatever else happened: a redelivered rollover rolls the same.
-    return rebrandRoll(config.personality.rebrandPropensity, `${leagueId}:${seat.teamId}:week-${league.week}`)
-      ? null
-      : 'declined';
-  };
+  return async (input: AdmitInput): Promise<GateDecision | null> =>
+    (await namingNeed(
+      input,
+      // One roll per team and week, whatever else happened: a redelivered rollover rolls the same.
+      rebrand ? (week) => ({ seed: `${input.leagueId}:${input.seat.teamId}:week-${week}`, share: 1 }) : null
+    )) === null
+      ? 'declined'
+      : null;
+}
+
+/**
+ * Why the team should be named now, or null: `placeholder` for a generic name, `rebrand` when the
+ * rebrand window is open and the personality's roll (`roll`: its seed, and the share of the weekly
+ * propensity it spends) hits. Null for a seat that may not rename.
+ */
+async function namingNeed(
+  input: AdmitInput,
+  roll: ((week: number | null) => { seed: string; share: number }) | null
+): Promise<'placeholder' | 'rebrand' | null> {
+  const { services, seat, leagueId } = input;
+  const [league, team] = await Promise.all([
+    services.repos.leagues.get(leagueId),
+    services.repos.teams.get(leagueId, seat.teamId)
+  ]);
+  if (league === null || team === null || team.ownerUserId !== null || team.seatType !== 'agent') return null;
+  if (league.phase === 'setup' || league.phase === 'drafting' || league.phase === 'complete') return null;
+  if (!agentMayRename(seat.config, teamNameSetBy(team))) return null;
+  const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
+  if (isGenericTeamName(team.name, { managerName: config.name })) return 'placeholder';
+  if (roll === null) return null;
+  const last = (team.renames ?? []).filter((r) => r.by === 'agent').at(-1);
+  const window = rebrandWindow({
+    phase: league.phase,
+    week: league.week,
+    lastRenameWeek: last?.week ?? null
+  });
+  if (window !== 'ok') return null;
+  const { seed, share } = roll(league.week);
+  return rebrandRoll(config.personality.rebrandPropensity * share, seed) ? 'rebrand' : null;
+}
+
+/**
+ * A check-in's team payload (#195, #196): whether this is the agent's first look, and whether it
+ * should (re)name its team. A check-in spends a twenty-first of the weekly rebrand propensity, so
+ * over a week the check-ins rebrand about as often as one weekly roll would.
+ */
+async function checkInPayload(input: AdmitInput<'Manager Check-In'>): Promise<Record<string, unknown>> {
+  const { detail } = input;
+  const need = await namingNeed(input as AdmitInput, () => ({
+    seed: `check-in:${input.leagueId}:${input.seat.teamId}:${String(detail.date)}-${String(detail.slot)}`,
+    share: 1 / CHECK_INS_PER_WEEK
+  }));
+  // The naming cooldown (`NAMING_COOLDOWN`, shared with team_identity): at most one a day.
+  const naming = need !== null && (await takeNamingSlot(input)) ? need : null;
+  return { ...(await firstLook(input)), ...(naming === null ? {} : { naming }) };
+}
+
+async function takeNamingSlot(input: AdmitInput): Promise<boolean> {
+  const { agents } = input.services.repos;
+  const slot = cooldownSlot(input.seat.agentId, { kind: 'team_identity', cooldown: NAMING_COOLDOWN });
+  const state = await agents.getTriggerState(input.leagueId, slot);
+  if (
+    state !== null &&
+    input.now.getTime() - Date.parse(state.lastTriggeredAt) < NAMING_COOLDOWN.agentMinutes * 60_000
+  )
+    return false;
+  await agents.putTriggerState({
+    leagueId: input.leagueId,
+    agentId: slot,
+    lastTriggeredAt: input.now.toISOString()
+  });
+  return true;
 }
 
 const namingRule = <T extends FantasyEventType>(
@@ -515,7 +562,7 @@ export const TRIGGER_RULES: RuleMap = {
     lockBound: true,
     delay: humanDelay('roster', { deadline: (d) => d.nextAt }),
     teams: (_d, agents) => [...agents],
-    teamPayload: firstLook,
+    teamPayload: checkInPayload,
     payload: (d) => ({ slot: d.slot, date: d.date, week: d.week })
   }
 };
