@@ -69,7 +69,7 @@ describe('agenda availability', () => {
   it('marks every chat-visible roster task as refresh-only', async () => {
     const s = await setup();
     const ctx = await context(s);
-    expect(checkInTask.agendaMode(ctx, { slot: 'morning' })).toBe('refresh_only');
+    expect(checkInTask.agendaMode(ctx, { slot: 'morning' })).toBe('guide_only');
     expect(lineupTask.agendaMode(ctx, { reason: 'chat' })).toBe('refresh_only');
     expect(waiverTask.agendaMode(ctx, { reason: 'chat' })).toBe('refresh_only');
     expect(tradeProposalTask.agendaMode(ctx, { reason: 'chat' })).toBe('refresh_only');
