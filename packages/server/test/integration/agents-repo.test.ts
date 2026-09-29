@@ -1,14 +1,18 @@
 import {
   OWNER_ONLY,
+  claimReply,
   emptyAgenda,
   emptyAttachments,
+  emptyCommitments,
   emptyMemory,
   observePerformance,
+  openTradeInterest,
   reconcileAgenda,
   recordAcquisition,
   rememberEvent
 } from '@fantasy/core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import {
   roundUsd,
@@ -191,6 +195,84 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     const stored = await agents.getAttachments(leagueId, 'a', tenure);
     expect(stored.preferences.map((p) => p.playerId).sort()).toEqual(['p1', 'p2']);
     expect(stored.preferences.find((p) => p.playerId === 'p1')?.performance).toHaveLength(1);
+  });
+
+  it('persists commitments per league, agent and occupant, apart from the agenda and memory', async () => {
+    const { agents } = make();
+    const leagueId = unique('commit');
+    const tenure = T0.toISOString();
+    const interest = {
+      at: tenure,
+      taskId: 'look',
+      selfTeamId: 'team-2',
+      source: { roomId: 'dm', messageId: 'm1', fromTeamId: 'team-1', visibility: 'dm' as const },
+      send: ['a'],
+      receive: ['b'],
+      expiresAt: '2026-09-14T12:00:00.000Z',
+      agendaId: null
+    };
+    expect(await agents.getCommitments(leagueId, 'a', tenure)).toEqual(emptyCommitments());
+    const first = await agents.updateCommitments(
+      leagueId,
+      'a',
+      tenure,
+      (book) => openTradeInterest(book, interest).book
+    );
+    expect(await agents.getCommitments(leagueId, 'a', tenure)).toEqual(first);
+    first.commitments[0]!.status = 'fulfilled';
+    expect((await agents.getCommitments(leagueId, 'a', tenure)).commitments[0]?.status).toBe('queued');
+    expect(await agents.getCommitments(leagueId, 'b', tenure)).toEqual(emptyCommitments());
+    expect(await agents.getCommitments(leagueId, 'a', 'new-occupant')).toEqual(emptyCommitments());
+    expect(await agents.getCommitments(unique('other'), 'a', tenure)).toEqual(emptyCommitments());
+    expect(await agents.getAgenda(leagueId, 'a', tenure)).toEqual(emptyAgenda());
+    expect(await agents.getMemory(leagueId, 'a')).toEqual(emptyMemory());
+  });
+
+  it('lists only finished tasks, and no seat history for a team never seated', async () => {
+    const { agents } = make();
+    const leagueId = unique('unfinished');
+    const running = task(leagueId, 'team-1', T0.toISOString());
+    await agents.claimTask({ taskId: running.taskId, now: T0, lockUntil: new Date(T0.getTime() + 60_000) });
+    expect(await agents.listTasks(leagueId)).toEqual([]);
+    expect(await agents.seatHistory(leagueId, 'team-9')).toEqual([]);
+  });
+
+  it('retries racing commitment writes so only one task claims the closing line', async () => {
+    const { agents } = make();
+    const leagueId = unique('commit-race');
+    const tenure = T0.toISOString();
+    const id = 'trade_interest:m1';
+    await agents.updateCommitments(
+      leagueId,
+      'a',
+      tenure,
+      (book) =>
+        openTradeInterest(book, {
+          at: tenure,
+          taskId: 'look',
+          selfTeamId: 'team-2',
+          source: { roomId: 'dm', messageId: 'm1', fromTeamId: 'team-1', visibility: 'dm' },
+          send: ['a'],
+          receive: ['b'],
+          expiresAt: '2026-09-14T12:00:00.000Z',
+          agendaId: null
+        }).book
+    );
+    const claims: boolean[] = [];
+    await Promise.all(
+      [0, 1].map(() => {
+        let claimed = false;
+        return agents
+          .updateCommitments(leagueId, 'a', tenure, (book) => {
+            const result = claimReply(book, id, tenure);
+            claimed = result.claimed;
+            return result.book;
+          })
+          .then(() => claims.push(claimed));
+      })
+    );
+    expect(claims.sort()).toEqual([false, true]);
+    expect((await agents.getCommitments(leagueId, 'a', tenure)).commitments[0]?.reply?.state).toBe('claimed');
   });
 
   it('versions seats, keeps history, and rejects stale writes', async () => {
@@ -583,5 +665,54 @@ describe.each(backends)('%s agent repository', (_name, make) => {
       agentId: 'a',
       lastTriggeredAt: T0.toISOString()
     });
+  });
+});
+
+describe('DynamoDB versioned agent rows (agenda, attachments, commitments)', () => {
+  const failPuts = (error: Error, times: number) => {
+    const send = table.doc.send.bind(table.doc);
+    let left = times;
+    return vi.spyOn(table.doc, 'send').mockImplementation((async (command: unknown) => {
+      if (command instanceof PutCommand && left-- > 0) throw error;
+      return send(command as never);
+    }) as never);
+  };
+  const conflict = () => Object.assign(new Error('conflict'), { name: 'ConditionalCheckFailedException' });
+  const puts = (spy: ReturnType<typeof failPuts>) =>
+    spy.mock.calls.filter(([command]) => command instanceof PutCommand).length;
+
+  it('retries a lost race, gives up after three conflicts, and never retries another failure', async () => {
+    const { agents } = createDynamoRepos(table);
+    const leagueId = unique('versioned');
+    const tenure = T0.toISOString();
+    let spy = failPuts(conflict(), 2);
+    await agents.updateCommitments(leagueId, 'a', tenure, (book) => book);
+    expect(puts(spy)).toBe(3);
+    spy.mockRestore();
+    spy = failPuts(conflict(), 3);
+    await expect(agents.updateCommitments(leagueId, 'a', tenure, (book) => book)).rejects.toThrow('conflict');
+    expect(puts(spy)).toBe(3);
+    spy.mockRestore();
+    spy = failPuts(new Error('throttled'), 1);
+    await expect(agents.updateAgenda(leagueId, 'a', tenure, (agenda) => agenda)).rejects.toThrow('throttled');
+    expect(puts(spy)).toBe(1);
+    spy.mockRestore();
+    expect(await agents.getAgenda(leagueId, 'a', tenure)).toEqual(emptyAgenda());
+  });
+
+  it('holds league memory to the same rules', async () => {
+    const { agents } = createDynamoRepos(table);
+    const leagueId = unique('versioned-memory');
+    let spy = failPuts(conflict(), 1);
+    await agents.updateMemory(leagueId, 'a', (memory) => memory);
+    expect(puts(spy)).toBe(2);
+    spy.mockRestore();
+    spy = failPuts(conflict(), 3);
+    await expect(agents.updateMemory(leagueId, 'a', (memory) => memory)).rejects.toThrow('conflict');
+    spy.mockRestore();
+    spy = failPuts(new Error('throttled'), 1);
+    await expect(agents.updateMemory(leagueId, 'a', (memory) => memory)).rejects.toThrow('throttled');
+    expect(puts(spy)).toBe(1);
+    spy.mockRestore();
   });
 });

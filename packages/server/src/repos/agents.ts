@@ -2,7 +2,8 @@ import {
   AgentSeatConfigSchema,
   type AgentLeagueMemory,
   type AgentAgenda,
-  type PlayerAttachments
+  type PlayerAttachments,
+  type CommitmentBook
 } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
@@ -240,6 +241,14 @@ export interface AgentRepository {
     tenure: string,
     update: (agenda: AgentAgenda) => AgentAgenda
   ): Promise<AgentAgenda>;
+  /** Durable commitments (#215), keyed like the agenda: a new occupant starts with none. */
+  getCommitments(leagueId: string, agentId: string, tenure: string): Promise<CommitmentBook>;
+  updateCommitments(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (book: CommitmentBook) => CommitmentBook
+  ): Promise<CommitmentBook>;
   getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null>;
   listSeats(leagueId: string): Promise<AgentSeatRecord[]>;
   /**

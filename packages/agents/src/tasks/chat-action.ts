@@ -2,6 +2,7 @@ import { looksLikeInstructions, persuasionAllowance } from '@fantasy/core';
 import { ChatMessageSchema, type Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import type { ChatPrep, Takeaway } from './chat.js';
+import { openInterest } from '../commitments.js';
 import { quote } from './quote.js';
 import type { TaskContext, TaskFollowUp } from './kinds.js';
 
@@ -15,7 +16,8 @@ import type { TaskContext, TaskFollowUp } from './kinds.js';
  * the post-draft trade look does, and the runner holds those to `SOCIAL_LIMITS.chatActionsPerDay`:
  *
  * - a trade: `trade_response` for an offer from that team waiting on the agent, otherwise
- *   `trade_proposal` for the players named (only players the two teams actually roster);
+ *   `trade_proposal` for the players named (only players the two teams actually roster), recorded
+ *   first as a durable commitment (#215, commitments.ts) that the task closes with one line;
  * - a tip that one of its players is out: `lineup`; a tip that a player is breaking out: `waivers`
  *   for him; a taunt about a position: `waivers` for that position.
  *
@@ -113,6 +115,9 @@ export async function replyInChat(
   return !('error' in result);
 }
 
+/** What an agent says when it cannot take on another trade look (#215): no silent promise. */
+export const NO_ROOM_LINE = "I've got enough trade talks going; I can't take that one on right now.";
+
 // ---------------------------------------------------------------------------
 // Takeaway → follow-up
 // ---------------------------------------------------------------------------
@@ -171,6 +176,7 @@ async function rosterOf(ctx: TaskContext, teamId: string) {
     data(await ctx.tools.call('get_roster', { teamId }), RosterSchema)?.players.map((p) => ({
       id: p.player.id,
       name: p.player.name,
+      position: p.player.position,
       slot: p.slot
     })) ?? []
   );
@@ -200,15 +206,26 @@ export async function chatFollowUps(
         (t) => t.direction === 'incoming' && t.fromTeam.id === from && t.yourActions.includes('accept')
       );
       if (offer !== undefined) return follow('trade_response', { tradeId: offer.id, fromTeamId: from });
-      const send = matchPlayers(takeaway.players, await rosterOf(ctx, self));
-      const receive = matchPlayers(takeaway.players, await rosterOf(ctx, from));
+      const theirs = await rosterOf(ctx, from);
+      const send = matchPlayers(takeaway.players, await rosterOf(ctx, self)).slice(0, 3);
+      const receive = matchPlayers(takeaway.players, theirs).slice(0, 3);
       if (send.length === 0 || receive.length === 0) return [];
-      return follow('trade_proposal', {
-        reason: 'chat',
-        withTeamId: from,
-        send: send.slice(0, 3),
-        receive: receive.slice(0, 3)
+      // A durable commitment to look at it (#215); without a store, the plain follow-up.
+      const interest = await openInterest(ctx, {
+        source: chat,
+        visibility: prep.room.kind === 'dm' ? 'dm' : 'room',
+        send,
+        receive,
+        receivePositions: theirs.filter((p) => receive.includes(p.id)).map((p) => p.position)
       });
+      if (interest === null)
+        return follow('trade_proposal', { reason: 'chat', withTeamId: from, send, receive });
+      if (interest.outcome === 'limit' || interest.outcome === 'action_limit') {
+        // An honest answer instead of a silent promise: no look will follow.
+        await replyInChat(ctx, chat, NO_ROOM_LINE);
+        return [];
+      }
+      return 'followUp' in interest ? [interest.followUp] : [];
     }
     case 'player_tip': {
       const mine = await rosterOf(ctx, self);

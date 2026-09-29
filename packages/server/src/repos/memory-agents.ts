@@ -1,12 +1,15 @@
 import {
   AgentAgendaSchema,
   PlayerAttachmentsSchema,
+  CommitmentBookSchema,
   emptyAgenda,
   emptyAttachments,
+  emptyCommitments,
   emptyMemory,
   type AgentAgenda,
   type AgentLeagueMemory,
-  type PlayerAttachments
+  type PlayerAttachments,
+  type CommitmentBook
 } from '@fantasy/core';
 import {
   gateCutoff,
@@ -68,6 +71,24 @@ export class InMemoryAgentRepository implements AgentRepository {
     const key = JSON.stringify([leagueId, agentId, tenure]);
     const next = AgentAgendaSchema.parse(update(clone(this.#agendas.get(key) ?? emptyAgenda())));
     this.#agendas.set(key, clone(next));
+    return clone(next);
+  }
+
+  readonly #commitments = new Map<string, CommitmentBook>();
+
+  async getCommitments(leagueId: string, agentId: string, tenure: string): Promise<CommitmentBook> {
+    return clone(this.#commitments.get(JSON.stringify([leagueId, agentId, tenure])) ?? emptyCommitments());
+  }
+
+  async updateCommitments(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (book: CommitmentBook) => CommitmentBook
+  ): Promise<CommitmentBook> {
+    const key = JSON.stringify([leagueId, agentId, tenure]);
+    const next = CommitmentBookSchema.parse(update(clone(this.#commitments.get(key) ?? emptyCommitments())));
+    this.#commitments.set(key, clone(next));
     return clone(next);
   }
   readonly #seats = new Map<string, AgentSeatRecord>();

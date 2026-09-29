@@ -15,7 +15,13 @@ import type { AgentTaskSeal, Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { effectiveBehavior } from '../situation.js';
 import { ChatReplySchema, ChatSourceSchema, heardInChat, replyInChat } from './chat-action.js';
-import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
+import {
+  BaseDecisionSchema,
+  defineTaskKind,
+  type TaskContext,
+  type TaskFollowUp,
+  type TaskOutcome
+} from './kinds.js';
 
 /**
  * Lineup task: the optimizer proposes, the model confirms or suggests swaps, and the optimizer's
@@ -36,12 +42,14 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
  * Thrown from `prepare` when there is nothing to decide: the runner records the task as skipped
  * with the message as its reason (sealed like a decision when `sealed` is given), and `summary`,
  * when given, as the one line the activity log shows (the check-in's "nothing worth doing" line).
+ * `followUps` are still dispatched (a check-in with nothing to do may resume a commitment, #215).
  */
 export class TaskUnavailableError extends Error {
   constructor(
     message: string,
     readonly sealed?: AgentTaskSeal,
-    readonly summary?: string
+    readonly summary?: string,
+    readonly followUps?: readonly TaskFollowUp[]
   ) {
     super(message);
     this.name = 'TaskUnavailableError';

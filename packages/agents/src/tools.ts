@@ -119,8 +119,16 @@ export class ToolBox {
     return this.#fenced;
   }
 
-  /** Calls a tool by name with model-supplied arguments. Returns the response envelope. */
-  async call(name: string, rawArgs: Record<string, unknown>): Promise<Envelope> {
+  /**
+   * Calls a tool by name with model-supplied arguments. Returns the response envelope. Deterministic
+   * code may name a mutation's key (`key`, under this task's prefix) for a step that a retry may
+   * reach in a different order (a commitment's closing line, #215), so it never takes another step's.
+   */
+  async call(
+    name: string,
+    rawArgs: Record<string, unknown>,
+    options: { key?: string } = {}
+  ): Promise<Envelope> {
     const { principal } = this.#options;
     const op = this.#byName.get(name);
     if (op === undefined) {
@@ -153,7 +161,7 @@ export class ToolBox {
       }
       this.#mutations += 1;
     }
-    const key = op.mutation ? `${this.#options.idempotencyPrefix}:${++this.#step}` : undefined;
+    const key = op.mutation ? `${this.#options.idempotencyPrefix}:${options.key ?? ++this.#step}` : undefined;
     const result = await invokeTool({
       registry: this.#options.registry,
       services: this.#options.services,
