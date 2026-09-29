@@ -10,8 +10,11 @@ import {
   AgentAgendaSchema,
   emptyAgenda,
   AgentLeagueMemorySchema,
+  PlayerAttachmentsSchema,
+  emptyAttachments,
   type AgentAgenda,
-  type AgentLeagueMemory
+  type AgentLeagueMemory,
+  type PlayerAttachments
 } from '@fantasy/core';
 import { z } from 'zod';
 import {
@@ -51,6 +54,7 @@ import { TABLE_KEYS, epochSeconds, isConditionalCheckFailure, type TableContext 
  * - Seat (current):   pk LEAGUE#<leagueId>  sk AGENTSEAT#<teamId>
  * - Seat history:     pk LEAGUE#<leagueId>  sk AGENTSEATV#<teamId>#<version, 6 digits>
  * - Agent memory:     pk LEAGUE#<leagueId>  sk AGENTMEM#<agentId>  (notes, rivals, trades, decisions, chat; rev)
+ * - Attachments:      pk LEAGUE#<leagueId>  sk AGENTATTACH#<agentId>#<tenure>  (#216; rev)
  * - Trigger state:    pk LEAGUE#<leagueId>  sk AGENTSTATE#<agentId>
  * - Limit (#196):     pk LEAGUE#<leagueId>  sk AGENTLIMIT#<key>     (rev, uses: epoch ms; TTL)
  * - Task:             pk AGENTTASK#<taskId> sk STATUS
@@ -75,6 +79,11 @@ const historyKey = (leagueId: string, teamId: string, version: number) => ({
 const memoryKey = (leagueId: string, agentId: string) => ({
   pk: leaguePk(leagueId),
   sk: `AGENTMEM#${agentId}`
+});
+/** Player attachments (#216): a new occupant's tenure is a new row, so it starts empty. */
+const attachmentsKey = (leagueId: string, agentId: string, tenure: string) => ({
+  pk: leaguePk(leagueId),
+  sk: `AGENTATTACH#${agentId}#${tenure}`
 });
 const stateKey = (leagueId: string, agentId: string) => ({
   pk: leaguePk(leagueId),
@@ -246,6 +255,48 @@ export class DynamoAgentRepository implements AgentRepository {
           new PutCommand({
             TableName: this.table.tableName,
             Item: { ...memoryKey(leagueId, agentId), ...next, rev: rev + 1 },
+            ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
+            ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
+          })
+        );
+        return next;
+      } catch (error) {
+        if (!isConditionalCheckFailure(error) || attempt >= 2) throw error;
+      }
+    }
+  }
+
+  async getAttachments(leagueId: string, agentId: string, tenure: string): Promise<PlayerAttachments> {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: attachmentsKey(leagueId, agentId, tenure),
+        ConsistentRead: true
+      })
+    );
+    return PlayerAttachmentsSchema.parse(result.Item ?? emptyAttachments());
+  }
+
+  /** One schema-versioned row per league, agent, and tenure; compare-and-swap on `rev`. */
+  async updateAttachments(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (attachments: PlayerAttachments) => PlayerAttachments
+  ): Promise<PlayerAttachments> {
+    const key = attachmentsKey(leagueId, agentId, tenure);
+    for (let attempt = 0; ; attempt++) {
+      const result = await this.table.doc.send(
+        new GetCommand({ TableName: this.table.tableName, Key: key, ConsistentRead: true })
+      );
+      const current = PlayerAttachmentsSchema.parse(result.Item ?? emptyAttachments());
+      const rev = result.Item === undefined ? 0 : z.number().int().positive().parse(result.Item.rev);
+      const next = PlayerAttachmentsSchema.parse(update(current));
+      try {
+        await this.table.doc.send(
+          new PutCommand({
+            TableName: this.table.tableName,
+            Item: { ...key, ...next, rev: rev + 1 },
             ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
             ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
           })

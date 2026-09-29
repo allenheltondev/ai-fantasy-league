@@ -1,4 +1,13 @@
-import { OWNER_ONLY, emptyAgenda, emptyMemory, reconcileAgenda, rememberEvent } from '@fantasy/core';
+import {
+  OWNER_ONLY,
+  emptyAgenda,
+  emptyAttachments,
+  emptyMemory,
+  observePerformance,
+  reconcileAgenda,
+  recordAcquisition,
+  rememberEvent
+} from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import {
@@ -124,6 +133,64 @@ describe.each(backends)('%s agent repository', (_name, make) => {
       )
     ]);
     expect((await agents.getAgenda(leagueId, 'a', tenure)).goals[0]?.status).toBe('completed');
+  });
+
+  it('persists attachments per league, agent and occupant, idempotently by source', async () => {
+    const { agents } = make();
+    const leagueId = unique('attach');
+    const tenure = T0.toISOString();
+    const pick = {
+      sourceId: `draft:${leagueId}:1`,
+      kind: 'drafted' as const,
+      playerId: 'rb1',
+      name: 'Robbie Back',
+      position: 'RB' as const,
+      at: tenure,
+      round: 1
+    };
+    expect(await agents.getAttachments(leagueId, 'a', tenure)).toEqual(emptyAttachments());
+    const first = await agents.updateAttachments(leagueId, 'a', tenure, (s) => recordAcquisition(s, pick));
+    expect(await agents.getAttachments(leagueId, 'a', tenure)).toEqual(first);
+    // The same source delivered again stores the same thing.
+    await agents.updateAttachments(leagueId, 'a', tenure, (s) => recordAcquisition(s, pick));
+    expect(await agents.getAttachments(leagueId, 'a', tenure)).toEqual(first);
+    first.preferences[0]!.strength = 1;
+    expect((await agents.getAttachments(leagueId, 'a', tenure)).preferences[0]?.strength).toBe(0.7);
+    // A new occupant, another agent, another league, and memory or agenda see none of it.
+    expect(await agents.getAttachments(leagueId, 'a', 'new-occupant')).toEqual(emptyAttachments());
+    expect(await agents.getAttachments(leagueId, 'b', tenure)).toEqual(emptyAttachments());
+    expect(await agents.getAttachments(unique('other'), 'a', tenure)).toEqual(emptyAttachments());
+    expect(await agents.getMemory(leagueId, 'a')).toEqual(emptyMemory());
+    expect(await agents.getAgenda(leagueId, 'a', tenure)).toEqual(emptyAgenda());
+  });
+
+  it('retries concurrent attachment writes so neither update is lost', async () => {
+    const { agents } = make();
+    const leagueId = unique('attach-race');
+    const tenure = T0.toISOString();
+    const pick = (n: number) => ({
+      sourceId: `draft:${leagueId}:${n}`,
+      kind: 'drafted' as const,
+      playerId: `p${n}`,
+      name: `Player ${n}`,
+      position: 'WR' as const,
+      at: tenure,
+      round: n
+    });
+    await agents.updateAttachments(leagueId, 'a', tenure, (s) => recordAcquisition(s, pick(1)));
+    await Promise.all([
+      agents.updateAttachments(leagueId, 'a', tenure, (s) => recordAcquisition(s, pick(2))),
+      agents.updateAttachments(leagueId, 'a', tenure, (s) =>
+        observePerformance(s, {
+          at: '2026-09-17T12:00:00.000Z',
+          week: 1,
+          results: [{ playerId: 'p1', points: 30, projected: 10 }]
+        })
+      )
+    ]);
+    const stored = await agents.getAttachments(leagueId, 'a', tenure);
+    expect(stored.preferences.map((p) => p.playerId).sort()).toEqual(['p1', 'p2']);
+    expect(stored.preferences.find((p) => p.playerId === 'p1')?.performance).toHaveLength(1);
   });
 
   it('versions seats, keeps history, and rejects stale writes', async () => {

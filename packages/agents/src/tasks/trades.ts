@@ -1,4 +1,11 @@
-import { tradeAcceptEdge, tradeAppetite } from '@fantasy/core';
+import {
+  attachmentAdjustment,
+  attachmentPrompt,
+  attachmentSummary,
+  tradeAcceptEdge,
+  tradeAppetite,
+  type AttachmentAdjustment
+} from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import {
@@ -46,6 +53,14 @@ import { TaskUnavailableError } from './lineup.js';
  * A chat pitch moves the suggested counter as it moves the suggested accept, never the floor. A
  * counter under the floor, or one that is not a legal trade, is never sent: the task sends its own
  * suggested counter when that one clears, and otherwise rejects, saying why in the activity log.
+ *
+ * Attachments (#216): sending away a player the agent is attached to (it drafted or traded for
+ * him, and results have not worn the conviction down) raises its bar by a small, capped premium
+ * (core `attachmentAdjustment`), and its suggested counter keeps that player out. The premium only
+ * raises the bar, so the floor never drops. When the players offered repair an active agenda need
+ * (#214; not for a chat-driven answer, whose reply is public), the premium on attached players who
+ * cannot fill that need is set aside. The summary says which way the conflict went; the prompt names
+ * the attachment (public evidence), never the premium.
  *
  * Stale offers (#189): the task may run well after the offer arrived (a human-like response
  * delay), so it re-reads the trade first. An offer that was withdrawn, expired, or already answered
@@ -115,6 +130,9 @@ export interface TradeSuggestion {
   bar: number;
   /** How far a conversation moved the bar (#196); the hard floor stays at `bar`. */
   credit?: number;
+  /** With an attachment premium (#216): the bar before it (`bar` is base plus premium). */
+  baseBar?: number;
+  attachment?: AttachmentAdjustment;
   drops: string[];
   counter: { send: string[]; receive: string[] } | null;
 }
@@ -179,7 +197,16 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
   });
   // The archetype's trade appetite (core behavior.ts) sets the bar and the counter budget.
   const appetite = tradeAppetite(ctx.config);
-  const bar = appetite.acceptEdge;
+  const attachment = attachmentAdjustment({
+    attachments: ctx.attachments,
+    at: ctx.clock.now().toISOString(),
+    sends: trade.toSends,
+    receives: trade.fromSends,
+    agenda: ctx.agenda,
+    tradeFrequency: ctx.config.tradeFrequency
+  });
+  const baseBar = appetite.acceptEdge;
+  const bar = Math.round((baseBar + attachment.adjustment) * 10) / 10;
   const roundsLeft = Math.max(0, appetite.maxCounters - countersUsed(trade.round));
   const drops = me.dropCandidates.slice(0, me.dropsNeeded).map((p) => p.id);
   // A pitch in chat: its argument holds up when the players offered improve my best lineup.
@@ -191,15 +218,24 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
     bar,
     drops,
     counter: null,
-    ...(heard === undefined ? {} : { credit })
+    ...(heard === undefined ? {} : { credit }),
+    ...(attachment.players.length === 0 ? {} : { baseBar, attachment })
   };
   const extra = heard === undefined ? {} : { heard };
   if (preview.valid && score >= bar - credit)
     return { trade, preview, roundsLeft, suggestion: { ...suggestion, action: 'accept' }, ...extra };
-  // Counter: keep my most valuable player out of the deal when I send more than one.
+  // Counter: keep my most valuable player (or the one I am most attached to) out of the deal when I
+  // send more than one.
+  const favorite = attachment.players
+    .filter((p) => !p.waived)
+    .sort((a, b) => b.premium - a.premium)[0]?.playerId;
   const mine = preview.players
     .filter((p) => p.fromTeamId === me.team.id)
-    .sort((a, b) => b.projectedPoints - a.projectedPoints);
+    .sort(
+      (a, b) =>
+        Number(b.player.id === favorite) - Number(a.player.id === favorite) ||
+        b.projectedPoints - a.projectedPoints
+    );
   if (roundsLeft > 0 && mine.length > 1 && score >= bar - credit - COUNTER_WINDOW) {
     suggestion.action = 'counter';
     suggestion.counter = {
@@ -267,10 +303,17 @@ function outcome(
       ? ''
       : ` Asked instead for ${names(sentBack.receive)} for your ${names(sentBack.send)}${sentBack.drops.length === 0 ? '' : `, releasing ${names(sentBack.drops)}`} (value for you ${sentBack.score}).`;
   const line = `${VERB[action]} ${trade.fromTeam.id}'s offer: ${names(trade.fromSends)} for your ${names(trade.toSends)}${value === undefined ? '' : ` (value for you ${value}, bar ${prep.suggestion.bar})`}.${sentLine}`;
+  // Which way an attachment conflict went (#216). The activity log (sealed while the offer is
+  // private) may say a need outweighed it; the agent's own record keeps no agenda information.
+  const why = (audience: 'activity' | 'memory') => {
+    const text =
+      prep.suggestion.attachment === undefined ? '' : attachmentSummary(prep.suggestion.attachment, audience);
+    return text === '' ? '' : ` ${text}`;
+  };
   return {
     action: failed ? `${action}_failed` : action,
-    summary: failed ? `${summary} Refused: ${result.error.code}.` : summary,
-    memorySummary: failed ? `${line} Refused: ${result.error.code}.` : line,
+    summary: `${failed ? `${summary} Refused: ${result.error.code}.` : summary}${why('activity')}`,
+    memorySummary: `${failed ? `${line} Refused: ${result.error.code}.` : line}${why('memory')}`,
     sealed: { summary: SEALED_RESPONSE, trades: [{ tradeId: trade.id, until: 'public' }], waiverClaims: [] },
     ...(failed || action !== 'accept_trade'
       ? {}
@@ -297,8 +340,10 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
   title: 'Answer a trade offer',
   modelRole: 'decision',
   modelNotes: false,
-  // Every response may include a note to the other manager; chat-sourced ones may also reply.
-  agenda: 'refresh_only',
+  // Every response may include a note to the other manager, so the model never reads the agenda;
+  // only the deterministic attachment override does (#216). Chat-sourced answers also reply in
+  // chat, so they cannot use it at all.
+  agenda: (_ctx, payload) => (payload.chat === undefined ? 'guide_only' : 'refresh_only'),
   payload: PayloadSchema,
   decision: TradeDecisionSchema,
   // A counter's note goes to the team that made the offer: it may recall private dealings with
@@ -314,12 +359,20 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
     'list_trades'
   ],
   prepare,
-  instructions(_ctx, _payload, prep) {
+  instructions(ctx, _payload, prep) {
     const t = prep.trade;
     const s = prep.suggestion;
     const me = prep.preview?.sides[1];
+    // Attachments that still count here (#216); one set aside for a need is not named, since the
+    // need is private and the model writes to the other manager.
+    const held = (s.attachment?.players ?? []).filter((p) => !p.waived).map((p) => p.playerId);
+    const attached =
+      held.length === 0
+        ? []
+        : attachmentPrompt(ctx.attachments, ctx.clock.now().toISOString(), { teams: [t.fromTeam.id] }, held);
     return [
       `${t.fromTeam.name} offers you ${names(t.fromSends)} for your ${names(t.toSends)}.`,
+      ...attached.map((line) => `You are attached to ${line}`),
       me === undefined
         ? 'The trade preview is unavailable.'
         : `Trade value for you over the next weeks: best lineup ${me.lineupDelta >= 0 ? '+' : ''}${me.lineupDelta} points, player value ${me.valueDelta >= 0 ? '+' : ''}${me.valueDelta}. Your score ${s.score} against your bar ${s.bar}.`,
@@ -472,6 +525,18 @@ async function vetCounter(
   const read = seen.preview;
   if (read === null) return { send: [], receive: [], drops: [], score: 0, floor, illegal: seen.why };
   const [me, them] = read.sides;
+  // The counter's own attachment premium replaces the one for the offer it answers (#216): keeping
+  // a favorite out of the deal takes his premium off the floor, sending him puts it on.
+  const own = attachmentAdjustment({
+    attachments: ctx.attachments,
+    at: ctx.clock.now().toISOString(),
+    sends: me.sends,
+    receives: me.receives,
+    agenda: ctx.agenda,
+    tradeFrequency: ctx.config.tradeFrequency
+  });
+  const counterFloor =
+    Math.round((floor - (prep.suggestion.attachment?.adjustment ?? 0) + own.adjustment) * 10) / 10;
   const score = tradeScore(ctx, me, {
     fromTeamId: me.team.id,
     toTeamId: them.team.id,
@@ -484,7 +549,7 @@ async function vetCounter(
     receive: me.receives,
     drops: me.drops,
     score,
-    floor,
+    floor: counterFloor,
     illegal: read.valid ? null : read.issues.map((i) => i.message).join(' ') || 'it is not legal right now.'
   };
 }

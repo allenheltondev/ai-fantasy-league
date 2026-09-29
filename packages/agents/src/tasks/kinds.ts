@@ -3,6 +3,7 @@ import type {
   Clock,
   MemoryAudience,
   MemoryEvent,
+  PlayerAttachments,
   ResolvedAgentConfig,
   SituationalState
 } from '@fantasy/core';
@@ -55,6 +56,8 @@ export interface TaskContext {
    * `effectiveBehavior`; without it every lever is the archetype's baseline.
    */
   situation?: SituationalState;
+  /** Player attachments (#216) for trade decisions: public evidence, read by core's capped policy. */
+  attachments?: PlayerAttachments;
   taskId: string;
   principal: AgentPrincipal;
   league: League;
