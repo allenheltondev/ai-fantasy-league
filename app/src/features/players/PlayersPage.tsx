@@ -7,6 +7,7 @@ import { MyClaims } from './MyClaims';
 import { Transactions } from './Transactions';
 import { describeError, formatTime, type LeagueStateData, type SearchPlayer } from './types';
 import { TableScroll } from '../../components/TableScroll';
+import { PlayerLink } from '../../players/PlayerLink';
 
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
 const SEARCH_LIMIT = 50;
@@ -138,7 +139,9 @@ export function PlayersPage() {
                 const verb = status === 'waivers' ? 'Claim' : 'Add';
                 return (
                   <tr key={player.id}>
-                    <td>{player.name}</td>
+                    <td>
+                      <PlayerLink player={player} />
+                    </td>
                     <td>{player.position}</td>
                     <td>{player.team ?? 'FA'}</td>
                     <td>

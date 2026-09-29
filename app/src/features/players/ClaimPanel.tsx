@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card, CardBody, CardHeader, CardTitle, Input, Select } from '@readysetcloud/ui';
 import { apiFetch } from '../../api';
 import { describeError, formatTime, type ClaimPreview, type ClaimResult, type SearchPlayer } from './types';
+import { PlayerLink } from '../../players/PlayerLink';
 
 interface ClaimPanelProps {
   leagueId: string;
@@ -59,7 +60,7 @@ export function ClaimPanel({ leagueId, player, onDone, onClose }: ClaimPanelProp
     <Card aria-label={`${verb} ${player.name}`} role="region">
       <CardHeader>
         <CardTitle>
-          {verb} {player.name}{' '}
+          {verb} <PlayerLink player={player} />{' '}
           <span className="text-sm text-muted-foreground">
             {player.position} {player.team ?? 'FA'}
           </span>

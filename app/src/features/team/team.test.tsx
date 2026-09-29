@@ -175,7 +175,12 @@ describe('My Team › Roster & moves', () => {
   it('shows your claims and only your moves, with the player pool a tap away', async () => {
     open('/leagues/L1/team/moves');
     const moves = await screen.findByRole('region', { name: 'Your moves' });
-    expect(await within(moves).findByText(/added Breece Hall/)).toBeInTheDocument();
+    // The player's name is its own (clickable) element: match the move by its whole line.
+    expect(
+      await within(moves).findByText(
+        (_, el) => el?.tagName === 'LI' && /added Breece Hall/.test(el.textContent ?? '')
+      )
+    ).toBeInTheDocument();
     expect(within(moves).queryByText(/Zach Charbonnet/)).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'My claims' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Add a player' })).toHaveAttribute(

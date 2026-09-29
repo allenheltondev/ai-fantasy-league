@@ -14,6 +14,7 @@ import {
   type TradesApi,
   type TradeView
 } from './api';
+import { PlayerList } from '../players/PlayerLink';
 
 const defaultApi = createTradesApi(apiFetch);
 
@@ -39,7 +40,6 @@ export const TRADES_LIVE_POLL_MS = 300_000;
 /** How often the expiry countdowns tick. */
 export const COUNTDOWN_TICK_MS = 30_000;
 
-const names = (players: readonly PlayerRef[]) => players.map((p) => p.name).join(', ') || 'nothing';
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
 
 function formatTime(iso: string): string {
@@ -142,8 +142,8 @@ function TradeCard(props: {
         <CardBody>
           <div data-testid={`trade-${t.id}`} className="space-y-1 text-sm">
             <p>
-              <strong>{t.fromTeam.name}</strong> sends {names(t.fromSends)} to{' '}
-              <strong>{t.toTeam.name}</strong> for {names(t.toSends)}.
+              <strong>{t.fromTeam.name}</strong> sends <PlayerList players={t.fromSends} /> to{' '}
+              <strong>{t.toTeam.name}</strong> for <PlayerList players={t.toSends} />.
             </p>
             <p className="flex flex-wrap items-center gap-2">
               <StatusBadge

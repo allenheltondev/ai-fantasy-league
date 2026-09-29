@@ -21,6 +21,7 @@ import { NflGamesStrip } from './NflGamesStrip';
 import { mergeEntries, ScoringLog } from './ScoringLog';
 import { RedZoneChip, redZoneClass, redZoneFor, usePrefersReducedMotion } from './RedZone';
 import { isStarter } from './slots';
+import { PlayerLink } from '../../players/PlayerLink';
 
 /** How often live scores refresh without realtime. The server recomputes them on every read. */
 export const MATCHUP_POLL_MS = 30_000;
@@ -256,7 +257,8 @@ function Side({
                 >
                   <td className="w-16 font-mono">{p.slot}</td>
                   <td>
-                    {p.player.name} <span className="text-muted-foreground">{p.player.team ?? 'FA'}</span>
+                    <PlayerLink player={p.player} className="font-medium" />{' '}
+                    <span className="text-muted-foreground">{p.player.team ?? 'FA'}</span>
                     {zone !== null && <RedZoneChip zone={zone} />}
                   </td>
                   <td className="text-right text-muted-foreground">{p.projectedPoints ?? '–'}</td>

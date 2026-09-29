@@ -10,23 +10,31 @@ export interface PlayerCardProps {
   leagueId: string;
   player: PlayerRef;
   onClose(): void;
-  queued: boolean;
+  /** Draft room only: the Queue button (shown when `onQueue` is given) and the Draft button. */
+  queued?: boolean;
   queueReady?: boolean;
-  onQueue(player: PlayerRef): void;
+  onQueue?(player: PlayerRef): void;
   /** True while you are on the clock and the player is still available. */
-  canDraft: boolean;
-  picking: boolean;
-  onDraft(player: PlayerRef): void;
+  canDraft?: boolean;
+  picking?: boolean;
+  onDraft?(player: PlayerRef): void;
 }
 
 const WIDTH = 240;
 const HEIGHT = 48;
 
-/** Last season's weekly points as an inline SVG line, with a dot per game. */
-export function Sparkline({ weekly }: { weekly: { week: number; points: number }[] }) {
+/** Weekly points as an inline SVG line, with a dot per game. */
+export function Sparkline({
+  weekly,
+  label: which = 'last season'
+}: {
+  weekly: { week: number; points: number }[];
+  /** Which season, for screen readers: "last season" or "this season". */
+  label?: string;
+}) {
   const values = weekly.map((w) => w.points);
   const points = sparklinePoints(values, WIDTH, HEIGHT);
-  const label = `Weekly points last season: ${weekly.map((w) => `week ${w.week} ${fmt(w.points)}`).join(', ')}`;
+  const label = `Weekly points ${which}: ${weekly.map((w) => `week ${w.week} ${fmt(w.points)}`).join(', ')}`;
   return (
     <svg
       role="img"
@@ -57,9 +65,26 @@ function Totals({ totals, label }: { totals: Record<string, number>; label: stri
   );
 }
 
+/** "vs BAL, Sun 1:00 PM" / "at BAL" / "BYE". */
+function matchupText(next: NonNullable<PlayerCardData['nextWeek']>): string {
+  if (next.bye) return 'BYE';
+  if (next.opponent === null) return 'Opponent not scheduled yet';
+  const where = `${next.opponent.home ? 'vs' : 'at'} ${next.opponent.team}`;
+  if (next.kickoff === null) return where;
+  const at = new Date(next.kickoff);
+  return `${where}, ${at.toLocaleDateString(undefined, { weekday: 'short' })} ${at.toLocaleTimeString(
+    undefined,
+    {
+      hour: 'numeric',
+      minute: '2-digit'
+    }
+  )}`;
+}
+
 /**
- * A player's research card in a drawer: last season's weekly points (sparkline), stat totals, the
- * season projection, bye, injury, and recent news, with Queue and (on the clock) Draft buttons.
+ * A player's card in a drawer: this season so far (sparkline, points per game, stat totals), the
+ * current week's projection and matchup, last season, the season projection, bye, injury, and
+ * recent news. In the draft room it also has Queue and (on the clock) Draft buttons.
  */
 export function PlayerCard(props: PlayerCardProps) {
   const { api, leagueId, player } = props;
@@ -103,25 +128,58 @@ export function PlayerCard(props: PlayerCardProps) {
             </>
           )}
         </p>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={props.queueReady === false || props.queued}
-            onClick={() => props.onQueue(player)}
-          >
-            {props.queued ? 'Queued' : 'Queue'}
-          </Button>
-          {props.canDraft && (
-            <Button size="sm" loading={props.picking} onClick={() => props.onDraft(player)}>
-              Draft
+        {props.onQueue !== undefined && (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={props.queueReady === false || props.queued === true}
+              onClick={() => props.onQueue?.(player)}
+            >
+              {props.queued === true ? 'Queued' : 'Queue'}
             </Button>
-          )}
-        </div>
+            {props.canDraft === true && props.onDraft !== undefined && (
+              <Button size="sm" loading={props.picking === true} onClick={() => props.onDraft?.(player)}>
+                Draft
+              </Button>
+            )}
+          </div>
+        )}
         {error !== null && <p role="alert">{error}</p>}
         {card === null && error === null && <p className="text-muted-foreground">Loading…</p>}
         {card !== null && (
           <>
+            {card.thisSeason != null && (
+              <section className="space-y-2" aria-label="This season" data-testid="card-this-season">
+                <h4 className="font-semibold">This season ({card.thisSeason.season})</h4>
+                <p>
+                  <strong>{fmt(card.thisSeason.points)}</strong> pts ·{' '}
+                  <strong>{fmt(card.thisSeason.ppg)}</strong> PPG · {card.thisSeason.games} games
+                </p>
+                {card.thisSeason.weekly.length > 0 && (
+                  <Sparkline weekly={card.thisSeason.weekly} label="this season" />
+                )}
+                <Totals totals={card.thisSeason.totals} label="This season totals" />
+              </section>
+            )}
+            {card.nextWeek != null && (
+              <section className="space-y-2" aria-label="Next game" data-testid="card-next-week">
+                <h4 className="font-semibold">Week {card.nextWeek.week}</h4>
+                <p className="text-sm text-muted-foreground">{matchupText(card.nextWeek)}</p>
+                {card.nextWeek.bye ? (
+                  <p>On bye: no points this week.</p>
+                ) : card.nextWeek.points === null ? (
+                  <p className="text-muted-foreground">No projection for this week yet.</p>
+                ) : (
+                  <>
+                    <p>
+                      <strong>{fmt(card.nextWeek.points)}</strong> projected pts
+                    </p>
+                    <Totals totals={card.nextWeek.totals} label={`Week ${card.nextWeek.week} projection`} />
+                  </>
+                )}
+              </section>
+            )}
             <section className="space-y-2">
               <h4 className="font-semibold">{last === null ? 'Last season' : `${last.season} season`}</h4>
               {last === null ? (

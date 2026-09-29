@@ -36,6 +36,7 @@ import {
   type Placement,
   type Target
 } from './slots';
+import { PlayerLink, useOpenPlayerCard } from '../../players/PlayerLink';
 
 const pts = (n: number) => n.toFixed(1);
 const signed = (n: number, decimals = 1) =>
@@ -102,6 +103,7 @@ export function LineupBoard(props: {
   const saved = useMemo(() => placementOf(data.players), [data.players]);
   const [placement, setPlacement] = useState<Placement>(saved);
   const [selected, setSelected] = useState<string | null>(null);
+  const openCard = useOpenPlayerCard();
   const [dragging, setDragging] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<unknown>(null);
@@ -270,9 +272,17 @@ export function LineupBoard(props: {
           <span>
             Moving <strong>{mover.player.name}</strong>: choose a highlighted spot.
           </span>
-          <Button variant="ghost" size="sm" onClick={() => setSelected(null)} className="min-h-11">
-            Cancel
-          </Button>
+          <span className="flex shrink-0 gap-1">
+            {/* The row itself selects and drags, so a selected player's card opens from here. */}
+            {openCard !== null && (
+              <Button variant="ghost" size="sm" onClick={() => openCard(mover.player)} className="min-h-11">
+                Stats
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setSelected(null)} className="min-h-11">
+              Cancel
+            </Button>
+          </span>
         </div>
       )}
 
@@ -720,7 +730,7 @@ function PendingChanges(props: {
           return (
             <li key={c.entry.player.id} className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate">
-                {c.entry.player.name}{' '}
+                <PlayerLink player={c.entry.player} />{' '}
                 <span className="font-mono text-xs text-muted-foreground">
                   {c.from} → {c.to}
                 </span>

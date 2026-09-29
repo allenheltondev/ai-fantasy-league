@@ -243,6 +243,11 @@ describe('the lineup editor', () => {
     // A dimmed target does nothing; Cancel lets go.
     await user.click(screen.getByRole('button', { name: /QB1: WR2 cannot go here/ }));
     expect(screen.getByTestId('moving-banner')).toBeInTheDocument();
+    // The selected player's card opens from the banner (the row itself selects and drags).
+    await user.click(within(screen.getByTestId('moving-banner')).getByRole('button', { name: 'Stats' }));
+    expect(await screen.findByTestId('player-card')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^close/i }));
+    expect(screen.queryByTestId('player-card')).not.toBeInTheDocument();
     await user.click(within(screen.getByTestId('moving-banner')).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByTestId('moving-banner')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'WR2, BN' }));
@@ -251,7 +256,7 @@ describe('the lineup editor', () => {
     const pending = screen.getByRole('region', { name: 'Unsaved changes' });
     expect(pending).toHaveTextContent('2 unsaved changes');
     expect(pending).toHaveTextContent('Projected 27.50 → 32.50 (+5.00)');
-    expect(within(pending).getByText('WR2').parentElement).toHaveTextContent('+14.0');
+    expect(within(pending).getByText('WR2').closest('li')).toHaveTextContent('+14.0');
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
     expect(screen.getByTestId('lineup-projection-delta')).toHaveTextContent('+5.00 vs saved');
     expect(screen.getByTestId('lineup-announcer')).toHaveTextContent('WR2 moved to WR, swapping with WR1.');
