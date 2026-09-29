@@ -40,6 +40,10 @@ export interface TeamDetail {
   manager?: Manager | null;
   /** The seed its owner picked for the team's avatar (#178); null until set, absent on older responses. */
   avatarSeed?: string | null;
+  /** Who set the name (#194); absent on older responses. */
+  nameSetBy?: 'owner' | 'commissioner' | 'agent' | 'default';
+  /** The name before its last rename, e.g. "Team 3"; null if never renamed. */
+  renamedFrom?: string | null;
 }
 
 /** A team in get_league_state's `teams`. */
@@ -153,6 +157,8 @@ export interface AgentSeatConfig {
   /** The manager's name (#159); a default is shown when absent. */
   name?: string;
   avatarSeed?: string;
+  /** Let this manager name its team (#194); on unless false. Commissioner only. */
+  namesTeam?: boolean;
   advanced?: { modelOverride?: string; levers?: AgentLevers; customFlavor?: string };
 }
 
@@ -680,7 +686,7 @@ export interface DashboardStanding extends DashboardTeam {
   streak: string | null;
 }
 
-export type MoveType = 'trade' | 'add' | 'drop' | 'waiver';
+export type MoveType = 'trade' | 'add' | 'drop' | 'waiver' | 'team_renamed';
 
 export interface MoveSide extends DashboardTeam {
   added: PlayerRef[];
@@ -694,6 +700,8 @@ export interface Move {
   at: string;
   week: number;
   teams: MoveSide[];
+  /** `team_renamed` (#194): the old and new names, and who renamed it. */
+  rename?: { from: string; to: string; by: 'owner' | 'commissioner' | 'agent' } | null;
 }
 
 export interface DashboardDraft {

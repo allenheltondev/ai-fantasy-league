@@ -41,7 +41,13 @@ import { describe, expect, it } from 'vitest';
 import type { BusEvent } from '../../src/events.js';
 import { ScriptedModelClient } from '../../src/fake-model.js';
 import { runAgentAction } from '../../src/runner.js';
-import { leagueRosterIndex, routeEvent, TRIGGER_RULES, type RouteDecision } from '../../src/router.js';
+import {
+  leagueRosterIndex,
+  routeEvent,
+  TRIGGER_RULES,
+  triggerKinds,
+  type RouteDecision
+} from '../../src/router.js';
 import { createTaskKindRegistry, type TaskKind } from '../../src/tasks/kinds.js';
 import { noopTask } from '../../src/tasks/noop.js';
 import { draftSetup } from '../draft-support.js';
@@ -69,7 +75,7 @@ const ALLEN_IN_SEASON: Principal = {
 
 /** Every trigger kind registered (as no-ops), so routing is decided by the rules alone. */
 const allKinds = createTaskKindRegistry(
-  [...new Set(Object.values(TRIGGER_RULES).map((r) => r.kind))].map((kind): TaskKind => ({
+  triggerKinds().map((kind): TaskKind => ({
     ...noopTask,
     kind
   }))
@@ -384,12 +390,16 @@ describe('event contract: the weekly cycle', () => {
     );
     expect(leagueMoment.event.detail).toMatchObject({ teamId: 'team-2', roomId: 'league' });
 
-    // The league's rollover sends every agent shopping for trades (once per league week).
+    // The league's rollover sends every agent shopping for trades (once per league week), and,
+    // as the naming safety net (#194), names the teams still called "Team N".
     const rolled = await consume(s.services, delivered(last(s.events.events, 'Week Rolled Over')));
     expect(decisions(rolled)).toEqual([
       ['team-2', 'trade_proposal', 'requested'],
       ['team-3', 'trade_proposal', 'requested'],
-      ['team-4', 'trade_proposal', 'requested']
+      ['team-4', 'trade_proposal', 'requested'],
+      ['team-2', 'team_identity', 'requested'],
+      ['team-3', 'team_identity', 'requested'],
+      ['team-4', 'team_identity', 'requested']
     ]);
     expect(rolled.chat).toEqual({ status: 'skipped', reason: 'no_template' });
     expect(rolled.relay.topics).toEqual([]);
@@ -849,8 +859,19 @@ describe('event contract: league setup and the draft', () => {
     expect(posted(changed).text).toMatch(
       /^The commissioner changed .+'s AI difficulty from All-Pro to Rookie, AI decision model from Claude Sonnet 5 to Amazon Nova Micro\.$/
     );
-    expect(changed.routed).toEqual([]);
+    // The changed seat still has its placeholder name (no kickoff ran here): its manager names it.
+    expect(changed.routed.map((r) => [r.teamId, r.kind, r.decision])).toEqual([
+      ['team-3', 'team_identity', 'requested']
+    ]);
     expect(changed.relay.topics).toEqual([]);
+
+    // A rename by the commissioner gets a league line; nothing routes or relays (#194).
+    await d.run('rename_team', { leagueId: d.leagueId, teamId: 'team-3', name: 'Robo Ballers' });
+    const renamed = await consume(d.services, delivered(last(d.events.events, 'Team Renamed')));
+    expect(EVENT_DETAIL_SCHEMAS['Team Renamed'].safeParse(renamed.event.detail).success).toBe(true);
+    expect(posted(renamed).text).toBe('The commissioner renamed Team 3 to Robo Ballers.');
+    expect(renamed.routed).toEqual([]);
+    expect(renamed.relay.topics).toEqual([]);
   });
 });
 
@@ -1170,6 +1191,7 @@ describe('event contract coverage', () => {
       'Week Provisionally Final',
       'Member Joined',
       'Member Left',
+      'Team Renamed',
       'Settings Changed',
       'Agent Seat Changed',
       'Agent Budget Exceeded',

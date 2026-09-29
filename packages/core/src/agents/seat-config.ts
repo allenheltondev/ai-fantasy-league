@@ -58,6 +58,12 @@ export const AgentSeatConfigSchema = z.strictObject({
   avatarSeed: AvatarSeedSchema.optional().describe(
     "Seed for the manager's avatar picture. Omit to keep a generated default."
   ),
+  namesTeam: z
+    .boolean()
+    .optional()
+    .describe(
+      'Let this manager name its team (#194). On (the default): it replaces a generic name like "Team 3" and may rebrand in character, and a name the commissioner gives the team stays the manager\'s to change. Off: it never renames, and a name the commissioner gives the team is locked.'
+    ),
   advanced: z
     .strictObject({
       modelOverride: z

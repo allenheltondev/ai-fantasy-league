@@ -114,6 +114,7 @@ export const configureAgentSeat = defineOperation({
     "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat.",
     'Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor).',
     "`name` (1-40 characters on one line, unique in the league) is what the manager calls itself in chat; `avatarSeed` picks its avatar picture. Leave either out to keep the seat's current one.",
+    '`namesTeam` (on by default) lets the manager name its team: it replaces a placeholder like "Team 3" in character and may rebrand now and then. Turned off, it never renames, and a name you give the team (rename_team) is locked. Leave it out to keep the current setting.',
     'Every change is stored as a new version; pass `expectedVersion` (from get_agent_seat) to avoid overwriting a change someone else made, or leave it out to overwrite.',
     'Errors: FORBIDDEN if you are not the commissioner; PHASE_NOT_ALLOWED once the season is complete; CONFLICT when expectedVersion is stale (details.currentVersion has the right one); INVALID_INPUT for unknown ids, out-of-range levers, a malformed name or avatar seed, or a name another manager in the league already uses.'
   ].join(' '),
@@ -142,6 +143,7 @@ export const configureAgentSeat = defineOperation({
     const current = await ctx.repos.agents.getSeat(access.league.id, teamId);
     const name = config.name ?? current?.config.name;
     const avatarSeed = config.avatarSeed ?? current?.config.avatarSeed;
+    const namesTeam = config.namesTeam ?? current?.config.namesTeam;
     if (config.name !== undefined) {
       const taken = await namesInUse(ctx, access, new Set([teamId]));
       if (taken.some((n) => nameKey(n) === nameKey(config.name as string))) {
@@ -161,7 +163,8 @@ export const configureAgentSeat = defineOperation({
       {
         ...config,
         ...(name === undefined ? {} : { name }),
-        ...(avatarSeed === undefined ? {} : { avatarSeed })
+        ...(avatarSeed === undefined ? {} : { avatarSeed }),
+        ...(namesTeam === undefined ? {} : { namesTeam })
       },
       expectedVersion
     );

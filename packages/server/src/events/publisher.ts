@@ -69,6 +69,8 @@ export type FantasyEventType =
   | 'Settings Changed'
   /** The commissioner changed an agent seat after the draft (announced in chat). */
   | 'Agent Seat Changed'
+  /** A team got a new name (#194): chat announces renames by people, and AI managers may rename. */
+  | 'Team Renamed'
   /** The league's agents passed their weekly model budget for the first time this week (announced in chat). */
   | 'Agent Budget Exceeded'
   /** The last playoff week is over and the league is complete (champion and runner-up). */

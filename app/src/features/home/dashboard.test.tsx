@@ -320,6 +320,47 @@ describe('the league dashboard', () => {
     expect(within(feed).getByRole('article', { name: "Drop: Bob's Team" })).toHaveTextContent('Cut Man');
   });
 
+  it('shows an AI manager renaming its team on the move board (#194)', async () => {
+    const rename: Move = {
+      id: 'rename:team-2:2026-09-25T10:00:00.000Z',
+      type: 'team_renamed',
+      at: '2026-09-25T10:00:00.000Z',
+      week: 3,
+      teams: [{ ...MARCUS, teamName: 'Regression to the Mean', added: [], dropped: [], cost: null }],
+      rename: { from: 'Bots 2', to: 'Regression to the Mean', by: 'agent' }
+    };
+    mount({ getLeagueDashboard: vi.fn(async () => inSeason({ moves: [rename, ...MOVES] })) });
+    const board = await screen.findByRole('region', { name: 'Move board' });
+    const card = within(board).getByRole('article', {
+      name: 'New team name: Bots 2 is now Regression to the Mean'
+    });
+    expect(card).toHaveAttribute('data-testid', 'move-team_renamed');
+    expect(card).toHaveTextContent('Regression to the Mean');
+    expect(within(card).getByTestId('renamed-from')).toHaveTextContent(
+      'Renamed from Bots 2 by its AI manager'
+    );
+    expect(card).toHaveTextContent('Week 3');
+  });
+
+  it('marks your own rename, by you, as yours (#194)', async () => {
+    const rename: Move = {
+      id: 'rename:team-1:2026-09-25T11:00:00.000Z',
+      type: 'team_renamed',
+      at: '2026-09-25T11:00:00.000Z',
+      week: 3,
+      teams: [{ ...ALICE, teamName: 'Gridiron Gang', added: [], dropped: [], cost: null }],
+      rename: { from: "Alice's Team", to: 'Gridiron Gang', by: 'owner' }
+    };
+    mount({ getLeagueDashboard: vi.fn(async () => inSeason({ moves: [rename] })) });
+    const card = await screen.findByRole('article', {
+      name: "New team name: Alice's Team is now Gridiron Gang"
+    });
+    expect(card).toHaveTextContent('(you)');
+    expect(within(card).getByTestId('renamed-from')).toHaveTextContent(
+      "Renamed from Alice's Team by its manager"
+    );
+  });
+
   it('shows more moves on demand, then links to every transaction', async () => {
     const user = userEvent.setup();
     const getLeagueDashboard = vi.fn(async (_id: string, query: { moves?: number } = {}) =>

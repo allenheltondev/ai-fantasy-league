@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentActionRequestedSchema, type BusEvent } from '../src/events.js';
 import { inProcessAgentDeps } from '../src/loop.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
-import { POST_DRAFT_KICKOFF, routeEvent, TRIGGER_RULES, type RouteDecision } from '../src/router.js';
+import { POST_DRAFT_KICKOFF, routeEvent, triggerKinds, type RouteDecision } from '../src/router.js';
 import { createTaskKindRegistry, type TaskKind } from '../src/tasks/kinds.js';
 import { noopTask } from '../src/tasks/noop.js';
 import { LEAGUE_ID, SF_KICKOFF, START, setup } from './support.js';
@@ -29,7 +29,7 @@ const NOW = new Date(START);
 const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
 
 const allKinds = createTaskKindRegistry(
-  [...new Set(Object.values(TRIGGER_RULES).map((r) => r.kind))].map((kind): TaskKind => ({
+  triggerKinds().map((kind): TaskKind => ({
     ...noopTask,
     kind
   }))

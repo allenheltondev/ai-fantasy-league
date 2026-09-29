@@ -169,6 +169,13 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
       '{team:teamId} left the league.'
     ]
   },
+  // Renames by people get a league line (#194); an AI manager announces its own new name in character.
+  'Team Renamed': {
+    text: [
+      { text: '{from} is now {to}.', when: (d) => d.by === 'owner' },
+      { text: 'The commissioner renamed {from} to {to}.', when: (d) => d.by === 'commissioner' }
+    ]
+  },
   // Agent seat changes after the draft are announced, so a commissioner who also plays can't
   // quietly weaken the AI teams they face.
   'Agent Seat Changed': {
