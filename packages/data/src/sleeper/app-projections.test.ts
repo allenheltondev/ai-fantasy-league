@@ -19,6 +19,14 @@ describe('parseSleeperAppProjections', () => {
     expect(lines.find((l) => l.playerId === '4227')?.stats.fgm).toBe(1.74);
   });
 
+  it('reads a real recording of both endpoints (2026 week 5) into the same map v1 returned', () => {
+    const app = parse(fixtureJson('sleeper/projection-sources/app_2026_5.json'), 5);
+    const v1 = fixtureJson('sleeper/projection-sources/v1_2026_5.json') as Record<string, unknown>;
+    expect(Object.keys(app)).toHaveLength(18);
+    for (const [playerId, stats] of Object.entries(app)) expect(stats).toEqual(v1[playerId]);
+    expect(app['PHI']).toMatchObject({ pts_ppr: 6.66 });
+  });
+
   it('accepts stats flat on the row and numeric player ids', () => {
     const stats = parse([
       { player_id: 4046, week: '1', team: 'KC', last_modified: 17, pass_yd: 250, pts_ppr: 20, note: 'x' }
