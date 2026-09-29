@@ -3,7 +3,13 @@ import { FixedClock, systemClock } from '@fantasy/core';
 import { describe, expect, it, vi } from 'vitest';
 import { newId } from '../context.js';
 import { JOB_NAMES } from '../jobs/index.js';
-import { JOB_SCHEDULE_EXPRESSIONS, nextRunFn, recurringJobs, seasonJobs } from '../jobs/schedules.js';
+import {
+  JOB_SCHEDULE_EXPRESSIONS,
+  JOB_SCHEDULE_TIMEZONES,
+  nextRunFn,
+  recurringJobs,
+  seasonJobs
+} from '../jobs/schedules.js';
 import { silentLogger } from '../log.js';
 import { createInMemoryRepos } from '../repos/memory.js';
 import { createInMemoryReferenceStore } from '../repos/memory-reference.js';
@@ -210,6 +216,24 @@ describe('job schedules', () => {
     }
     expect(found).toEqual(JOB_SCHEDULE_EXPRESSIONS);
     expect(Object.keys(JOB_SCHEDULE_EXPRESSIONS).sort()).toEqual([...JOB_NAMES].sort());
+    const zones: Record<string, string> = {};
+    for (const m of template.matchAll(
+      /ScheduleExpressionTimezone: (.+)\n\s+ScheduleExpression: .+\n\s+Input: '\{"job":"(\w+)"\}'/g
+    )) {
+      zones[m[2] as string] = (m[1] as string).trim();
+    }
+    expect(zones).toEqual(JOB_SCHEDULE_TIMEZONES);
+  });
+
+  it('runs a daily cron on wall-clock time in a time zone, through daylight saving', () => {
+    const checkIns = nextRunFn('cron(0 9,14,20 * * ? *)', 'America/New_York');
+    // Daylight time: 9 AM EDT is 13:00 UTC; 8 PM is midnight UTC.
+    expect(checkIns(new Date('2026-09-29T12:00:00.000Z')).toISOString()).toBe('2026-09-29T13:00:00.000Z');
+    expect(checkIns(new Date('2026-09-29T13:00:00.000Z')).toISOString()).toBe('2026-09-29T18:00:00.000Z');
+    expect(checkIns(new Date('2026-09-29T23:59:00.000Z')).toISOString()).toBe('2026-09-30T00:00:00.000Z');
+    // Standard time: 9 AM EST is 14:00 UTC.
+    expect(checkIns(new Date('2026-12-02T01:00:00.000Z')).toISOString()).toBe('2026-12-02T14:00:00.000Z');
+    expect(() => nextRunFn('cron(0 15 ? * THU,FRI *)', 'America/New_York')).toThrow(/Unsupported/);
   });
 
   it('computes the next run after a moment', () => {
@@ -239,7 +263,12 @@ describe('job schedules', () => {
     };
     const clock = new FixedClock(at(0));
     const season = seasonJobs(deps, clock);
-    expect(season.map((j) => j.name)).toEqual(['advanceSeason', 'scoreLiveWeek', 'processWaivers']);
+    expect(season.map((j) => j.name)).toEqual([
+      'advanceSeason',
+      'scoreLiveWeek',
+      'processWaivers',
+      'managerCheckIns'
+    ]);
     for (const job of season) expect(await job.run(at(0))).toMatchObject({ status: expect.any(String) });
     const [waivers] = recurringJobs(
       { ...deps, provider: {} as never, directory: {} as never, news: {} as never },
@@ -249,6 +278,22 @@ describe('job schedules', () => {
     );
     expect(waivers?.next(at(0))).toEqual(at(5));
     expect(await waivers?.run(at(0))).toMatchObject({ status: 'ok', leagues: 0 });
+    // Check-ins keep their time zone unless a cadence override replaces it.
+    const [checkIns, fast] = [
+      ...recurringJobs({ ...deps, provider: {} as never, directory: {} as never, news: {} as never }, clock, [
+        'managerCheckIns'
+      ]),
+      ...recurringJobs(
+        { ...deps, provider: {} as never, directory: {} as never, news: {} as never },
+        clock,
+        ['managerCheckIns'],
+        { managerCheckIns: 'rate(1 hour)' }
+      )
+    ];
+    expect(checkIns?.next(new Date('2026-09-29T12:00:00.000Z'))).toEqual(
+      new Date('2026-09-29T13:00:00.000Z')
+    );
+    expect(fast?.next(new Date('2026-09-29T12:30:00.000Z'))).toEqual(new Date('2026-09-29T13:00:00.000Z'));
   });
 });
 

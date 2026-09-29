@@ -106,7 +106,8 @@ export const REPLAY_JOBS: readonly JobName[] = [
   'advanceSeason',
   'scoreLiveWeek',
   'officialFinal',
-  'processWaivers'
+  'processWaivers',
+  'managerCheckIns'
 ];
 
 /** The jobs a fresh deployment runs once before anyone creates a league. */

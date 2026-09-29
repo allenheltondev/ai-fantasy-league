@@ -1,3 +1,4 @@
+import { managerCheckIns } from './check-ins.js';
 import type { Job } from './deps.js';
 import { ingestNews } from './ingest-news.js';
 import { ingestProjections } from './ingest-projections.js';
@@ -28,6 +29,7 @@ export const JOBS = {
   officialFinal,
   processWaivers,
   syncSeasonResearch,
+  managerCheckIns,
   syncGameDayInjuries
 } as const satisfies Record<string, Job>;
 
@@ -45,6 +47,7 @@ export {
   ingestProjections,
   ingestStats,
   ingestTrending,
+  managerCheckIns,
   scoreLiveWeek,
   officialFinal,
   processWaivers,

@@ -1,3 +1,4 @@
+import { checkInTask } from './check-in.js';
 import { draftTask } from './draft.js';
 import { chatMomentTask, chatReplyTask } from './chat.js';
 import { createTaskKindRegistry, type TaskKind } from './kinds.js';
@@ -26,6 +27,7 @@ export const DEFAULT_TASK_KINDS: readonly TaskKind[] = [
   chatReplyTask,
   chatMomentTask,
   postDraftTask,
+  checkInTask,
   teamIdentityTask
 ];
 

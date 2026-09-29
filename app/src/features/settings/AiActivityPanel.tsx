@@ -28,7 +28,8 @@ const KIND_LABELS: Record<string, string> = {
   waivers: 'Waivers',
   chat_reply: 'Chat reply',
   chat_moment: 'Chat moment',
-  trade_response: 'Trade response'
+  trade_response: 'Trade response',
+  check_in: 'Check-in'
 };
 
 /**

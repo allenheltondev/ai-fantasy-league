@@ -343,7 +343,8 @@ export async function buildLeagueReport(input: {
     wallMs: input.wallMs,
     violations,
     notes: [
-      'Trades: agents shop for trades once a week at the rollover (trade_proposal, paced by their archetype) and answer offers through trade_response; in league-vote review, agents outside a trade vote on it (trade_vote). The human stand-in offers one bench swap a week before the deadline and never answers offers, so offers to it expire.',
+      'Check-ins: three times a day every agent looks at its team (check_in, #195): a deterministic pre-check skips the model when nothing is worth a look; otherwise it may set its lineup, add or claim a player, or offer a trade.',
+      'Trades: agents shop for trades once a week at the rollover (trade_proposal, paced by their archetype), and at check-ins when their appetite roll passes, and answer offers through trade_response; in league-vote review, agents outside a trade vote on it (trade_vote). The human stand-in offers one bench swap a week before the deadline and never answers offers, so offers to it expire.',
       'The champion is the one the league stored with its playoff bracket; the replay checks it against the stored playoff games replayed through core `advanceBracket`.'
     ]
   };
@@ -377,14 +378,14 @@ export function renderLeagueReport(report: LeagueReplayReport): string {
     '',
     `${report.agents.totals.tasks} tasks, estimated cost ${money(report.agents.totals.costUsd)}.`,
     '',
-    '| Team | Seat | Tasks | Draft | Lineup | Waivers | Chat | Fallbacks | Cost |',
-    '|---|---|---|---|---|---|---|---|---|',
+    '| Team | Seat | Tasks | Draft | Lineup | Waivers | Check-ins | Chat | Fallbacks | Cost |',
+    '|---|---|---|---|---|---|---|---|---|---|',
     ...report.teams.map((t) => {
       const a = report.agents.byTeam[t.id] ?? empty();
       const chat = (a.byKind.chat_reply ?? 0) + (a.byKind.chat_moment ?? 0);
       const seat =
         t.agent === null ? t.seat : `${t.agent.personalityId}, ${t.agent.difficulty}, ${t.agent.archetype}`;
-      return `| ${team(t.id)} | ${seat} | ${a.tasks} | ${a.byKind.draft_pick ?? 0} | ${a.byKind.lineup ?? 0} | ${a.byKind.waivers ?? 0} | ${chat} | ${a.byStatus.fallback ?? 0} | ${money(a.costUsd)} |`;
+      return `| ${team(t.id)} | ${seat} | ${a.tasks} | ${a.byKind.draft_pick ?? 0} | ${a.byKind.lineup ?? 0} | ${a.byKind.waivers ?? 0} | ${a.byKind.check_in ?? 0} | ${chat} | ${a.byStatus.fallback ?? 0} | ${money(a.costUsd)} |`;
     }),
     '',
     `Human stand-in (${report.human.teamId}): ${Object.entries(report.human.actions)

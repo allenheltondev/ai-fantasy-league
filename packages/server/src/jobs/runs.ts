@@ -19,6 +19,7 @@ export const DATA_JOB_NAMES = [
   'officialFinal',
   'processWaivers',
   'syncSeasonResearch',
+  'managerCheckIns',
   'syncGameDayInjuries'
 ] as const;
 
