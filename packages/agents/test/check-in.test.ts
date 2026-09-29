@@ -4,6 +4,7 @@ import {
   checkInTradeChance,
   responseDelay,
   seededRandom,
+  yahooDefaultSettings,
   type AgentSeatConfig
 } from '@fantasy/core';
 import { createContext, createRegistry, executeOperation, operations, type Player } from '@fantasy/server';
@@ -271,6 +272,52 @@ describe('check-in decisions', () => {
     );
     expect(next).toMatchObject({ status: 'skipped', fallbackReason: 'nothing_to_do' });
     expect(await s.repos.waivers.listClaims(LEAGUE_ID, 'pending')).toHaveLength(1);
+  });
+
+  it('passes on a claim whose drop would be locked by the time it runs', async () => {
+    const settings = yahooDefaultSettings(4);
+    settings.roster.slots = { QB: 1, RB: 1, BN: 1 };
+    const s = await setup({ league: { settings } });
+    await s.seat(AGENT_TEAM, HAWK);
+    const team = await s.repos.teams.get(LEAGUE_ID, AGENT_TEAM);
+    await s.repos.teams.update({ ...team!, roster: ['qb2', 'rb2', 'te2'] });
+    await players(s, [{ id: 'fa-rb', position: 'RB' }]);
+    await project(s, [{ playerId: 'fa-rb', stats: { rush_yd: 400 } }]);
+    // The week ends with Monday night's game; his claim runs Monday morning, after every rostered
+    // player (SF) has kicked off on Sunday.
+    const game = (id: string, kickoff: string, home: string, away: string) => ({
+      gameId: id,
+      season: 2026,
+      seasonType: 'regular' as const,
+      week: 5,
+      kickoff,
+      homeTeam: home,
+      awayTeam: away,
+      status: 'scheduled' as const
+    });
+    await s.services.data.reference.schedule.putSeason(
+      2026,
+      [
+        game('2026_05_LAR_SF', SF_KICKOFF, 'SF', 'LAR'),
+        game('2026_05_KC_DEN', '2026-10-06T00:15:00.000Z', 'DEN', 'KC')
+      ],
+      {},
+      new Date(START)
+    );
+    await s.repos.waivers.putWireEntry({
+      leagueId: LEAGUE_ID,
+      playerId: 'fa-rb',
+      droppedByTeamId: 'team-4',
+      droppedAt: START,
+      clearsAt: '2026-10-04T18:00:00.000Z'
+    });
+    await trending(s, 'fa-rb');
+    const record = await runAgentAction(
+      s.deps(new ScriptedModelClient()),
+      checkIn(rolled('waiver_hawk', false))
+    );
+    expect(record).toMatchObject({ status: 'skipped', fallbackReason: 'nothing_to_do' });
+    expect(await s.repos.waivers.listClaims(LEAGUE_ID, 'pending')).toEqual([]);
   });
 
   it('adds a free agent now and starts him', async () => {

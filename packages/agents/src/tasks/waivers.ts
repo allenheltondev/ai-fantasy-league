@@ -207,8 +207,9 @@ export async function scout(
     if (gain < minGain || (c.needsDrop && drop === null)) continue;
     let kind: 'add_now' | 'claim_pending' = c.kind === 'add_now' ? 'add_now' : 'claim_pending';
     if (drop !== null) {
-      // With the drop named, the preview says whether he is a free agent or on waivers. Anything
-      // else that would stop the claim surfaces when it is made.
+      // With the drop named, the preview says whether he is a free agent or on waivers, and whether
+      // the drop is allowed (a drop locked by the time the claim runs is not). Anything else that
+      // would stop the claim surfaces when it is made.
       const withDrop = optional(
         await ctx.tools.call('preview_waiver_claim', {
           playerId: c.player.id,
@@ -217,6 +218,7 @@ export async function scout(
         }),
         PreviewSchema
       );
+      if (withDrop?.issues.some((i) => i.code === 'PLAYER_LOCKED') === true) continue;
       kind = withDrop?.outcome === 'add_now' ? 'add_now' : 'claim_pending';
       usedDrops.add(drop.id);
     }

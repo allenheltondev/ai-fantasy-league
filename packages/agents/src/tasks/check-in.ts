@@ -465,10 +465,21 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep>
   const lineup = await readLineupOrNull(ctx);
   const { unavailable, bye } =
     lineup === null ? { unavailable: [], bye: new Set<string>() } : unavailableStarters(lineup);
-  // Never drop a player on bye or one who is hurt to make room: this week's projection (zero)
-  // says nothing about him.
-  const hurt = (lineup?.roster ?? []).filter((p) => WILL_NOT_PLAY_STATUSES.includes(p.status));
-  const keep = new Set([...bye, ...hurt.map((p) => p.playerId)]);
+  // Never drop a player on bye or one who is hurt to make room (this week's zero projection says
+  // nothing about him), nor one whose game has kicked off (he is locked).
+  const now = ctx.clock.now().getTime();
+  const games = lineup?.context.games ?? {};
+  const keep = new Set([
+    ...bye,
+    ...(lineup?.roster ?? [])
+      .filter((p) => {
+        const kickoff = p.nflTeam == null ? undefined : games[p.nflTeam]?.kickoff;
+        return (
+          WILL_NOT_PLAY_STATUSES.includes(p.status) || (kickoff !== undefined && instantMs(kickoff) <= now)
+        );
+      })
+      .map((p) => p.playerId)
+  ]);
   const waivers = await lookAtWaivers(ctx, bye, keep);
   const offers = await lookAtOffers(ctx);
   const trade = await lookAtTrades(ctx, payload, offers);
