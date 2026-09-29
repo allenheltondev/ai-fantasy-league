@@ -66,10 +66,12 @@ export function statChanges(before: StatLine | undefined, after: StatLine): Stat
   return (
     [...keys]
       .sort()
-      .map((stat) => ({ stat, delta: clean(num(after, stat) - num(before, stat)) }))
+      .map((stat) => ({ stat, raw: num(after, stat) - num(before, stat) }))
       // A stat appearing (or disappearing) at 0 is still news: a team defense's `pts_allow: 0` puts it
-      // in the shutout tier, so its first line scores points with no stat moving from 0.
-      .filter((c) => c.delta !== 0 || (before?.[c.stat] === undefined) !== (after[c.stat] === undefined))
+      // in the shutout tier, so its first line scores points with no stat moving from 0. So is a move
+      // too small to show once rounded: it can still cross a tier's edge.
+      .filter((c) => c.raw !== 0 || (before?.[c.stat] === undefined) !== (after[c.stat] === undefined))
+      .map(({ stat, raw }) => ({ stat, delta: clean(raw) }))
   );
 }
 
