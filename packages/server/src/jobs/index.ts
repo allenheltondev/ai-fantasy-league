@@ -1,3 +1,4 @@
+import { managerCheckIns } from './check-ins.js';
 import type { Job } from './deps.js';
 import { ingestNews } from './ingest-news.js';
 import { ingestProjections } from './ingest-projections.js';
@@ -26,7 +27,8 @@ export const JOBS = {
   advanceSeason,
   officialFinal,
   processWaivers,
-  syncSeasonResearch
+  syncSeasonResearch,
+  managerCheckIns
 } as const satisfies Record<string, Job>;
 
 export type JobName = keyof typeof JOBS;
@@ -43,6 +45,7 @@ export {
   ingestProjections,
   ingestStats,
   ingestTrending,
+  managerCheckIns,
   scoreLiveWeek,
   officialFinal,
   processWaivers,

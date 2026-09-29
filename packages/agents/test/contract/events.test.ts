@@ -271,6 +271,25 @@ describe('event contract: waivers', () => {
   });
 });
 
+describe('event contract: manager check-ins', () => {
+  it('Manager Check-In (from the check-in job) sends every agent to check in, once per date and slot', async () => {
+    const s = await inSeason();
+    await JOBS.managerCheckIns(jobDeps(s), s.clock);
+    const checkIn = await consume(s.services, delivered(last(s.events.events, 'Manager Check-In')));
+    expect(decisions(checkIn)).toEqual([
+      ['team-2', 'check_in', 'requested'],
+      ['team-3', 'check_in', 'requested'],
+      ['team-4', 'check_in', 'requested']
+    ]);
+    expect(checkIn.chat).toEqual({ status: 'skipped', reason: 'no_template' });
+    expect(checkIn.relay.topics).toEqual([]);
+    // A retried job run is the same check-in.
+    await JOBS.managerCheckIns(jobDeps(s), s.clock);
+    const retried = await consume(s.services, delivered(last(s.events.events, 'Manager Check-In')));
+    expect(retried.routed.map((d) => d.decision)).toEqual(['repeat', 'repeat', 'repeat']);
+  });
+});
+
 describe('event contract: the weekly cycle', () => {
   async function scoredWeek() {
     const s = await inSeason();

@@ -19,7 +19,8 @@ describe('loadJobsConfig', () => {
       newsFeedsParameter: '/fantasy/news-feeds',
       newsFeeds: undefined,
       logLevel: 'info',
-      badgeChest: false
+      badgeChest: false,
+      agentKillSwitchParam: undefined
     });
     expect(
       loadJobsConfig({ ...ENV, SLEEPER_BASE_URL: 'https://sleeper.example', LOG_LEVEL: 'debug' })
@@ -38,6 +39,11 @@ describe('createJobDeps', () => {
     expect(deps.provider).toBeInstanceOf(LiveDataProvider);
     expect(deps.events).toBeInstanceOf(EventBridgePublisher);
     expect(createJobDeps(ENV).provider).toBeInstanceOf(LiveDataProvider);
+    // The agent kill switch is wired only when the deployment names its parameter.
+    expect(createJobDeps(ENV).agentKillSwitch).toBeUndefined();
+    expect(
+      createJobDeps({ ...ENV, AGENT_KILL_SWITCH_PARAM: '/fantasy/agents/kill-switch' }).agentKillSwitch
+    ).toBeDefined();
   });
 });
 
@@ -55,7 +61,8 @@ describe('runJob', () => {
       'advanceSeason',
       'officialFinal',
       'processWaivers',
-      'syncSeasonResearch'
+      'syncSeasonResearch',
+      'managerCheckIns'
     ]);
     expect(isJobName('syncPlayers')).toBe(true);
     expect(isJobName('toString')).toBe(false);

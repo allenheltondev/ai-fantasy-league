@@ -1,5 +1,6 @@
 import type { Clock } from '@fantasy/core';
 import type { DataProvider } from '@fantasy/data';
+import type { KillSwitch } from '../agents/kill-switch.js';
 import type { EventPublisher } from '../events/publisher.js';
 import type { Logger } from '../log.js';
 import type { PlayerDirectory } from '../players/directory.js';
@@ -28,6 +29,8 @@ export interface JobDeps {
   news: NewsSource;
   /** Report achievements to the rsc-core badge chest (`BADGE_CHEST_ENABLED`); off by default. */
   badgeChest?: boolean;
+  /** The agent kill switch (`AGENT_KILL_SWITCH_PARAM`): no manager check-ins while it is on. */
+  agentKillSwitch?: KillSwitch;
 }
 
 export interface JobResult {

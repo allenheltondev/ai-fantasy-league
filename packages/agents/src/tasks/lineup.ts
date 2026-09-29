@@ -31,12 +31,14 @@ import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome 
 
 /**
  * Thrown from `prepare` when there is nothing to decide: the runner records the task as skipped
- * with the message as its reason (sealed like a decision when `sealed` is given).
+ * with the message as its reason (sealed like a decision when `sealed` is given), and `summary`,
+ * when given, as the one line the activity log shows (the check-in's "nothing worth doing" line).
  */
 export class TaskUnavailableError extends Error {
   constructor(
     message: string,
-    readonly sealed?: AgentTaskSeal
+    readonly sealed?: AgentTaskSeal,
+    readonly summary?: string
   ) {
     super(message);
     this.name = 'TaskUnavailableError';
@@ -75,7 +77,7 @@ export const LineupDecisionSchema = BaseDecisionSchema.extend({
 });
 type LineupDecision = z.infer<typeof LineupDecisionSchema>;
 
-interface LineupPrep {
+export interface LineupPrep {
   week: number;
   roster: RosterPlayer[];
   current: LineupEntry[];
@@ -132,7 +134,7 @@ function describe(
     .join('\n');
 }
 
-async function setLineup(
+export async function setLineup(
   ctx: TaskContext,
   prep: LineupPrep,
   lineup: LineupEntry[],
@@ -146,6 +148,51 @@ async function setLineup(
     return { action: 'set_lineup_failed', summary: `${why} set_lineup failed: ${result.error.message}` };
   }
   return { action: 'set_lineup', summary: why };
+}
+
+/**
+ * The team's roster and lineup for the week (the current one unless given), with the optimizer's
+ * lineup: what the lineup task decides on, and what the check-in (#195) reads its lineup from.
+ */
+export async function readLineup(ctx: TaskContext, week: number | undefined): Promise<LineupPrep> {
+  const rosterData = RosterDataSchema.parse(
+    dataOf(
+      await ctx.tools.call('get_roster', {
+        teamId: ctx.principal.teamId,
+        ...(week === undefined ? {} : { week })
+      }),
+      'get_roster'
+    )
+  );
+  const roster: RosterPlayer[] = rosterData.players.map((p) => ({
+    playerId: p.player.id,
+    name: p.player.name,
+    positions: [p.player.position],
+    status: p.status,
+    nflTeam: p.player.team
+  }));
+  const projections: Record<string, number> = {};
+  for (const p of rosterData.players)
+    if (p.projectedPoints !== null) projections[p.player.id] = p.projectedPoints;
+  const current = rosterData.players.map((p) => ({ playerId: p.player.id, slot: p.slot }));
+  // Kickoffs by NFL team: players lock at kickoff and teams without a game are on bye. When the
+  // week's games are unknown (no kickoff anywhere), bye and lock checks are left out.
+  const games: Record<string, { kickoff: string }> = {};
+  for (const p of rosterData.players) {
+    if (p.kickoff !== null && p.player.team !== null) games[p.player.team] = { kickoff: p.kickoff };
+  }
+  const context: LineupContext =
+    Object.keys(games).length === 0
+      ? { previousLineup: current }
+      : { games, now: ctx.clock.now(), previousLineup: current };
+  const riskTolerance = ctx.config.valuation.riskTolerance ?? 0.5;
+  const adjusted: Record<string, number> = {};
+  for (const p of rosterData.players) {
+    const pts = projections[p.player.id];
+    if (pts !== undefined) adjusted[p.player.id] = lineupProjection(pts, p.status, riskTolerance);
+  }
+  const optimized = optimizeLineup(settingsFor(ctx), roster, adjusted, context);
+  return { week: rosterData.week, roster, current, projections, context, optimized };
 }
 
 export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPrep>({
@@ -163,46 +210,7 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
     'get_matchup_outlook',
     'get_trending_players'
   ],
-  async prepare(ctx, payload) {
-    const rosterData = RosterDataSchema.parse(
-      dataOf(
-        await ctx.tools.call('get_roster', {
-          teamId: ctx.principal.teamId,
-          ...(payload.week === undefined ? {} : { week: payload.week })
-        }),
-        'get_roster'
-      )
-    );
-    const roster: RosterPlayer[] = rosterData.players.map((p) => ({
-      playerId: p.player.id,
-      name: p.player.name,
-      positions: [p.player.position],
-      status: p.status,
-      nflTeam: p.player.team
-    }));
-    const projections: Record<string, number> = {};
-    for (const p of rosterData.players)
-      if (p.projectedPoints !== null) projections[p.player.id] = p.projectedPoints;
-    const current = rosterData.players.map((p) => ({ playerId: p.player.id, slot: p.slot }));
-    // Kickoffs by NFL team: players lock at kickoff and teams without a game are on bye. When the
-    // week's games are unknown (no kickoff anywhere), bye and lock checks are left out.
-    const games: Record<string, { kickoff: string }> = {};
-    for (const p of rosterData.players) {
-      if (p.kickoff !== null && p.player.team !== null) games[p.player.team] = { kickoff: p.kickoff };
-    }
-    const context: LineupContext =
-      Object.keys(games).length === 0
-        ? { previousLineup: current }
-        : { games, now: ctx.clock.now(), previousLineup: current };
-    const riskTolerance = ctx.config.valuation.riskTolerance ?? 0.5;
-    const adjusted: Record<string, number> = {};
-    for (const p of rosterData.players) {
-      const pts = projections[p.player.id];
-      if (pts !== undefined) adjusted[p.player.id] = lineupProjection(pts, p.status, riskTolerance);
-    }
-    const optimized = optimizeLineup(settingsFor(ctx), roster, adjusted, context);
-    return { week: rosterData.week, roster, current, projections, context, optimized };
-  },
+  prepare: (ctx, payload) => readLineup(ctx, payload.week),
   instructions(ctx, payload, prep) {
     const why =
       payload.reason === 'lock'

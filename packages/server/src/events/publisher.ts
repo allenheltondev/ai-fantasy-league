@@ -34,6 +34,8 @@ export type FantasyEventType =
   | 'Week Rolled Over'
   | 'Lineup Lock Approaching'
   | 'Waiver Window Opened'
+  /** Three times a day, per drafted league with agents (`managerCheckIns`): every agent looks at its team. */
+  | 'Manager Check-In'
   | 'Waivers Processed'
   | 'Trade Proposed'
   | 'Trade Countered'

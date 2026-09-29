@@ -86,7 +86,13 @@ export {
 export { canonicalEvent, type BusEvent } from './events/bus.js';
 export * from './events/loop.js';
 export { serverSubscribers } from './events/subscribers.js';
-export { JOB_SCHEDULE_EXPRESSIONS, nextRunFn, recurringJobs, seasonJobs } from './jobs/schedules.js';
+export {
+  JOB_SCHEDULE_EXPRESSIONS,
+  JOB_SCHEDULE_TIMEZONES,
+  nextRunFn,
+  recurringJobs,
+  seasonJobs
+} from './jobs/schedules.js';
 export type { JobName } from './jobs/index.js';
 export * from './agents/kill-switch.js';
 export { newsAlertDetail } from './jobs/ingest-news.js';

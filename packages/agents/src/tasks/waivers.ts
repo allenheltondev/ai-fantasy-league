@@ -109,7 +109,7 @@ function noiseFor(ctx: TaskContext, playerId: string): number {
 }
 
 /** A player worth a closer look, from trending adds or a roster hole. */
-interface Lead {
+export interface Lead {
   player: z.infer<typeof PlayerRef>;
   /** Trending adds (0 for a hole's lead). */
   count: number;
@@ -118,7 +118,7 @@ interface Lead {
 const CLOSED: WaiverPrep = { open: false, faabRemaining: 0, roster: [], suggestions: [] };
 
 /** Your team's FAAB when waivers are open; null when they are closed. */
-async function openTeam(ctx: TaskContext): Promise<{ faabRemaining: number } | null> {
+export async function openTeam(ctx: TaskContext): Promise<{ faabRemaining: number } | null> {
   const state = optional(await ctx.tools.call('get_league_state', {}), StateSchema);
   return state === null || !state.flags.waiversOpen ? null : state.yourTeam;
 }
@@ -147,13 +147,15 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
 /**
  * Checks each lead with preview_waiver_claim (is he available, does the roster need a drop),
  * projects him against the weakest player on the roster, and suggests a FAAB bid. A pickup must add
- * `minGain` projected weekly points over his drop.
+ * `minGain` projected weekly points over his drop. Players in `keep` are never dropped (the
+ * check-in keeps players on bye, whose zero projection says nothing about them).
  */
-async function scout(
+export async function scout(
   ctx: TaskContext,
   faabRemaining: number,
   leads: readonly Lead[],
-  minGain: number
+  minGain: number,
+  keep: ReadonlySet<string> = new Set()
 ): Promise<WaiverPrep> {
   // Previews bid the minimum, so a league without $0 bids does not block every waiver claim.
   const minBid = ctx.league.settings.waivers.allowZeroBids ? 0 : 1;
@@ -195,7 +197,7 @@ async function scout(
   for (const c of candidates.sort((a, b) => pts(b.player.id) - pts(a.player.id))) {
     let drop: z.infer<typeof PlayerRef> | null = null;
     if (c.needsDrop) {
-      const pool = roster.filter((p) => !usedDrops.has(p.id));
+      const pool = roster.filter((p) => !usedDrops.has(p.id) && !keep.has(p.id));
       const samePosition = pool.filter((p) => p.position === c.player.position);
       // A full roster always has someone to drop; a drop already promised to a better pickup is skipped.
       drop =
@@ -247,7 +249,9 @@ async function scout(
 }
 
 const HoleRosterSchema = z.object({
-  players: z.array(z.object({ player: z.object({ position: PositionSchema }), status: PlayerStatusSchema }))
+  players: z.array(
+    z.object({ player: z.object({ id: z.string(), position: PositionSchema }), status: PlayerStatusSchema })
+  )
 });
 const FoundSchema = z.object({ players: z.array(PlayerRef) });
 
@@ -265,8 +269,14 @@ export interface HoleScan extends WaiverPrep {
  * healthy backup), each with the best-ranked healthy players still available at an eligible
  * position, scouted like any pickup but with no gain bar (a hole takes the best healthy body). At
  * most one suggestion per hole. Waivers closed or no holes: no suggestions.
+ *
+ * The check-in (#195) also counts players in `unavailable` as not playing (those on bye), and
+ * never drops a player in `keep`.
  */
-export async function scanRosterHoles(ctx: TaskContext): Promise<HoleScan> {
+export async function scanRosterHoles(
+  ctx: TaskContext,
+  options: { unavailable?: ReadonlySet<string>; keep?: ReadonlySet<string> } = {}
+): Promise<HoleScan> {
   const team = await openTeam(ctx);
   const roster =
     team === null
@@ -275,7 +285,10 @@ export async function scanRosterHoles(ctx: TaskContext): Promise<HoleScan> {
   if (team === null || roster === null) return { ...CLOSED, holes: [] };
   const holes = rosterHoles(
     ctx.league.settings,
-    roster.players.map((p) => ({ positions: [p.player.position], status: p.status }))
+    roster.players.map((p) => ({
+      positions: [p.player.position],
+      status: options.unavailable?.has(p.player.id) === true ? 'out' : p.status
+    }))
   );
   const leads: Lead[] = [];
   for (const position of new Set(holes.flatMap((slot) => SLOT_ELIGIBILITY[slot]))) {
@@ -300,7 +313,8 @@ export async function scanRosterHoles(ctx: TaskContext): Promise<HoleScan> {
     ctx,
     team.faabRemaining,
     leads.slice(0, MAX_CANDIDATES),
-    Number.NEGATIVE_INFINITY
+    Number.NEGATIVE_INFINITY,
+    options.keep
   );
   const unfilled = [...holes];
   const suggestions = scouted.suggestions.filter((s) => {
@@ -350,7 +364,9 @@ export async function submitClaims(
   ctx: TaskContext,
   prep: Pick<WaiverPrep, 'open' | 'faabRemaining'>,
   wanted: WaiverDecision['claims'],
-  summary: string
+  summary: string,
+  /** How to name a player in the summary (the check-in names them; the waiver task keeps ids). */
+  label: (playerId: string) => string = (id) => id
 ): Promise<TaskOutcome> {
   const claims = claimsToApply(wanted, ctx.config.levers.actionsPerTrigger);
   if (!prep.open || claims.length === 0) {
@@ -366,9 +382,9 @@ export async function submitClaims(
       ...(claim.dropPlayerId === undefined ? {} : { dropPlayerId: claim.dropPlayerId }),
       bid
     });
-    if ('error' in result) failed.push(`${claim.playerId} (${result.error.code})`);
+    if ('error' in result) failed.push(`${label(claim.playerId)} (${result.error.code})`);
     else {
-      made.push(`${claim.playerId} ($${bid})`);
+      made.push(`${label(claim.playerId)} ($${bid})`);
       const id = ClaimResultSchema.safeParse(result.data).data?.claim?.id;
       if (id !== undefined) pending.push(id);
     }

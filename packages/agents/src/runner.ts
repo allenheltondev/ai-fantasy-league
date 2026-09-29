@@ -166,11 +166,17 @@ export async function runAgentAction(
     const reason = error instanceof TaskUnavailableError ? error.message : 'prepare_failed';
     if (!(error instanceof TaskUnavailableError)) log.error('agent task prepare failed', { error });
     const sealed = error instanceof TaskUnavailableError ? error.sealed : undefined;
+    const summary = error instanceof TaskUnavailableError ? error.summary : undefined;
     return finish(
       deps,
       { ...base, week },
       started,
-      { ...skipped(reason), toolsCalled: [...system.calls], ...(sealed === undefined ? {} : { sealed }) },
+      {
+        ...skipped(reason),
+        toolsCalled: [...system.calls],
+        ...(sealed === undefined ? {} : { sealed }),
+        ...(summary === undefined ? {} : { reasoningSummary: summary })
+      },
       true
     );
   }

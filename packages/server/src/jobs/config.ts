@@ -12,7 +12,9 @@ const JobsEnvSchema = z.object({
   NEWS_FEEDS: z.string().optional(),
   LOG_LEVEL: z.string().optional(),
   /** `true` reports league achievements to the rsc-core badge chest (`Track Activity` events). */
-  BADGE_CHEST_ENABLED: z.string().optional()
+  BADGE_CHEST_ENABLED: z.string().optional(),
+  /** The agent kill switch's SSM parameter: manager check-ins stop while it is on. */
+  AGENT_KILL_SWITCH_PARAM: z.string().optional()
 });
 
 export interface JobsConfig {
@@ -23,6 +25,7 @@ export interface JobsConfig {
   newsFeeds: string | undefined;
   logLevel: LogLevel;
   badgeChest: boolean;
+  agentKillSwitchParam: string | undefined;
 }
 
 export function loadJobsConfig(env: Record<string, string | undefined>): JobsConfig {
@@ -38,6 +41,7 @@ export function loadJobsConfig(env: Record<string, string | undefined>): JobsCon
     newsFeedsParameter: parsed.data.NEWS_FEEDS_PARAMETER,
     newsFeeds: parsed.data.NEWS_FEEDS,
     logLevel: parseLogLevel(parsed.data.LOG_LEVEL),
-    badgeChest: parsed.data.BADGE_CHEST_ENABLED === 'true'
+    badgeChest: parsed.data.BADGE_CHEST_ENABLED === 'true',
+    agentKillSwitchParam: parsed.data.AGENT_KILL_SWITCH_PARAM
   };
 }
