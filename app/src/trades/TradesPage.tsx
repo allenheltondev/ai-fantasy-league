@@ -14,7 +14,7 @@ import {
   type TradesApi,
   type TradeView
 } from './api';
-import { PlayerList } from '../players/PlayerLink';
+import { PlayerLink, PlayerList } from '../players/PlayerLink';
 
 const defaultApi = createTradesApi(apiFetch);
 
@@ -69,15 +69,18 @@ function PlayerPicker(props: {
       <legend className="font-medium">{props.label}</legend>
       {props.players === null && <p className="text-sm text-muted-foreground">Pick a team first.</p>}
       {props.players?.map((p) => (
-        <label key={p.id} className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={props.selected.includes(p.id)}
-            onChange={() => props.onToggle(p.id)}
-            aria-label={`${props.label}: ${p.name}`}
-          />
-          {p.name} <span className="text-muted-foreground">{p.position}</span>
-        </label>
+        <div key={p.id} className="flex items-center gap-1 text-sm">
+          {/* The box picks the player; his name opens his card. */}
+          <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+            <input
+              type="checkbox"
+              checked={props.selected.includes(p.id)}
+              onChange={() => props.onToggle(p.id)}
+              aria-label={`${props.label}: ${p.name}`}
+            />
+          </label>
+          <PlayerLink player={p} /> <span className="text-muted-foreground">{p.position}</span>
+        </div>
       ))}
     </fieldset>
   );
