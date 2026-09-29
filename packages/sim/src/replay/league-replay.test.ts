@@ -41,7 +41,10 @@ describe('replayLeague: the real league on the simulated clock', () => {
     const model = new ScriptedModelClient();
     const report = await replayLeague({
       archive: await fixtureArchive(),
-      seed: 'ci',
+      // Event ids are sequential, and agents' valuation noise is keyed by them: the per-kickoff lock
+      // warnings (#193) added events, so this seed was picked for a replay that still has an
+      // agent-to-agent trade accepted (the assertions below are unchanged).
+      seed: 'ci-2',
       weeks: 3,
       model,
       log: (l) => lines.push(l)

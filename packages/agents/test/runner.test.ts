@@ -138,6 +138,25 @@ describe('runAgentAction with the fake model', () => {
     expect(record.finalAction).toBe('lineup_unchanged');
   });
 
+  it('skips a kickoff none of its players play in, without a model call (#193)', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, PRO);
+    const model = new ScriptedModelClient();
+    const record = await runAgentAction(
+      s.deps(model),
+      request({ payload: { reason: 'lock', week: 5, nflTeams: ['BUF', 'MIA'] } })
+    );
+    expect(record.status).toBe('skipped');
+    expect(model.transcript).toHaveLength(0);
+    // Its SF players kick off then: it goes to work.
+    const again = await runAgentAction(
+      s.deps(model),
+      request({ taskId: 'lineup.sf', payload: { reason: 'lock', week: 5, nflTeams: ['SF', 'DAL'] } })
+    );
+    expect(again.status).toBe('completed');
+    expect(model.transcript).toHaveLength(1);
+  });
+
   it('does nothing when the lineup is already optimal', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, PRO);

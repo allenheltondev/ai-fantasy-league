@@ -63,7 +63,9 @@ const RosterDataSchema = z.object({ week: z.number().int(), players: z.array(Ros
 const LineupPayloadSchema = z.object({
   week: z.number().int().min(1).max(18).optional(),
   reason: z.enum(['lock', 'news', 'status', 'draft_complete']).default('lock'),
-  playerId: z.string().optional()
+  playerId: z.string().optional(),
+  /** `lock`: the NFL teams kicking off at the warned time (#193). */
+  nflTeams: z.array(z.string()).optional()
 });
 type LineupPayload = z.infer<typeof LineupPayloadSchema>;
 
@@ -177,6 +179,20 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
         'get_roster'
       )
     );
+    // A warning for one kickoff: nothing to decide unless one of our players still to lock plays then.
+    const kicking = payload.reason === 'lock' ? payload.nflTeams : undefined;
+    if (
+      kicking !== undefined &&
+      kicking.length > 0 &&
+      !rosterData.players.some(
+        (p) =>
+          p.player.team !== null &&
+          kicking.includes(p.player.team) &&
+          (p.game?.state ?? 'upcoming') === 'upcoming'
+      )
+    ) {
+      throw new TaskUnavailableError(`None of your players kick off then (${kicking.join(', ')}).`);
+    }
     const roster: RosterPlayer[] = rosterData.players.map((p) => ({
       playerId: p.player.id,
       name: p.player.name,

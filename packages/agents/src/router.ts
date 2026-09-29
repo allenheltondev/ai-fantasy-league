@@ -335,9 +335,10 @@ export const TRIGGER_RULES: RuleMap = {
   'Lineup Lock Approaching': {
     kind: 'lineup',
     urgent: true,
-    // A game window locks every team's players in it: every agent team checks its lineup, at once.
+    // A kickoff locks the players in its games: every agent team checks its lineup, at once. The
+    // task skips (no model call) when none of its players kick off then (#193).
     teams: (_d, agents) => [...agents],
-    payload: (d) => ({ reason: 'lock', week: d.week })
+    payload: (d) => ({ reason: 'lock', week: d.week, nflTeams: strs(d.nflTeams) })
   },
   'Chat Mention': {
     kind: 'chat_reply',

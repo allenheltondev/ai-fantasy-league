@@ -135,9 +135,12 @@ describe('routeEvent', () => {
 
   it('checks every agent lineup for a lock', async () => {
     const s = await withSeats();
-    const all = await s.route(event('Lineup Lock Approaching', { leagueId: LEAGUE_ID, week: 5 }));
+    const all = await s.route(
+      event('Lineup Lock Approaching', { leagueId: LEAGUE_ID, week: 5, nflTeams: ['BUF', 'MIA'] })
+    );
     expect(all.map((d) => d.teamId)).toEqual(['team-2', 'team-3', 'team-4']);
-    expect(s.requested()[0]?.payload).toEqual({ reason: 'lock', week: 5 });
+    // The kickoff's teams ride along, so a team with nobody playing then skips without a model call.
+    expect(s.requested()[0]?.payload).toEqual({ reason: 'lock', week: 5, nflTeams: ['BUF', 'MIA'] });
   });
 
   it('routes player news only to agents rostering the player', async () => {

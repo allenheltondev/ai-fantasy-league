@@ -97,7 +97,8 @@ test('a manager drags a bench player into the lineup, sees the projection change
 
   // Both lineups show on the matchup page, with the outlook's win probability.
   await page.getByRole('link', { name: 'Matchup' }).click();
-  await expect(page.getByRole('region', { name: "season-e2e's Team" })).toContainText('Patrick Mahomes');
+  await expect(page.getByTestId('h2h-row-QB-0')).toContainText('Patrick Mahomes');
+  await expect(page.getByRole('region', { name: "season-e2e's Team" }).getByTestId(/^score-/)).toBeVisible();
   await expect(page.getByTestId('win-probability')).toContainText('to win');
 
   await restoreLineup(page);

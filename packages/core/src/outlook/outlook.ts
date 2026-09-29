@@ -71,7 +71,8 @@ export function forecastPlayer(player: OutlookPlayer): PlayerForecast {
   const current = player.actual ?? 0;
   const projected = Math.max(player.projected ?? 0, 0);
   const sd = (mean: number) => (mean > 0 ? Math.max(OUTLOOK_MODEL.sdFloor, OUTLOOK_MODEL.sdRatio * mean) : 0);
-  if (player.game === 'final' || (player.game !== 'live' && willNotPlay(player))) {
+  // A player ruled out scores nothing more, even once his team's game is under way (#193).
+  if (player.game === 'final' || willNotPlay(player)) {
     return { mean: current, variance: 0, current, remaining: 0 };
   }
   if (player.game === 'live') {
@@ -99,7 +100,7 @@ export interface TeamForecast {
   inProgress: number;
   /** Starters whose game is final. */
   done: number;
-  /** Starters on bye or ruled out before their game: they score nothing. */
+  /** Starters on bye or ruled out whose game is not final: they score nothing more. */
   notPlaying: number;
 }
 
@@ -118,9 +119,9 @@ export function forecastTeam(players: readonly OutlookPlayer[]): TeamForecast {
     current += f.current;
     mean += f.mean;
     variance += f.variance;
-    if (player.game === 'live') inProgress++;
-    else if (player.game === 'final') done++;
+    if (player.game === 'final') done++;
     else if (willNotPlay(player)) notPlaying++;
+    else if (player.game === 'live') inProgress++;
     else yetToPlay++;
   }
   return {

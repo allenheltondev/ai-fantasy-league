@@ -78,6 +78,17 @@ describe('forecastPlayer', () => {
   it('expects nothing from players on bye or ruled out', () => {
     expect(forecastPlayer(player('a', 'WR', { game: 'bye' })).mean).toBe(0);
     expect(forecastPlayer(player('a', 'WR', { status: 'out' })).mean).toBe(0);
+    // Ruled out and his team kicked off: still nothing to come.
+    expect(forecastPlayer(player('a', 'WR', { status: 'out', game: 'live', progress: 0.2 }))).toEqual({
+      mean: 0,
+      variance: 0,
+      current: 0,
+      remaining: 0
+    });
+    expect(forecastTeam([player('a', 'WR', { status: 'out', game: 'live' })])).toMatchObject({
+      inProgress: 0,
+      notPlaying: 1
+    });
   });
 });
 

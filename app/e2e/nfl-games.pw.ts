@@ -16,7 +16,33 @@ const ID_TOKEN = [
   'sig'
 ].join('.');
 
-const row = (id: string, name: string, position: string, team: string, slot = position, points = 6.4) => ({
+/** Each player's game as the server sends it (#193): PHI has the ball, in the red zone while `redZone`. */
+const playerGame = (team: string, redZone: boolean) => ({
+  state: 'live',
+  opponent: { PHI: 'DAL', DAL: 'PHI', WAS: 'NYG', SF: 'LAR' }[team] ?? null,
+  home: team === 'PHI' || team === 'SF',
+  kickoff: '2026-10-04T17:00:00.000Z',
+  period: 2,
+  clock: '8:32',
+  teamScore: 14,
+  opponentScore: 10,
+  possession: team === 'PHI',
+  redZone: team === 'PHI' && redZone,
+  progress: 0.358
+});
+
+const row = (
+  id: string,
+  name: string,
+  position: string,
+  team: string,
+  redZone: boolean,
+  slot = position,
+  points = 6.4
+) => ({
+  game: playerGame(team, redZone),
+  expectedPoints: 12,
+  statLine: null,
   player: { id, name, team, position },
   slot,
   status: 'active',
@@ -29,7 +55,7 @@ const row = (id: string, name: string, position: string, team: string, slot = po
   points
 });
 
-const MATCHUP = {
+const matchup = (redZone: boolean) => ({
   week: 4,
   teamId: 'team-1',
   matchup: {
@@ -43,22 +69,22 @@ const MATCHUP = {
       teamId: 'team-1',
       points: 24.3,
       players: [
-        row('fx-hurts', 'Jalen Hurts', 'QB', 'PHI'),
-        row('fx-ajbrown', 'A.J. Brown', 'WR', 'PHI'),
-        row('fx-def-phi', 'Eagles', 'DEF', 'PHI'),
-        row('fx-lamb', 'CeeDee Lamb', 'WR', 'DAL')
+        row('fx-hurts', 'Jalen Hurts', 'QB', 'PHI', redZone),
+        row('fx-ajbrown', 'A.J. Brown', 'WR', 'PHI', redZone),
+        row('fx-def-phi', 'Eagles', 'DEF', 'PHI', redZone),
+        row('fx-lamb', 'CeeDee Lamb', 'WR', 'DAL', redZone)
       ]
     },
     away: {
       teamId: 'team-2',
       points: 18.1,
       players: [
-        row('fx-mclaurin', 'Terry McLaurin', 'WR', 'WAS'),
-        row('fx-cmc', 'Christian McCaffrey', 'RB', 'SF')
+        row('fx-mclaurin', 'Terry McLaurin', 'WR', 'WAS', redZone),
+        row('fx-cmc', 'Christian McCaffrey', 'RB', 'SF', redZone)
       ]
     }
   }
-};
+});
 
 const game = (away: string, home: string, extra: Record<string, unknown>) => ({
   gameId: `2026_04_${away}_${home}`,
@@ -148,7 +174,7 @@ async function stubApi(page: Page) {
       allowedActions: []
     })
   );
-  await page.route('**/api/v1/leagues/L1/matchup', (route) => json(route, MATCHUP));
+  await page.route('**/api/v1/leagues/L1/matchup', (route) => json(route, matchup(drive.redZone)));
   await page.route('**/api/v1/leagues/L1/nfl-games', (route) => {
     drive.reads++;
     return json(route, nflGames(drive.redZone));
@@ -202,16 +228,16 @@ test('a red-zone drive highlights my players and the game, and clears on a realt
   const drive = await stubApi(page);
   await page.goto('/leagues/L1/matchup');
 
-  const hurts = page.getByRole('row', { name: /Jalen Hurts/ });
-  await expect(hurts).toHaveClass(/red-zone-row/);
+  // Each player's cell in the head-to-head (#193); the drive's down and distance come with the games.
+  const hurts = page.getByTestId('h2h-player-fx-hurts');
+  await expect(hurts).toHaveClass(/h2h-redzone/);
   await expect(hurts).toContainText('Red zone·2nd & 4 at DAL 7');
-  await expect(page.getByRole('row', { name: /A\.J\. Brown/ })).toHaveClass(/red-zone-row/);
+  await expect(page.getByTestId('h2h-player-fx-ajbrown')).toHaveClass(/h2h-redzone/);
   // A defense is not highlighted, nor a player on the other team in that game.
-  await expect(page.getByRole('row', { name: /Eagles/ })).not.toHaveClass(/red-zone-row/);
-  await expect(page.getByRole('row', { name: /CeeDee Lamb/ })).not.toHaveClass(/red-zone-row/);
-  // The pulse runs on the row's left bar.
-  const bar = hurts.getByRole('cell').first();
-  await expect.poll(() => bar.evaluate((td) => getComputedStyle(td).animationName)).toBe('red-zone-pulse');
+  await expect(page.getByTestId('h2h-player-fx-def-phi')).not.toHaveClass(/h2h-redzone/);
+  await expect(page.getByTestId('h2h-player-fx-lamb')).not.toHaveClass(/h2h-redzone/);
+  // The pulse runs on the cell's outer bar.
+  await expect.poll(() => hurts.evaluate((td) => getComputedStyle(td).animationName)).toBe('h2h-pulse-start');
 
   const strip = page.getByRole('region', { name: 'NFL games · week 4' });
   const cards = strip.getByRole('article');
@@ -231,7 +257,8 @@ test('a red-zone drive highlights my players and the game, and clears on a realt
   drive.redZone = false;
   const reads = drive.reads;
   await page.evaluate(() => window.__pushFantasyEvent?.({ detailType: 'NFL Games Updated', leagueId: null }));
-  await expect(hurts).not.toHaveClass(/red-zone-row/);
+  await expect(hurts).not.toHaveClass(/h2h-redzone/);
+  await expect(hurts).toHaveClass(/h2h-live/);
   await expect(page.getByTestId('red-zone-chip')).toHaveCount(0);
   await expect(cards.nth(0)).toContainText('21');
   await expect(cards.nth(0)).toContainText('8:01 - 2nd');
@@ -244,10 +271,10 @@ test('reduced motion keeps the highlight still, and the strip fits a phone', asy
   await stubApi(page);
   await page.goto('/leagues/L1/matchup');
 
-  const hurts = page.getByRole('row', { name: /Jalen Hurts/ });
-  await expect(hurts).toHaveClass(/red-zone-row/);
-  await expect(hurts).not.toHaveClass(/red-zone-pulse/);
-  await expect(hurts.getByRole('cell').first()).toHaveCSS('animation-name', 'none');
+  const hurts = page.getByTestId('h2h-player-fx-hurts');
+  await expect(hurts).toHaveClass(/h2h-redzone/);
+  await expect(hurts).not.toHaveClass(/h2h-pulse/);
+  await expect(hurts).toHaveCSS('animation-name', 'none');
   await expect(page.getByRole('region', { name: 'NFL games · week 4' }).getByRole('article')).toHaveCount(4);
   // The strip scrolls sideways on its own; the page does not.
   expect(
