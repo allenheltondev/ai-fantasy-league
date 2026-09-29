@@ -112,7 +112,6 @@ export function LeagueHomePage() {
   const { leagueId = '' } = useParams();
   return (
     <div data-testid="league-section-home" className="space-y-4">
-      <h2 className="sr-only">Home</h2>
       <LeagueDashboard leagueId={leagueId} />
     </div>
   );

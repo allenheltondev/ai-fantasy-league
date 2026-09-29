@@ -533,7 +533,8 @@ function LineupSummary(props: {
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-3 sm:p-4">
       <div className="min-w-0">
         <p className="text-sm text-muted-foreground">
-          {data.teamName} · Week {data.week}
+          {/* My Team already says whose lineup this is (#212). */}
+          Week {data.week}
           {data.carriedFromWeek !== null ? ` · carried over from week ${data.carriedFromWeek}` : ''}
         </p>
         <p className="flex flex-wrap items-baseline gap-x-2" data-testid="lineup-projection">

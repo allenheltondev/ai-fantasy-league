@@ -116,9 +116,12 @@ describe('signed-in shell', () => {
     const user = userEvent.setup();
     renderApp('/');
     await screen.findByRole('heading', { name: 'My Leagues' });
+    // The last league (#212) is this person's: whoever signs in next starts at My Leagues.
+    localStorage.setItem('aff:lastLeagueId', 'L1');
     const signOutControl = await openSignOut(user);
     await user.click(signOutControl);
     expect(await screen.findByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    expect(localStorage.getItem('aff:lastLeagueId')).toBeNull();
   });
 
   it('the default API client drops the session on a 401', async () => {

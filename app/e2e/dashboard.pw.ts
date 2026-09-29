@@ -118,8 +118,8 @@ test('the league opens on its dashboard and the move board updates live', async 
   await expect(page).toHaveURL(/\/matchup$/);
   await expect(page.getByRole('region', { name: TEAM })).toBeVisible();
 
-  // The site home page shows the same dashboard.
-  await page.goto('/');
+  // My Leagues shows the same dashboard (`/` would go back into the league, #212).
+  await page.goto('/leagues');
   await expect(page.getByRole('heading', { level: 2, name: 'Demo Season' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Matchups' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Move board' })).toContainText(agent.name);

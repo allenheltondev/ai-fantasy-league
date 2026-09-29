@@ -30,7 +30,8 @@ import {
   LeagueLayout,
   MovedSection,
   NotFoundPage,
-  RedirectTo
+  RedirectTo,
+  RootPage
 } from './routes/pages';
 import { TradesPage } from './trades/TradesPage';
 
@@ -59,7 +60,8 @@ export function App({ api = leagueApi }: { api?: LeagueApi }) {
               </RequireSignIn>
             }
           >
-            <Route index element={<HomePage />} />
+            <Route index element={<RootPage />} />
+            <Route path="leagues" element={<HomePage />} />
             <Route path="leagues/new" element={<CreateLeaguePage />} />
             <Route path="leagues/:leagueId" element={<LeagueLayout />}>
               <Route index element={<Navigate to="home" replace />} />

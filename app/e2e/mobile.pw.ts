@@ -412,7 +412,7 @@ for (const viewport of VIEWPORTS) {
       await friend.close();
 
       // My leagues, with the league's dashboard before the draft (#166): seats filled, the lobby.
-      await page.goto('/');
+      await page.goto('/leagues');
       await expect(page.getByRole('list', { name: 'Leagues' })).toBeVisible();
       await expect(page.getByRole('region', { name: 'Draft' })).toContainText('seats filled');
       await expectFits(page, 'my leagues');
@@ -503,7 +503,7 @@ for (const viewport of VIEWPORTS) {
       ).toBeVisible();
       await expect(page.getByRole('region', { name: 'Move board' })).toBeVisible();
       await expectFits(page, 'league home (dashboard)');
-      await page.goto('/');
+      await page.goto('/leagues');
       await expect(page.getByRole('region', { name: 'Standings' })).toBeVisible();
       await expectFits(page, 'my leagues (in season)');
 
@@ -610,7 +610,9 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByRole('article', { name: 'League announcement: Draft Completed' })).toBeVisible();
       await expectFits(page, 'chat: #Draft');
       await page.goto('/leagues/demo-season/chat?room=dm-team-1-team-2');
-      await expect(page.getByRole('heading', { name: 'Team 2', level: 2 })).toBeVisible();
+      // On a phone the room switcher names the room; its heading is for screen readers (#212).
+      await expect(page.getByRole('button', { name: /Chat room: Team 2/ })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Team 2', level: 2 })).toBeAttached();
       await expectFits(page, 'chat: DM');
 
       // League's tabs are one row that scrolls sideways: Transactions, off to the right, is a tap away.

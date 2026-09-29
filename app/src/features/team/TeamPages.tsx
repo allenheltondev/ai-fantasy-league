@@ -81,7 +81,6 @@ export function TeamProfilePage() {
   if (team === null) {
     return (
       <div data-testid="team-page-profile" className="space-y-4">
-        <h2 className="text-xl font-semibold">Team profile</h2>
         {fallback}
       </div>
     );
@@ -115,7 +114,6 @@ export function TeamProfilePage() {
 
   return (
     <div data-testid="team-page-profile" className="space-y-4">
-      <h2 className="text-xl font-semibold">Team profile</h2>
       <Card>
         <CardBody>
           <form className="flex flex-col gap-6 sm:flex-row sm:items-start" onSubmit={save}>
@@ -191,7 +189,6 @@ export function AchievementsPage() {
   const { team, fallback } = useYourTeam();
   return (
     <div data-testid="team-page-achievements" className="space-y-4">
-      <h2 className="text-xl font-semibold">Achievements</h2>
       {team === null ? (
         fallback
       ) : (
@@ -219,7 +216,6 @@ export function OtherTeamsPage() {
   const others = (state?.teams ?? []).filter((t) => t.id !== state?.yourTeam?.id);
   return (
     <div data-testid="team-page-teams" className="space-y-4">
-      <h2 className="text-xl font-semibold">Other teams</h2>
       {state === null ? (
         <LoadingSkeleton label="Loading the league's teams…" rows={4} />
       ) : others.length === 0 ? (

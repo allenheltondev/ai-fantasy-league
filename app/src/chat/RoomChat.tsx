@@ -77,10 +77,14 @@ export function RoomChat({
       className={`flex min-w-0 flex-col ${panel ? 'h-full min-h-0 gap-2' : 'gap-3'}`}
     >
       <header className="flex min-w-0 items-center justify-between gap-2">
-        <h2 id="chat-title" className={`truncate font-semibold ${panel ? 'text-sm' : 'text-xl'}`}>
+        {/* On a phone the room switcher right above already names the room (#212). */}
+        <h2
+          id="chat-title"
+          className={`truncate font-semibold ${panel ? 'text-sm' : 'text-xl max-md:sr-only'}`}
+        >
           {room.title}
         </h2>
-        <p className="shrink-0 text-sm text-muted-foreground" data-testid="chat-status">
+        <p className="ml-auto shrink-0 text-sm text-muted-foreground" data-testid="chat-status">
           {chat.status === 'live'
             ? 'Live'
             : chat.status === 'polling'
