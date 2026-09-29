@@ -73,6 +73,13 @@ export const SettingsIcon = () => (
   </Icon>
 );
 
+export const InfoIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 11v5" />
+    <path d="M12 8h.01" />
+  </Icon>
+);
 export const LineupIcon = () => (
   <Icon>
     <path d="M9 6h11M9 12h11M9 18h11" />

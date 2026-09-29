@@ -1,4 +1,4 @@
-import { LAST_NFL_WEEK } from '@fantasy/core';
+import { forecastTeam, LAST_NFL_WEEK } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../../errors.js';
 import { requireMember, requireTeam, type LeagueAccess } from '../../league/access.js';
@@ -15,6 +15,11 @@ import { loadWeekData, RosterEntrySchema, rosterEntries, startersTotal } from '.
 const MatchupLineupSchema = z.object({
   teamId: z.string(),
   points: z.number().describe("The starters' points so far."),
+  projectedPoints: z
+    .number()
+    .describe(
+      "The starters' expected final score: points so far plus what their projections say is still to come, scaled by how much of each live game is left (the same model as get_matchup_outlook)."
+    ),
   players: z.array(RosterEntrySchema).describe('Starters first in slot order, then the bench.')
 });
 
@@ -26,7 +31,7 @@ export const getMatchup = defineOperation({
   description: [
     "Returns one team's matchup for a week: both teams and their scores (null until the week is scored), and whether it is scheduled, in progress, or final.",
     'Defaults: your own team and the current week (before the season, the first week). Pass `teamId` for any team in the league and `week` for any week the league plays.',
-    "`lineups` shows both teams' lineups with each player's projected and actual points; while the week is live the scores are recomputed from the latest stats on every read, so poll this for live scoring.",
+    "`lineups` shows both teams' lineups with each player's projected and actual points, his NFL game (`game`: upcoming, live with quarter, clock, and score, final, or bye), his box score (`statLine`), and his expected final points; while the week is live the scores are recomputed from the latest stats on every read, so poll this for live scoring.",
     "A week before the league's first week (a draft that finished mid-season) is void: no scores, not in the standings, and a WEEK_VOID warning.",
     'Before the draft there is no schedule yet: `matchup` is null and a NO_SCHEDULE_YET warning says so. A week with no game for the team (a playoff bye, or eliminated) also returns null. Only members can read it.',
     '`detail: true` adds each player’s full record and the starting slots he can fill. For win probability and start/sit advice, use get_matchup_outlook.'
@@ -136,14 +141,26 @@ async function matchupLineups(
   const now = ctx.clock.now();
   const side = async (teamId: string) => {
     const team = teams.find((t) => t.id === teamId);
-    if (team === undefined) return { teamId, points: 0, players: [] };
+    if (team === undefined) return { teamId, points: 0, projectedPoints: 0, players: [] };
     const [lineup, players, data] = await Promise.all([
       resolveLineup(ctx.repos, team, matchup.week),
       rosterPlayers(ctx.repos, team),
       loadWeekData(ctx, league, matchup.week, team.roster)
     ]);
     const entries = rosterEntries(lineup.entries, players, data, now, detail ? league.settings : null);
-    return { teamId, points: startersTotal(entries), players: entries };
+    const forecast = forecastTeam(
+      entries.map((e) => ({
+        playerId: e.player.id,
+        slot: e.slot,
+        positions: [e.player.position],
+        status: e.status,
+        game: e.game.state,
+        progress: e.game.progress,
+        projected: e.projectedPoints,
+        actual: e.points
+      }))
+    );
+    return { teamId, points: startersTotal(entries), projectedPoints: forecast.projected, players: entries };
   };
   const [home, away] = await Promise.all([side(matchup.homeTeamId), side(matchup.awayTeamId)]);
   return { home, away };

@@ -74,7 +74,9 @@ describe('live matchup motion', () => {
     expect(await screen.findByTestId('score-team-1')).toHaveTextContent('10.00');
     const robots = screen.getByRole('region', { name: 'Robots' });
     expect(robots).toHaveAttribute('data-leading', 'true');
-    expect(robots).toHaveClass('motion-leader');
+    // The trailing total steps back (#193): muted, while the leader's stays full strength.
+    expect(screen.getByTestId('score-team-1')).toHaveClass('text-muted-foreground');
+    expect(screen.getByTestId('score-team-2')).not.toHaveClass('text-muted-foreground');
     expect(screen.getByText('Live').querySelector('.motion-live-dot')).not.toBeNull();
 
     data = matchup('in_progress', 16, 12);
@@ -82,7 +84,11 @@ describe('live matchup motion', () => {
       await vi.advanceTimersByTimeAsync(MATCHUP_POLL_MS);
     });
     const mine = screen.getByRole('region', { name: "Alice's Team" });
-    await waitFor(() => expect(within(mine).getByTestId('delta-floater')).toHaveTextContent('+6.0'));
+    await waitFor(() =>
+      expect(within(screen.getByTestId('h2h-row-WR-0')).getByTestId('delta-floater')).toHaveTextContent(
+        '+6.0'
+      )
+    );
     expect(screen.getByTestId('score-team-1')).toHaveAttribute('data-flash', 'up');
     await waitFor(() => expect(screen.getByTestId('score-team-1')).toHaveTextContent('16.00'));
     expect(mine).toHaveAttribute('data-leading', 'true');

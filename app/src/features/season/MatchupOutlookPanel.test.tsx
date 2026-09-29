@@ -70,15 +70,15 @@ function open(getMatchupOutlook: () => Promise<MatchupOutlook>) {
 beforeEach(() => signInAs(ALICE));
 
 describe('MatchupOutlookPanel', () => {
-  it('shows the win probability, live progress, and lineup advice', async () => {
+  it('shows the win probability, what is still to come, and lineup advice', async () => {
     const api = open(async () => outlook());
     const panel = await screen.findByRole('region', { name: 'Outlook' });
     expect(within(panel).getByTestId('win-probability')).toHaveTextContent(
       '62% to win · projected 104.3 to 97.5'
     );
-    expect(
-      within(panel).getByText(/22.4 so far, 81.9 expected to come · 6 yet to play, 2 playing/)
-    ).toBeInTheDocument();
+    // Who is playing moved to the score bar (#193); the outlook keeps what is still to come.
+    expect(within(panel).getByText('81.9 more points expected to come.')).toBeInTheDocument();
+    expect(within(panel).queryByText(/yet to play/)).not.toBeInTheDocument();
     const advice = within(panel)
       .getAllByRole('listitem')
       .map((li) => li.textContent);
@@ -88,7 +88,6 @@ describe('MatchupOutlookPanel', () => {
       'Start Travis Kelce in the empty TE slot (+9.0).',
       'Your K slot is empty.'
     ]);
-    expect(within(panel).getByText('1 player is locked for the week.')).toBeInTheDocument();
     expect(api.getMatchupOutlook).toHaveBeenCalledWith('L1');
   });
 
@@ -110,8 +109,7 @@ describe('MatchupOutlookPanel', () => {
     const panel = await screen.findByRole('region', { name: 'Outlook' });
     expect(within(panel).getByText('No opponent this week · projected 104.3')).toBeInTheDocument();
     expect(within(panel).getByText('Kenneth Walker (RB) is on bye: bench him.')).toBeInTheDocument();
-    expect(within(panel).queryByText(/so far/)).not.toBeInTheDocument();
-    expect(within(panel).getByText('2 players are locked for the week.')).toBeInTheDocument();
+    expect(within(panel).queryByText(/expected to come/)).not.toBeInTheDocument();
   });
 
   it('says when the lineup is already set', async () => {

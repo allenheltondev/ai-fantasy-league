@@ -10,6 +10,7 @@ import {
   CreateIcon,
   DraftIcon,
   HomeIcon,
+  InfoIcon,
   LeagueIcon,
   LeaguesIcon,
   LineupIcon,
@@ -50,18 +51,22 @@ export function leagueSubpath(pathname: string, leagueId: string): string {
 /**
  * The side nav (#178), as `AppNav` items. Outside a league: My Leagues and Create League. In one:
  * My Leagues, then the league (Home, the Draft while it is on, Scoreboard, Chat), then My
- * Team's pages, then Settings, with the trade-offer and chat-unread badges.
+ * Team's pages, then Settings, with the trade-offer and chat-unread badges. Only the commissioner
+ * can change anything there, so everyone else sees the same page as League info.
  */
 export function navItems({
   pathname,
   phase,
   offers,
-  unread
+  unread,
+  commissioner = false
 }: {
   pathname: string;
   phase: Phase | null;
   offers: number;
   unread: number;
+  /** You run the league: the last item is Settings rather than League info. */
+  commissioner?: boolean;
 }): AppNavItem[] {
   const leagueId = leagueIdIn(pathname);
   const leagues: AppNavItem = {
@@ -146,9 +151,9 @@ export function navItems({
     })),
     {
       id: 'settings',
-      label: 'Settings',
+      label: commissioner ? 'Settings' : 'League info',
       href: href('settings'),
-      icon: <SettingsIcon />,
+      icon: commissioner ? <SettingsIcon /> : <InfoIcon />,
       active: on('settings')
     }
   );

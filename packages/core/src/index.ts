@@ -44,5 +44,7 @@ export * from './chat/banter.js';
 export * from './chat/context.js';
 export * from './season/cycle.js';
 export * from './outlook/outlook.js';
+export * from './outlook/game-state.js';
+export * from './scoring/stat-line.js';
 export * from './scoring/validate.js';
 export * from './notifications/inbox.js';
