@@ -4,7 +4,7 @@ import { fixturePlayers } from '../../src/players/fixtures.js';
 import { registry } from '../../src/operations/index.js';
 import { createHarness, type Harness } from '../support/harness.js';
 import { as, data, errorCode, type Caller } from '../support/league-client.js';
-import { ALICE, BOB, CAROL } from '../support/leagues.js';
+import { ALICE, BOB, CAROL, seedLeague } from '../support/leagues.js';
 import { seedNflSchedule } from '../support/season.js';
 import { seedSeasonLeague } from '../support/waivers.js';
 
@@ -288,5 +288,48 @@ describe('update_waiver_claim', () => {
     expect(errorCode(await alice.patch(`${L}/waivers/claims/${claimId}`, { bid: 2 }))).toBe(
       'WAIVER_CLAIM_NOT_PENDING'
     );
+  });
+});
+
+describe('list_league_players before the season, with little data', () => {
+  it('reads a small pool point by point, with no trends and no team of your own', async () => {
+    const quiet = await createHarness({ registry });
+    try {
+      // Carol runs the league without a team; nothing is on waivers and no trending is stored.
+      await seedLeague(quiet.repos, {
+        id: 'lg-q',
+        owners: [ALICE],
+        overrides: { phase: 'setup', week: null, commissionerId: CAROL.sub, commissionerName: CAROL.name }
+      });
+      await quiet.services.data.reference.trending.put({
+        type: 'add',
+        capturedAt: '2026-09-10T11:00:00.000Z',
+        lookbacks: { '24': [{ playerId: 'fx-swift', count: 10 }] }
+      });
+      const res = await as(quiet, CAROL).get('/leagues/lg-q/players?q=williams&availability=all');
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      const page = data<Page>(res);
+      expect(page).toMatchObject({ week: 1, faabRemaining: null, trendHours: 24 });
+      expect(page.players.every((r) => r.trend?.drops === 0 && r.projectedPoints === null)).toBe(true);
+      const bare = await createHarness({ registry });
+      try {
+        await seedLeague(bare.repos, {
+          id: 'lg-b',
+          owners: [ALICE],
+          overrides: { phase: 'setup', week: null }
+        });
+        const empty = data<Page>(await as(bare, ALICE).get('/leagues/lg-b/players?q=tucker'));
+        expect(empty).toMatchObject({ trendHours: null, faabRemaining: 100 });
+        expect(empty.players[0]).toMatchObject({
+          trend: null,
+          byeWeek: null,
+          availability: { status: 'free_agent' }
+        });
+      } finally {
+        await bare.close();
+      }
+    } finally {
+      await quiet.close();
+    }
   });
 });

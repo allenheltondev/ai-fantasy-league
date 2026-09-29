@@ -383,7 +383,7 @@ describe('the roster workspace on a phone', () => {
     expect(screen.getByTestId('roster-row-bn2')).toHaveTextContent('Season average –');
     const needs = screen.getByRole('region', { name: 'Roster needs' });
     expect(within(needs).getByText('RB2 Kenneth Walker is on bye: find a replacement')).toBeInTheDocument();
-    const claims = screen.getByTestId('pending-claims');
+    expect(within(screen.getByTestId('pending-claims')).getByText('Pending claims (2)')).toBeInTheDocument();
     expect(within(screen.getByTestId('claim-c1')).getByText(/Claiming/, { selector: 'p' })).toHaveTextContent(
       /Claiming Tank Bigsby, dropping Rome Odunze · \$12 bid · processes/
     );
