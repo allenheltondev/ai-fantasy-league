@@ -75,6 +75,11 @@ describe('chat_reply with the fake model', () => {
       'get_chat',
       'get_chat_context',
       'get_league',
+      // The dossier on the team answered (team-1), then the agent's own matchup.
+      'get_standings',
+      'get_matchup',
+      'get_roster',
+      'get_matchup',
       'post_message'
     ]);
     const [posted] = await s.agentPosts();
