@@ -140,6 +140,7 @@ function Workspace({ leagueId, teamId, state }: { leagueId: string; teamId: stri
     <PlayerMarket
       leagueId={leagueId}
       title="Available players"
+      titleHidden={!wide}
       position={marketPosition ?? ''}
       positionKey={findCount}
       availableOnly
@@ -214,9 +215,9 @@ function Workspace({ leagueId, teamId, state }: { leagueId: string; teamId: stri
             hideTab
             side="bottom"
             size="100dvh"
-            title="Add players"
+            title="Available players"
             titleAs="h2"
-            aria-label="Add players"
+            aria-label="Add players sheet"
             onOpenChange={(open) => !open && closeMarket()}
           >
             {sheetOpen && market}

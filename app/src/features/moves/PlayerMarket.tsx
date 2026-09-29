@@ -6,6 +6,7 @@ import type { MarketPage, MarketPlayer, MarketSort } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { LoadingSkeleton } from '../../motion/decor';
 import { gameText } from '../season/gameState';
+import { MarketPlayerCard } from './MarketPlayerCard';
 import { pts, standingText, trendOf } from './moves';
 
 export const MARKET_POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF'] as const;
@@ -24,6 +25,8 @@ export interface MarketProps {
   leagueId: string;
   /** "Available players" in the workspace, "All players" on League › Players. */
   title: string;
+  /** Leave the heading out: the phone sheet's own title names it. */
+  titleHidden?: boolean;
   /** The position to open on ('' for all), e.g. from a roster need. */
   position: string;
   /** Changes with each request for `position`, so asking again resets a changed filter. */
@@ -61,6 +64,7 @@ export function PlayerMarket(props: MarketProps) {
   const [rows, setRows] = useState<MarketPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [card, setCard] = useState<MarketPlayer | null>(null);
   const { leagueId, onContext } = props;
 
   useEffect(() => setPosition(props.position), [props.position, props.positionKey]);
@@ -121,11 +125,9 @@ export function PlayerMarket(props: MarketProps) {
   };
 
   return (
-    <section aria-labelledby="market-title" className="space-y-3">
+    <section aria-label={props.title} className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="market-title" className="text-lg font-semibold">
-          {props.title}
-        </h2>
+        {props.titleHidden !== true && <h2 className="text-lg font-semibold">{props.title}</h2>}
         {page !== null && (
           <span className="text-sm text-muted-foreground" data-testid="market-count">
             {page.total} {page.total === 1 ? 'player' : 'players'} · week {page.week}
@@ -208,9 +210,21 @@ export function PlayerMarket(props: MarketProps) {
           className="divide-y divide-border rounded-lg border border-border bg-surface"
         >
           {rows.map((row) => (
-            <MarketRow key={row.player.id} row={row} {...props} />
+            <MarketRow key={row.player.id} row={row} onOpen={setCard} {...props} />
           ))}
         </ul>
+      )}
+      {card !== null && (
+        <MarketPlayerCard
+          leagueId={leagueId}
+          row={card}
+          canAdd={props.canAdd}
+          onClose={() => setCard(null)}
+          onAdd={(row) => {
+            setCard(null);
+            props.onAdd(row);
+          }}
+        />
       )}
       {page?.nextOffset != null && (
         <Button
@@ -227,7 +241,7 @@ export function PlayerMarket(props: MarketProps) {
   );
 }
 
-function MarketRow(props: MarketProps & { row: MarketPlayer }) {
+function MarketRow(props: MarketProps & { row: MarketPlayer; onOpen: (row: MarketPlayer) => void }) {
   const { row } = props;
   const { player, availability } = row;
   const trend = trendOf(row.trend);
@@ -236,9 +250,16 @@ function MarketRow(props: MarketProps & { row: MarketPlayer }) {
   const standing = mine ? 'Your team' : standingText(availability, props.teamName);
   return (
     <li className="flex items-center gap-3 px-3 py-2.5" data-testid={`market-row-${player.id}`}>
-      <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="font-medium">{player.name}</span>
+      <button
+        type="button"
+        onClick={() => props.onOpen(row)}
+        aria-haspopup="dialog"
+        className="group -my-1 min-h-11 min-w-0 flex-1 rounded-md py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+      >
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="font-medium group-hover:text-primary-700 group-hover:underline">
+            {player.name}
+          </span>
           <span className="text-xs text-muted-foreground">
             {player.position} · {player.team ?? 'FA'}
           </span>
@@ -253,8 +274,8 @@ function MarketRow(props: MarketProps & { row: MarketPlayer }) {
           >
             {standing}
           </StatusBadge>
-        </p>
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        </span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span data-testid="market-game">{gameText(row.game)}</span>
           {row.byeWeek !== null && row.game.state !== 'bye' && <span>· Bye {row.byeWeek}</span>}
           {injured && (
@@ -270,8 +291,8 @@ function MarketRow(props: MarketProps & { row: MarketPlayer }) {
               <span aria-hidden="true">{trend.up ? '↑' : '↓'}</span> {trend.text}
             </span>
           )}
-        </p>
-      </div>
+        </span>
+      </button>
       <div className="flex shrink-0 flex-col items-end text-right tabular-nums">
         <span className="text-base font-semibold" data-testid="market-projection">
           <span className="sr-only">Projected </span>
