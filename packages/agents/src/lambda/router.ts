@@ -4,8 +4,8 @@
  */
 import type { Services } from '@fantasy/server';
 import type { BusEvent } from '../events.js';
-import { recordLeagueMemory } from '../memory.js';
-import { leagueRosterIndex, routeEvent, type RouteDecision, type RouterDeps } from '../router.js';
+import { ingestLeagueEvent, type IngestResult } from '../ingest.js';
+import { leagueRosterIndex, type RouterDeps } from '../router.js';
 import { defaultTaskKinds } from '../tasks/index.js';
 import { createAgentServices, loadAgentEnv, responseDelaysOn } from './env.js';
 
@@ -17,19 +17,14 @@ export function createRouterDeps(services: Services, responseDelays = true): Rou
 }
 
 /**
- * Every event first updates the memory of the agents it involves (matchup results, trades), then
- * is routed to agent tasks. A memory failure is logged and never blocks the routing.
+ * Every event updates the memory of the agents it involves, then is routed to agent tasks, through
+ * the ingestion path the in-process loop shares (`ingestLeagueEvent`). A memory failure is logged
+ * and never blocks the routing.
  */
-export async function handler(event: BusEvent): Promise<{ decisions: RouteDecision[]; remembered: number }> {
+export async function handler(event: BusEvent): Promise<IngestResult> {
   if (deps === null) {
     const env = loadAgentEnv(process.env);
     deps = createRouterDeps(createAgentServices(env), responseDelaysOn(env));
   }
-  let remembered = 0;
-  try {
-    remembered = await recordLeagueMemory(deps.services, event);
-  } catch (error) {
-    deps.services.log.error('agent memory update failed', { eventId: event.id, error });
-  }
-  return { decisions: await routeEvent(deps, event), remembered };
+  return ingestLeagueEvent(deps, event);
 }

@@ -289,6 +289,73 @@ describe('agent league memory', () => {
     );
   });
 
+  it('never rolls a trade back to an older step delivered late (#211)', () => {
+    const step = (
+      outcome: 'proposed' | 'accepted' | 'processed',
+      at: string,
+      eventId: string
+    ): MemoryEvent => ({
+      type: 'trade',
+      teamId: 't1',
+      tradeId: 'tr-1',
+      outcome,
+      summary: `Your offer to t1 was ${outcome}.`,
+      at,
+      eventId,
+      ...(outcome === 'processed' ? { sent: ['A'], received: ['B'] } : {})
+    });
+    const processed = step('processed', '2026-10-12T14:00:00.000Z', 'e3');
+    const lateAccept = {
+      ...step('accepted', '2026-10-12T13:00:00.000Z', 'e2'),
+      direction: 'outgoing' as const
+    };
+    const m = [processed, lateAccept].reduce(rememberEvent, emptyMemory());
+    expect(m.trades).toEqual([
+      {
+        teamId: 't1',
+        tradeId: 'tr-1',
+        outcome: 'processed',
+        direction: 'outgoing',
+        summary: 'Your offer to t1 was processed.',
+        at: '2026-10-12T14:00:00.000Z',
+        sent: ['A'],
+        received: ['B']
+      }
+    ]);
+    expect(m.seen).toEqual(['e3', 'e2']);
+    // At one instant, delivery order still decides (the simulator's clock does not move within one).
+    const same = [step('processed', AT, 'x1'), step('accepted', AT, 'x2')].reduce(
+      rememberEvent,
+      emptyMemory()
+    );
+    expect(same.trades[0]?.outcome).toBe('accepted');
+  });
+
+  it('keeps the latest step of a trade whatever order its steps arrive in (property)', () => {
+    const outcomes = ['proposed', 'countered', 'accepted', 'processed'] as const;
+    const steps: MemoryEvent[] = outcomes.map((outcome, i) => ({
+      type: 'trade',
+      teamId: 't1',
+      tradeId: 'tr-1',
+      outcome,
+      summary: outcome,
+      at: new Date(Date.parse(AT) + i * 60_000).toISOString(),
+      eventId: `e${i}`
+    }));
+    fc.assert(
+      fc.property(fc.shuffledSubarray(steps, { minLength: 1 }), (delivered) => {
+        const m = delivered.reduce(rememberEvent, emptyMemory());
+        const latest = [...delivered]
+          .sort((a, b) => Date.parse((a as { at: string }).at) - Date.parse((b as { at: string }).at))
+          .at(-1);
+        expect(m.trades).toHaveLength(1);
+        expect(m.trades[0]?.outcome).toBe((latest as { outcome: string }).outcome);
+        // Redelivering the whole stream changes nothing.
+        expect(delivered.reduce(rememberEvent, m)).toEqual(m);
+      })
+    );
+  });
+
   it('keeps one chat snapshot per room and one relationship note per team, bounded and clipped', () => {
     let m = emptyMemory();
     for (let i = 0; i < MEMORY_LIMITS.chatRooms + 3; i++) {

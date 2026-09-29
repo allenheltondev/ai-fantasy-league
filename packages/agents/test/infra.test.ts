@@ -1,16 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { MODEL_CATALOG } from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
-import { MEMORY_EVENTS } from '../src/memory.js';
-import { TRIGGER_RULES } from '../src/router.js';
+import { INGESTED_EVENTS } from '../src/ingest.js';
+import { routerRuleEvents, template } from './template.js';
 
 /** infra/template.yaml must grant exactly the catalog's models and wire both agent handlers. */
-const template = readFileSync(
-  fileURLToPath(new URL('../../../infra/template.yaml', import.meta.url)),
-  'utf8'
-);
-
 function section(start: string, end: string): string {
   const from = template.indexOf(start);
   const to = template.indexOf(end, from);
@@ -41,9 +34,8 @@ describe('agent infrastructure', () => {
     // Least privilege: Get, Put, and Query only (no DynamoDBCrudPolicy).
     expect(router).not.toContain('DynamoDBCrudPolicy');
     expect([...router.matchAll(/dynamodb:(\w+)/g)].map((m) => m[1])).toEqual(['GetItem', 'PutItem', 'Query']);
-    for (const detailType of [...Object.keys(TRIGGER_RULES), ...MEMORY_EVENTS]) {
-      expect(router).toContain(`- ${detailType}\n`);
-    }
+    // Exactly the shared ingestion set (#211): the in-process loop subscribes to the same events.
+    expect(new Set(routerRuleEvents())).toEqual(new Set(INGESTED_EVENTS));
     const task = section('  AgentTaskFunction:', 'End of agent platform section');
     expect(task).toContain('Handler: agent-task.handler');
     expect(task).toContain('- Agent Action Requested');
