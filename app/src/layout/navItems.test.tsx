@@ -81,11 +81,19 @@ describe('the side nav items', () => {
       ['Achievements', 'My Team'],
       ['Team profile', 'My Team'],
       ['Other teams', 'My Team'],
-      ['Settings', null]
+      ['League info', null]
     ]);
     expect(find(items, 'home')?.active).toBe(true);
     expect(find(items, 'draft')?.badge).toBeUndefined();
     expect(items.every((i) => i.icon !== undefined)).toBe(true);
+  });
+
+  it('calls the last item Settings only for the commissioner, League info for everyone else', () => {
+    const member = find(nav('/leagues/L1/settings'), 'settings');
+    expect(member).toMatchObject({ label: 'League info', href: '/leagues/L1/settings', active: true });
+    const commissioner = find(nav('/leagues/L1/home', { commissioner: true }), 'settings');
+    expect(commissioner).toMatchObject({ label: 'Settings', href: '/leagues/L1/settings', active: false });
+    expect(member?.icon).not.toEqual(commissioner?.icon);
   });
 
   it('marks the draft live, then folds it into Scoreboard once it is over', () => {
