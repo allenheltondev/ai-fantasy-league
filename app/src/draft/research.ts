@@ -13,6 +13,16 @@ export interface NewsHeadline {
   publishedAt: string;
 }
 
+/** One of his last games in detail: the points, the opponent, and where the points came from. */
+export interface RecentGame {
+  week: number;
+  points: number;
+  /** Points above (+) or below (-) his points per game this season. */
+  vsAverage: number;
+  opponent: { team: string; home: boolean } | null;
+  breakdown: { stat: string; text: string; points: number }[];
+}
+
 export interface PlayerCardData {
   player: PlayerRef & { status?: string; injuryStatus?: string | null; rank?: number | null };
   scoring: { source: 'league' | 'default' };
@@ -35,6 +45,8 @@ export interface PlayerCardData {
     games: number;
     weekly: { week: number; points: number }[];
     totals: Record<string, number>;
+    /** His last three games played, newest first, in detail (older servers omit it). */
+    recent?: RecentGame[];
   } | null;
   /** The current NFL week's projection and matchup; null in the offseason (or on an older server). */
   nextWeek?: {
@@ -97,23 +109,4 @@ export const STAT_NAMES: Readonly<Record<string, string>> = {
 export function fmt(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—';
   return String(Math.round(value * 10) / 10);
-}
-
-/**
- * SVG polyline points for a sparkline of `values` in a `width` × `height` box: x spread evenly,
- * y scaled from 0 (or the minimum, when negative) to the maximum. A single value sits mid-width.
- */
-export function sparklinePoints(values: readonly number[], width: number, height: number): string {
-  if (values.length === 0) return '';
-  const max = Math.max(...values, 0);
-  const min = Math.min(...values, 0);
-  const span = max - min || 1;
-  const step = values.length === 1 ? 0 : width / (values.length - 1);
-  return values
-    .map((v, i) => {
-      const x = values.length === 1 ? width / 2 : i * step;
-      const y = height - ((v - min) / span) * height;
-      return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`;
-    })
-    .join(' ');
 }
