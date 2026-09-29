@@ -3736,6 +3736,16 @@
                                     },
                                     "estimatedTokens": {
                                       "type": "boolean"
+                                    },
+                                    "attempt": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "call": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 9007199254740991
                                     }
                                   },
                                   "required": [

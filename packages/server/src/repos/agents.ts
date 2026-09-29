@@ -37,7 +37,13 @@ export const AgentModelUsageSchema = z.object({
   outputTokens: z.number().int().min(0),
   estimatedCostUsd: z.number().min(0),
   /** True when token counts were estimated from text length rather than reported by the model. */
-  estimatedTokens: z.boolean()
+  estimatedTokens: z.boolean(),
+  /**
+   * Which delivery of the task (`attempt`) and which model call within it (`call`, from 1) this is:
+   * its key in the usage ledger (#209), so recording it again never counts it twice.
+   */
+  attempt: z.number().int().min(1).optional(),
+  call: z.number().int().min(1).optional()
 });
 export type AgentModelUsage = z.infer<typeof AgentModelUsageSchema>;
 
@@ -270,9 +276,28 @@ export interface AgentRepository {
   /** Newest first. */
   listTasks(leagueId: string, query?: { teamId?: string; limit?: number }): Promise<AgentTaskRecord[]>;
 
-  /** Adds to the weekly rollup row for (league, week, agent, model). */
+  /** Adds to the weekly rollup row for (league, week, agent, model), unconditionally. */
   addUsage(row: AgentUsageRow): Promise<void>;
   weekUsage(leagueId: string, week: number): Promise<AgentUsageRow[]>;
+
+  /**
+   * Holds a model call's estimated cost against the league's weekly ceiling (#209), atomically:
+   * `reserved` only while the week's recorded spend, the costs already held, and this one fit
+   * within `ceilingUsd` (a conditional write on the week's budget revision, re-read and retried
+   * when another admission or settlement got there first; `contended` when the retries ran out).
+   * Reserving a hold that is already held answers `reserved` again.
+   */
+  reserveBudget(hold: BudgetHold, ceilingUsd: number): Promise<BudgetAdmission>;
+  /**
+   * Charges `entry` to the weekly rollups once per ledger key (task and `key`; false when the ledger
+   * already has it) and, with `hold`, releases that hold, in one transaction. The hold is released
+   * even when the entry was already charged.
+   */
+  recordUsage(entry: AgentUsageEntry, hold?: BudgetHoldRef): Promise<boolean>;
+  /** Releases a hold without charging anything (a call that never ran). False if it was not held. */
+  releaseBudget(hold: BudgetHoldRef): Promise<boolean>;
+  /** Holds whose `expiresAt` is at or before `now` (their attempt's lease ran out), oldest first. */
+  listStaleHolds(now: Date, limit: number): Promise<BudgetHold[]>;
 
   getTriggerState(leagueId: string, agentId: string): Promise<AgentTriggerState | null>;
   putTriggerState(state: AgentTriggerState): Promise<void>;
@@ -301,6 +326,72 @@ export interface AgentRepository {
    * treat it as full).
    */
   claimLimit(input: LimitClaim): Promise<LimitClaimResult>;
+}
+
+/**
+ * A model call's estimated cost, held against the league's weekly ceiling from before the call until
+ * its usage is recorded (#209). Its `key` is the call's usage ledger key (`usageKey`).
+ */
+export interface BudgetHold {
+  leagueId: string;
+  week: number;
+  agentId: string;
+  taskId: string;
+  key: string;
+  modelKey: string;
+  /** The estimate held: the prompt and the whole response limit. */
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  /** When the hold lapses (ISO): the attempt's lease. The recovery sweep settles it after that. */
+  expiresAt: string;
+}
+
+export type BudgetHoldRef = Pick<BudgetHold, 'leagueId' | 'week' | 'taskId' | 'key' | 'costUsd'>;
+
+/**
+ * `refused`: the call does not fit; `spentUsd` is the week's recorded spend and `reservedUsd` what
+ * other calls hold. `contended`: the retries ran out (callers treat it as refused).
+ */
+export type BudgetAdmission =
+  | { status: 'reserved' }
+  | { status: 'refused'; spentUsd: number; reservedUsd: number }
+  | { status: 'contended' };
+
+/**
+ * One line of the usage ledger (#209): what a model call spent (`key` from `usageKey`), or a
+ * finished task's count (`taskCountKey`, no tokens). Each is charged to the rollups once.
+ */
+export interface AgentUsageEntry {
+  leagueId: string;
+  week: number;
+  agentId: string;
+  taskId: string;
+  key: string;
+  modelKey: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  tasks: number;
+  /** True when the tokens are an estimate rather than the provider's count. */
+  estimated: boolean;
+  /** When it was recorded (ISO). */
+  at: string;
+}
+
+/** The ledger key of model call `call` (from 1) in delivery `attempt` of a task. */
+export function usageKey(attempt: number, call: number): string {
+  return `A${String(attempt).padStart(3, '0')}#C${String(call).padStart(3, '0')}`;
+}
+
+/** The ledger key that counts a finished task once, per usage line `index` of its record. */
+export function taskCountKey(index: number): string {
+  return `TASK#${String(index).padStart(3, '0')}`;
+}
+
+/** Budget amounts are rounded to a millionth of a dollar, as the rollups are. */
+export function roundUsd(n: number): number {
+  return Math.round(n * 1_000_000) / 1_000_000;
 }
 
 export interface LimitClaim {

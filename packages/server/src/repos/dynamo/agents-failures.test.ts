@@ -35,3 +35,55 @@ describe('DynamoDB agent task lifecycle under failure', () => {
     await expect(call()).rejects.toThrow('dynamo down');
   });
 });
+
+/** Budget holds and the usage ledger (#209) when DynamoDB refuses or fails. */
+describe('DynamoDB budget holds under failure', () => {
+  const now = new Date('2026-09-10T12:00:00.000Z');
+  const hold = {
+    leagueId: 'lg',
+    week: 1,
+    agentId: 'a',
+    taskId: 't',
+    key: 'A001#C001',
+    modelKey: 'nova-lite',
+    inputTokens: 1,
+    outputTokens: 1,
+    costUsd: 0.1,
+    expiresAt: now.toISOString()
+  };
+  const entry = { ...hold, tasks: 0, estimated: false, at: now.toISOString() };
+  const canceled = (codes: string[]) =>
+    Object.assign(new Error('canceled'), {
+      name: 'TransactionCanceledException',
+      ...(codes.length === 0 ? {} : { CancellationReasons: codes.map((Code) => ({ Code })) })
+    });
+  /** Reads find nothing; every transaction fails with `error`. */
+  const repo = (error: Error) =>
+    new DynamoAgentRepository({
+      tableName: 'T',
+      doc: {
+        send: (command: { constructor: { name: string } }) =>
+          command.constructor.name === 'TransactWriteCommand'
+            ? Promise.reject(error)
+            : Promise.resolve(command.constructor.name === 'QueryCommand' ? { Items: [] } : {})
+      } as unknown as DynamoDBDocumentClient
+    });
+
+  it('gives up an admission that stays contended', async () => {
+    expect(await repo(canceled(['None', 'TransactionConflict'])).reserveBudget(hold, 1)).toEqual({
+      status: 'contended'
+    });
+  });
+
+  it('rethrows an outage or a conflict rather than guessing what was charged', async () => {
+    const down = repo(new Error('dynamo down'));
+    await expect(down.reserveBudget(hold, 1)).rejects.toThrow('dynamo down');
+    await expect(down.recordUsage(entry, hold)).rejects.toThrow('dynamo down');
+    await expect(down.releaseBudget(hold)).rejects.toThrow('dynamo down');
+    const conflict = repo(canceled(['None', 'None', 'TransactionConflict', 'None']));
+    await expect(conflict.recordUsage(entry, hold)).rejects.toThrow('canceled');
+    await expect(conflict.releaseBudget(hold)).rejects.toThrow('canceled');
+    // A cancellation without reasons is not taken for a duplicate either.
+    await expect(repo(canceled([])).recordUsage(entry)).rejects.toThrow('canceled');
+  });
+});

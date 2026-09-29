@@ -1,23 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { runUsageOf, withRunUsage } from '../src/model.js';
 import type { BoundTool } from '../src/tools.js';
 
-// Capture what the Bedrock client hands @readysetcloud/agent, and drive its tool callbacks.
+// Capture the Strands agent the Bedrock client builds, and drive its tool callbacks.
 interface ToolDef {
   name: string;
   description: string;
   inputSchema: unknown;
   callback: (input: unknown, context?: unknown) => Promise<string>;
 }
-const { runAgent } = vi.hoisted(() => ({ runAgent: vi.fn() }));
-vi.mock('@readysetcloud/agent', () => ({
-  tool: (def: ToolDef) => def,
-  runAgent
-}));
-// The extended-thinking path builds the Strands agent itself.
+vi.mock('@readysetcloud/agent', () => ({ tool: (def: ToolDef) => def }));
 const strands = vi.hoisted(() => ({
   models: [] as Record<string, unknown>[],
-  agents: [] as Record<string, unknown>[],
+  agents: [] as { tools: ToolDef[]; systemPrompt: string }[],
+  /** What the agent's metrics report after the run (undefined: no metrics). */
+  metrics: undefined as { accumulatedUsage: { inputTokens?: number; outputTokens?: number } } | undefined,
   invoke: vi.fn()
 }));
 vi.mock('@strands-agents/sdk', () => ({
@@ -27,8 +25,11 @@ vi.mock('@strands-agents/sdk', () => ({
     }
   },
   Agent: class {
-    constructor(config: Record<string, unknown>) {
+    constructor(config: { tools: ToolDef[]; systemPrompt: string }) {
       strands.agents.push(config);
+    }
+    get metrics() {
+      return strands.metrics;
     }
     invoke(input: string, options: unknown) {
       return strands.invoke(input, options);
@@ -61,58 +62,72 @@ function request(tools: BoundTool[] = [echo]) {
   };
 }
 
+const answer = (summary: string, text = JSON.stringify({ summary })) => ({
+  structuredOutput: { summary },
+  stopReason: 'endTurn',
+  toString: () => text
+});
+
+/** Calls the agent's first tool the way Strands would, with its metrics so far. */
+async function callTool(context: unknown) {
+  return (strands.agents.at(-1) as { tools: ToolDef[] }).tools[0]!.callback({ teamId: 't' }, context);
+}
+
+const metrics = (inputTokens: number, outputTokens: number, latestContextSize?: number) => ({
+  agent: {
+    metrics: {
+      accumulatedUsage: { inputTokens, outputTokens },
+      ...(latestContextSize === undefined ? {} : { latestContextSize })
+    }
+  }
+});
+
 beforeEach(() => {
-  runAgent.mockReset();
+  strands.invoke.mockReset();
+  strands.metrics = undefined;
 });
 
 describe('StrandsModelClient', () => {
-  it('passes the run through runAgent with bound tools and trusted state', async () => {
-    runAgent.mockImplementation(async (options: { tools: ToolDef[] }) => {
-      const out = await options.tools[0]!.callback(
-        { teamId: 't' },
-        {
-          agent: {
-            metrics: { accumulatedUsage: { inputTokens: 100, outputTokens: 20 }, latestContextSize: 50 }
-          }
-        }
-      );
+  it('runs a one-shot agent with bound tools and trusted state, and reports Bedrock usage', async () => {
+    strands.invoke.mockImplementation(async () => {
+      const out = await callTool(metrics(100, 20, 50));
       expect(JSON.parse(out)).toEqual({ data: { teamId: 't' }, league: null, warnings: [] });
-      return {
-        output: { summary: 'ok' },
-        text: '{"summary":"ok"}',
-        structured: true,
-        stopReason: 'endTurn',
-        invocationState: {}
-      };
+      strands.metrics = { accumulatedUsage: { inputTokens: 900, outputTokens: 70 } };
+      return answer('ok');
     });
     const result = await new StrandsModelClient('us-east-1').run(request());
-    const options = runAgent.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(options).toMatchObject({
-      modelId: 'us.amazon.nova-pro-v1:0',
-      systemPrompt: 'system prompt',
+    expect(strands.models.at(-1)).toEqual({
       region: 'us-east-1',
-      maxIterations: 7,
+      modelId: 'us.amazon.nova-pro-v1:0',
       maxTokens: 2048,
-      temperature: 0.4,
-      invocationState: { agentId: 'a' }
+      temperature: 0.4
     });
-    expect((options.tools as ToolDef[])[0]).toMatchObject({ name: 'get_roster', description: 'Roster' });
+    expect(strands.agents.at(-1)).toMatchObject({ systemPrompt: 'system prompt' });
+    expect(strands.agents.at(-1)?.tools[0]).toMatchObject({ name: 'get_roster', description: 'Roster' });
+    const [input, options] = strands.invoke.mock.calls[0] as [string, Record<string, unknown>];
+    expect(input).toBe('input');
+    expect(options).toMatchObject({ limits: { turns: 7 }, invocationState: { agentId: 'a' } });
     expect(result.decision).toEqual({ summary: 'ok' });
     expect(result.stopReason).toBe('endTurn');
+    // Every turn's usage as Bedrock reported it: not an estimate.
+    expect(result.usage).toEqual({ inputTokens: 900, outputTokens: 70, estimated: false });
+  });
+
+  it('estimates from the last tool snapshot when the provider reported nothing', async () => {
+    strands.invoke.mockImplementation(async () => {
+      await callTool(metrics(100, 20, 50));
+      return answer('ok');
+    });
+    const result = await new StrandsModelClient().run(request());
     // 100 reported + 50 context + the last tool output estimate; 20 reported + final text estimate.
     expect(result.usage.inputTokens).toBeGreaterThan(150);
     expect(result.usage.outputTokens).toBe(20 + Math.ceil('{"summary":"ok"}'.length / 4));
     expect(result.usage.estimated).toBe(true);
   });
 
-  it('estimates usage when no tool ran', async () => {
-    runAgent.mockResolvedValue({
-      output: { summary: 'x' },
-      text: 'abcd',
-      structured: true,
-      stopReason: 'endTurn',
-      invocationState: {}
-    });
+  it('estimates usage from the prompt when no tool ran and nothing was reported', async () => {
+    strands.metrics = { accumulatedUsage: {} };
+    strands.invoke.mockResolvedValue(answer('x', 'abcd'));
     const result = await new StrandsModelClient().run(request([]));
     expect(result.usage).toEqual({
       inputTokens: Math.ceil('system promptinput'.length / 4),
@@ -122,27 +137,45 @@ describe('StrandsModelClient', () => {
   });
 
   it('keeps the last usage snapshot when a context has no metrics', async () => {
-    runAgent.mockImplementation(async (options: { tools: ToolDef[] }) => {
-      await options.tools[0]!.callback({ teamId: 't' }, { agent: { metrics: { accumulatedUsage: {} } } });
-      await options.tools[0]!.callback({ teamId: 't' }, undefined);
-      return {
-        output: { summary: 'x' },
-        text: '',
-        structured: true,
-        stopReason: 'endTurn',
-        invocationState: {}
-      };
+    strands.invoke.mockImplementation(async () => {
+      await callTool({ agent: { metrics: { accumulatedUsage: {} } } });
+      await callTool(undefined);
+      return answer('x', '');
     });
     const result = await new StrandsModelClient().run(request());
     expect(result.usage.outputTokens).toBe(0);
   });
 
-  it('sends a thinking budget as a Bedrock request field, without a temperature', async () => {
-    strands.invoke.mockResolvedValueOnce({
-      structuredOutput: { summary: 'thought' },
-      stopReason: 'endTurn',
-      toString: () => '{"summary":"thought"}'
+  it('attaches what a failed multi-turn run spent to its error', async () => {
+    const throttled = Object.assign(new Error('rate'), { name: 'ThrottlingException' });
+    strands.invoke.mockImplementationOnce(async () => {
+      await callTool(metrics(300, 40));
+      strands.metrics = { accumulatedUsage: { inputTokens: 1200, outputTokens: 90 } };
+      throw throttled;
     });
+    const error = await new StrandsModelClient().run(request()).catch((e: unknown) => e);
+    // The same error (its name still picks the next model), with every finished turn's usage.
+    expect(error).toBe(throttled);
+    expect(runUsageOf(error)).toEqual({ inputTokens: 1200, outputTokens: 90, estimated: false });
+
+    // Without provider metrics, the last snapshot is the estimate; with no turn seen, nothing.
+    strands.metrics = undefined;
+    strands.invoke.mockImplementationOnce(async () => {
+      await callTool(metrics(300, 40));
+      throw new Error('aborted');
+    });
+    const partial = await new StrandsModelClient().run(request()).catch((e: unknown) => e);
+    expect(runUsageOf(partial)).toMatchObject({ outputTokens: 40, estimated: true });
+    strands.invoke.mockRejectedValueOnce(new Error('denied'));
+    expect(runUsageOf(await new StrandsModelClient().run(request()).catch((e: unknown) => e))).toBeNull();
+    // Only an object can carry usage.
+    const usage = { inputTokens: 1, outputTokens: 1, estimated: false };
+    expect(withRunUsage('text', usage)).toBe('text');
+    expect(runUsageOf('text')).toBeNull();
+  });
+
+  it('sends a thinking budget as a Bedrock request field, without a temperature', async () => {
+    strands.invoke.mockResolvedValueOnce(answer('thought'));
     const run = {
       ...request(),
       modelId: 'us.anthropic.claude-opus-5',
@@ -150,24 +183,22 @@ describe('StrandsModelClient', () => {
       thinkingBudgetTokens: 4096
     };
     const result = await new StrandsModelClient('us-east-1').run(run);
-    expect(runAgent).not.toHaveBeenCalled();
     expect(strands.models.at(-1)).toEqual({
       region: 'us-east-1',
       modelId: 'us.anthropic.claude-opus-5',
       maxTokens: 8192,
       additionalRequestFields: { thinking: { type: 'enabled', budget_tokens: 4096 } }
     });
-    expect(strands.agents.at(-1)).toMatchObject({ systemPrompt: 'system prompt' });
-    const [input, options] = strands.invoke.mock.calls[0] as [string, Record<string, unknown>];
-    expect(input).toBe('input');
-    expect(options).toMatchObject({ limits: { turns: 7 }, invocationState: { agentId: 'a' } });
     expect(result.decision).toEqual({ summary: 'thought' });
 
+    strands.metrics = { accumulatedUsage: { inputTokens: 10, outputTokens: 5 } };
     strands.invoke.mockResolvedValueOnce({
       structuredOutput: undefined,
       stopReason: 'endTurn',
       toString: () => ''
     });
-    await expect(new StrandsModelClient().run(run)).rejects.toThrow('no structured answer');
+    const error = await new StrandsModelClient().run(run).catch((e: unknown) => e);
+    expect(String(error)).toContain('no structured answer');
+    expect(runUsageOf(error)).toEqual({ inputTokens: 10, outputTokens: 5, estimated: false });
   });
 });
