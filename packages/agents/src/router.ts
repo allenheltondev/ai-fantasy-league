@@ -1,6 +1,7 @@
 import { canonicalEvent, scheduleName } from '@fantasy/server';
 import {
   IMMEDIATE_RESPONSE,
+  banterContinues,
   banterVerdict,
   hashString,
   isDmRoomId,
@@ -83,8 +84,8 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * stops mutations at `actionsPerTrigger`). Every decision is logged.
  *
  * Agent-to-agent banter (#153): a mention in a message written by an agent triggers a retort only
- * when the message is not itself a retort (`replyToAgentDepth` 0; the retort is posted as a reply,
- * so it carries depth 1 and triggers nothing), the room is not a DM, the league's daily banter
+ * when the thread is still shallow (`replyToAgentDepth` below `BANTER_LIMITS.maxTriggerDepth`; each
+ * retort is posted as a reply, one deeper, so a spat ends after a few rounds), the room is not a DM, the league's daily banter
  * budget is not used up (`banterRemaining`, counted server-side), and the mentioned agent's
  * personality bites (`banter` propensity, a roll seeded by the event and team, so it replays the
  * same). People come first: a retort yields while the agent is answering a person (its chat slot
@@ -178,7 +179,12 @@ export const CHAT_COOLDOWNS = {
   reply: { scope: 'chat', agentMinutes: 2 },
   moment: { scope: 'chat', agentMinutes: 20, leagueMinutes: 10 },
   /** Retorts to other agents: a slot of their own, so they never hold up an answer to a person. */
-  banter: { scope: 'banter', agentMinutes: 30 }
+  banter: { scope: 'banter', agentMinutes: 5 },
+  /**
+   * Answering a retort inside a spat already under way: no wait, so the two can go back and forth;
+   * the depth cap and the daily budgets bound it. Same slot, so it still starts the banter cooldown.
+   */
+  rebuttal: { scope: 'banter', agentMinutes: 0 }
 } as const satisfies Record<string, ChatCooldown>;
 
 /**
@@ -219,7 +225,7 @@ const postDraftJitter = humanDelay<'Draft Completed'>('post_draft');
 function agentMention(d: RuleDetail<'Chat Mention'>): boolean {
   return d.authorType === 'agent';
 }
-/** A retort is possible only at depth 0; a missing depth counts as deep, so it triggers nothing. */
+/** A retort is possible only below the depth cap; a missing depth counts as deep, so it triggers nothing. */
 const mentionDepth = (d: RuleDetail<'Chat Mention'>) =>
   typeof d.replyToAgentDepth === 'number' ? d.replyToAgentDepth : Number.POSITIVE_INFINITY;
 
@@ -336,10 +342,15 @@ export const TRIGGER_RULES: RuleMap = {
   'Chat Mention': {
     kind: 'chat_reply',
     urgent: false,
-    cooldown: (d) => (agentMention(d) ? CHAT_COOLDOWNS.banter : CHAT_COOLDOWNS.reply),
-    // An agent's mention reaches other agents only as a depth-0 mention outside a DM.
+    cooldown: (d) =>
+      agentMention(d)
+        ? mentionDepth(d) > 0
+          ? CHAT_COOLDOWNS.rebuttal
+          : CHAT_COOLDOWNS.banter
+        : CHAT_COOLDOWNS.reply,
+    // An agent's mention reaches other agents only below the banter depth cap, outside a DM.
     teams: (d, agents) =>
-      agentMention(d) && (mentionDepth(d) > 0 || isDmRoomId(str(d.roomId) ?? 'dm-'))
+      agentMention(d) && (!banterContinues(mentionDepth(d)) || isDmRoomId(str(d.roomId) ?? 'dm-'))
         ? []
         : only(
             strs(d.mentionedTeamIds).filter((id) => id !== d.authorTeamId),

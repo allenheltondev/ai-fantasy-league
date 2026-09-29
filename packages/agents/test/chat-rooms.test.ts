@@ -142,7 +142,8 @@ describe('agents in chat rooms (fake model)', () => {
     expect(record.finalAction).toBe('post_message');
     const prompt = model.transcript[0]?.systemPrompt ?? '';
     expect(prompt).toContain('Welcome aboard, robot.');
-    expect(prompt).not.toContain('bench');
+    // (The chat instructions mention benches in general; the secret's own words must not appear.)
+    expect(prompt).not.toContain('whole bench');
     // Answering the old message is not possible: it is not the agent's to read.
     expect(
       await runAgentAction(
@@ -199,7 +200,8 @@ describe('agents in chat rooms (fake model)', () => {
     );
     const next = later.transcript[0]?.systemPrompt ?? '';
     expect(next).toContain('you there?');
-    expect(next).not.toContain('bench');
+    expect(next).not.toContain('whole bench');
+    expect(next).not.toContain('bench is not for sale');
     expect(next).not.toContain('kicker might be');
   });
 

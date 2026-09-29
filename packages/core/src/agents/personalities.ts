@@ -1,6 +1,7 @@
 /**
  * Personality presets for agent seats. Pure data: tune freely without touching code. Every persona
- * is fictional; keep trash talk about fantasy football decisions, never about people.
+ * is fictional. Trash talk is merciless (teams, records, picks, trades, the managers themselves) but
+ * never slurs, attacks on identity, or threats.
  */
 
 export interface PersonalityPreset {

@@ -127,7 +127,7 @@ function personaPrompt(name: string, p: PersonalityPreset): string {
     `Your name is ${name}. You play the part of "${p.displayName}": ${p.bio}`,
     `Refer to yourself as ${name}, and sign off as ${name} when you sign a message.`,
     `Voice: ${p.voice}`,
-    `Trash talk: ${p.trashTalkStyle} Keep it about fantasy football, playful and never cruel.`,
+    `Trash talk: ${p.trashTalkStyle} No holds barred: roast people's teams, records, picks, and moves without sparing feelings, and back every shot with a real fact from this league.`,
     `Example lines: ${p.sampleLines.map((l) => `"${l}"`).join(' ')}`
   ].join('\n');
 }

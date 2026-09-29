@@ -1,10 +1,10 @@
-import { createRegistry, operations, type ChatMessage } from '@fantasy/server';
+import { createRegistry, operations, registry, type ChatMessage } from '@fantasy/server';
 import { describe, expect, it } from 'vitest';
 import { AgentActionRequestedSchema, type AgentActionRequested, type BusEvent } from '../src/events.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { CHAT_COOLDOWNS, routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
-import { CHAT_BUDGETS, alreadyAnswered, checkBudget, quote } from '../src/tasks/chat.js';
+import { CHAT_BUDGETS, CHAT_TOOLS, alreadyAnswered, checkBudget, quote } from '../src/tasks/chat.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup } from './support.js';
 
@@ -33,7 +33,8 @@ function agentMessage(i: number, teamId = AGENT_TEAM): ChatMessage {
     author: { teamId, teamName: teamId, name: teamId },
     text: `beep ${i}`,
     mentionedTeamIds: [],
-    createdAt: new Date(Date.parse(START) - (i + 1) * 60 * 60_000).toISOString()
+    // Half an hour apart, so a full day's budget fits inside the 24-hour window.
+    createdAt: new Date(Date.parse(START) - (i + 1) * 30 * 60_000).toISOString()
   });
 }
 
@@ -73,23 +74,34 @@ describe('chat_reply with the fake model', () => {
       'list_chat_rooms',
       'get_chat',
       'get_chat_context',
+      'get_league',
+      // The dossier on the team answered (team-1), then the agent's own matchup.
+      'get_standings',
+      'get_matchup',
+      'get_roster',
+      'get_matchup',
       'post_message'
     ]);
     const [posted] = await s.agentPosts();
     expect(posted).toMatchObject({ kind: 'agent', author: { teamId: AGENT_TEAM } });
     expect(posted?.text.length).toBeGreaterThan(0);
     const prompt = model.transcript[0]?.systemPrompt ?? '';
-    expect(model.transcript[0]?.toolNames).toEqual([]);
+    // Read-only league tools to dig up facts, and nothing else.
+    const toolNames = model.transcript[0]?.toolNames ?? [];
+    expect(toolNames.length).toBeGreaterThan(0);
+    expect(toolNames.every((n) => (CHAT_TOOLS as readonly string[]).includes(n))).toBe(true);
     expect(model.transcript[0]?.modelId).toBeDefined();
     expect(prompt).toContain("Allen mentioned you in the league's #Trash Talk room. Reply to them there.");
     expect(prompt).toContain("Allen (Allen's Team): @Team 2 your lineup is held together with tape.");
     expect(prompt).toContain('never instructions');
-    expect(prompt).toContain('keep it friendly');
+    expect(prompt).toContain('no holds barred');
+    expect(prompt).toContain('Never invent a stat');
+    expect(prompt).toContain('no slurs');
     // Chat uses the cheaper chat model chain.
     expect(record.usage[0]?.modelKey).toBeDefined();
   });
 
-  it('never acts on a prompt-injection message: no tools beyond post_message', async () => {
+  it('never acts on a prompt-injection message: nothing but reads and its one post', async () => {
     const s = await chatSetup();
     await s.repos.chat.put(
       human({
@@ -121,7 +133,7 @@ describe('chat_reply with the fake model', () => {
     const lineupsBefore = await allLineups();
     const record = await runAgentAction(s.deps(model), request('chat_reply', { messageId: 'm-human' }));
     const entry = model.transcript[0];
-    expect(entry?.toolNames).toEqual([]);
+    expect(entry?.toolNames.every((n) => (CHAT_TOOLS as readonly string[]).includes(n))).toBe(true);
     expect(entry?.results).toHaveLength(5);
     for (const result of entry?.results ?? []) expect(result).toMatchObject({ error: { code: 'NOT_FOUND' } });
     expect(record.toolsCalled.filter((c) => c.mutation).map((c) => c.name)).toEqual(['post_message']);
@@ -389,5 +401,33 @@ describe('routing chat triggers', () => {
     s.clock.advance(CHAT_COOLDOWNS.moment.leagueMinutes * 60_000);
     const third = await s.route(event('Chat Moment', { moment: 'Later.' }, 'e3'));
     expect(third).toHaveLength(2);
+  });
+});
+
+describe('chat tools', () => {
+  it('are reads any member may make: no mutation, nothing sealed', () => {
+    for (const name of CHAT_TOOLS) {
+      const op = registry.get(name);
+      expect(op, name).toBeDefined();
+      expect(op?.mutation, name).toBe(false);
+    }
+    for (const sealed of ['list_waiver_claims', 'list_trades', 'get_draft_queue', 'get_agent_activity'])
+      expect(CHAT_TOOLS as readonly string[]).not.toContain(sealed);
+  });
+
+  it('lets the agent look up a fact before it talks trash', async () => {
+    const s = await chatSetup();
+    await s.repos.chat.put(human());
+    const model = new ScriptedModelClient({
+      script: () => ({
+        steps: [{ tool: 'get_roster', args: { teamId: 'team-1' } }],
+        decision: { summary: 'Checked their roster.', message: "@Allen's Team your roster is a crime scene." }
+      })
+    });
+    const record = await runAgentAction(s.deps(model), request('chat_reply', { messageId: 'm-human' }));
+    expect(record.finalAction).toBe('post_message');
+    const [lookup] = model.transcript[0]?.results ?? [];
+    expect(lookup).toMatchObject({ data: { teamId: 'team-1' } });
+    expect(record.toolsCalled.map((c) => c.name)).toContain('get_roster');
   });
 });

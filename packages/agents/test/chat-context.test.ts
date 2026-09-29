@@ -143,7 +143,59 @@ describe('room facts in the chat prompt', () => {
       request('chat_reply', { messageId: mention.id, roomId: 'trash-talk' })
     );
     expect(record.finalAction).toBe('post_message');
-    expect(model.transcript[0]?.systemPrompt).not.toContain(FACTS);
+    // Who's who still comes through; the room's pack does not.
+    expect(model.transcript[0]?.systemPrompt).toContain("Who's who");
+    expect(model.transcript[0]?.systemPrompt).not.toContain('Standings through');
+
+    // Without who's who or the dossier either, there is no facts section at all.
+    const bare = createRegistry(
+      operations.filter(
+        (op) =>
+          !['get_chat_context', 'get_league', 'get_standings', 'get_matchup', 'get_roster'].includes(op.name)
+      )
+    );
+    const again = message({ id: 'm-bare' });
+    await s.repos.chat.put(again);
+    const quiet = new ScriptedModelClient();
+    await runAgentAction(
+      { ...s.deps(quiet), registry: bare },
+      request('chat_reply', { messageId: again.id, roomId: 'trash-talk' })
+    );
+    expect(quiet.transcript[0]?.systemPrompt).not.toContain(FACTS);
+  });
+
+  it('loads a dossier on the team it is talking to: record, results, this week, and roster', async () => {
+    const s = await league();
+    // Allen (team-1) beat the agent in week 4 and plays it again in week 5.
+    const fromAllen = message({});
+    await s.repos.chat.put(fromAllen);
+    const prompt = await promptFor(s, 'chat_reply', { messageId: fromAllen.id, roomId: 'trash-talk' });
+    expect(prompt).toContain("The team you are talking to, Allen's Team (team-1):");
+    expect(prompt).toMatch(/Record 1-0, 1 of \d+, streak W1, 120 points for and 99 against through week 4\./);
+    expect(prompt).toContain('Last games: week 4 W vs Team 2 120-99.');
+    expect(prompt).toContain('Week 5: vs Team 2, not started.');
+    expect(prompt).toMatch(/Your own team: Record 0-1, \d+ of \d+, streak L1/);
+
+    // Team 3 has a roster: its starters and bench, with positions and NFL teams.
+    const fromTeam3 = message({
+      author: { teamId: 'team-3', teamName: 'Team 3', name: 'Carol' },
+      text: '@Team 2 you stink'
+    });
+    await s.repos.chat.put(fromTeam3);
+    const third = await promptFor(s, 'chat_reply', { messageId: fromTeam3.id, roomId: 'trash-talk' });
+    expect(third).toContain('The team you are talking to, Team 3 (team-3):');
+    expect(third).toMatch(/Their week 5 starters: QB [^;]+ \(QB SF\)/);
+    expect(third).toMatch(/Their bench: /);
+  });
+
+  it("lists who's who with each manager, marking the AI managers and the agent itself", async () => {
+    const s = await league();
+    const mention = message({});
+    await s.repos.chat.put(mention);
+    const prompt = await promptFor(s, 'chat_reply', { messageId: mention.id, roomId: 'trash-talk' });
+    expect(prompt).toContain("Who's who (tag a team with @ and its name):");
+    expect(prompt).toMatch(/@Allen's Team \(team-1\): managed by Allen/);
+    expect(prompt).toMatch(/\(team-2\): AI manager .+ \(you\)/);
   });
 });
 

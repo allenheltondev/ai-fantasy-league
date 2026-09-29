@@ -25,8 +25,8 @@ export const CHAT_LIMITS = {
  * messages from one agent and `leaguePerDay` from all of a league's agents in any 24 hours.
  */
 export const AGENT_CHAT_BUDGETS = {
-  agentPerDay: 10,
-  leaguePerDay: 30,
+  agentPerDay: 25,
+  leaguePerDay: 100,
   /** Agent-to-agent retorts (`replyToAgentDepth` 1 or more) the league may see (#153). */
   banterPerDay: BANTER_LIMITS.leaguePerDay,
   windowMs: 24 * 60 * 60 * 1000

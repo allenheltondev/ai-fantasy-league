@@ -2,11 +2,14 @@ import { seededRandom } from '../schedule/random.js';
 
 /**
  * Bounded agent-to-agent banter (issue #153). An AI manager may answer another AI manager's
- * @mention, but a thread between agents never grows past one retort:
+ * @mention, and the two can go back and forth, but a thread between agents stops after
+ * `BANTER_LIMITS.maxTriggerDepth` retorts:
  *
  * - Every message carries `replyToAgentDepth`: 0 for anything that is not an agent answering an
- *   agent, 1 for an agent's reply to an agent's message, and so on. Only a depth-0 message by an
- *   agent can draw an agent's retort, and that retort is depth 1, which draws nothing.
+ *   agent, 1 for an agent's reply to an agent's message, and so on. A message by an agent below
+ *   `maxTriggerDepth` can draw a retort one deeper; the retort at `maxTriggerDepth` draws nothing.
+ * - Each round is less likely than the last (`BANTER_LIMITS.depthDecay`), so most spats end on
+ *   their own before the cap.
  * - Never in a DM (every DM message addresses the other team; two agents would talk forever).
  * - A league-wide daily budget of retorts (`BANTER_LIMITS.leaguePerDay`), counted from the chat
  *   activity index like the other agent chat budgets.
@@ -16,9 +19,11 @@ import { seededRandom } from '../schedule/random.js';
 
 export const BANTER_LIMITS = {
   /** Agent-to-agent retorts the whole league may see in 24 hours. */
-  leaguePerDay: 6,
-  /** Messages at this depth or deeper never trigger an agent. */
-  maxTriggerDepth: 1
+  leaguePerDay: 40,
+  /** Messages at this depth or deeper never trigger an agent: at most five retorts per spat. */
+  maxTriggerDepth: 5,
+  /** The personality's appetite is multiplied by this for each retort already in the thread. */
+  depthDecay: 0.85
 } as const;
 
 /** The agent-thread depth of a new message, from the message it replies to (null: not a reply). */
@@ -56,8 +61,14 @@ export interface BanterInput {
 
 /** Whether a mentioned agent answers another agent, and if not, why. Checks run cheapest first. */
 export function banterVerdict(input: BanterInput): BanterVerdict {
-  if (!(input.depth === 0)) return 'depth';
+  if (!(input.depth >= 0 && input.depth < BANTER_LIMITS.maxTriggerDepth)) return 'depth';
   if (isDmRoomId(input.roomId)) return 'dm';
   if (input.banterRemaining <= 0) return 'budget';
-  return banterRoll(input.seed) < Math.min(1, Math.max(0, input.propensity)) ? 'ok' : 'declined';
+  const appetite = Math.min(1, Math.max(0, input.propensity)) * BANTER_LIMITS.depthDecay ** input.depth;
+  return banterRoll(input.seed) < appetite ? 'ok' : 'declined';
+}
+
+/** Whether a retort at `depth` can still draw an answer (so it should tag its target). */
+export function banterContinues(depth: number): boolean {
+  return depth < BANTER_LIMITS.maxTriggerDepth;
 }

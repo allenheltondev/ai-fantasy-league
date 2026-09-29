@@ -1,7 +1,7 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { agentPrincipal } from '../../src/auth/principal.js';
-import type { ChatMessage } from '../../src/chat/model.js';
+import { AGENT_CHAT_BUDGETS, type ChatMessage } from '../../src/chat/model.js';
 import { silentLogger } from '../../src/log.js';
 import { registry } from '../../src/operations/index.js';
 import { InMemoryRealtime, leagueTopic, teamTopic } from '../../src/realtime/realtime.js';
@@ -384,24 +384,37 @@ for (const backend of ['memory', 'dynamo'] as const) {
       const budget = async (teamId: string) =>
         ((await tool(teamId, 'list_chat_rooms', {})).body as { data: { postingBudget: unknown } }).data
           .postingBudget;
-      expect(await budget('team-5')).toEqual({ agentRemaining: 10, leagueRemaining: 30, banterRemaining: 6 });
+      const { agentPerDay: A, leaguePerDay: LEAGUE, banterPerDay: BANTER } = AGENT_CHAT_BUDGETS;
+      expect(await budget('team-5')).toEqual({
+        agentRemaining: A,
+        leagueRemaining: LEAGUE,
+        banterRemaining: BANTER
+      });
       expect(
         data<{ postingBudget: unknown }>(await as(h, BOB).get(`${L}/chat/rooms`)).postingBudget
       ).toBeNull();
-      // Nine from team-5 today (one more from yesterday does not count).
-      for (let i = 0; i < 9; i++) await agentPost('team-5', i, 1 + i);
+      // All but one from team-5 today (one more from yesterday does not count).
+      for (let i = 0; i < A - 1; i++) await agentPost('team-5', i, 1 + i * 0.5);
       await agentPost('team-5', 99, 25);
-      expect(await budget('team-5')).toEqual({ agentRemaining: 1, leagueRemaining: 21, banterRemaining: 6 });
+      expect(await budget('team-5')).toEqual({
+        agentRemaining: 1,
+        leagueRemaining: LEAGUE - (A - 1),
+        banterRemaining: BANTER
+      });
       expect((await tool('team-5', 'post_message', { roomId: 'league', text: 'last one' })).status).toBe(200);
       h.clock.advance(61_000);
       const refused = await tool('team-5', 'post_message', { roomId: 'draft', text: 'one too many' });
       expect(refused.status).toBe(429);
       expect(refused.body).toMatchObject({
-        error: { code: 'RATE_LIMITED', details: { agentRemaining: 0, leagueRemaining: 20 } }
+        error: { code: 'RATE_LIMITED', details: { agentRemaining: 0, leagueRemaining: LEAGUE - A } }
       });
       // The league budget binds every agent.
-      for (let i = 0; i < 20; i++) await agentPost('team-6', i, 2);
-      expect(await budget('team-3')).toEqual({ agentRemaining: 10, leagueRemaining: 0, banterRemaining: 6 });
+      for (let i = 0; i < LEAGUE - A; i++) await agentPost('team-6', i, 2);
+      expect(await budget('team-3')).toEqual({
+        agentRemaining: A,
+        leagueRemaining: 0,
+        banterRemaining: BANTER
+      });
       expect((await tool('team-3', 'post_message', { text: 'hello?' })).status).toBe(429);
       // People are not budgeted.
       expect((await as(h, BOB).post(`${L}/chat/messages`, { text: 'quiet in here' })).status).toBe(200);
