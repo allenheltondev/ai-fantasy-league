@@ -3,6 +3,7 @@ export * from './dispatch.js';
 export * from './draft-report.js';
 export * from './events.js';
 export * from './fake-model.js';
+export * from './ingest.js';
 export * from './kill-switch.js';
 export * from './loop.js';
 export * from './memory.js';

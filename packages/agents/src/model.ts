@@ -75,6 +75,12 @@ export function runUsageOf(error: unknown): ModelUsage | null {
   return (error as { [RUN_USAGE]?: ModelUsage })[RUN_USAGE] ?? null;
 }
 
+/** The Bedrock model client, loaded on demand (the Strands SDK is heavy; the fake model never needs it). */
+export async function bedrockModel(): Promise<ModelClient> {
+  const { StrandsModelClient } = await import('./strands-model.js');
+  return new StrandsModelClient();
+}
+
 /** Thrown for failures where trying the next model in the tier makes sense (access, throttling). */
 export class ModelUnavailableError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
