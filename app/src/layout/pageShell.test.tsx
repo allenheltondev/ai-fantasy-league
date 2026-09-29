@@ -116,7 +116,8 @@ describe('the last league (#212)', () => {
     localStorage.setItem(LAST_LEAGUE_KEY, 'gone');
     renderApp('/', undefined, fakeApi({ listMyLeagues: vi.fn(async () => [mine('L1', 'Sunday Funday')]) }));
     expect(await screen.findByRole('heading', { level: 1, name: 'My Leagues' })).toBeVisible();
-    expect(localStorage.getItem(LAST_LEAGUE_KEY)).toBeNull();
+    // Forgotten in an effect once the list says you are not a member: wait for it, don't race it.
+    await waitFor(() => expect(localStorage.getItem(LAST_LEAGUE_KEY)).toBeNull());
   });
 
   it('shows My Leagues at / with nothing remembered', async () => {
