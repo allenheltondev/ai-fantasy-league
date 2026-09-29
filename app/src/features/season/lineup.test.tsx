@@ -1,8 +1,11 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
-import type { LeagueApi } from '../../api/league';
+import { LeagueApiContext, type LeagueApi } from '../../api/league';
+import type { EventConnect, LeagueEvent } from '../../realtime/leagueEvents';
+import { RosterPage } from './RosterPage';
 import type { Roster, RosterEntry, SlotCount } from '../../api/types';
 import { fakeApi, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
@@ -72,7 +75,14 @@ function open(overrides: Partial<LeagueApi>) {
   return api;
 }
 
-beforeEach(() => signInAs({ sub: 'alice', email: 'alice@example.com', given_name: 'Alice' }));
+/** The week before kickoff: the editor locks players by the clock too (#193). */
+export const BEFORE_KICKOFF = new Date('2026-09-10T12:00:00.000Z');
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: BEFORE_KICKOFF });
+  signInAs({ sub: 'alice', email: 'alice@example.com', given_name: 'Alice' });
+});
+afterEach(() => vi.useRealTimers());
 
 describe('lineup rules in the editor', () => {
   const players = [
@@ -206,7 +216,10 @@ describe('the lineup editor', () => {
     expect(within(wr1).getByTestId('player-projection')).toHaveTextContent('9.0');
     expect(within(wr1).getByTestId('game-line')).toHaveTextContent(/^vs BUF · /);
     expect(wr1).toHaveTextContent(/Last 3 weeks average 11.3/);
-    expect(within(screen.getByTestId('roster-row-qb1')).getByText('Locked')).toBeInTheDocument();
+    // Locked by the server; the game state says how far along his game is.
+    expect(within(screen.getByTestId('roster-row-qb1')).getByTestId('lock-status')).toHaveTextContent(
+      /^Locked$/
+    );
     expect(screen.getByTestId('roster-row-qb1')).toHaveTextContent('6.0 pts');
     expect(within(screen.getByTestId('roster-row-rb1')).getByText('Out')).toBeInTheDocument();
     expect(within(screen.getByTestId('roster-row-wr3')).getByText('Bye')).toBeInTheDocument();
@@ -327,7 +340,7 @@ describe('the lineup editor', () => {
     open({
       getRoster: vi.fn(async () => lineup()),
       setLineup: vi.fn(async () => {
-        throw refused(409, 'PLAYER_LOCKED', 'WR2 is locked.', 'Keep him on the bench.');
+        throw refused(400, 'INVALID_LINEUP', 'WR2 is locked.', 'Keep him on the bench.');
       })
     });
     const user = userEvent.setup();
@@ -336,6 +349,131 @@ describe('the lineup editor', () => {
     expect(await screen.findByText('WR2 is locked.')).toBeInTheDocument();
     expect(screen.getByText('Keep him on the bench.')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Unsaved changes' })).toBeInTheDocument();
+  });
+
+  it('names the player who locked when a save loses the race with his kickoff, then reloads (#193)', async () => {
+    let reads = 0;
+    const getRoster = vi.fn(async () => {
+      reads++;
+      return lineup();
+    });
+    open({
+      getRoster,
+      setLineup: vi.fn(async () => {
+        throw new ApiError(409, {
+          code: 'PLAYER_LOCKED',
+          message: "WR2 (wr2)'s game has kicked off.",
+          fix: 'Keep him.',
+          details: { lockedPlayerIds: ['wr2', 'nobody'] }
+        });
+      })
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Optimize lineup (+14.00)' }));
+    await user.click(screen.getByRole('button', { name: 'Save lineup' }));
+    expect(await screen.findByTestId('lock-race')).toHaveTextContent(
+      'WR2 is locked: his game kicked off before your changes were saved, so nothing was changed.'
+    );
+    // No generic error, and a fresh board from the server's lineup.
+    expect(screen.queryByText("WR2 (wr2)'s game has kicked off.")).not.toBeInTheDocument();
+    await waitFor(() => expect(reads).toBe(2));
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+  });
+
+  it('words the race generically when the refusal names nobody it knows, and in the plural', async () => {
+    const two = () =>
+      roster(
+        [entry('wr1', 'WR', 'WR', { projectedPoints: 9 }), entry('wr2', 'WR', 'BN', { projectedPoints: 14 })],
+        {
+          optimal: {
+            projectedPoints: 14,
+            moves: [
+              { playerId: 'wr2', slot: 'WR' },
+              { playerId: 'wr1', slot: 'BN' }
+            ]
+          }
+        }
+      );
+    let details: unknown = { lockedPlayerIds: ['wr1', 'wr2'] };
+    open({
+      getRoster: vi.fn(async () => two()),
+      setLineup: vi.fn(async () => {
+        throw new ApiError(409, { code: 'PLAYER_LOCKED', message: 'Locked.', fix: 'Keep them.', details });
+      })
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: /^Optimize lineup/ }));
+    await user.click(screen.getByRole('button', { name: 'Save lineup' }));
+    expect(await screen.findByTestId('lock-race')).toHaveTextContent(
+      'WR1 and WR2 are locked: their games kicked off'
+    );
+    details = null;
+    await user.click(await screen.findByRole('button', { name: /^Optimize lineup/ }));
+    await user.click(screen.getByRole('button', { name: 'Save lineup' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('lock-race')).toHaveTextContent(
+        'A game kicked off before your changes were saved, so nothing was changed.'
+      )
+    );
+  });
+
+  it('counts down the last hour and locks a player at his kickoff without a reload (#193)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(new Date('2026-09-13T16:48:00.000Z'));
+    const game = {
+      state: 'live' as const,
+      opponent: 'BUF',
+      home: true,
+      kickoff: '2026-09-13T16:00:00.000Z',
+      period: 2,
+      clock: '8:42',
+      teamScore: 7,
+      opponentScore: 3,
+      possession: false,
+      redZone: false,
+      progress: 0.35
+    };
+    open({
+      getRoster: vi.fn(async () =>
+        roster([
+          entry('qb1', 'QB', 'QB', { locked: true, kickoff: '2026-09-13T16:00:00.000Z', game }),
+          entry('wr1', 'WR', 'WR'),
+          entry('wr2', 'WR', 'BN', { kickoff: '2026-09-13T20:25:00.000Z' }),
+          entry('wr3', 'WR', 'BN', {
+            locked: true,
+            game: { ...game, state: 'final', period: 4, clock: null }
+          })
+        ])
+      )
+    });
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+    }
+    const wr1 = screen.getByTestId('roster-row-wr1');
+    expect(within(screen.getByTestId('roster-row-qb1')).getByTestId('lock-status')).toHaveTextContent(
+      'Locked · Q2 8:42'
+    );
+    expect(within(screen.getByTestId('roster-row-wr3')).getByTestId('lock-status')).toHaveTextContent(
+      'Locked · Final'
+    );
+    expect(within(wr1).getByTestId('lock-status')).toHaveTextContent('Locks in 12m');
+    // More than an hour away: no countdown yet.
+    expect(within(screen.getByTestId('roster-row-wr2')).queryByTestId('lock-status')).toBeNull();
+    expect(screen.getByRole('button', { name: 'WR1, WR' })).toHaveAttribute('aria-disabled', 'false');
+
+    // The countdown ticks, then his kickoff locks him on the spot.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9 * 60_000);
+    });
+    expect(within(wr1).getByTestId('lock-status')).toHaveTextContent('Locks in 3m');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
+    });
+    expect(within(wr1).getByTestId('lock-status')).toHaveTextContent(/^Locked$/);
+    expect(screen.getByRole('button', { name: 'WR1, WR, locked' })).toHaveAttribute('aria-disabled', 'true');
+    vi.useRealTimers();
   });
 
   it('offers a one-tap lineup when nobody starts, ranked by consensus rank without projections', async () => {
@@ -535,5 +673,42 @@ describe('drag and drop', () => {
     expect(say.onDragEnd({ active, over })).toBe('WR2 was dropped on WR, swapping with WR1.');
     expect(say.onDragEnd({ active, over: null })).toBe('WR2 was dropped back where he was.');
     expect(say.onDragCancel({ active, over: null })).toBe('Moving WR2 was cancelled.');
+  });
+});
+
+describe('the lineup page on game day (#193)', () => {
+  it('reloads the lineup when the NFL games change', async () => {
+    let push: (event: LeagueEvent) => void = () => undefined;
+    const connect: EventConnect = async (target, handlers) => {
+      expect(target.topics).toContain('fantasy.global');
+      push = handlers.onEvent;
+      return () => undefined;
+    };
+    const api = fakeApi({
+      getLeagueState: vi.fn(async () => state({ phase: 'regular_season', week: 1 })),
+      getRoster: vi.fn(async () => roster([entry('qb1', 'QB', 'QB'), entry('wr1', 'WR', 'WR')])),
+      getRealtime: vi.fn(async () => ({
+        enabled: true,
+        token: 't',
+        endpoint: null,
+        cacheName: 'c',
+        topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
+        expiresAt: null,
+        pollIntervalSeconds: 30
+      }))
+    });
+    render(
+      <LeagueApiContext.Provider value={api}>
+        <MemoryRouter initialEntries={['/leagues/L1/roster']}>
+          <Routes>
+            <Route path="/leagues/:leagueId/roster" element={<RosterPage connect={connect} />} />
+          </Routes>
+        </MemoryRouter>
+      </LeagueApiContext.Provider>
+    );
+    expect(await screen.findByTestId('roster-row-qb1')).toBeInTheDocument();
+    await waitFor(() => expect(api.getRealtime).toHaveBeenCalled());
+    act(() => push({ detailType: 'NFL Games Updated', leagueId: null }));
+    await waitFor(() => expect(api.getRoster).toHaveBeenCalledTimes(2));
   });
 });

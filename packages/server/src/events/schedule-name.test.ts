@@ -59,7 +59,7 @@ describe('every schedule name the code produces (#123)', () => {
       reviewEndName(leagueId, OTHER_UUID),
       tradeDeadlineName(leagueId),
       deadlineScheduleName(leagueId, 240),
-      lineupLockName(leagueId, 18, 12)
+      lineupLockName(leagueId, 18, '2027-01-04T01:15:00.000Z')
     ]);
     for (const name of names) expect(isValidScheduleName(name), name).toBe(true);
     // Offer expiry and review end for the same trade are different schedules.

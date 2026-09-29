@@ -9,9 +9,18 @@ const pts = (n: number) => n.toFixed(1);
  * The outlook for your matchup (#36, #58): expected final scores, win probability, and lineup advice
  * from get_matchup_outlook. It is extra help on the matchup page, so a failed load shows nothing.
  */
-export function MatchupOutlookPanel({ leagueId, pollMs }: { leagueId: string; pollMs?: number }) {
+export function MatchupOutlookPanel({
+  leagueId,
+  pollMs,
+  version = 0
+}: {
+  leagueId: string;
+  pollMs?: number;
+  /** Bumped on each live event (`Scores Updated`, `NFL Games Updated`): reloads the outlook. */
+  version?: number;
+}) {
   const api = useLeagueApi();
-  const loaded = useLoad(() => api.getMatchupOutlook(leagueId), leagueId, pollMs);
+  const loaded = useLoad(() => api.getMatchupOutlook(leagueId), `${leagueId}:${version}`, pollMs);
   if (loaded.data === null) return null;
   return <OutlookView outlook={loaded.data} />;
 }
@@ -58,10 +67,10 @@ export function OutlookView({ outlook }: { outlook: MatchupOutlook }) {
           No opponent this week · projected {pts(you.projectedPoints)}
         </p>
       )}
-      {you.playersInProgress > 0 || you.currentPoints > 0 ? (
+      {/* Who is playing and the projected totals sit in the score bar above (#193). */}
+      {you.currentPoints > 0 && you.remainingPoints > 0 ? (
         <p className="text-sm text-muted-foreground">
-          {pts(you.currentPoints)} so far, {pts(you.remainingPoints)} expected to come ·{' '}
-          {you.playersYetToPlay} yet to play, {you.playersInProgress} playing
+          {pts(you.remainingPoints)} more points expected to come.
         </p>
       ) : null}
       {advice.length === 0 ? (
@@ -73,12 +82,6 @@ export function OutlookView({ outlook }: { outlook: MatchupOutlook }) {
           ))}
         </ul>
       )}
-      {insights.lockedPlayers.length > 0 ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {insights.lockedPlayers.length} {insights.lockedPlayers.length === 1 ? 'player is' : 'players are'}{' '}
-          locked for the week.
-        </p>
-      ) : null}
     </section>
   );
 }

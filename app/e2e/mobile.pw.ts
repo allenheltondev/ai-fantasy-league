@@ -297,6 +297,8 @@ async function phone(browser: Browser, viewport: (typeof VIEWPORTS)[number], who
     hasTouch: true,
     deviceScaleFactor: 2
   });
+  // The lineup locks players by the page's own clock (#193): run it on the server's pinned time.
+  await context.clock.setSystemTime(new Date('2026-09-10T12:00:00Z'));
   await signInAs(context, who);
   return context;
 }

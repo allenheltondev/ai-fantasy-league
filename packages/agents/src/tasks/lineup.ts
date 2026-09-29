@@ -54,14 +54,18 @@ const RosterEntrySchema = z.object({
   slot: RosterSlotSchema,
   status: PlayerStatusSchema,
   kickoff: z.string().nullable(),
-  projectedPoints: z.number().nullable()
+  projectedPoints: z.number().nullable(),
+  // His game as every view sees it (core `playerGame`, #193); absent from older servers.
+  game: z.object({ state: z.enum(['upcoming', 'live', 'final', 'bye']) }).optional()
 });
 const RosterDataSchema = z.object({ week: z.number().int(), players: z.array(RosterEntrySchema) });
 
 const LineupPayloadSchema = z.object({
   week: z.number().int().min(1).max(18).optional(),
   reason: z.enum(['lock', 'news', 'status', 'draft_complete']).default('lock'),
-  playerId: z.string().optional()
+  playerId: z.string().optional(),
+  /** `lock`: the NFL teams kicking off at the warned time (#193). */
+  nflTeams: z.array(z.string()).optional()
 });
 type LineupPayload = z.infer<typeof LineupPayloadSchema>;
 
@@ -83,6 +87,8 @@ interface LineupPrep {
   /** Lock and bye context for the core rules; empty when the week's games are not known. */
   context: LineupContext;
   optimized: OptimizedLineup;
+  /** Players whose game is live or final: locked where they are for the week. */
+  started?: string[];
 }
 
 function dataOf(envelope: Envelope, tool: string): unknown {
@@ -173,6 +179,20 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
         'get_roster'
       )
     );
+    // A warning for one kickoff: nothing to decide unless one of our players still to lock plays then.
+    const kicking = payload.reason === 'lock' ? payload.nflTeams : undefined;
+    if (
+      kicking !== undefined &&
+      kicking.length > 0 &&
+      !rosterData.players.some(
+        (p) =>
+          p.player.team !== null &&
+          kicking.includes(p.player.team) &&
+          (p.game?.state ?? 'upcoming') === 'upcoming'
+      )
+    ) {
+      throw new TaskUnavailableError(`None of your players kick off then (${kicking.join(', ')}).`);
+    }
     const roster: RosterPlayer[] = rosterData.players.map((p) => ({
       playerId: p.player.id,
       name: p.player.name,
@@ -201,7 +221,10 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
       if (pts !== undefined) adjusted[p.player.id] = lineupProjection(pts, p.status, riskTolerance);
     }
     const optimized = optimizeLineup(settingsFor(ctx), roster, adjusted, context);
-    return { week: rosterData.week, roster, current, projections, context, optimized };
+    const started = rosterData.players
+      .filter((p) => p.game?.state === 'live' || p.game?.state === 'final')
+      .map((p) => p.player.name);
+    return { week: rosterData.week, roster, current, projections, context, optimized, started };
   },
   instructions(ctx, payload, prep) {
     const why =
@@ -214,6 +237,11 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
     return [
       `${why} The lineup optimizer proposes this lineup${projections ? ` (${prep.optimized.projectedPoints} projected points)` : ''}:`,
       describe(prep.optimized.lineup, prep.roster, projections ? prep.projections : null),
+      ...((prep.started ?? []).length > 0
+        ? [
+            `Already locked, their games have started (they stay where they are): ${(prep.started ?? []).join(', ')}.`
+          ]
+        : []),
       'Check anything you are unsure about with your research tools, then answer with `confirm: true` to start it, or `confirm: false` with up to 5 `swaps` of (bench player id, starter player id).',
       'Never start a player who is out, on IR, or on bye.'
     ].join('\n');
