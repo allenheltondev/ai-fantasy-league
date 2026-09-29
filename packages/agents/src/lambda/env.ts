@@ -2,6 +2,7 @@ import { systemClock } from '@fantasy/core';
 import {
   EventBridgePublisher,
   createDocumentClient,
+  createDynamoReferenceStore,
   createDynamoRepos,
   createLogger,
   createServices,
@@ -35,9 +36,13 @@ export function loadAgentEnv(env: Record<string, string | undefined>): AgentEnv 
 }
 
 export function createAgentServices(env: AgentEnv): Services {
+  const table = { doc: createDocumentClient(), tableName: env.TABLE_NAME };
   return createServices({
     clock: systemClock,
-    repos: createDynamoRepos({ doc: createDocumentClient(), tableName: env.TABLE_NAME }),
+    repos: createDynamoRepos(table),
+    // Without this the services fall back to an empty in-memory store: no schedule (every player on
+    // bye), projections, stats, or news for the agents' tools.
+    reference: createDynamoReferenceStore(table),
     events: new EventBridgePublisher({ busName: env.EVENT_BUS_NAME }),
     log: createLogger({ level: env.LOG_LEVEL })
   });

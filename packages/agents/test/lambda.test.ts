@@ -19,6 +19,8 @@ describe('agent Lambda environment', () => {
   it('builds services, the model, and the kill switch', async () => {
     const services = env.createAgentServices(env.loadAgentEnv({ TABLE_NAME: 't' }));
     expect(services.repos.agents).toBeDefined();
+    // The agents' tools read the schedule, projections, and news from DynamoDB, not an empty store.
+    expect(services.data.reference.schedule.constructor.name).toBe('DynamoNflScheduleRepository');
     expect(env.isFakeModel({ FANTASY_FAKE_MODEL: '1' })).toBe(true);
     expect(env.isFakeModel({})).toBe(false);
     expect(await env.modelFromEnv({ FANTASY_FAKE_MODEL: 'true' })).toBeInstanceOf(ScriptedModelClient);
