@@ -25,6 +25,7 @@ import {
   serverSubscribers,
   storedNflState,
   type BusEvent,
+  type EventSubscriber,
   type JobDeps,
   type JobName,
   type League,
@@ -49,7 +50,7 @@ import {
   type ReplayInvariant,
   type TeamKickoff
 } from './checks.js';
-import { HumanStandIn, dataOf, operationRunner } from './human.js';
+import { HumanStandIn, dataOf, operationRunner, type RunOperation } from './human.js';
 import { buildLeagueReport, type LeagueReplayReport, type WeekTiming } from './report.js';
 
 /**
@@ -91,8 +92,26 @@ export interface LeagueReplayOptions {
   scheduledDraft?: boolean;
   /** Replace job cadences (e.g. `{ ingestStats: 'rate(10 minutes)' }`) for faster long replays. */
   jobCadences?: Partial<Record<JobName, string>>;
+  /**
+   * Human-like response delays for agent tasks (#189), as the router Lambda has them. Off by
+   * default, like the dev server; season scenarios turn them on.
+   */
+  responseDelays?: boolean;
+  /** More event-loop subscribers (season scenarios, evaluations), delivered after the league's and the agents'. */
+  subscribers?: (world: ReplayWorld) => EventSubscriber[];
+  /** Called once the season has run, before the report is built: scenario checks read the league here. */
+  inspect?: (world: ReplayWorld) => Promise<void>;
   /** Progress lines (one per week). */
   log?: (line: string) => void;
+}
+
+/** What a scenario sees of a replay: the league's services, the operations, and the human stand-in. */
+export interface ReplayWorld {
+  services: Services;
+  run: RunOperation;
+  human: HumanStandIn;
+  /** The replay's league, once the human has created it. */
+  leagueId(): string | null;
 }
 
 /** The jobs the replay runs. `ingestNews` is left out: the archive has no news. */
@@ -207,6 +226,7 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   const officials = new Map<number, number>();
   const checks = new Map<number, ReplayCheck[]>();
   let league: League | null = null;
+  const world: ReplayWorld = { services, run, human, leagueId: () => league?.id ?? null };
   const weekFinal = async (event: BusEvent): Promise<void> => {
     // Only the replay's own league exists, and advanceLeague always sends its week.
     const { week } = event.detail as { week: number };
@@ -231,10 +251,13 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     clock,
     subscribers: [
       ...serverSubscribers(services),
-      ...agentSubscribers(inProcessAgentDeps(services, model)),
+      ...agentSubscribers(
+        inProcessAgentDeps(services, model, { responseDelays: options.responseDelays ?? false })
+      ),
       human.subscriber(),
       { name: 'replay-audit', detailTypes: ['Week Provisionally Final'], handle: weekFinal },
-      { name: 'replay-audit-official', detailTypes: ['Week Official Final'], handle: weekOfficial }
+      { name: 'replay-audit-official', detailTypes: ['Week Official Final'], handle: weekOfficial },
+      ...(options.subscribers?.(world) ?? [])
     ],
     jobs: recurringJobs(jobDeps, clock, REPLAY_JOBS, options.jobCadences),
     log
@@ -281,6 +304,11 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     dataOf(await run('start_draft', { leagueId: league.id, order }, HUMAN), 'start_draft');
   }
   await loop.drain();
+  // With response delays on, each agent thinks before its pick: let the clock run until the draft ends.
+  for (let hour = 0; options.responseDelays === true && hour < DRAFT_HOURS; hour++) {
+    if ((await repos.drafts.get(league.id))?.status === 'complete') break;
+    await loop.runUntil(new Date(clock.now().getTime() + 3_600_000));
+  }
   const draft = await repos.drafts.get(league.id);
   /* v8 ignore next 5 -- a stalled draft (a handler failing on its turn) is reported, not waited on */
   if (draft?.status !== 'complete') {
@@ -320,6 +348,7 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     options.log?.(`week ${week}: invariants ${bad.join(', ') || 'ok'} (${timings.at(-1)?.wallMs} ms)`);
   }
 
+  await options.inspect?.(world);
   const final = (await repos.leagues.get(league.id)) as League;
   const standings = (await repos.schedule.latestStandings(final.id))?.rows ?? [];
   // Every week goes official exactly once, and the stored champion is the one the games give.
@@ -362,6 +391,9 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     wallMs: Math.round(performance.now() - started)
   });
 }
+
+/** The longest a draft with thinking agents may run (hours of simulated time). */
+const DRAFT_HOURS = 24;
 
 /** How far past a week's stat-correction moment (Thursday 12:15 UTC or so) it runs: past the 15:00 official final. */
 const OFFICIAL_MARGIN_MS = 12 * 3_600_000;

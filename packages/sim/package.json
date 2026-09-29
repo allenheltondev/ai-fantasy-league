@@ -14,6 +14,7 @@
     "sim:archive": "tsx --tsconfig tsconfig.json src/cli/archive.ts",
     "sim:run": "tsx --tsconfig tsconfig.json src/cli/run.ts",
     "sim:replay": "tsx --tsconfig tsconfig.json src/cli/replay.ts",
+    "sim:eval": "tsx --tsconfig tsconfig.json src/cli/eval.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"

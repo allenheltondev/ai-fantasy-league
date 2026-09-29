@@ -29,7 +29,8 @@ export function waiverHits(m: ModelLeaderboardModel): string {
 /**
  * "Which model wins the league?" (#76): standings rolled up by the model that plays each team, with
  * people grouped as Human, plus trade value won or lost and waiver hit rate. Shown under the
- * standings; hidden when the league has no agents.
+ * standings; hidden when the league has no agents. Labelled observational (#211): a model-quality
+ * claim needs matched conditions and several seeds (docs/agent-eval.md), not one league's table.
  */
 export function ModelLeaderboardPanel({ leagueId }: { leagueId: string }) {
   const api = useLeagueApi();
@@ -46,6 +47,10 @@ export function ModelLeaderboardPanel({ leagueId }: { leagueId: string }) {
       <h3 id="model-leaderboard-title" className="text-lg font-semibold">
         Which model wins the league?
       </h3>
+      <p className="text-sm text-muted-foreground" data-testid="model-leaderboard-note">
+        Observational, not a benchmark: one league&apos;s results mix the model with its strategy, difficulty,
+        roster luck, settings changes, and fallbacks.
+      </p>
       <Card>
         <CardBody>
           <TableScroll label="Model power rankings">
