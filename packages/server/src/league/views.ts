@@ -1,4 +1,4 @@
-import { LeagueSettingsSchema, leagueWeeks } from '@fantasy/core';
+import { LeagueSettingsSchema, NAME_SET_BY, leagueWeeks } from '@fantasy/core';
 import { z } from 'zod';
 import {
   LEAGUE_PHASES,
@@ -9,7 +9,7 @@ import {
   type Team
 } from '../repos/types.js';
 import { TeamManagerSchema, teamManager, type ManagerLookup } from './managers.js';
-import { isOpenSeat } from './seats.js';
+import { isOpenSeat, renamedFrom, teamNameSetBy } from './seats.js';
 
 /** Output shapes shared by the league operations, and the mappers that build them. */
 
@@ -54,7 +54,16 @@ export const TeamSummarySchema = z.object({
     ),
   manager: TeamManagerSchema.optional().describe(
     'The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).'
-  )
+  ),
+  nameSetBy: z
+    .enum(NAME_SET_BY)
+    .describe(
+      "Who set the name: `owner` (the person who holds it), `commissioner` (locked: an AI manager never changes it), `agent` (its AI manager named it), or `default` (the seat's own name, which its AI manager may replace)."
+    ),
+  renamedFrom: z
+    .string()
+    .nullable()
+    .describe('The name the team had before its last rename, e.g. "Team 3"; null if it was never renamed.')
 });
 
 export const TeamDetailSchema = TeamSummarySchema.extend({
@@ -78,6 +87,8 @@ export function teamSummary(team: Team, managers?: ManagerLookup): z.infer<typeo
     ownerName: team.ownerName,
     draftSlot: team.draftSlot,
     avatarSeed: team.avatarSeed ?? null,
+    nameSetBy: teamNameSetBy(team),
+    renamedFrom: renamedFrom(team),
     ...(managers === undefined ? {} : { manager: teamManager(managers, team.id) })
   };
 }

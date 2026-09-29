@@ -1,10 +1,14 @@
 import { canonicalEvent, scheduleName } from '@fantasy/server';
 import {
   IMMEDIATE_RESPONSE,
+  agentMayRename,
   banterContinues,
   banterVerdict,
   hashString,
   isDmRoomId,
+  isGenericTeamName,
+  rebrandRoll,
+  rebrandWindow,
   resolveAgentConfig,
   responseDelay,
   type DifficultyLevers,
@@ -15,6 +19,7 @@ import {
   agentChatBudget,
   listInSeason,
   nextLockAt,
+  teamNameSetBy,
   type AgentSeatRecord,
   type EventDetailOf,
   type FantasyEventType,
@@ -42,6 +47,8 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     | none (chat cooldowns pace it)          |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     | none (chat cooldowns pace it)          |
  * | Draft Completed (once per draft)             | post_draft     | every agent team, staggered             | yes    | stagger + post_draft jitter            |
+ * | Member Left / Agent Seat Changed             | team_identity  | `detail.teamId`, if it needs a name     | no     | roster                                 |
+ * | Week Rolled Over (once per league week)      | team_identity  | placeholder names; rare rebrand rolls   | no     | roster                                 |
  *
  * Response delays (#189): a person does not answer the instant an offer lands, so neither does an
  * agent. A rule's `delay` gives each task a human-like wait from core `responseDelay`: a roll of
@@ -66,6 +73,18 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * agents do not all fire at once, nor on top of the draft's last pick. A replayed or recovered
  * `Draft Completed` (the stalled-draft watchdog finishing a draft) is a `repeat`: the once-per key
  * is the draft's completion time.
+ *
+ * Team names (#194): an AI manager names its own team (`team_identity`, see
+ * tasks/team-identity.ts). The naming gate (`admitNaming`) lets a team through only when its seat
+ * names its team, the name is not one the commissioner locked, and the league is past the draft
+ * and not complete; then either the name is still a placeholder ("Team 3"), or, on the weekly
+ * rollover only, a rebrand is allowed (regular season, none in the last `REBRAND_RULES.cooldownWeeks`
+ * weeks) and the personality's `rebrandPropensity` roll hits (seeded by league, team, and week). The task
+ * then looks for the moment itself (a losing streak, a clinch, the trade deadline). There is no
+ * "seat configured" event before the draft, so the draft's own kickoff names teams (folded into
+ * `post_draft`, one model call); `Member Left` covers a seat a person gives back, `Agent Seat
+ * Changed` a seat the commissioner changes after the draft, and the rollover is the safety net.
+ * At most once per team per day (`NAMING_COOLDOWN`), with the roster-class response delay.
  *
  * Chat tasks carry the `roomId` of the mention or moment and answer there. A matchup-room moment
  * (`detail.teamIds`) goes to the agents playing in that game when there are any.
@@ -269,7 +288,74 @@ const tradeRule: TriggerRule<'Trade Proposed' | 'Trade Countered'> = {
   payload: (d) => ({ tradeId: d.tradeId, fromTeamId: d.fromTeamId })
 };
 
-type RuleMap = { readonly [T in FantasyEventType]?: TriggerRule<T> };
+/** One rule per event, or several (the rollover shops for trades and checks team names). */
+type RuleMap = { readonly [T in FantasyEventType]?: TriggerRule<T> | readonly TriggerRule<T>[] };
+
+/** Every rule for an event type. */
+export function rulesFor(detailType: string): TriggerRule[] {
+  const found = TRIGGER_RULES[detailType as FantasyEventType] as
+    TriggerRule | readonly TriggerRule[] | undefined;
+  return found === undefined ? [] : Array.isArray(found) ? [...found] : [found as TriggerRule];
+}
+
+/** Every task kind some rule requests. */
+export function triggerKinds(): string[] {
+  return [...new Set(Object.keys(TRIGGER_RULES).flatMap((t) => rulesFor(t).map((r) => r.kind)))];
+}
+
+/** Naming tasks: at most one per team a day, in their own slot. */
+export const NAMING_COOLDOWN = {
+  scope: 'team_identity',
+  agentMinutes: 24 * 60
+} as const satisfies ChatCooldown;
+
+/**
+ * The naming gate (#194): the team must be played by its AI manager, whose seat names its team,
+ * with a name the commissioner did not lock, in a league past its draft and not complete. A
+ * placeholder name goes through; a real name only on the rollover (`rebrand`), inside the rebrand
+ * window, when the personality's roll hits.
+ */
+function admitNaming(rebrand: boolean) {
+  return async (input: AdmitInput): Promise<GateDecision | null> => {
+    const { services, seat, leagueId } = input;
+    const [league, team] = await Promise.all([
+      services.repos.leagues.get(leagueId),
+      services.repos.teams.get(leagueId, seat.teamId)
+    ]);
+    if (league === null || team === null || team.ownerUserId !== null || team.seatType !== 'agent')
+      return 'declined';
+    if (league.phase === 'setup' || league.phase === 'drafting' || league.phase === 'complete')
+      return 'declined';
+    if (!agentMayRename(seat.config, teamNameSetBy(team))) return 'declined';
+    const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
+    if (isGenericTeamName(team.name, { managerName: config.name })) return null;
+    if (!rebrand) return 'declined';
+    const last = (team.renames ?? []).filter((r) => r.by === 'agent').at(-1);
+    const window = rebrandWindow({
+      phase: league.phase,
+      week: league.week,
+      lastRenameWeek: last?.week ?? null
+    });
+    if (window !== 'ok') return 'declined';
+    // One roll per team and week, whatever else happened: a redelivered rollover rolls the same.
+    return rebrandRoll(config.personality.rebrandPropensity, `${leagueId}:${seat.teamId}:week-${league.week}`)
+      ? null
+      : 'declined';
+  };
+}
+
+const namingRule = <T extends FantasyEventType>(
+  teams: TriggerRule<T>['teams'],
+  rebrand: boolean
+): TriggerRule<T> => ({
+  kind: 'team_identity',
+  urgent: false,
+  cooldown: NAMING_COOLDOWN,
+  admit: admitNaming(rebrand) as TriggerRule<T>['admit'],
+  delay: humanDelay('roster'),
+  teams,
+  payload: (d) => ({ rebrand, week: (d as { week?: unknown }).week })
+});
 
 export const TRIGGER_RULES: RuleMap = {
   'Draft Turn Started': {
@@ -306,14 +392,24 @@ export const TRIGGER_RULES: RuleMap = {
   },
   // Agents shop for trades once a league week, paced by their archetype's trade appetite (the
   // task decides how many offers, if any). The NFL-wide rollover has no leagueId and routes nowhere.
-  'Week Rolled Over': {
-    kind: 'trade_proposal',
-    urgent: false,
-    oncePer: (d) => (typeof d.week === 'number' ? `week-${d.week}` : undefined),
-    delay: humanDelay('roster'),
-    teams: (_d, agents) => [...agents],
-    payload: (d) => ({ week: d.week })
-  },
+  'Week Rolled Over': [
+    {
+      kind: 'trade_proposal',
+      urgent: false,
+      oncePer: (d) => (typeof d.week === 'number' ? `week-${d.week}` : undefined),
+      delay: humanDelay('roster'),
+      teams: (_d, agents) => [...agents],
+      payload: (d) => ({ week: d.week })
+    },
+    // The naming safety net, and now and then an in-character rebrand.
+    {
+      ...namingRule<'Week Rolled Over'>((_d, agents) => [...agents], true),
+      oncePer: (d) => (typeof d.week === 'number' ? `week-${d.week}` : undefined)
+    }
+  ],
+  // A seat an agent takes back ("Team N" again), or one the commissioner changes after the draft.
+  'Member Left': namingRule((d, agents) => only([str(d.teamId)], agents), false),
+  'Agent Seat Changed': namingRule((d, agents) => only([str(d.teamId)], agents), false),
   'Player News Alert': {
     kind: 'lineup',
     urgent: false,
@@ -461,12 +557,25 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
   const { services } = deps;
   const detailType = event['detail-type'];
   const log = services.log.child({ eventId: event.id, detailType });
-  const raw = TRIGGER_RULES[detailType as FantasyEventType] as TriggerRule | undefined;
-  const detail = (event.detail ?? {}) as RuleDetail<FantasyEventType>;
-  if (raw === undefined || event.source !== 'fantasy') {
+  const rules = rulesFor(detailType);
+  if (rules.length === 0 || event.source !== 'fantasy') {
     log.info('agent trigger ignored', { reason: 'not_a_trigger' });
     return [];
   }
+  const decisions: RouteDecision[] = [];
+  for (const raw of rules) decisions.push(...(await routeRule(deps, event, raw, log)));
+  return decisions;
+}
+
+async function routeRule(
+  deps: RouterDeps,
+  event: BusEvent,
+  raw: TriggerRule,
+  log: Services['log']
+): Promise<RouteDecision[]> {
+  const { services } = deps;
+  const detailType = event['detail-type'];
+  const detail = (event.detail ?? {}) as RuleDetail<FantasyEventType>;
   const { cooldown, ...rest } = raw;
   const rule: ResolvedRule = {
     ...rest,

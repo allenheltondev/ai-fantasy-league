@@ -143,6 +143,11 @@ export function TeamProfilePage() {
                 disabled={!canEdit}
                 onChange={(e) => setName(e.target.value)}
               />
+              {team.renamedFrom && (
+                <p className="text-sm text-muted-foreground" data-testid="renamed-from">
+                  Renamed from {team.renamedFrom}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 Your avatar shows beside your team everywhere in the league: the dashboard, matchups,
                 standings, chat, and the draft.

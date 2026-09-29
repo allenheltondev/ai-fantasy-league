@@ -229,6 +229,13 @@ describe('renderSystemMessage', () => {
     expect(render('Member Left', { teamId: 'team-2', reason: 'left' })?.text).toBe(
       'Robo Ballers left the league.'
     );
+    const rename = { teamId: 'team-2', from: 'Team 2', to: 'Robo Ballers' };
+    expect(render('Team Renamed', { ...rename, by: 'owner' })?.text).toBe('Team 2 is now Robo Ballers.');
+    expect(render('Team Renamed', { ...rename, by: 'commissioner' })?.text).toBe(
+      'The commissioner renamed Team 2 to Robo Ballers.'
+    );
+    // An AI manager announces its own rename, in character: no league line.
+    expect(render('Team Renamed', { ...rename, by: 'agent' })).toBeNull();
     expect(
       render('Settings Changed', { changedPaths: ['trades.reviewPeriodDays', 'waivers.type'] })?.text
     ).toBe('The commissioner changed league settings: trades.reviewPeriodDays, waivers.type.');

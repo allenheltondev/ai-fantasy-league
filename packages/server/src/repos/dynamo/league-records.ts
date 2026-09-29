@@ -1,4 +1,10 @@
-import { REPORT_CARD_GRADES, LeagueSettingsSchema, PositionSchema, RosterSlotSchema } from '@fantasy/core';
+import {
+  NAME_SET_BY,
+  REPORT_CARD_GRADES,
+  LeagueSettingsSchema,
+  PositionSchema,
+  RosterSlotSchema
+} from '@fantasy/core';
 import { z } from 'zod';
 import { DRAFT_STATUSES, LEAGUE_PHASES, SEAT_TYPES } from '../types.js';
 import { weekKey } from './query.js';
@@ -107,6 +113,18 @@ export const TeamRecordSchema = z.object({
   ownerUserId: z.string().nullable(),
   ownerName: z.string().nullable(),
   avatarSeed: z.string().optional(),
+  nameSetBy: z.enum(NAME_SET_BY).optional(),
+  renames: z
+    .array(
+      z.object({
+        from: z.string(),
+        to: z.string(),
+        by: z.enum(['owner', 'commissioner', 'agent']),
+        at: iso,
+        week: z.number()
+      })
+    )
+    .optional(),
   agentConfigId: z.string().nullable(),
   draftSlot: z.number(),
   faabRemaining: z.number(),

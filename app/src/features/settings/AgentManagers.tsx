@@ -55,10 +55,15 @@ export interface AgentManagersProps {
   teams: TeamDetail[];
   /** True when configure_agent_seat is in allowedActions. */
   canConfigure: boolean;
+  /**
+   * Show the "Let this manager name its team" switch (#194): only for the commissioner, when
+   * configure_agent_seat is allowed. The server enforces it too (configure_agent_seat is theirs alone).
+   */
+  canNameTeams?: boolean;
 }
 
 /** The league's AI managers as cards; the commissioner can change them until the draft. */
-export function AgentManagers({ leagueId, teams, canConfigure }: AgentManagersProps) {
+export function AgentManagers({ leagueId, teams, canConfigure, canNameTeams = false }: AgentManagersProps) {
   const api = useLeagueApi();
   const key = `${leagueId}:${teams.map((t) => t.id).join(',')}`;
   const loaded = useLoad(() => loadSeats(api, leagueId, teams), key);
@@ -76,6 +81,7 @@ export function AgentManagers({ leagueId, teams, canConfigure }: AgentManagersPr
       catalog={loaded.data.catalog}
       initial={loaded.data.seats}
       canConfigure={canConfigure}
+      canNameTeams={canConfigure && canNameTeams}
       refreshing={loaded.loading}
       reload={loaded.reload}
     />
@@ -87,6 +93,7 @@ function SeatCards({
   catalog,
   initial,
   canConfigure,
+  canNameTeams,
   refreshing,
   reload
 }: {
@@ -94,6 +101,7 @@ function SeatCards({
   catalog: AgentCatalog;
   initial: Seat[];
   canConfigure: boolean;
+  canNameTeams: boolean;
   /** A reload is in flight: hold edits until it lands so it cannot overwrite them. */
   refreshing: boolean;
   reload: () => void;
@@ -157,6 +165,7 @@ function SeatCards({
         <AgentGrid
           catalog={catalog}
           busy={busy}
+          namingToggle={canNameTeams}
           seats={configured.map((s) => ({ key: s.team.id, label: s.team.name, config: s.config }))}
           {...(canConfigure
             ? {

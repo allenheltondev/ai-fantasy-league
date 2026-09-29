@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FixedClock, yahooDefaultSettings } from '@fantasy/core';
+import { FixedClock, isGenericTeamName, yahooDefaultSettings } from '@fantasy/core';
 import { ScriptedModelClient } from '@fantasy/agents';
 import {
   InMemoryEventPublisher,
@@ -41,10 +41,7 @@ describe('replayLeague: the real league on the simulated clock', () => {
     const model = new ScriptedModelClient();
     const report = await replayLeague({
       archive: await fixtureArchive(),
-      // Event ids are sequential, and agents' valuation noise is keyed by them: the per-kickoff lock
-      // warnings (#193) added events, so this seed was picked for a replay that still has an
-      // agent-to-agent trade accepted (the assertions below are unchanged).
-      seed: 'ci-2',
+      seed: 'ci',
       weeks: 3,
       model,
       log: (l) => lines.push(l)
@@ -65,6 +62,10 @@ describe('replayLeague: the real league on the simulated clock', () => {
     // Seat 1 is the scripted human; the other seven are agents that acted through the router and runner.
     expect(report.teams.filter((t) => t.seat === 'human').map((t) => t.id)).toEqual(['team-1']);
     expect(report.teams.filter((t) => t.agent !== null)).toHaveLength(7);
+    // Every AI manager named its team at the kickoff, and no two picked the same name (#194).
+    const agentNames = report.teams.filter((t) => t.agent !== null).map((t) => t.name);
+    expect(agentNames.filter((n) => isGenericTeamName(n))).toEqual([]);
+    expect(new Set(agentNames).size).toBe(7);
     expect(report.human.actions.make_draft_pick).toBeGreaterThanOrEqual(16);
     expect(report.agents.totals.byKind.draft_pick).toBe(7 * 16);
     expect(report.agents.totals.byKind.lineup).toBeGreaterThan(0);

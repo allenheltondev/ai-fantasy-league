@@ -340,11 +340,13 @@ describe('trade proposal task', () => {
       phase: 'regular_season',
       rolledOverAt: START
     };
-    expect(await rollover('r1', league)).toMatchObject([
+    const trades = async (id: string) =>
+      (await rollover(id, league)).filter((d) => d.kind === 'trade_proposal');
+    expect(await trades('r1')).toMatchObject([
       { teamId: AGENT_TEAM, decision: 'requested', kind: 'trade_proposal' },
       { teamId: 'team-3', decision: 'requested', kind: 'trade_proposal' }
     ]);
-    expect((await rollover('r2', league)).map((d) => d.decision)).toEqual(['repeat', 'repeat']);
+    expect((await trades('r2')).map((d) => d.decision)).toEqual(['repeat', 'repeat']);
     // The NFL-wide rollover names no league.
     expect(await rollover('r3', { season: 2026, seasonType: 'regular', week: 6, kind: 'week' })).toEqual([]);
   });
@@ -480,6 +482,8 @@ function scripted(answers: Record<string, unknown>, config: AgentSeatConfig = HA
   return {
     taskId: 'scripted',
     config: resolveAgentConfig(config),
+    seat: { agentId: `${LEAGUE_ID}.${AGENT_TEAM}` },
+    league: { week: 5 },
     clock: new FixedClock(START),
     calls,
     tools: {
