@@ -88,6 +88,36 @@ export const WAIVER_CASES: Record<string, Case[]> = {
       status: 400
     }
   ],
+  list_league_players: [
+    { label: 'available', path: `${W}/players`, status: 200 },
+    {
+      label: 'sorted page',
+      path: `${W}/players?sort=trending&position=FLEX&availability=all&limit=2&offset=1`,
+      status: 200
+    },
+    { label: 'outsider', path: `${W}/players`, init: { token: outsider }, status: 403 }
+  ],
+  // Before cancel_waiver_claim, which cancels cw-claim.
+  update_waiver_claim: [
+    {
+      label: 'new bid',
+      path: `${W}/waivers/claims/cw-claim`,
+      init: { body: { bid: 7 }, idempotencyKey: key('update') },
+      status: 200
+    },
+    {
+      label: 'over budget',
+      path: `${W}/waivers/claims/cw-claim`,
+      init: { body: { bid: 900 }, idempotencyKey: key('update-bad') },
+      status: 409
+    },
+    {
+      label: 'not yours',
+      path: `${W}/waivers/claims/cw-claim`,
+      init: { body: { bid: 1 }, token: bob, idempotencyKey: key('update-bob') },
+      status: 404
+    }
+  ],
   cancel_waiver_claim: [
     {
       label: 'cancelled',

@@ -133,16 +133,36 @@ export const DEMO_PROJECTIONS: [playerId: string, stats: Record<string, number>]
   ['fx-tyhill', { rec: 6, rec_yd: 84, rec_td: 0.6 }],
   ['fx-laporta', { rec: 4.5, rec_yd: 50, rec_td: 0.4 }],
   ['fx-tucker', { fgm_30_39: 1, fgm_40_49: 0.8, xpm: 2.2 }],
-  ['fx-def-buf', { sack: 2.5, int: 0.8, pts_allow: 20 }]
+  ['fx-def-buf', { sack: 2.5, int: 0.8, pts_allow: 20 }],
+  // Free agents, so the player market (#205) has pickups to weigh.
+  ['fx-swift', { rush_yd: 68, rush_td: 0.5, rec: 3, rec_yd: 22 }],
+  ['fx-javontew', { rush_yd: 55, rush_td: 0.4, rec: 2, rec_yd: 14 }],
+  ['fx-jamesonw', { rec: 4, rec_yd: 62, rec_td: 0.4 }],
+  ['fx-mikew', { rec: 3, rec_yd: 41, rec_td: 0.3 }]
 ];
 
-/** Stores `DEMO_PROJECTIONS` as a week-1 snapshot captured at `now` (a rewrite is harmless). */
+/**
+ * Stores `DEMO_PROJECTIONS` as a week-1 snapshot captured at `now`, and a day of the crowd's adds
+ * and drops for the player market's trend column (a rewrite is harmless).
+ */
 export async function seedDemoProjections(reference: ReferenceStore, now: Date): Promise<void> {
   const lines = DEMO_PROJECTIONS.map(([playerId, stats]) => ({ playerId, season: SEASON, week: 1, stats }));
   await reference.projections.putSnapshot(
     { season: SEASON, week: 1, capturedAt: now.toISOString(), hash: 'demo', count: lines.length },
     lines
   );
+  const trend = (type: 'add' | 'drop', entries: [string, number][]) =>
+    reference.trending.put({
+      type,
+      capturedAt: now.toISOString(),
+      lookbacks: { '24': entries.map(([playerId, count]) => ({ playerId, count })) }
+    });
+  await trend('add', [
+    ['fx-jamesonw', 23400],
+    ['fx-swift', 8100],
+    ['fx-javontew', 1200]
+  ]);
+  await trend('drop', [['fx-mikew', 5300]]);
 }
 
 /**

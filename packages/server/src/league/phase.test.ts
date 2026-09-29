@@ -223,6 +223,7 @@ describe('action rules', () => {
       'reorder_waiver_claims',
       'respond_to_trade',
       'set_lineup',
+      'update_waiver_claim',
       'vote_trade',
       'withdraw_trade'
     ]);

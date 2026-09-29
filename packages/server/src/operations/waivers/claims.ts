@@ -6,7 +6,15 @@ import { actorTeam, assertAction } from '../../league/phase.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 import { WAIVER_CLAIM_STATUSES, type WaiverClaimRecord } from '../../repos/waivers.js';
-import { actingTeam, claimView, ClaimViewSchema, playerRefs, TeamIdField } from './shared.js';
+import {
+  actingTeam,
+  claimView,
+  ClaimViewSchema,
+  planClaim,
+  playerRefs,
+  resolveDrop,
+  TeamIdField
+} from './shared.js';
 
 /** Claim statuses every member may see for any team: resolved claims, whose bids are no longer secret. */
 const PUBLIC_STATUSES: ReadonlySet<string> = new Set(['awarded', 'failed']);
@@ -93,7 +101,7 @@ export const cancelWaiverClaim = defineOperation({
   path: '/leagues/{leagueId}/waivers/claims/{claimId}',
   summary: 'Cancel one of your pending waiver claims',
   description:
-    "Cancels a pending claim before the waiver run processes it. Only your own team's pending claims can be cancelled; WAIVER_CLAIM_NOT_PENDING means it was already processed or cancelled. To change a bid or drop, cancel the claim and make a new one.",
+    "Cancels a pending claim before the waiver run processes it. Only your own team's pending claims can be cancelled; WAIVER_CLAIM_NOT_PENDING means it was already processed or cancelled. To change a bid or drop, use update_waiver_claim instead.",
   tags: ['waivers'],
   mutation: true,
   input: z.object({ leagueId: LeagueIdSchema, claimId: ClaimIdSchema, teamId: TeamIdField }),
@@ -165,5 +173,86 @@ export const reorderWaiverClaims = defineOperation({
       updated.flatMap((c) => [c.addPlayerId, c.dropPlayerId])
     );
     return { claims: updated.map((c) => claimView(c, access.teams, refs)) };
+  }
+});
+
+export const updateWaiverClaim = defineOperation({
+  name: 'update_waiver_claim',
+  method: 'PATCH',
+  path: '/leagues/{leagueId}/waivers/claims/{claimId}',
+  summary: 'Change the bid or the drop player of one of your pending waiver claims',
+  description: [
+    'Edits a pending claim before the waiver run: a new FAAB `bid`, a new drop player (`dropPlayerId` or `dropPlayer`), or no drop (`clearDrop: true`). Fields you leave out keep their value; the claim keeps its place in your order (reorder_waiver_claims changes that).',
+    'The edit is checked like a new claim: INSUFFICIENT_FAAB, ZERO_BID_NOT_ALLOWED, ROSTER_FULL (a full roster needs a drop), DROP_PLAYER_NOT_ON_ROSTER, and PLAYER_LOCKED (the drop player will be locked when the claim runs). WAIVER_CLAIM_NOT_PENDING means it was already processed or cancelled.'
+  ].join(' '),
+  tags: ['waivers'],
+  mutation: true,
+  input: z.object({
+    leagueId: LeagueIdSchema,
+    claimId: ClaimIdSchema,
+    teamId: TeamIdField,
+    bid: z
+      .number()
+      .int()
+      .min(0)
+      .max(1000)
+      .optional()
+      .describe('The new whole-dollar FAAB bid. Leave out to keep the current bid.'),
+    dropPlayerId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('The new drop player. Leave out to keep the current one.'),
+    dropPlayer: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('The new drop player by name, when you do not have the id.'),
+    clearDrop: z
+      .boolean()
+      .default(false)
+      .describe('Set true to drop nobody when the claim wins (only while your roster has room).')
+  }),
+  output: z.object({ claim: ClaimViewSchema }),
+  handler: async (ctx, input) => {
+    const now = ctx.clock.now();
+    const access = await requireMember(ctx, input.leagueId);
+    const team = actingTeam(access, input.teamId);
+    assertAction('update_waiver_claim', access.league, access.actor, now);
+    const claim = await ownPendingClaim(ctx, access.league.id, team.id, input.claimId);
+    const player = await ctx.data.players.resolve({ playerId: claim.addPlayerId });
+    const named = await resolveDrop(ctx, input);
+    const drop =
+      input.clearDrop || named !== null
+        ? named
+        : claim.dropPlayerId === null
+          ? null
+          : await ctx.data.players.resolve({ playerId: claim.dropPlayerId });
+    const plan = await planClaim(
+      ctx,
+      access,
+      team,
+      { player, drop, bid: input.bid ?? claim.bid },
+      now,
+      claim.id
+    );
+    if (plan.kind !== 'claim_pending') {
+      throw new ApiError(
+        'WAIVER_CLAIM_NOT_PENDING',
+        `${player.name} is a free agent now, so there is no claim to edit.`,
+        {
+          fix: `Cancel claim ${claim.id} with cancel_waiver_claim and add him with claim_waiver.`,
+          details: { claimId: claim.id }
+        }
+      );
+    }
+    const updated = await ctx.repos.waivers.updateClaim({
+      ...claim,
+      bid: plan.bid,
+      dropPlayerId: drop?.id ?? null,
+      processesAt: plan.processesAt ?? claim.processesAt
+    });
+    const refs = await playerRefs(ctx, [updated.addPlayerId, updated.dropPlayerId]);
+    return { claim: claimView(updated, access.teams, refs) };
   }
 });
