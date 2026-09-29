@@ -13,13 +13,14 @@ import {
 } from '@fantasy/core';
 import type { AgentTaskSeal, Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import { effectiveBehavior } from '../situation.js';
 import { ChatReplySchema, ChatSourceSchema, heardInChat, replyInChat } from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
 
 /**
  * Lineup task: the optimizer proposes, the model confirms or suggests swaps, and the optimizer's
  * lineup is the fallback. The optimizer sees projections discounted by injury status and the
- * archetype's risk tolerance (`lineupProjection`), so a win-now manager benches a questionable
+ * archetype's risk tolerance (`lineupProjection`, bent within caps by the situation, #217), so a win-now manager benches a questionable
  * player a gut-feel homer would start. Triggered by `Lineup Lock Approaching` (scheduled before each game
  * window) and when news or a status change hits a rostered player. The post-draft kickoff (#175)
  * runs it deterministically (`draft_complete`): the optimizer's first lineup, with no model call.
@@ -243,7 +244,7 @@ export async function readLineup(
     Object.keys(games).length === 0
       ? { previousLineup: current }
       : { games, now: ctx.clock.now(), previousLineup: current };
-  const riskTolerance = ctx.config.valuation.riskTolerance ?? 0.5;
+  const riskTolerance = effectiveBehavior(ctx).riskTolerance;
   const adjusted: Record<string, number> = {};
   for (const p of rosterData.players) {
     const pts = projections[p.player.id];

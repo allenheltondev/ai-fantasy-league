@@ -5,6 +5,7 @@ import {
   estimateCostUsd,
   getModel,
   resolveAgentConfig,
+  situationPrompt,
   memoryForAudience,
   summarizeMemory,
   type MemoryEvent,
@@ -38,6 +39,7 @@ import { ZodError } from 'zod';
 import { dispatchTask, errorName } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
 import { refreshAgenda } from './agenda.js';
+import { effectiveBehavior, readSituation } from './situation.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
 import {
@@ -313,6 +315,22 @@ export async function runAgentAction(
     }
   };
 
+  // One read of the stakes feeds both the deterministic levers and the prompt (#217).
+  ctx.situation = await readSituation(services, ctx);
+  if (ctx.situation !== undefined) {
+    const { urgency, basis, reasons, sinceWeek, previous, pending } = ctx.situation;
+    log.info('agent situation', {
+      urgency,
+      basis,
+      reasons,
+      sinceWeek,
+      previous,
+      pending,
+      adjustments: effectiveBehavior(ctx).explanation
+    });
+  }
+  const situation = situationPrompt(ctx.situation);
+
   let agendaMode: AgendaMode = 'none';
   let prepared: PreparedTask;
   try {
@@ -446,6 +464,8 @@ export async function runAgentAction(
               'Your current private roster priorities (do not disclose private plans):',
               ...agendaPrompt(ctx.agenda)
             ]),
+        // League-visible facts only, so chat and decisions say the same thing the code does.
+        ...(situation.length === 0 ? [] : ['Your competitive situation (from final results):', ...situation]),
         prepared.instructions
       ].join('\n')
     }

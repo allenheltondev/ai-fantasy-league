@@ -5,12 +5,12 @@ import {
   SLOT_ELIGIBILITY,
   rosterHoles,
   suggestFaabBid,
-  waiverMinGain,
   type ResearchAccess,
   type RosterSlot
 } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import { effectiveBehavior } from '../situation.js';
 import { ChatReplySchema, ChatSourceSchema, heardInChat, replyInChat } from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
 import { TaskUnavailableError } from './lineup.js';
@@ -21,8 +21,8 @@ import { judgmentNoise } from './noise.js';
  * one with preview_waiver_claim (is he available, does the roster need a drop), projects him against
  * the weakest player on the roster, and proposes FAAB bids with `suggestFaabBid`. The bid grows
  * with the archetype's `waiverAggressiveness` (a waiver hawk bids big and claims smaller upgrades,
- * `waiverMinGain`) and is blurred by the
- * difficulty's `valuationNoise`; the number of claims is capped by the difficulty's action budget.
+ * `waiverMinGain`), bent within fixed caps by the team's situation (`effectiveBehavior`, #217), and
+ * is blurred by the difficulty's `valuationNoise`; the number of claims is capped by the difficulty's action budget.
  * The persona shapes the model's judgment and summary through the system prompt.
  *
  * The model reviews the suggestions (and can dig into news, projections, and trending itself) and
@@ -141,7 +141,7 @@ async function checkTip(ctx: TaskContext, payload: WaiverPayload): Promise<Waive
     leads.length === 1 && payload.playerId !== undefined
       ? (leads[0] as Lead).player.name
       : `my ${payload.position ?? 'roster'}`;
-  const prep = await scout(ctx, team.faabRemaining, leads, waiverMinGain(ctx.config.waiverAggressiveness));
+  const prep = await scout(ctx, team.faabRemaining, leads, effectiveBehavior(ctx).waiverMinGain);
   if (prep.suggestions.length === 0)
     throw new TaskUnavailableError(
       'tip_not_worth_it',
@@ -198,7 +198,7 @@ async function prepare(ctx: TaskContext): Promise<WaiverPrep> {
     ctx,
     team.faabRemaining,
     trending.slice(0, MAX_CANDIDATES),
-    waiverMinGain(ctx.config.waiverAggressiveness)
+    effectiveBehavior(ctx).waiverMinGain
   );
 }
 
@@ -250,6 +250,9 @@ export async function scout(
   const points = new Map((projections?.projections ?? []).map((p) => [p.player.id, p.points]));
   const pts = (id: string) => points.get(id) ?? 0;
 
+  const behavior = effectiveBehavior(ctx);
+  // A contender does not cut the last healthy cover at a thin position for another position (#217).
+  const protectedDepth = new Set<string>(behavior.protectDepth);
   const usedDrops = new Set<string>();
   const suggestions: WaiverSuggestion[] = [];
   for (const c of candidates.sort(
@@ -261,9 +264,11 @@ export async function scout(
     if (c.needsDrop) {
       const pool = roster.filter((p) => !usedDrops.has(p.id) && !keep.has(p.id));
       const samePosition = pool.filter((p) => p.position === c.player.position);
+      const elsewhere = pool.filter((p) => !protectedDepth.has(p.position));
       // A full roster always has someone to drop; a drop already promised to a better pickup is skipped.
       drop =
-        [...(samePosition.length > 0 ? samePosition : pool)].sort((a, b) => pts(a.id) - pts(b.id))[0] ?? null;
+        [...(samePosition.length > 0 ? samePosition : elsewhere)].sort((a, b) => pts(a.id) - pts(b.id))[0] ??
+        null;
     }
     const gain = pts(c.player.id) - (drop === null ? 0 : pts(drop.id));
     if (gain < minGain || (c.needsDrop && drop === null)) continue;
@@ -290,7 +295,7 @@ export async function scout(
         : suggestFaabBid({
             gain: Math.max(0, gain),
             faabRemaining,
-            aggressiveness: ctx.config.waiverAggressiveness,
+            aggressiveness: behavior.waiverAggressiveness,
             noise: noiseFor(ctx, c.player.id),
             minBid
           });

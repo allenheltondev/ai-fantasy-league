@@ -1,4 +1,11 @@
-import type { AgentAgenda, Clock, MemoryAudience, MemoryEvent, ResolvedAgentConfig } from '@fantasy/core';
+import type {
+  AgentAgenda,
+  Clock,
+  MemoryAudience,
+  MemoryEvent,
+  ResolvedAgentConfig,
+  SituationalState
+} from '@fantasy/core';
 import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
 import type { FakeScript } from '../fake-model.js';
@@ -43,6 +50,11 @@ export type BaseDecision = z.infer<typeof BaseDecisionSchema>;
 export interface TaskContext {
   /** Verified private priorities for this decision only; never supplied to chat tasks. */
   agenda?: AgentAgenda;
+  /**
+   * Competitive stakes and roster health from finalized results (#217). Levers read it through
+   * `effectiveBehavior`; without it every lever is the archetype's baseline.
+   */
+  situation?: SituationalState;
   taskId: string;
   principal: AgentPrincipal;
   league: League;
