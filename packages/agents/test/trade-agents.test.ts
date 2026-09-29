@@ -1,4 +1,10 @@
-import { FixedClock, resolveAgentConfig, type AgentSeatConfig } from '@fantasy/core';
+import {
+  FixedClock,
+  emptyAgenda,
+  reconcileAgenda,
+  resolveAgentConfig,
+  type AgentSeatConfig
+} from '@fantasy/core';
 import {
   agentPrincipal,
   createContext,
@@ -552,6 +558,51 @@ describe('trade proposal task with scripted tools', () => {
       });
       await expect(tradeProposalTask.prepare(none, {})).rejects.toThrow('no_trade_found');
     }
+  });
+
+  it('keeps a valid baseline offer when agenda-targeted ideas fail preview', async () => {
+    const localRosters: Record<string, unknown> = {
+      me: {
+        players: [
+          entry('mq', 'QB', 'QB', 20),
+          entry('mq2', 'QB', 'BN', 30),
+          entry('mr', 'RB', 'RB', 5),
+          entry('mw', 'WR', 'WR', 1)
+        ]
+      },
+      a: {
+        players: [
+          entry('aq', 'QB', 'QB', 1),
+          entry('ar', 'RB', 'BN', 15),
+          entry('ar2', 'RB', 'BN', 14),
+          entry('aw', 'WR', 'BN', 30)
+        ]
+      },
+      b: { players: [] }
+    };
+    const ctx = scripted({
+      get_league_state: state(),
+      list_trades: { trades: [] },
+      get_roster: (args: { teamId: string }) => ({
+        data: localRosters[args.teamId],
+        league: null,
+        warnings: []
+      }),
+      preview_trade: (args: { receive: string[] }) => ({
+        data: args.receive[0] === 'aw' ? preview(20, 5) : preview(20, 5, { valid: false }),
+        league: null,
+        warnings: []
+      })
+    });
+    ctx.agenda = reconcileAgenda(emptyAgenda(), {
+      at: START,
+      taskId: 'need-rb',
+      week: 5,
+      complete: false,
+      holes: ['RB']
+    });
+    const task = await tradeProposalTask.prepare(ctx, {});
+    expect(task.instructions).toContain('their AW (WR)');
   });
 
   it('stays out when it cannot read the league or has no team', async () => {

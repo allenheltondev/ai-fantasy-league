@@ -1,5 +1,6 @@
 import {
   PlayerStatusSchema,
+  agendaPriority,
   PositionSchema,
   SLOT_ELIGIBILITY,
   rosterHoles,
@@ -246,7 +247,11 @@ export async function scout(
 
   const usedDrops = new Set<string>();
   const suggestions: WaiverSuggestion[] = [];
-  for (const c of candidates.sort((a, b) => pts(b.player.id) - pts(a.player.id))) {
+  for (const c of candidates.sort(
+    (a, b) =>
+      agendaPriority(ctx.agenda, b.player.position) - agendaPriority(ctx.agenda, a.player.position) ||
+      pts(b.player.id) - pts(a.player.id)
+  )) {
     let drop: z.infer<typeof PlayerRef> | null = null;
     if (c.needsDrop) {
       const pool = roster.filter((p) => !usedDrops.has(p.id) && !keep.has(p.id));
@@ -472,6 +477,7 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
   kind: 'waivers',
   title: 'Work the waiver wire',
   modelRole: 'decision',
+  agenda: (_ctx, payload) => (payload.reason === 'chat' ? 'refresh_only' : 'private'),
   payload: WaiverPayloadSchema,
   decision: WaiverDecisionSchema,
   // Bids are sealed and go to nobody: it may recall the agent's own pending bids and plans.

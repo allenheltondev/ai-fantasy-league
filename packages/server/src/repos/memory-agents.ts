@@ -1,4 +1,10 @@
-import { emptyMemory, type AgentLeagueMemory } from '@fantasy/core';
+import {
+  AgentAgendaSchema,
+  emptyAgenda,
+  emptyMemory,
+  type AgentAgenda,
+  type AgentLeagueMemory
+} from '@fantasy/core';
 import {
   gateCutoff,
   roundUsd,
@@ -44,6 +50,23 @@ type StateSlot = AgentTriggerState & { owner?: string };
  * write there is a check and a write here that nothing can interleave with.
  */
 export class InMemoryAgentRepository implements AgentRepository {
+  readonly #agendas = new Map<string, AgentAgenda>();
+
+  async getAgenda(leagueId: string, agentId: string, tenure: string): Promise<AgentAgenda> {
+    return clone(this.#agendas.get(JSON.stringify([leagueId, agentId, tenure])) ?? emptyAgenda());
+  }
+
+  async updateAgenda(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (agenda: AgentAgenda) => AgentAgenda
+  ): Promise<AgentAgenda> {
+    const key = JSON.stringify([leagueId, agentId, tenure]);
+    const next = AgentAgendaSchema.parse(update(clone(this.#agendas.get(key) ?? emptyAgenda())));
+    this.#agendas.set(key, clone(next));
+    return clone(next);
+  }
   readonly #seats = new Map<string, AgentSeatRecord>();
   readonly #history = new Map<string, AgentSeatRecord[]>();
   readonly #memory = new Map<string, AgentLeagueMemory>();

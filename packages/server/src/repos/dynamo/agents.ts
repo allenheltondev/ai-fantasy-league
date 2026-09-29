@@ -6,7 +6,13 @@ import {
   UpdateCommand,
   type UpdateCommandInput
 } from '@aws-sdk/lib-dynamodb';
-import { AgentLeagueMemorySchema, type AgentLeagueMemory } from '@fantasy/core';
+import {
+  AgentAgendaSchema,
+  emptyAgenda,
+  AgentLeagueMemorySchema,
+  type AgentAgenda,
+  type AgentLeagueMemory
+} from '@fantasy/core';
 import { z } from 'zod';
 import {
   AGENT_DISPATCH_STATES,
@@ -137,6 +143,51 @@ function cancellationCodes(error: unknown): (string | undefined)[] | null {
 
 export class DynamoAgentRepository implements AgentRepository {
   constructor(private readonly table: TableContext) {}
+
+  async getAgenda(leagueId: string, agentId: string, tenure: string): Promise<AgentAgenda> {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: { pk: leaguePk(leagueId), sk: `AGENTAGENDA#${agentId}#${tenure}` },
+        ConsistentRead: true
+      })
+    );
+    return AgentAgendaSchema.parse(result.Item ?? emptyAgenda());
+  }
+
+  async updateAgenda(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (agenda: AgentAgenda) => AgentAgenda
+  ): Promise<AgentAgenda> {
+    const key = { pk: leaguePk(leagueId), sk: `AGENTAGENDA#${agentId}#${tenure}` };
+    for (let attempt = 0; ; attempt++) {
+      const result = await this.table.doc.send(
+        new GetCommand({
+          TableName: this.table.tableName,
+          Key: key,
+          ConsistentRead: true
+        })
+      );
+      const current = AgentAgendaSchema.parse(result.Item ?? emptyAgenda());
+      const rev = result.Item === undefined ? 0 : z.number().int().positive().parse(result.Item.rev);
+      const next = AgentAgendaSchema.parse(update(current));
+      try {
+        await this.table.doc.send(
+          new PutCommand({
+            TableName: this.table.tableName,
+            Item: { ...key, ...next, rev: rev + 1 },
+            ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
+            ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
+          })
+        );
+        return next;
+      } catch (error) {
+        if (!isConditionalCheckFailure(error) || attempt >= 2) throw error;
+      }
+    }
+  }
 
   async getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null> {
     const item = await this.#get(seatKey(leagueId, teamId));

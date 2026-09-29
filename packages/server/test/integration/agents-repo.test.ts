@@ -1,4 +1,4 @@
-import { OWNER_ONLY, emptyMemory, rememberEvent } from '@fantasy/core';
+import { OWNER_ONLY, emptyAgenda, emptyMemory, reconcileAgenda, rememberEvent } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
 import {
@@ -73,6 +73,59 @@ function task(leagueId: string, teamId: string, startedAt: string): AgentTaskRec
 }
 
 describe.each(backends)('%s agent repository', (_name, make) => {
+  it('persists a separate, versioned agenda per league, agent and occupant', async () => {
+    const { agents } = make();
+    const leagueId = unique('agenda');
+    const tenure = T0.toISOString();
+    const observe = { at: tenure, taskId: 'task', week: 5, complete: false, holes: ['RB' as const] };
+    expect(await agents.getAgenda(leagueId, 'a', tenure)).toEqual(emptyAgenda());
+    const first = await agents.updateAgenda(leagueId, 'a', tenure, (current) =>
+      reconcileAgenda(current, observe)
+    );
+    expect(await agents.getAgenda(leagueId, 'a', tenure)).toEqual(first);
+    first.goals[0]!.missing = 99;
+    expect((await agents.getAgenda(leagueId, 'a', tenure)).goals[0]?.missing).toBe(1);
+    expect(await agents.getAgenda(leagueId, 'b', tenure)).toEqual(emptyAgenda());
+    expect(await agents.getAgenda(leagueId, 'a', 'new-occupant')).toEqual(emptyAgenda());
+    expect(await agents.getAgenda(unique('other'), 'a', tenure)).toEqual(emptyAgenda());
+    expect(await agents.getMemory(leagueId, 'a')).toEqual(emptyMemory());
+    await agents.updateAgenda(leagueId, 'a', tenure, (current) =>
+      reconcileAgenda(current, { ...observe, at: '2026-09-11T12:00:00.000Z', holes: [] })
+    );
+    await agents.updateAgenda(leagueId, 'a', tenure, (current) => reconcileAgenda(current, observe));
+    expect((await agents.getAgenda(leagueId, 'a', tenure)).goals[0]?.status).toBe('completed');
+  });
+
+  it('retries concurrent agenda writes without reverting a newer observation', async () => {
+    const { agents } = make();
+    const leagueId = unique('agenda-race');
+    const tenure = T0.toISOString();
+    await agents.updateAgenda(leagueId, 'a', tenure, (current) =>
+      reconcileAgenda(current, { at: tenure, taskId: 'one', week: 5, complete: false, holes: ['RB'] })
+    );
+    await Promise.all([
+      agents.updateAgenda(leagueId, 'a', tenure, (current) =>
+        reconcileAgenda(current, {
+          at: '2026-09-11T12:00:00.000Z',
+          taskId: 'two',
+          week: 5,
+          complete: false,
+          holes: ['RB', 'RB']
+        })
+      ),
+      agents.updateAgenda(leagueId, 'a', tenure, (current) =>
+        reconcileAgenda(current, {
+          at: '2026-09-12T12:00:00.000Z',
+          taskId: 'three',
+          week: 5,
+          complete: false,
+          holes: []
+        })
+      )
+    ]);
+    expect((await agents.getAgenda(leagueId, 'a', tenure)).goals[0]?.status).toBe('completed');
+  });
+
   it('versions seats, keeps history, and rejects stale writes', async () => {
     const { agents } = make();
     const leagueId = unique('lg');

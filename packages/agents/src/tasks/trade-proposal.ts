@@ -1,4 +1,4 @@
-import { dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
+import { agendaPriority, dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import {
@@ -228,6 +228,8 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
   for (const team of state.teams) {
     if (team.id === me || pending.has(team.id)) continue;
     const theirs = await rosterOf(team.id);
+    // Keep the strongest baseline ideas in the preview pool. Agenda preference is applied only
+    // after legality and value checks, so a failed repair idea cannot hide a valid fallback.
     ideas.push(
       ...swapIdeas(mine, theirs)
         .slice(0, PER_TEAM)
@@ -262,7 +264,12 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
       partnerScore
     });
   }
-  candidates.sort((a, b) => b.score - a.score || b.partnerScore - a.partnerScore);
+  candidates.sort(
+    (a, b) =>
+      agendaPriority(ctx.agenda, b.receive.position) - agendaPriority(ctx.agenda, a.receive.position) ||
+      b.score - a.score ||
+      b.partnerScore - a.partnerScore
+  );
   // One offer per team: the best one.
   const best = candidates.filter((c, i) => candidates.findIndex((d) => d.team.id === c.team.id) === i);
   if (best.length === 0) throw new TaskUnavailableError('no_trade_found');
@@ -436,6 +443,7 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
   kind: 'trade_proposal',
   title: 'Look for a trade to offer',
   modelRole: 'decision',
+  agenda: (_ctx, payload) => (payload.reason === 'chat' ? 'refresh_only' : 'guide_only'),
   payload: PayloadSchema,
   decision: TradeProposalDecisionSchema,
   tools: ['get_league_state', 'get_roster', 'get_player', 'get_projections', 'get_news', 'preview_trade'],

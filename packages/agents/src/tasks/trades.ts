@@ -297,6 +297,8 @@ export const tradeResponseTask = defineTaskKind<Payload, TradeDecision, TradePre
   title: 'Answer a trade offer',
   modelRole: 'decision',
   modelNotes: false,
+  // Every response may include a note to the other manager; chat-sourced ones may also reply.
+  agenda: 'refresh_only',
   payload: PayloadSchema,
   decision: TradeDecisionSchema,
   // A counter's note goes to the team that made the offer: it may recall private dealings with

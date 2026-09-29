@@ -1,4 +1,4 @@
-import { AgentSeatConfigSchema, type AgentLeagueMemory } from '@fantasy/core';
+import { AgentSeatConfigSchema, type AgentLeagueMemory, type AgentAgenda } from '@fantasy/core';
 import { z } from 'zod';
 import { ApiError } from '../errors.js';
 
@@ -227,6 +227,14 @@ export interface TriggerGate {
 }
 
 export interface AgentRepository {
+  /** Operational agenda, isolated by current occupant tenure; never summarized as chat memory. */
+  getAgenda(leagueId: string, agentId: string, tenure: string): Promise<AgentAgenda>;
+  updateAgenda(
+    leagueId: string,
+    agentId: string,
+    tenure: string,
+    update: (agenda: AgentAgenda) => AgentAgenda
+  ): Promise<AgentAgenda>;
   getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null>;
   listSeats(leagueId: string): Promise<AgentSeatRecord[]>;
   /**

@@ -260,6 +260,7 @@ export const lineupTask = defineTaskKind<LineupPayload, LineupDecision, LineupPr
   kind: 'lineup',
   title: 'Set your lineup',
   modelRole: 'decision',
+  agenda: (_ctx, payload) => (payload.reason === 'chat' ? 'refresh_only' : 'private'),
   payload: LineupPayloadSchema,
   decision: LineupDecisionSchema,
   tools: [

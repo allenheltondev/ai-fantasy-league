@@ -1,5 +1,5 @@
 import { suggestFaabBid, yahooDefaultSettings } from '@fantasy/core';
-import { createContext, executeOperation, type UserPrincipal } from '@fantasy/server';
+import { createContext, executeOperation, seatTenureStart, type UserPrincipal } from '@fantasy/server';
 import { describe, expect, it } from 'vitest';
 import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
@@ -74,6 +74,18 @@ async function waiverLeague(
 }
 
 describe('waiver task', () => {
+  it('keeps a repair goal active while its real waiver claim is pending', async () => {
+    const s = await waiverLeague(HAWK);
+    const injured = (await s.repos.players.get('rb2'))!;
+    await s.repos.players.putMany([{ ...injured, injuryStatus: 'Out' }]);
+    await runAgentAction(s.deps(new ScriptedModelClient()), request());
+    expect(await s.repos.waivers.listClaims(LEAGUE_ID, 'pending')).toHaveLength(1);
+    const team = (await s.repos.teams.get(LEAGUE_ID, AGENT_TEAM))!;
+    const agenda = await s.repos.agents.getAgenda(LEAGUE_ID, AGENT_ID, seatTenureStart(team));
+    expect(agenda.goals.find((g) => g.slot === 'RB')?.status).toBe('active');
+    expect(team.roster).not.toContain('rb3');
+  });
+
   it('claims the trending pickup with a FAAB bid shaped by the archetype (fake model default)', async () => {
     const s = await waiverLeague(HAWK);
     const model = new ScriptedModelClient();
