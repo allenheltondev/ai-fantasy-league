@@ -98,8 +98,13 @@ export function withAdvanced(
   const levers = Object.fromEntries(
     Object.entries(advanced.levers ?? {}).filter(([, v]) => v !== undefined && v !== '')
   );
-  const research = levers.research as Record<string, boolean> | undefined;
-  if (research !== undefined && Object.keys(research).length === 0) delete levers.research;
+  for (const nested of ['research', 'responseDelay']) {
+    const value = levers[nested] as Record<string, unknown> | undefined;
+    if (value === undefined) continue;
+    const kept = Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
+    if (Object.keys(kept).length === 0) delete levers[nested];
+    else levers[nested] = kept;
+  }
   const clean: NonNullable<AgentSeatConfig['advanced']> = {};
   if (advanced.modelOverride) clean.modelOverride = advanced.modelOverride;
   if (advanced.customFlavor?.trim()) clean.customFlavor = advanced.customFlavor.trim();

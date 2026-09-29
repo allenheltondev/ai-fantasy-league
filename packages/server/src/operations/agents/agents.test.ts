@@ -91,6 +91,38 @@ describe('agent seat operations', () => {
     expect(await repos.agents.seatHistory('lg-1', 'team-2')).toHaveLength(2);
   });
 
+  it('round-trips a response delay override and shows the effective lever (#189)', async () => {
+    const { run } = await setup();
+    const advanced = { levers: { responseDelay: { multiplier: 0.25 } } };
+    const saved = await run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      difficulty: 'rookie',
+      advanced
+    });
+    expect(saved.status).toBe(200);
+    const read = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-2' });
+    expect(read.body).toMatchObject({
+      data: {
+        commissioner: {
+          current: {
+            config: { advanced },
+            effective: { responseDelay: { multiplier: 0.25, immediateChance: 0.05 } }
+          }
+        }
+      }
+    });
+    const bad = await run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      advanced: { levers: { responseDelay: { immediateChance: 2 } } },
+      expectedVersion: 1
+    });
+    expect(bad.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
+  });
+
   it('shows the full config only to the commissioner', async () => {
     const { run } = await setup();
     await run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });

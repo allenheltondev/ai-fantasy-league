@@ -38,10 +38,16 @@ export function agentSubscribers(deps: { router: RouterDeps; runner: RunnerDeps 
 export function inProcessAgentDeps(
   services: Services,
   model: ModelClient,
-  options: { killSwitch?: KillSwitch; modelTimeoutMs?: number } = {}
+  options: { killSwitch?: KillSwitch; modelTimeoutMs?: number; responseDelays?: boolean } = {}
 ): { router: RouterDeps; runner: RunnerDeps } {
   return {
-    router: { services, kinds: defaultTaskKinds, rosterIndex: leagueRosterIndex(services) },
+    // Response delays stay off in process (dev server, e2e, the simulator) unless asked for.
+    router: {
+      services,
+      kinds: defaultTaskKinds,
+      rosterIndex: leagueRosterIndex(services),
+      responseDelays: options.responseDelays ?? false
+    },
     runner: {
       registry,
       services,

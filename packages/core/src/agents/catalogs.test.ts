@@ -101,6 +101,11 @@ describe('difficulty tiers', () => {
         expect(tier.levers.valuationNoise).toBeLessThan(previous.levers.valuationNoise);
         expect(tier.levers.cooldownMinutes).toBeLessThan(previous.levers.cooldownMinutes);
         expect(tier.levers.negotiationRounds).toBeGreaterThanOrEqual(previous.levers.negotiationRounds);
+        // Better managers are sharper and quicker (#189).
+        expect(tier.levers.responseDelay.multiplier).toBeLessThan(previous.levers.responseDelay.multiplier);
+        expect(tier.levers.responseDelay.immediateChance).toBeGreaterThan(
+          previous.levers.responseDelay.immediateChance
+        );
         expect(MODEL_TIERS.indexOf(tier.levers.decisionModelTier)).toBeGreaterThan(
           MODEL_TIERS.indexOf(previous.levers.decisionModelTier)
         );
@@ -226,6 +231,7 @@ describe('agent seat config', () => {
     expect(resolved.prompt.customFlavor).toBe('Loves kickers.');
     expect(resolved.prompt.difficulty).toContain('projections, news');
     expect(DIFFICULTY_TIERS.rookie.levers.research.news).toBe(false);
+    expect(resolved.levers.responseDelay).toEqual(DIFFICULTY_TIERS.rookie.levers.responseDelay);
     const none = resolveAgentConfig({
       ...base,
       advanced: { levers: { research: { projections: false, news: false, trending: false } } }
@@ -233,7 +239,23 @@ describe('agent seat config', () => {
     expect(none.prompt.difficulty).toContain('Research you can use: none.');
   });
 
+  it('round-trips a response delay override, one field at a time (#189)', () => {
+    const config: AgentSeatConfig = {
+      ...base,
+      difficulty: 'rookie',
+      advanced: { levers: { responseDelay: { immediateChance: 0.5 } } }
+    };
+    expect(AgentSeatConfigSchema.parse(JSON.parse(JSON.stringify(config)))).toEqual(config);
+    expect(resolveAgentConfig(config).levers.responseDelay).toEqual({ multiplier: 2, immediateChance: 0.5 });
+    const off = resolveAgentConfig({ ...base, advanced: { levers: { responseDelay: { multiplier: 0 } } } });
+    expect(off.levers.responseDelay).toEqual({ multiplier: 0, immediateChance: 0.15 });
+    expect(DIFFICULTY_TIERS.pro.levers.responseDelay.multiplier).toBe(1);
+  });
+
   it.each([
+    [{ ...base, advanced: { levers: { responseDelay: { multiplier: 9 } } } }],
+    [{ ...base, advanced: { levers: { responseDelay: { immediateChance: 1.5 } } } }],
+    [{ ...base, advanced: { levers: { responseDelay: { sleeps: true } } } }],
     [{ ...base, personalityId: 'unknown' }],
     [{ ...base, difficulty: 'legend' }],
     [{ ...base, archetype: 'yolo' }],

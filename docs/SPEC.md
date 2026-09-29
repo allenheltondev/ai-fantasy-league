@@ -99,9 +99,12 @@ Principles:
 ### Event-gated cadence
 Agents act only on triggers: draft turn, draft completed (a post-draft kickoff: first lineup, one draft reaction in chat, roster-hole waiver claims, and an early trade look for trade-happy archetypes), waiver window open, trade offer received, injury/news alert on a rostered player, pre-lock lineup check, weekly recap/chat moments.
 
+### Response timing
+Agents answer like people, not bots: after a trigger an agent waits a little before acting, a short "typing" pause for chat, up to hours for a trade offer or a waiver look, and a few seconds of think time on the draft clock. Better managers are quicker and more often answer right away (the `responseDelay` difficulty lever: a multiplier on the wait and a chance of answering at once). The wait never makes an agent miss a deadline: it is capped well inside the time left before a trade offer expires, the waivers run, the next lineup lock, or the pick clock runs out. Pre-lock lineup checks and league trade votes never wait. Local development, the e2e suite, and the season simulator run without delays.
+
 ### Customization & difficulty
 - **Strategy archetypes (proposed):** zero-RB, contrarian, win-now, analytics-only, gut-feel homer, trade-happy, waiver hawk.
-- **Difficulty levers:** information access (projections, news, trending), reasoning depth, action frequency, negotiation rounds.
+- **Difficulty levers:** information access (projections, news, trending), reasoning depth, action frequency, negotiation rounds, response delay.
 - **Personality:** voice for chat and trash talk, persisted league memory.
 - **Model choice per agent:** mix Bedrock model families so agents value players differently (and "which model wins the league?" becomes content).
 

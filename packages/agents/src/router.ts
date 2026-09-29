@@ -1,9 +1,19 @@
 import { canonicalEvent, scheduleName } from '@fantasy/server';
-import { banterVerdict, hashString, isDmRoomId, resolveAgentConfig } from '@fantasy/core';
+import {
+  IMMEDIATE_RESPONSE,
+  banterVerdict,
+  hashString,
+  isDmRoomId,
+  resolveAgentConfig,
+  responseDelay,
+  type DifficultyLevers,
+  type ResponseDelayClass
+} from '@fantasy/core';
 import {
   AGENT_CHAT_BUDGETS,
   agentChatBudget,
   listInSeason,
+  nextLockAt,
   type AgentSeatRecord,
   type EventDetailOf,
   type FantasyEventType,
@@ -18,19 +28,34 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * `Agent Action Requested` tasks, only for the agent teams an event affects. Agents act only on
  * triggers (SPEC §8).
  *
- * | Event                                        | Task kind      | Teams                                   | Urgent |
- * |----------------------------------------------|----------------|-----------------------------------------|--------|
- * | Draft Turn Started                           | draft_pick     | `detail.teamId` (on the clock)          | yes    |
- * | Waiver Window Opened (once per league week)  | waivers        | every agent team in the league          | no     |
- * | Trade Proposed / Trade Countered             | trade_response | `detail.toTeamId` (the team to answer)  | yes    |
- * | Trade Accepted (league-vote review)          | trade_vote     | agent teams not in the trade            | yes    |
- * | Week Rolled Over (once per league week)      | trade_proposal | every agent team in the league          | no     |
- * | Player News Alert                            | lineup         | teams rostering any `detail.playerIds`  | no     |
- * | Player Status Changed                        | lineup         | teams rostering `detail.playerId`       | no     |
- * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    |
- * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     |
- * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     |
- * | Draft Completed (once per draft)             | post_draft     | every agent team, staggered             | yes    |
+ * | Event                                        | Task kind      | Teams                                   | Urgent | Delay (class, clamp)                   |
+ * |----------------------------------------------|----------------|-----------------------------------------|--------|----------------------------------------|
+ * | Draft Turn Started                           | draft_pick     | `detail.teamId` (on the clock)          | yes    | deadline: think time, ≤ 40% of clock   |
+ * | Waiver Window Opened (once per league week)  | waivers        | every agent team in the league          | no     | roster, ≤ half the time to `closesAt`  |
+ * | Trade Proposed / Trade Countered             | trade_response | `detail.toTeamId` (the team to answer)  | yes    | trade, ≤ half the time to `expiresAt`  |
+ * | Trade Accepted (league-vote review)          | trade_vote     | agent teams not in the trade            | yes    | none (prompt)                          |
+ * | Week Rolled Over (once per league week)      | trade_proposal | every agent team in the league          | no     | roster                                 |
+ * | Player News Alert                            | lineup         | teams rostering any `detail.playerIds`  | no     | roster, ≤ half the time to next lock   |
+ * | Player Status Changed                        | lineup         | teams rostering `detail.playerId`       | no     | roster, ≤ half the time to next lock   |
+ * | Lineup Lock Approaching                      | lineup         | every agent team in the league          | yes    | none (the deadline is the point)       |
+ * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     | chat (a person's DM: the lower end)    |
+ * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     | chat                                   |
+ * | Draft Completed (once per draft)             | post_draft     | every agent team, staggered             | yes    | stagger + post_draft jitter            |
+ *
+ * Response delays (#189): a person does not answer the instant an offer lands, so neither does an
+ * agent. A rule's `delay` gives each task a human-like wait from core `responseDelay`: a roll of
+ * the difficulty's `responseDelay.immediateChance` answers at once, otherwise a right-skewed sample
+ * around the class's median, times the tier's multiplier, capped, and clamped to a share of the time
+ * left before the event's deadline (a trade's `expiresAt`, the waiver run, the next lineup lock, the
+ * pick clock) so a delayed agent never misses it. The roll is seeded by event and team, so a
+ * replayed event gets the same delay. A delayed task is scheduled (`scheduleAt`, named by the task
+ * id, so a redelivered trigger moves it instead of doubling it); cooldowns are still checked and
+ * spent here, at route time. The task re-reads the league when it runs, so one that went stale
+ * meanwhile (an offer withdrawn or answered, a message already answered, a pick already made) is a
+ * no-op. Each `requested` decision logs its `delayMs`. Delays are on only when `RouterDeps` says
+ * so (`responseDelays`): the router Lambda turns them on (`AGENT_RESPONSE_DELAYS`, on unless
+ * `off`), and the in-process loop of the dev server, the e2e suite, and the season simulator keeps
+ * them off, so tests and demos never wait.
  *
  * The post-draft kickoff (#175) is one task per agent: it sets the lineup, posts one draft reaction
  * in the league chat, and scans for roster holes; a high-appetite archetype then takes one early
@@ -86,15 +111,31 @@ export interface TriggerRule<T extends FantasyEventType = FantasyEventType> {
    */
   oncePer?(detail: RuleDetail<T>): string | undefined;
   /**
-   * Milliseconds to wait before the `index`-th affected team's task runs. When set, the task is
-   * scheduled with `scheduleAt` instead of published, so a rule can stagger its teams.
+   * Milliseconds to wait before a team's task runs (a response delay, or a stagger over the
+   * `index`-th affected team). Above 0, the task is scheduled with `scheduleAt` instead of published.
    */
-  delay?(index: number): number;
+  delay?(input: DelayInput<T>): number;
+  /** Clamp the delay to the league's next lineup lock too (`DelayInput.lockAt`). */
+  lockBound?: boolean;
   /** Player events: the players whose rostering teams are affected (found through the roster index). */
   players?(detail: RuleDetail<T>): string[];
   /** Which of the league's agent teams this event affects (rules without `players`). */
   teams(detail: RuleDetail<T>, agentTeams: readonly string[], eventId: string): string[];
   payload(detail: RuleDetail<T>): Record<string, unknown>;
+}
+
+/** What a rule's `delay` reads. */
+export interface DelayInput<T extends FantasyEventType = FantasyEventType> {
+  /** The team's place among the teams this event affects. */
+  index: number;
+  eventId: string;
+  teamId: string;
+  detail: RuleDetail<T>;
+  /** The seat's levers; `responseDelay` is `IMMEDIATE_RESPONSE` when delays are off. */
+  levers: DifficultyLevers;
+  now: Date;
+  /** The league's next lineup lock, for `lockBound` rules (null when unknown or not asked for). */
+  lockAt: Date | null;
 }
 
 /** Why a rule's `admit` turned a team away. */
@@ -146,6 +187,34 @@ export const CHAT_COOLDOWNS = {
  */
 export const POST_DRAFT_KICKOFF = { firstMs: 60_000, spacingMs: 45_000, tradeLookMs: 120_000 } as const;
 
+/**
+ * A rule's response delay (core `responseDelay`) for an event class, clamped to the event's own
+ * deadline and, for `lockBound` rules, to the next lineup lock.
+ */
+function humanDelay<T extends FantasyEventType>(
+  eventClass: ResponseDelayClass,
+  options: { deadline?: (d: RuleDetail<T>) => unknown; quick?: (d: RuleDetail<T>) => boolean } = {}
+) {
+  return (input: DelayInput<T>): number => {
+    const own = str(options.deadline?.(input.detail));
+    const soonest = Math.min(
+      ...[own === undefined ? Number.NaN : Date.parse(own), input.lockAt?.getTime() ?? Number.NaN].filter(
+        (at) => Number.isFinite(at)
+      )
+    );
+    return responseDelay({
+      eventClass,
+      seed: `${input.eventId}:${input.teamId}`,
+      lever: input.levers.responseDelay,
+      now: input.now,
+      deadline: Number.isFinite(soonest) ? new Date(soonest) : null,
+      quick: options.quick?.(input.detail) ?? false
+    }).delayMs;
+  };
+}
+
+const postDraftJitter = humanDelay<'Draft Completed'>('post_draft');
+
 /** A mention an agent wrote. */
 function agentMention(d: RuleDetail<'Chat Mention'>): boolean {
   return d.authorType === 'agent';
@@ -188,6 +257,8 @@ async function admitBanter(input: AdmitInput<'Chat Mention'>): Promise<GateDecis
 const tradeRule: TriggerRule<'Trade Proposed' | 'Trade Countered'> = {
   kind: 'trade_response',
   urgent: true,
+  // Mulls it over, but always answers well before the offer expires.
+  delay: humanDelay('trade', { deadline: (d) => d.expiresAt }),
   teams: (d, agents) => only([str(d.toTeamId)], agents),
   payload: (d) => ({ tradeId: d.tradeId, fromTeamId: d.fromTeamId })
 };
@@ -198,6 +269,8 @@ export const TRIGGER_RULES: RuleMap = {
   'Draft Turn Started': {
     kind: 'draft_pick',
     urgent: true,
+    // A short think time, bounded by the pick clock.
+    delay: humanDelay('deadline', { deadline: (d) => d.deadline }),
     teams: (d, agents) => only([str(d.teamId)], agents),
     payload: (d) => ({ pick: d.pick, round: d.round, deadline: d.deadline })
   },
@@ -207,6 +280,7 @@ export const TRIGGER_RULES: RuleMap = {
     kind: 'waivers',
     urgent: false,
     oncePer: (d) => (typeof d.week === 'number' ? `week-${d.week}` : undefined),
+    delay: humanDelay('roster', { deadline: (d) => d.closesAt }),
     teams: (_d, agents) => [...agents],
     payload: (d) => ({ week: d.week, closesAt: d.closesAt })
   },
@@ -214,7 +288,7 @@ export const TRIGGER_RULES: RuleMap = {
   'Trade Countered': tradeRule,
   // Every agent team outside the trade reviews it while league voting is open (the vote itself is
   // deterministic; see tasks/trade-vote.ts). Urgent: the review period is short and votes must
-  // not wait behind a cooldown.
+  // not wait behind a cooldown, nor behind a response delay.
   'Trade Accepted': {
     kind: 'trade_vote',
     urgent: true,
@@ -230,12 +304,15 @@ export const TRIGGER_RULES: RuleMap = {
     kind: 'trade_proposal',
     urgent: false,
     oncePer: (d) => (typeof d.week === 'number' ? `week-${d.week}` : undefined),
+    delay: humanDelay('roster'),
     teams: (_d, agents) => [...agents],
     payload: (d) => ({ week: d.week })
   },
   'Player News Alert': {
     kind: 'lineup',
     urgent: false,
+    lockBound: true,
+    delay: humanDelay('roster'),
     players: (d) => strs(d.playerIds),
     teams: () => [],
     payload: (d) => ({ reason: 'news', playerId: strs(d.playerIds)[0], newsId: d.newsId, title: d.title })
@@ -243,6 +320,8 @@ export const TRIGGER_RULES: RuleMap = {
   'Player Status Changed': {
     kind: 'lineup',
     urgent: false,
+    lockBound: true,
+    delay: humanDelay('roster'),
     players: (d) => strs([d.playerId]),
     teams: () => [],
     payload: (d) => ({ reason: 'status', playerId: d.playerId })
@@ -250,7 +329,7 @@ export const TRIGGER_RULES: RuleMap = {
   'Lineup Lock Approaching': {
     kind: 'lineup',
     urgent: true,
-    // A game window locks every team's players in it: every agent team checks its lineup.
+    // A game window locks every team's players in it: every agent team checks its lineup, at once.
     teams: (_d, agents) => [...agents],
     payload: (d) => ({ reason: 'lock', week: d.week })
   },
@@ -258,6 +337,8 @@ export const TRIGGER_RULES: RuleMap = {
     kind: 'chat_reply',
     urgent: false,
     cooldown: (d) => (agentMention(d) ? CHAT_COOLDOWNS.banter : CHAT_COOLDOWNS.reply),
+    // A person's direct message gets the quicker end of the typing range.
+    delay: humanDelay('chat', { quick: (d) => !agentMention(d) && isDmRoomId(str(d.roomId) ?? '') }),
     // An agent's mention reaches other agents only as a depth-0 mention outside a DM.
     teams: (d, agents) =>
       agentMention(d) && (mentionDepth(d) > 0 || isDmRoomId(str(d.roomId) ?? 'dm-'))
@@ -273,6 +354,7 @@ export const TRIGGER_RULES: RuleMap = {
     kind: 'chat_moment',
     urgent: false,
     cooldown: CHAT_COOLDOWNS.moment,
+    delay: humanDelay('chat'),
     teams: (d, agents, eventId) => {
       const playing = only(strs(d.teamIds), agents);
       return [...(playing.length > 0 ? playing : agents)]
@@ -288,7 +370,8 @@ export const TRIGGER_RULES: RuleMap = {
     urgent: true,
     oncePer: (d) => (typeof d.completedAt === 'string' ? `draft-${d.completedAt}` : undefined),
     teams: (_d, agents) => [...agents],
-    delay: (index) => POST_DRAFT_KICKOFF.firstMs + index * POST_DRAFT_KICKOFF.spacingMs,
+    delay: (input) =>
+      POST_DRAFT_KICKOFF.firstMs + input.index * POST_DRAFT_KICKOFF.spacingMs + postDraftJitter(input),
     payload: (d) => ({ week: d.week, completedAt: d.completedAt })
   }
 };
@@ -332,7 +415,15 @@ export function leagueRosterIndex(services: Services): RosterIndex {
 }
 
 export type RouteDecision =
-  | { teamId: string; leagueId: string; decision: 'requested'; taskId: string; kind: string }
+  | {
+      teamId: string;
+      leagueId: string;
+      decision: 'requested';
+      taskId: string;
+      kind: string;
+      /** How long the task waits before it runs (0: right away). */
+      delayMs: number;
+    }
   | {
       teamId: string;
       leagueId: string;
@@ -344,6 +435,11 @@ export interface RouterDeps {
   services: Services;
   kinds: TaskKindRegistry;
   rosterIndex?: RosterIndex;
+  /**
+   * Human-like response delays (#189). Off unless true: the in-process loop (dev server, e2e, the
+   * simulator) stays immediate; the router Lambda turns them on.
+   */
+  responseDelays?: boolean;
 }
 
 /** Stable, short task id for (event, team, kind). */
@@ -393,6 +489,10 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
     const agentTeams = seats.map((s) => s.teamId);
     const teams =
       rule.players !== undefined ? only(target.teams, agentTeams) : rule.teams(detail, agentTeams, event.id);
+    const lockAt =
+      teams.length > 0 && rule.lockBound === true && deps.responseDelays === true
+        ? await leagueLockAt(services, target.leagueId, now)
+        : null;
     const gate =
       teams.length === 0
         ? null
@@ -415,7 +515,8 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
         decisions.push({ teamId, leagueId: target.leagueId, decision: turnedAway, kind: rule.kind });
         continue;
       }
-      const decision = await decide(deps, rule, seat, now);
+      const levers = resolveAgentConfig(seat.config).levers;
+      const decision = await decide(deps, rule, seat, levers, now);
       if (decision !== 'requested') {
         decisions.push({ teamId, leagueId: target.leagueId, decision, kind: rule.kind });
         continue;
@@ -430,13 +531,24 @@ export async function routeEvent(deps: RouterDeps, event: BusEvent): Promise<Rou
         payload: Object.fromEntries(Object.entries(rule.payload(detail)).filter(([, v]) => v !== undefined)),
         requestedAt: now.toISOString()
       };
-      await requestTask(services, request, rule.delay?.(index));
+      const delayMs =
+        rule.delay?.({
+          index,
+          eventId: event.id,
+          teamId,
+          detail,
+          levers: deps.responseDelays === true ? levers : { ...levers, responseDelay: IMMEDIATE_RESPONSE },
+          now,
+          lockAt
+        }) ?? 0;
+      await requestTask(services, request, delayMs > 0 ? delayMs : undefined);
       decisions.push({
         teamId,
         leagueId: target.leagueId,
         decision: 'requested',
         taskId: request.taskId,
-        kind: rule.kind
+        kind: rule.kind,
+        delayMs
       });
     }
   }
@@ -479,6 +591,7 @@ async function decide(
   deps: RouterDeps,
   rule: ResolvedRule,
   seat: AgentSeatRecord,
+  levers: DifficultyLevers,
   now: Date
 ): Promise<'requested' | 'no_handler' | 'cooldown'> {
   if (deps.kinds.get(rule.kind) === undefined) return 'no_handler';
@@ -486,7 +599,7 @@ async function decide(
   const slot = cooldownSlot(seat.agentId, rule);
   if (!rule.urgent) {
     const state = await agents.getTriggerState(seat.leagueId, slot);
-    const minutes = rule.cooldown?.agentMinutes ?? resolveAgentConfig(seat.config).levers.cooldownMinutes;
+    const minutes = rule.cooldown?.agentMinutes ?? levers.cooldownMinutes;
     if (state !== null && now.getTime() - new Date(state.lastTriggeredAt).getTime() < minutes * 60_000)
       return 'cooldown';
   }
@@ -496,6 +609,14 @@ async function decide(
     lastTriggeredAt: now.toISOString()
   });
   return 'requested';
+}
+
+/** The league's next lineup lock, or null when the league or its schedule is unknown. */
+async function leagueLockAt(services: Services, leagueId: string, now: Date): Promise<Date | null> {
+  const league = await services.repos.leagues.get(leagueId);
+  if (league === null) return null;
+  const at = await nextLockAt(services.data.reference, league, now);
+  return at === null ? null : new Date(at);
 }
 
 /** True when the rule fired in this league too recently; otherwise starts a new league window. */

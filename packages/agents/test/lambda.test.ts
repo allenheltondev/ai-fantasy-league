@@ -26,6 +26,11 @@ describe('agent Lambda environment', () => {
     expect(await env.modelFromEnv({ FANTASY_FAKE_MODEL: 'true' })).toBeInstanceOf(ScriptedModelClient);
     expect((await env.modelFromEnv({})).name).toBe('bedrock');
     expect(env.killSwitchFromEnv({}, services)).toBe(OFF_SWITCH);
+    // Response delays (#189): on in the Lambda unless turned off.
+    expect(env.responseDelaysOn({})).toBe(true);
+    expect(env.responseDelaysOn({ AGENT_RESPONSE_DELAYS: 'on' })).toBe(true);
+    for (const off of ['off', ' OFF ', '0', 'false'])
+      expect(env.responseDelaysOn({ AGENT_RESPONSE_DELAYS: off })).toBe(false);
     expect(env.killSwitchFromEnv({ AGENT_KILL_SWITCH_PARAM: '/ks' }, services)).toBeInstanceOf(
       ParameterKillSwitch
     );
@@ -58,7 +63,12 @@ describe('agent Lambda handlers', () => {
       source: 'fantasy',
       detail: { leagueId: LEAGUE_ID, week: 5 }
     });
-    expect(routed.decisions).toMatchObject([{ teamId: AGENT_TEAM, decision: 'requested', kind: 'lineup' }]);
+    // Response delays are on in the Lambda, but a lineup lock never waits (#189).
+    expect(routed.decisions).toMatchObject([
+      { teamId: AGENT_TEAM, decision: 'requested', kind: 'lineup', delayMs: 0 }
+    ]);
+    expect(router.createRouterDeps(s.services).responseDelays).toBe(true);
+    expect(router.createRouterDeps(s.services, false).responseDelays).toBe(false);
 
     const task = await import('../src/lambda/task.js');
     const requested = s.events.events.find((e) => e.detailType === 'Agent Action Requested');
