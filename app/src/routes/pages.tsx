@@ -55,11 +55,11 @@ export function LeagueLayout() {
   const state = current?.state ?? null;
   const data = state?.data ?? null;
   const yourTeamId = data?.yourTeam?.id ?? null;
-  const opened = data !== null;
-  // A league that loaded is one you can open: `/` comes back to it (#212).
+  // Remember the league as soon as you open it (#212), not once it loads: leaving quickly still
+  // counts. `/` checks you are still a member before going back in, and forgets it if not.
   useEffect(() => {
-    if (opened) rememberLastLeague(leagueId);
-  }, [leagueId, opened]);
+    if (leagueId !== '') rememberLastLeague(leagueId);
+  }, [leagueId]);
   // The top bar names the league and the side nav the page, so the page's one h1 is for screen
   // readers only (#212): named after the page, as its tab is.
   const heading = pageName(pathname, {
