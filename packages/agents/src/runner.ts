@@ -16,12 +16,17 @@ import {
   budgetWeek,
   isApiError,
   leagueBudget,
+  roundUsd,
+  taskCountKey,
+  usageKey,
   type AgentFollowUp,
   type AgentModelUsage,
   type AgentTaskFence,
   type AgentTaskPending,
   type AgentTaskRecord,
   type AgentTaskSeal,
+  type AgentUsageEntry,
+  type BudgetHold,
   type League,
   type LeagueBudget,
   type Logger,
@@ -44,7 +49,14 @@ import {
   tableMemoryStore,
   type AgentMemoryStore
 } from './memory.js';
-import { estimateTokens, isModelUnavailable, type ModelClient } from './model.js';
+import {
+  estimateTokens,
+  isModelUnavailable,
+  runUsageOf,
+  type ModelClient,
+  type ModelRunResult,
+  type ModelUsage
+} from './model.js';
 import { MEMORY_NOTE_MAX, assembleSystemPrompt } from './prompt.js';
 import { taskIdFor } from './router.js';
 import type {
@@ -64,14 +76,16 @@ import { ToolBox, keyPrefix } from './tools.js';
  *    claim is an attempt; its number fences every later write (#207).
  * 2. Load the league and seat, resolve the config, and let the task kind prepare.
  * 3. Decide the mode: deterministic fallback if the kill switch is on or the league's weekly budget
- *    is spent; otherwise the model, trying each model in the tier's chain.
+ *    is spent; otherwise the model, trying each model in the tier's chain. Each model call is
+ *    admitted against the budget first (#209, below); a call that does not fit falls back.
  * 4. On a model timeout or failure, fall back to the kind's deterministic behavior. The failed run
- *    still counts against the budget: its usage is estimated from the prompt and the token limit.
+ *    still counts against the budget: what the provider reported for the turns it finished, or an
+ *    estimate from the prompt and the token limit when it reported nothing.
  * 5. Checkpoint the result (`saveTaskPending`), then record everything (#45): trigger, tools called,
- *    final action, reasoning summary, latency, tokens and estimated cost per model; add the weekly
- *    rollups; update the agent's memory (#44): its decision, its note, and whatever the kind adds (a
- *    chat snapshot). Summaries with sealed information carry the kind's `sealed` marker, so the
- *    activity log withholds them (#122).
+ *    final action, reasoning summary, latency, tokens and estimated cost per model; count the task
+ *    in the weekly rollups; update the agent's memory (#44): its decision, its note, and whatever the
+ *    kind adds (a chat snapshot). Summaries with sealed information carry the kind's `sealed`
+ *    marker, so the activity log withholds them (#122).
  * 6. Dispatch the outcome's follow-up tasks (`followUps`) through the outbox (dispatch.ts), each a
  *    task of its own for the same agent. Chat-driven ones (#196, a conversation handed to an action
  *    task) are held to `SOCIAL_LIMITS.chatActionsPerDay` per agent (`takeChatActionSlot`).
@@ -95,8 +109,18 @@ import { ToolBox, keyPrefix } from './tools.js';
  * - A stale attempt cannot overwrite a newer one: its mutations are refused (the ToolBox fence), its
  *   checkpoint and record are not written, and it only adds the usage it spent.
  *
- * Budget seam (#209): `modelTurn` is where one model call runs; `TaskAttempt.recordUsage` is the
- * one place spend reaches the weekly rollups (finished, fenced off, or given back for a retry).
+ * Spend (#209): the weekly ceiling is a soft threshold with a bounded overshoot, and admission to it
+ * is atomic. Before each model call the attempt holds the call's estimate (the prompt and the whole
+ * response limit) against the ceiling (`reserveBudget`): only while recorded spend, every hold, and
+ * this one fit, so racing tasks cannot all pass the same room. Right after the call its usage
+ * replaces the hold in one transaction (`recordUsage`: the provider's count, or an estimate when it
+ * reported none, flagged `estimatedTokens`); a call that never ran releases it. Usage goes through a
+ * ledger keyed by task, attempt, and call (`usageKey`), and a finished task is counted under its
+ * own keys (`taskCountKey`), so writing a line again never counts it twice: a usage write that fails
+ * is retried when the attempt ends, and a delivery of a finished task writes its record's lines
+ * again, which repairs a charge lost after completion. A hold whose attempt died is charged as its
+ * estimate by the recovery sweep once the attempt's lease has run out. See docs/ARCHITECTURE.md
+ * (Spend guard) for the overshoot bound.
  *
  * The first task that finds the league's weekly budget spent announces it in the league chat
  * (`Agent Budget Exceeded`, once per league and budget week).
@@ -202,6 +226,11 @@ export async function runAgentAction(
   });
   if (claim.status === 'done') {
     log.info('agent task already done; replaying', { status: claim.record.status });
+    // Charging is idempotent: this repairs a usage write that failed after the record was stored.
+    await new TaskAttempt(deps, request, null, started, log, claim.record.week).charge(
+      claim.record.usage,
+      true
+    );
     return claim.record;
   }
   if (claim.status === 'in_progress') {
@@ -358,7 +387,7 @@ export async function runAgentAction(
   }
 
   const gate = await modeGate(deps, league);
-  if (gate !== null) return attempt.fallback(prepared, gate);
+  if (typeof gate === 'string') return attempt.fallback(prepared, gate);
 
   const modelTools = new ToolBox({
     registry: deps.registry,
@@ -402,19 +431,25 @@ export async function runAgentAction(
   const usage: AgentModelUsage[] = [];
   let lastError: unknown = null;
   const effort = config.levers.reasoningEffort;
+  const input = `Trigger: ${request.trigger.detailType}. Do the current task, then give your structured answer.`;
+  let call = 0;
   for (const modelKey of chain) {
     const model = getModel(modelKey);
+    const thinking = model.thinkingBudget === true ? THINKING_BUDGET[effort] : 0;
+    const maxTokens = MAX_TOKENS[effort] + thinking;
+    // One turn at the response limit: held while the call runs, and charged for a failed run the
+    // provider reported nothing for.
+    const estimate = { inputTokens: estimateTokens(systemPrompt + input), outputTokens: maxTokens };
+    call++;
+    const refused = await attempt.reserve(modelKey, call, estimate, gate.ceilingUsd);
+    if (refused !== null) return attempt.fallback(prepared, refused, usage);
     const controller = new AbortController();
     const timer = setTimeout(
       () => controller.abort(new Error('agent task timed out')),
       deps.modelTimeoutMs ?? 90_000
     );
-    const thinking = model.thinkingBudget === true ? THINKING_BUDGET[effort] : 0;
-    const input = `Trigger: ${request.trigger.detailType}. Do the current task, then give your structured answer.`;
-    const maxTokens = MAX_TOKENS[effort] + thinking;
-    let decision: BaseDecision;
+    let result: ModelRunResult<BaseDecision>;
     try {
-      // The model turn: where #209 reserves budget before the call and reconciles after it.
       const runRequest = {
         modelId: model.bedrockId,
         systemPrompt,
@@ -438,33 +473,27 @@ export async function runAgentAction(
         },
         ...(prepared.fakeScript === undefined ? {} : { fakeScript: prepared.fakeScript })
       } satisfies Parameters<ModelClient['run']>[0] & ScriptedRequestExtras;
-      const result = await deps.model.run<BaseDecision>(runRequest);
-      usage.push({
-        modelKey,
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        estimatedCostUsd: estimateCostUsd(modelKey, result.usage),
-        estimatedTokens: result.usage.estimated
-      });
-      decision = result.decision;
+      result = await deps.model.run<BaseDecision>(runRequest);
     } catch (error) {
       lastError = error;
       const timedOut = controller.signal.aborted;
       log.warn('agent model run failed', { model: modelKey, timedOut, error: errorName(error) });
-      if (!timedOut && isModelUnavailable(error) && modelTools.actionsTaken === 0) continue;
-      // The run got far enough to cost something: count an estimate (the prompt, and the whole
-      // response limit) so failures cannot slip past the weekly budget.
-      const estimate = { inputTokens: estimateTokens(systemPrompt + input), outputTokens: maxTokens };
-      usage.push({
-        modelKey,
-        ...estimate,
-        estimatedCostUsd: estimateCostUsd(modelKey, estimate),
-        estimatedTokens: true
-      });
+      // What the provider reported for the turns the run finished, if it reported anything.
+      const spent = runUsageOf(error);
+      if (!timedOut && isModelUnavailable(error) && modelTools.actionsTaken === 0) {
+        if (spent === null) await attempt.release(call);
+        else usage.push(await attempt.settleCall(modelKey, call, spent));
+        continue;
+      }
+      // The run got far enough to cost something: without a reported count, the estimate is
+      // charged, so failures cannot slip past the weekly budget.
+      usage.push(await attempt.settleCall(modelKey, call, spent ?? { ...estimate, estimated: true }));
       return attempt.fallback(prepared, timedOut ? 'timeout' : 'model_error', usage);
     } finally {
       clearTimeout(timer);
     }
+    usage.push(await attempt.settleCall(modelKey, call, result.usage));
+    const decision = result.decision;
 
     let outcome: TaskOutcome;
     try {
@@ -497,7 +526,8 @@ export async function runAgentAction(
   return attempt.fallback(prepared, 'models_unavailable', usage);
 }
 
-async function modeGate(deps: RunnerDeps, league: League): Promise<string | null> {
+/** The fallback reason when the model may not run; otherwise the week's budget. */
+async function modeGate(deps: RunnerDeps, league: League): Promise<string | LeagueBudget> {
   if (await deps.killSwitch.engaged()) return 'kill_switch';
   const budget = await leagueBudget(deps.services.repos.agents, league);
   if (budget.exceeded) {
@@ -510,7 +540,7 @@ async function modeGate(deps: RunnerDeps, league: League): Promise<string | null
     await announceBudget(deps, league, budget);
     return 'budget_exceeded';
   }
-  return null;
+  return budget;
 }
 
 /**
@@ -562,6 +592,10 @@ class TaskAttempt {
   remember: ((outcome: TaskOutcome, note?: string) => Promise<void>) | null = null;
   /** Whose follow-ups these are (set with `remember`; a checkpoint passes its own). */
   owner: { leagueId: string; agentId: string } | null = null;
+  /** Budget holds of this attempt's model calls not settled yet, by ledger key (#209). */
+  readonly #holds = new Map<string, BudgetHold>();
+  /** Ledger keys this attempt has charged. */
+  readonly #charged = new Set<string>();
 
   constructor(
     readonly deps: RunnerDeps,
@@ -700,7 +734,7 @@ class TaskAttempt {
     const fence = this.fence as AgentTaskFence;
     const retryAt = new Date(this.services.clock.now().getTime() + taskRetryDelayMs(fence.attempt));
     const released = await this.services.repos.agents.releaseTask(fence, retryAt, errorName(error));
-    await this.recordUsage(usage, 0);
+    await this.charge(usage, false);
     this.log.warn('agent task will be retried', {
       stage,
       attempt: fence.attempt,
@@ -713,7 +747,7 @@ class TaskAttempt {
 
   /** A newer attempt holds the task: this one writes nothing but the usage it spent. */
   async discard(result: Result): Promise<AgentTaskRecord> {
-    await this.recordUsage(result.usage, 0);
+    await this.charge(result.usage, false);
     this.log.warn('agent task result discarded: a newer attempt holds the task', {
       attempt: this.fence?.attempt ?? null
     });
@@ -730,7 +764,8 @@ class TaskAttempt {
       fence
     );
     if (!stored) return this.discard(result);
-    await this.recordUsage(result.usage, 1);
+    // After the record: a failure here fails the delivery, and the next one (a replay) repairs it.
+    await this.charge(result.usage, true);
     this.log.info('agent task finished', {
       taskId: record.taskId,
       leagueId: record.leagueId,
@@ -759,20 +794,123 @@ class TaskAttempt {
     return record;
   }
 
-  /** Adds spend to the weekly rollups; `tasks` is 0 for a run that did not finish the task. */
-  async recordUsage(usage: readonly AgentModelUsage[], tasks: number): Promise<void> {
-    for (const u of usage) {
-      await this.services.repos.agents.addUsage({
-        leagueId: this.request.leagueId,
-        week: this.week,
-        agentId: this.request.agentId,
-        modelKey: u.modelKey,
-        inputTokens: u.inputTokens,
-        outputTokens: u.outputTokens,
-        costUsd: u.estimatedCostUsd,
-        tasks
-      });
+  /**
+   * Holds model call `call`'s estimate against the week's ceiling before it runs (#209). Null when
+   * admitted; otherwise the fallback reason: `budget_exceeded` when recorded spend alone leaves no
+   * room for it, `budget_reserved` when calls in flight hold the rest (or the admission stayed
+   * contended).
+   */
+  async reserve(
+    modelKey: ModelKey,
+    call: number,
+    estimate: { inputTokens: number; outputTokens: number },
+    ceilingUsd: number
+  ): Promise<string | null> {
+    const { request } = this;
+    const fence = this.fence as AgentTaskFence;
+    const hold: BudgetHold = {
+      leagueId: request.leagueId,
+      week: this.week,
+      agentId: request.agentId,
+      taskId: request.taskId,
+      key: usageKey(fence.attempt, call),
+      modelKey,
+      ...estimate,
+      costUsd: estimateCostUsd(modelKey, estimate),
+      // The attempt's lease: past it the worker is gone, and the recovery sweep settles the hold.
+      expiresAt: new Date(this.started.getTime() + TASK_LOCK_MS).toISOString()
+    };
+    const admission = await this.services.repos.agents.reserveBudget(hold, ceilingUsd);
+    if (admission.status === 'reserved') {
+      this.#holds.set(hold.key, hold);
+      return null;
     }
+    const reason =
+      admission.status === 'refused' && roundUsd(admission.spentUsd + hold.costUsd) > ceilingUsd
+        ? 'budget_exceeded'
+        : 'budget_reserved';
+    this.log.warn('agent model call not admitted: no room left in the weekly budget', {
+      model: modelKey,
+      reason,
+      holdUsd: hold.costUsd,
+      ceilingUsd,
+      ...(admission.status === 'refused'
+        ? { spentUsd: admission.spentUsd, reservedUsd: admission.reservedUsd }
+        : { contended: true })
+    });
+    return reason;
+  }
+
+  /** Model call `call` spent `spent`: charged now, replacing its hold (retried later if this fails). */
+  async settleCall(modelKey: ModelKey, call: number, spent: ModelUsage): Promise<AgentModelUsage> {
+    const line: AgentModelUsage = {
+      modelKey,
+      inputTokens: spent.inputTokens,
+      outputTokens: spent.outputTokens,
+      estimatedCostUsd: estimateCostUsd(modelKey, spent),
+      estimatedTokens: spent.estimated,
+      attempt: (this.fence as AgentTaskFence).attempt,
+      call
+    };
+    try {
+      await this.charge([line], false);
+    } catch (error) {
+      this.log.warn('agent usage write failed; retried when the attempt ends', { error: errorName(error) });
+    }
+    return line;
+  }
+
+  /** Model call `call` never ran (the model was unavailable): its hold is let go, nothing charged. */
+  async release(call: number): Promise<void> {
+    const key = usageKey((this.fence as AgentTaskFence).attempt, call);
+    const hold = this.#holds.get(key) as BudgetHold;
+    try {
+      await this.services.repos.agents.releaseBudget(hold);
+      this.#holds.delete(key);
+    } catch (error) {
+      // Its estimate stays held until the recovery sweep settles it.
+      this.log.warn('agent budget hold not released', { error: errorName(error) });
+    }
+  }
+
+  /**
+   * Charges usage lines to the ledger, each once (a line charged before is skipped here, and
+   * refused by the ledger if it comes again), releasing their holds; `finished` counts the task in
+   * the rollups too, under its own keys. Lines from before the ledger (no attempt) are left alone.
+   */
+  async charge(usage: readonly AgentModelUsage[], finished: boolean): Promise<void> {
+    const { agents } = this.services.repos;
+    for (const line of usage) {
+      if (line.attempt === undefined || line.call === undefined) continue;
+      const key = usageKey(line.attempt, line.call);
+      if (this.#charged.has(key)) continue;
+      await agents.recordUsage(this.#entry(line, key, 0), this.#holds.get(key));
+      this.#charged.add(key);
+      this.#holds.delete(key);
+    }
+    if (!finished) return;
+    for (const [index, line] of usage.entries()) {
+      if (line.attempt !== undefined) await agents.recordUsage(this.#entry(line, taskCountKey(index), 1));
+    }
+  }
+
+  /** A ledger line: the usage itself, or (`tasks`) the finished task's count with no tokens. */
+  #entry(line: AgentModelUsage, key: string, tasks: number): AgentUsageEntry {
+    const { request } = this;
+    return {
+      leagueId: request.leagueId,
+      week: this.week,
+      agentId: request.agentId,
+      taskId: request.taskId,
+      key,
+      modelKey: line.modelKey,
+      inputTokens: tasks > 0 ? 0 : line.inputTokens,
+      outputTokens: tasks > 0 ? 0 : line.outputTokens,
+      costUsd: tasks > 0 ? 0 : line.estimatedCostUsd,
+      tasks,
+      estimated: line.estimatedTokens,
+      at: this.services.clock.now().toISOString()
+    };
   }
 
   record(result: Result): AgentTaskRecord {

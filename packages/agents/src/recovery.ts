@@ -15,6 +15,11 @@ import { TASK_LOCK_MS, TASK_RECORD_TTL_MS } from './runner.js';
  * 2. The dispatch outbox: reservations never sent (the sender died) or whose send failed, resent
  *    from their `retryAt`. After `DISPATCH_ATTEMPTS` failed sends one is abandoned, and the task
  *    gets a failed record (`dispatch_exhausted`) so the commissioner's activity log shows it.
+ * 3. Stale budget holds (#209): a model call's estimate still held after its attempt's lease ran
+ *    out, so the worker died between admitting the call and recording what it spent. The call may
+ *    have run and been billed, so the hold's estimate is charged (flagged as an estimate) and the
+ *    hold released, in one ledger write under the call's key: if the worker's own write turns up
+ *    later it is a duplicate, and nothing is counted twice.
  *
  * Why a sweep rather than a recovery event scheduled at each lease's expiry: the sweep adds nothing
  * to the path of a healthy task (no extra schedule per claim, no cancel on completion); it cannot
@@ -36,6 +41,9 @@ export interface RecoveryReport {
   sent: number;
   failed: number;
   abandoned: number;
+  /** Stale budget holds found, and settled as estimated spend. */
+  holds: number;
+  settled: number;
 }
 
 export async function recoverAgentTasks(
@@ -51,8 +59,46 @@ export async function recoverAgentTasks(
     dispatches: 0,
     sent: 0,
     failed: 0,
-    abandoned: 0
+    abandoned: 0,
+    holds: 0,
+    settled: 0
   };
+
+  for (const hold of await agents.listStaleHolds(now, limit)) {
+    report.holds++;
+    try {
+      await agents.recordUsage(
+        {
+          leagueId: hold.leagueId,
+          week: hold.week,
+          agentId: hold.agentId,
+          taskId: hold.taskId,
+          key: hold.key,
+          modelKey: hold.modelKey,
+          inputTokens: hold.inputTokens,
+          outputTokens: hold.outputTokens,
+          costUsd: hold.costUsd,
+          tasks: 0,
+          estimated: true,
+          at: now.toISOString()
+        },
+        hold
+      );
+      report.settled++;
+      services.log.warn('agent budget hold outlived its attempt; charged as an estimate', {
+        taskId: hold.taskId,
+        key: hold.key,
+        model: hold.modelKey,
+        costUsd: hold.costUsd
+      });
+    } catch (error) {
+      services.log.warn('agent budget hold could not be settled; will retry', {
+        taskId: hold.taskId,
+        key: hold.key,
+        error: errorName(error)
+      });
+    }
+  }
 
   for (const lease of await agents.listExpiredTaskLeases(now, limit)) {
     report.leases++;
@@ -88,7 +134,8 @@ export async function recoverAgentTasks(
     else report.failed++;
   }
 
-  if (report.leases + report.dispatches > 0) services.log.info('agent recovery sweep', { ...report });
+  if (report.leases + report.dispatches + report.holds > 0)
+    services.log.info('agent recovery sweep', { ...report });
   return report;
 }
 
