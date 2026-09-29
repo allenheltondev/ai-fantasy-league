@@ -3,6 +3,7 @@ import { Button, SegmentedControl } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { MatchupSide, RedZoneTeam, ScoringLogEntry } from '../../api/types';
 import { AgentAvatar } from '../../components/AgentAvatar';
+import { useTeamAvatarSeed } from '../../routes/leagueTeams';
 import { useLoad } from '../../lib/useLoad';
 import { useArrivals } from '../../motion/useArrivals';
 import { RedZoneChip, redZoneClass, redZoneFor, usePrefersReducedMotion } from './RedZone';
@@ -307,7 +308,7 @@ function LogRow({
   );
 }
 
-/** The team's AI manager avatar (#159), or its initial for a person's team; your side gets a ring. */
+/** The team's AI manager avatar (#159), its person's picked avatar (#178), or its initial; your side gets a ring. */
 function TeamMark({
   side,
   teamName,
@@ -319,6 +320,14 @@ function TeamMark({
 }) {
   const ring = mine ? ' ring-2 ring-primary-500' : '';
   const manager = side?.manager ?? null;
+  const picked = useTeamAvatarSeed(side?.teamId);
+  if (manager === null && picked !== null) {
+    return (
+      <span className={`shrink-0 rounded-lg${ring}`} title={teamName}>
+        <AgentAvatar seed={picked} label={teamName} size={32} />
+      </span>
+    );
+  }
   if (manager !== null) {
     return (
       <span className={`shrink-0 rounded-lg${ring}`} title={`${manager.name} · ${teamName}`}>

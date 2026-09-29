@@ -243,7 +243,11 @@ export function TradesPage({
     const tick = setInterval(() => setClock(now()), COUNTDOWN_TICK_MS);
     return () => clearInterval(tick);
   }, [now]);
-  const [selection, setSelection] = useState<Selection>(EMPTY);
+  // `?with=<teamId>` (another team's page, #178) starts the builder with that team picked.
+  const [selection, setSelection] = useState<Selection>(() => ({
+    ...EMPTY,
+    withTeamId: params.get('with') ?? ''
+  }));
   const [countering, setCountering] = useState<TradeView | null>(null);
   const [mine, setMine] = useState<PlayerRef[] | null>(null);
   const [theirs, setTheirs] = useState<PlayerRef[] | null>(null);

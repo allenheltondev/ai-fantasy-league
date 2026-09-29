@@ -1,3 +1,5 @@
+import { useLeagueTeams } from '../routes/leagueTeams';
+
 /**
  * A personality's avatar: its `avatarSeed` hashed into a symmetric 5x5 pattern in one of the design
  * system's tones, so the same personality always looks the same without shipping images.
@@ -56,26 +58,36 @@ export function AgentAvatar({ seed, label, size = 48 }: { seed: string; label: s
 
 /**
  * Who manages a team, for lists (standings, matchups, the draft): an AI manager's avatar and name
- * (#159), with its personality as a tooltip. Renders nothing for people, or when the API sent none.
+ * (#159), with its personality as a tooltip; or, given `teamId`, a person's team avatar (#178) and
+ * their name once they have picked one. Renders nothing otherwise.
  */
 export function ManagerTag({
   manager,
+  teamId,
   size = 20,
   className = ''
 }: {
   manager: { name: string; avatarSeed: string; personality?: string | null } | null | undefined;
+  teamId?: string;
   size?: number;
   className?: string;
 }) {
-  if (manager === null || manager === undefined) return null;
+  const person = useLeagueTeams().find((t) => t.id === teamId);
+  const shown =
+    manager ??
+    (person?.avatarSeed && person.ownerName
+      ? { name: person.ownerName, avatarSeed: person.avatarSeed }
+      : null);
+  if (shown === null) return null;
+  const personality = manager?.personality;
   return (
     <span
       data-testid="manager-tag"
       className={`inline-flex min-w-0 max-w-full items-center gap-1 text-xs font-normal text-muted-foreground ${className}`}
-      title={manager.personality ?? undefined}
+      title={personality ?? undefined}
     >
-      <AgentAvatar seed={manager.avatarSeed} label={`${manager.name} avatar`} size={size} />
-      <span className="truncate">{manager.name}</span>
+      <AgentAvatar seed={shown.avatarSeed} label={`${shown.name} avatar`} size={size} />
+      <span className="truncate">{shown.name}</span>
     </span>
   );
 }

@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import { Button, Card, CardBody, CardHeader, CardTitle } from '@readysetcloud/ui';
 import type { Move, MoveSide, MoveType, PlayerRef } from '../../api/types';
 import { useArrivals } from '../../motion/useArrivals';
+import { leagueTabPath } from '../../routes/leagueRoutes';
 import { managerName, TeamAvatar } from './TeamBadge';
 
 /** The move board (#166): the league's trades, pickups, drops, and waiver awards, one card per move. */
@@ -193,7 +194,7 @@ export function MoveBoard({
             </Button>
           ) : (
             <Link
-              to={`/leagues/${encodeURIComponent(leagueId)}/players`}
+              to={leagueTabPath(leagueId, 'transactions')}
               className="inline-flex min-h-11 items-center text-sm font-medium text-primary-700 hover:underline"
             >
               See every transaction

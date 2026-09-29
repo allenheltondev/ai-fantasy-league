@@ -1,5 +1,6 @@
 import type { DashboardTeam } from '../../api/types';
 import { AgentAvatar, hashSeed } from '../../components/AgentAvatar';
+import { useTeamAvatarSeed } from '../../routes/leagueTeams';
 
 /** Who plays a team, for the dashboard (#166): the person, the AI manager, or an open seat. */
 export function managerName(team: DashboardTeam): string {
@@ -24,12 +25,16 @@ const TONES = [
 ] as const;
 
 /**
- * A team's picture: an AI manager's avatar (#159), or a person's initials in a tone picked from the
- * team id, so the same team always looks the same.
+ * A team's picture: an AI manager's avatar (#159), the avatar a person picked for their team (#178),
+ * or their initials in a tone picked from the team id, so the same team always looks the same.
  */
 export function TeamAvatar({ team, size = 32 }: { team: DashboardTeam; size?: number }) {
+  const picked = useTeamAvatarSeed(team.teamId);
   if (team.manager !== null) {
     return <AgentAvatar seed={team.manager.avatarSeed} label={`${team.manager.name} avatar`} size={size} />;
+  }
+  if (picked !== null) {
+    return <AgentAvatar seed={picked} label={`${team.teamName} avatar`} size={size} />;
   }
   const tone = TONES[hashSeed(team.teamId) % TONES.length];
   return (

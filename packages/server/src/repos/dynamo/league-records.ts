@@ -106,6 +106,7 @@ export const TeamRecordSchema = z.object({
   seatType: z.enum(SEAT_TYPES),
   ownerUserId: z.string().nullable(),
   ownerName: z.string().nullable(),
+  avatarSeed: z.string().optional(),
   agentConfigId: z.string().nullable(),
   draftSlot: z.number(),
   faabRemaining: z.number(),

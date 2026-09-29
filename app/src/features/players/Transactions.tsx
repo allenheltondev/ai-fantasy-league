@@ -4,6 +4,8 @@ import { apiFetch } from '../../api';
 import { describeError, formatTime, type Transaction } from './types';
 
 const PAGE = 20;
+/** One team's moves are filtered from the league's, so read more at a time. */
+const TEAM_PAGE = 50;
 
 interface TransactionPage {
   transactions: Transaction[];
@@ -19,8 +21,21 @@ export function describeMove(t: Transaction): string {
   return `dropped ${t.dropped?.name ?? 'a player'}`;
 }
 
-/** The league's transaction log (list_transactions), newest first, with older pages on demand. */
-export function Transactions({ leagueId, refreshKey }: { leagueId: string; refreshKey: number }) {
+/**
+ * The league's transaction log (list_transactions), newest first, with older pages on demand. With
+ * `teamId`, only that team's moves (My Team › Roster & moves, another team's page).
+ */
+export function Transactions({
+  leagueId,
+  refreshKey,
+  teamId,
+  title = 'Transactions'
+}: {
+  leagueId: string;
+  refreshKey: number;
+  teamId?: string;
+  title?: string;
+}) {
   const [items, setItems] = useState<Transaction[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +43,9 @@ export function Transactions({ leagueId, refreshKey }: { leagueId: string; refre
 
   useEffect(() => {
     let live = true;
-    apiFetch<TransactionPage>(`/leagues/${leagueId}/transactions`, { query: { limit: PAGE } })
+    apiFetch<TransactionPage>(`/leagues/${leagueId}/transactions`, {
+      query: { limit: teamId ? TEAM_PAGE : PAGE }
+    })
       .then((res) => {
         if (!live) return;
         setItems(res.data.transactions);
@@ -39,13 +56,13 @@ export function Transactions({ leagueId, refreshKey }: { leagueId: string; refre
     return () => {
       live = false;
     };
-  }, [leagueId, refreshKey]);
+  }, [leagueId, refreshKey, teamId]);
 
   async function older(after: string) {
     setLoadingMore(true);
     try {
       const res = await apiFetch<TransactionPage>(`/leagues/${leagueId}/transactions`, {
-        query: { limit: PAGE, cursor: after }
+        query: { limit: teamId ? TEAM_PAGE : PAGE, cursor: after }
       });
       setItems((current) => [...(current ?? []), ...res.data.transactions]);
       setCursor(res.data.nextCursor);
@@ -56,16 +73,17 @@ export function Transactions({ leagueId, refreshKey }: { leagueId: string; refre
     }
   }
 
+  const shown = teamId === undefined ? items : items?.filter((t) => t.teamId === teamId);
   return (
-    <Card role="region" aria-label="Transactions">
+    <Card role="region" aria-label={title}>
       <CardHeader>
-        <CardTitle>Transactions</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardBody className="space-y-2">
         {error && <Alert variant="error">{error}</Alert>}
-        {items?.length === 0 && <p className="text-muted-foreground">No roster moves yet.</p>}
-        <ol className="space-y-1" aria-label="League transactions">
-          {items?.map((t) => (
+        {shown?.length === 0 && <p className="text-muted-foreground">No roster moves yet.</p>}
+        <ol className="space-y-1" aria-label={teamId ? `${title} list` : 'League transactions'}>
+          {shown?.map((t) => (
             <li key={t.id}>
               <strong>{t.teamName}</strong> {describeMove(t)}{' '}
               <span className="text-sm text-muted-foreground">

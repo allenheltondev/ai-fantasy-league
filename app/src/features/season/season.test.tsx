@@ -148,7 +148,7 @@ function matchupData(status: 'scheduled' | 'in_progress' | 'final', homeScore: n
   };
 }
 
-describe('team achievements on the roster', () => {
+describe('My Team › Achievements', () => {
   const achievement = (id: string, teamId: string, name: string, week: number | null) => ({
     id,
     achievementId: 'blowout-win',
@@ -159,8 +159,8 @@ describe('team achievements on the roster', () => {
     reason: `${name} reason`
   });
 
-  it("shows the team's own badges in the roster header", async () => {
-    open('/leagues/L1/roster', {
+  it("shows the team's own badges", async () => {
+    open('/leagues/L1/team/achievements', {
       getRoster: vi.fn(async () => roster([entry('qb1', 'QB', 'QB')])),
       getLeagueHistory: vi.fn(async () => ({
         ...(await fakeApi().getLeagueHistory('L1')),
@@ -178,10 +178,10 @@ describe('team achievements on the roster', () => {
     expect(within(badges).getAllByRole('listitem')[0]).toHaveAttribute('title', 'Blowout reason');
   });
 
-  it('shows nothing before the team earns one', async () => {
-    const api = open('/leagues/L1/roster', { getRoster: vi.fn(async () => roster([])) });
-    await screen.findByText('No players yet');
-    await waitFor(() => expect(api.getLeagueHistory).toHaveBeenCalled());
+  it('says so before the team earns one', async () => {
+    const api = open('/leagues/L1/team/achievements', {});
+    expect(await screen.findByText('No achievements yet')).toBeInTheDocument();
+    expect(api.getLeagueHistory).toHaveBeenCalled();
     expect(screen.queryByTestId('team-achievements')).not.toBeInTheDocument();
   });
 });

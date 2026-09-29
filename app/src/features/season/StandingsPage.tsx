@@ -1,4 +1,4 @@
-import { useParams, useSearchParams } from 'react-router';
+import { useParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import { ManagerTag } from '../../components/AgentAvatar';
@@ -6,49 +6,17 @@ import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { STACKED_BLOCK, STACKED_HEAD, STACKED_LABEL, STACKED_ROW } from '../../lib/stackedTable';
 import { LoadingSkeleton, stagger } from '../../motion/decor';
-import { HistoryPanel } from './HistoryPanel';
 import { ModelLeaderboardPanel } from './ModelLeaderboardPanel';
-import { PlayoffsPanel } from './PlayoffsPanel';
 
 /** A standings row as a card below `sm`: rank | team | record, then PF | PA | streak. */
 const ROW = `${STACKED_ROW} max-sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_auto]`;
 
-const VIEWS = [
-  { id: 'standings', label: 'Standings' },
-  { id: 'playoffs', label: 'Playoffs' },
-  { id: 'history', label: 'History' }
-] as const;
-type View = (typeof VIEWS)[number]['id'];
-
-/** The Standings section (#58), with the playoff bracket (#78) and league history (#81) as tabs (`?view=`). */
+/** League › Standings (#58, #178): the table, then the models playing the league (#76). */
 export function StandingsPage() {
-  const [params, setParams] = useSearchParams();
-  const requested = params.get('view');
-  const view: View = VIEWS.find((v) => v.id === requested)?.id ?? 'standings';
   return (
     <div data-testid="league-section-standings" className="space-y-4">
-      <h2 className="text-xl font-semibold">Standings</h2>
-      <div role="tablist" aria-label="Standings views" className="flex gap-2">
-        {VIEWS.map((v) => (
-          <button
-            key={v.id}
-            type="button"
-            role="tab"
-            aria-selected={view === v.id}
-            className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
-              view === v.id
-                ? 'bg-primary-100 text-primary-800'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setParams(v.id === 'standings' ? {} : { view: v.id })}
-          >
-            {v.label}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" aria-label={VIEWS.find((v) => v.id === view)?.label}>
-        {view === 'playoffs' ? <PlayoffsPanel /> : view === 'history' ? <HistoryPanel /> : <StandingsTable />}
-      </div>
+      <h3 className="sr-only">Standings</h3>
+      <StandingsTable />
     </div>
   );
 }
@@ -97,7 +65,7 @@ function StandingsTable() {
               <td className="break-words max-sm:col-span-2 max-sm:font-medium">
                 <span className="flex min-w-0 flex-col">
                   <span>{row.teamName}</span>
-                  <ManagerTag manager={row.manager} size={16} />
+                  <ManagerTag manager={row.manager} teamId={row.teamId} size={16} />
                 </span>
               </td>
               <td className="max-sm:text-right">{row.record}</td>

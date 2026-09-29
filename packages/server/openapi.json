@@ -1194,6 +1194,13 @@
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
                             },
+                            "avatarSeed": {
+                              "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "manager": {
                               "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                               "anyOf": [
@@ -1263,6 +1270,7 @@
                             "open",
                             "ownerName",
                             "draftSlot",
+                            "avatarSeed",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -1972,6 +1980,13 @@
                                 "minimum": -9007199254740991,
                                 "maximum": 9007199254740991
                               },
+                              "avatarSeed": {
+                                "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "manager": {
                                 "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                                 "anyOf": [
@@ -2041,6 +2056,7 @@
                               "open",
                               "ownerName",
                               "draftSlot",
+                              "avatarSeed",
                               "ownerUserId",
                               "agentConfigId",
                               "faabRemaining",
@@ -3223,6 +3239,13 @@
                                 "minimum": -9007199254740991,
                                 "maximum": 9007199254740991
                               },
+                              "avatarSeed": {
+                                "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "manager": {
                                 "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                                 "anyOf": [
@@ -3292,6 +3315,7 @@
                               "open",
                               "ownerName",
                               "draftSlot",
+                              "avatarSeed",
                               "ownerUserId",
                               "agentConfigId",
                               "faabRemaining",
@@ -17542,6 +17566,13 @@
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
                             },
+                            "avatarSeed": {
+                              "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "manager": {
                               "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                               "anyOf": [
@@ -17611,6 +17642,7 @@
                             "open",
                             "ownerName",
                             "draftSlot",
+                            "avatarSeed",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -20251,6 +20283,13 @@
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
                             },
+                            "avatarSeed": {
+                              "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "manager": {
                               "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                               "anyOf": [
@@ -20320,6 +20359,7 @@
                             "open",
                             "ownerName",
                             "draftSlot",
+                            "avatarSeed",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -23331,6 +23371,13 @@
                                   "minimum": -9007199254740991,
                                   "maximum": 9007199254740991
                                 },
+                                "avatarSeed": {
+                                  "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "manager": {
                                   "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                                   "anyOf": [
@@ -23400,6 +23447,7 @@
                                 "open",
                                 "ownerName",
                                 "draftSlot",
+                                "avatarSeed",
                                 "ownerUserId",
                                 "agentConfigId",
                                 "faabRemaining",
@@ -23529,6 +23577,13 @@
                                 "minimum": -9007199254740991,
                                 "maximum": 9007199254740991
                               },
+                              "avatarSeed": {
+                                "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "manager": {
                                 "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                                 "anyOf": [
@@ -23587,7 +23642,8 @@
                               "seatType",
                               "open",
                               "ownerName",
-                              "draftSlot"
+                              "draftSlot",
+                              "avatarSeed"
                             ],
                             "additionalProperties": false
                           }
@@ -24741,8 +24797,8 @@
     "/api/v1/leagues/{leagueId}/teams/{teamId}/name": {
       "put": {
         "operationId": "rename_team",
-        "summary": "Rename a team",
-        "description": "Renames a team. You can rename your own team; an agent can rename the team it plays; the commissioner can also rename seats no person holds (agent seats and open seats). Anyone else's team returns FORBIDDEN. Names are 1-40 characters and must be unique in the league, ignoring case and extra spaces (CONFLICT otherwise). Allowed until the league is complete.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "summary": "Rename a team or change its avatar",
+        "description": "Sets a team's profile: its name, its avatar, or both. You can change your own team; an agent can rename the team it plays; the commissioner can also rename seats no person holds (agent seats and open seats). Anyone else's team returns FORBIDDEN. Names are 1-40 characters and must be unique in the league, ignoring case and extra spaces (CONFLICT otherwise). `avatarSeed` picks the avatar picture of a team a person holds; an AI manager's avatar belongs to its seat (configure_agent_seat). Send at least one of `name` and `avatarSeed`. Allowed until the league is complete.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues"
         ],
@@ -24823,6 +24879,13 @@
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
                             },
+                            "avatarSeed": {
+                              "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "manager": {
                               "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                               "anyOf": [
@@ -24892,6 +24955,7 @@
                             "open",
                             "ownerName",
                             "draftSlot",
+                            "avatarSeed",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
@@ -25031,7 +25095,7 @@
         ],
         "x-mutation": true,
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -25043,11 +25107,15 @@
                     "maxLength": 40,
                     "pattern": "^[^\\p{Cc}\\p{Cf}]*$",
                     "description": "Team name, 1-40 characters on one line (no control characters), unique in the league."
+                  },
+                  "avatarSeed": {
+                    "description": "New seed for the team's avatar picture (1-40 letters, digits, \"-\" or \"_\"); any new seed draws a new picture. Only for a team a person holds.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[A-Za-z0-9_-]+$"
                   }
-                },
-                "required": [
-                  "name"
-                ]
+                }
               }
             }
           }
@@ -25753,6 +25821,13 @@
                               "minimum": -9007199254740991,
                               "maximum": 9007199254740991
                             },
+                            "avatarSeed": {
+                              "description": "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "manager": {
                               "description": "The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).",
                               "anyOf": [
@@ -25822,6 +25897,7 @@
                             "open",
                             "ownerName",
                             "draftSlot",
+                            "avatarSeed",
                             "ownerUserId",
                             "agentConfigId",
                             "faabRemaining",
