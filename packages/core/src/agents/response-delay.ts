@@ -27,7 +27,7 @@ export type ResponseDelayLever = z.infer<typeof ResponseDelayLeverSchema>;
 /** No delay at all: what the router uses when delays are turned off (local dev, e2e, the sim). */
 export const IMMEDIATE_RESPONSE: ResponseDelayLever = { multiplier: 0, immediateChance: 1 };
 
-export const RESPONSE_DELAY_CLASSES = ['chat', 'trade', 'roster', 'deadline', 'post_draft'] as const;
+export const RESPONSE_DELAY_CLASSES = ['trade', 'roster', 'deadline', 'post_draft'] as const;
 export type ResponseDelayClass = (typeof RESPONSE_DELAY_CLASSES)[number];
 
 export interface ResponseDelayProfile {
@@ -46,7 +46,6 @@ const HOUR = 60 * MINUTE;
 /**
  * Base median and cap per event class, before the multiplier.
  *
- * - chat: Chat Mention, Chat Moment, banter. Feels like someone typing.
  * - trade: Trade Proposed / Countered. Clamped to half the time left before `expiresAt`.
  * - roster: Waiver Window Opened, Player News Alert, Player Status Changed, Week Rolled Over.
  *   Clamped to half the time left before the waiver run or the next lineup lock.
@@ -55,7 +54,6 @@ const HOUR = 60 * MINUTE;
  * - post_draft: jitter added on top of the post-draft kickoff stagger.
  */
 export const RESPONSE_DELAY_PROFILES: Readonly<Record<ResponseDelayClass, ResponseDelayProfile>> = {
-  chat: { medianMs: 45 * SECOND, capMs: 8 * MINUTE, deadlineShare: 0.5 },
   trade: { medianMs: 45 * MINUTE, capMs: 8 * HOUR, deadlineShare: 0.5 },
   roster: { medianMs: 90 * MINUTE, capMs: 12 * HOUR, deadlineShare: 0.5 },
   deadline: { medianMs: 5 * SECOND, capMs: 2 * MINUTE, deadlineShare: 0.4 },
@@ -64,8 +62,6 @@ export const RESPONSE_DELAY_PROFILES: Readonly<Record<ResponseDelayClass, Respon
 
 /** Spread of the log-normal: a σ of 1 puts about a sixth of the delays past 2.7× the median. */
 const SIGMA = 1;
-/** A direct message from a person keeps the lower end of the chat range. */
-const QUICK_SCALE = 0.4;
 
 export interface ResponseDelayInput {
   eventClass: ResponseDelayClass;
@@ -75,8 +71,6 @@ export interface ResponseDelayInput {
   now: Date;
   /** The latest the task may start by (null or absent: no deadline besides the cap). */
   deadline?: Date | string | null;
-  /** Keep to the lower end (a direct message from a person). */
-  quick?: boolean;
 }
 
 export interface ResponseDelay {
@@ -117,7 +111,7 @@ export function responseDelay(input: ResponseDelayInput): ResponseDelay {
   if (random() < lever.immediateChance || lever.multiplier <= 0 || (eventClass === 'deadline' && noDeadline))
     return { delayMs: 0, reason: 'immediate' };
   const profile = RESPONSE_DELAY_PROFILES[eventClass];
-  const scale = lever.multiplier * (input.quick === true ? QUICK_SCALE : 1);
+  const scale = lever.multiplier;
   const sampled = profile.medianMs * scale * Math.exp(SIGMA * normal(random));
   const cap = profile.capMs * scale;
   const limit = deadlineLimitMs(eventClass, input.now, input.deadline);
