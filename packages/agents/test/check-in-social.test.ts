@@ -148,6 +148,46 @@ describe('check-in: a rename in the same decision', () => {
 });
 
 describe('check-in routing: when to (re)name', () => {
+  const route = (s: Setup, id: string, slot: string) =>
+    routeEvent(
+      { services: s.services, kinds: defaultTaskKinds },
+      {
+        id,
+        source: 'fantasy',
+        'detail-type': 'Manager Check-In',
+        detail: { leagueId: LEAGUE_ID, slot, date: '2026-10-04', week: 5 }
+      }
+    );
+  const requests = (s: Setup) =>
+    s.events.events
+      .filter((e) => e.detailType === 'Agent Action Requested')
+      .map((e) => e.detail as AgentActionRequested);
+
+  it('names a generic team at the next check-in, once a day, never a locked name', async () => {
+    // A league drafted before agents named their teams: its AI teams are still "Team N".
+    const s = await league(LOUD);
+    await s.seat('team-4', { ...QUIET, namesTeam: false });
+    const three = await s.repos.teams.get(LEAGUE_ID, 'team-3');
+    await s.repos.teams.update({ ...three!, name: 'Team 3', nameSetBy: 'commissioner' });
+    await route(s, 'checkin-morning', 'morning');
+    expect(requests(s).map((r) => [r.teamId, r.payload.naming])).toEqual([
+      [AGENT_TEAM, 'placeholder'],
+      ['team-3', undefined],
+      ['team-4', undefined]
+    ]);
+    // The check-in names it, in character, in its one decision.
+    const named = requests(s).find((r) => r.teamId === AGENT_TEAM)!;
+    const record = await run(s, { ...named, trigger: { ...named.trigger, eventId: rolled(LOUD, []) } });
+    expect(record.reasoningSummary).toContain(`Renamed "Team 2" to "Let's Gooo Brigade".`);
+    // Had it kept the name, the next check-in the same day would not ask again (naming cooldown).
+    const other = await league(LOUD);
+    await route(other, 'c-1', 'morning');
+    other.clock.advance(5 * 3_600_000);
+    await route(other, 'c-2', 'afternoon');
+    const mine = requests(other).filter((r) => r.teamId === AGENT_TEAM);
+    expect(mine.map((r) => r.payload.naming)).toEqual(['placeholder', undefined]);
+  });
+
   it('asks for a rebrand only outside the cooldown, on a twenty-first of the weekly roll', async () => {
     const s = await league({ personalityId: 'startup-founder', difficulty: 'pro', archetype: 'balanced' });
     await s.seat('team-3', { personalityId: 'startup-founder', difficulty: 'pro', archetype: 'balanced' });

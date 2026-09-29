@@ -392,11 +392,30 @@ async function namingNeed(
  */
 async function checkInPayload(input: AdmitInput<'Manager Check-In'>): Promise<Record<string, unknown>> {
   const { detail } = input;
-  const naming = await namingNeed(input as AdmitInput, () => ({
+  const need = await namingNeed(input as AdmitInput, () => ({
     seed: `check-in:${input.leagueId}:${input.seat.teamId}:${String(detail.date)}-${String(detail.slot)}`,
     share: 1 / CHECK_INS_PER_WEEK
   }));
+  // The naming cooldown (`NAMING_COOLDOWN`, shared with team_identity): at most one a day.
+  const naming = need !== null && (await takeNamingSlot(input)) ? need : null;
   return { ...(await firstLook(input)), ...(naming === null ? {} : { naming }) };
+}
+
+async function takeNamingSlot(input: AdmitInput): Promise<boolean> {
+  const { agents } = input.services.repos;
+  const slot = cooldownSlot(input.seat.agentId, { kind: 'team_identity', cooldown: NAMING_COOLDOWN });
+  const state = await agents.getTriggerState(input.leagueId, slot);
+  if (
+    state !== null &&
+    input.now.getTime() - Date.parse(state.lastTriggeredAt) < NAMING_COOLDOWN.agentMinutes * 60_000
+  )
+    return false;
+  await agents.putTriggerState({
+    leagueId: input.leagueId,
+    agentId: slot,
+    lastTriggeredAt: input.now.toISOString()
+  });
+  return true;
 }
 
 const namingRule = <T extends FantasyEventType>(
