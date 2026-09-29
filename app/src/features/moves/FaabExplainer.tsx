@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+
+const EDGE = 8;
 
 /**
  * A plain-language note on FAAB (free agent acquisition budget), tucked behind a small
@@ -7,7 +9,24 @@ import { useEffect, useId, useRef, useState } from 'react';
 export function FaabExplainer({ remaining }: { remaining?: number | null }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  // How far to slide the panel so it stays inside the viewport (the trigger can sit at either edge).
+  const [shift, setShift] = useState(0);
   const panelId = useId();
+
+  useLayoutEffect(() => {
+    if (!open || panel.current === null) return;
+    const rect = panel.current.getBoundingClientRect();
+    const width = document.documentElement.clientWidth;
+    // `rect` includes the current shift, so work from the unshifted position.
+    const left = rect.left - shift;
+    const right = rect.right - shift;
+    if (right > width - EDGE) setShift(width - EDGE - right);
+    else if (left < EDGE) setShift(EDGE - left);
+    else setShift(0);
+    // Measured once per open; the panel's size does not change while it is up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -52,6 +71,8 @@ export function FaabExplainer({ remaining }: { remaining?: number | null }) {
       {open && (
         <div
           id={panelId}
+          ref={panel}
+          style={shift === 0 ? undefined : { transform: `translateX(${shift}px)` }}
           role="region"
           aria-label="About FAAB"
           className="absolute left-0 top-full z-30 w-72 max-w-[calc(100vw-2rem)] space-y-1 rounded-lg border border-border bg-surface p-3 text-sm font-normal text-foreground shadow-lg"

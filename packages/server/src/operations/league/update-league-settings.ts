@@ -34,7 +34,7 @@ export const updateLeagueSettings = defineOperation({
   summary: 'Change league rules (commissioner only)',
   description: [
     'Changes league settings. Send only what changes in `changes`, shaped like `settings` from get_league: nested objects merge ({"scoring": {"perStat": {"rec": 1}}} switches to full PPR), arrays replace.',
-    'Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The trade deadline cannot move once passed; in season, a new `trades.deadlineWeek` moves the deadline to that week’s first kickoff.',
+    'Before the draft every setting can change, including teamCount (seats are added as agent seats, or open seats are removed). Once the draft starts only trade settings, the waiver type (FAAB or rolling), waiver timing and tiebreaks, and IR-eligible statuses can change; anything else returns INVALID_SETTINGS with SETTING_LOCKED issues. The waiver type cannot change while waiver claims are pending (PENDING_CLAIMS): wait for the next waiver run or have teams cancel them. The trade deadline cannot move once passed; in season, a new `trades.deadlineWeek` moves the deadline to that week’s first kickoff.',
     'Schedule the draft with `draft.scheduledAt` (ISO 8601 with a time zone, in the future, at most 60 days ahead; null to start it by hand) and `draft.orderMode` (`slots` or `random`): at that time the draft starts by itself, and a reminder goes out 10 minutes before. If a human seat is still open then, the draft waits and chat says why.',
     'Pass `expectedVersion` (the `version` from get_league) so you never overwrite a change you have not seen; a mismatch returns CONFLICT. Only the commissioner can call this.'
   ].join(' '),
@@ -84,6 +84,22 @@ export const updateLeagueSettings = defineOperation({
     const changedPaths = diffSettingPaths(league.settings, next);
     if (changedPaths.length === 0) {
       return { version: league.version, changedPaths, settings: league.settings };
+    }
+
+    // Claims are resolved under the waiver type in force at the run, so a switch would rewrite
+    // claims already placed (sealed bids ignored, or bid-less claims turned into $0 bids).
+    if (changedPaths.includes('waivers.type')) {
+      const pending = await ctx.repos.waivers.listClaims(league.id, 'pending');
+      if (pending.length > 0) {
+        throw new ApiError(
+          'PENDING_CLAIMS',
+          `${pending.length} waiver claim(s) are pending, and a change of waiver type would change how they are decided.`,
+          {
+            fix: 'Wait for the next waiver run to process them, or have teams cancel their pending claims, then change the waiver type.',
+            details: { pendingClaims: pending.length }
+          }
+        );
+      }
     }
 
     const now = ctx.clock.now();

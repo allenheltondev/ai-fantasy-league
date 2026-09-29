@@ -169,6 +169,11 @@ export interface Lead {
 
 const CLOSED: WaiverPrep = { open: false, faabRemaining: 0, roster: [], suggestions: [] };
 
+/** Whether this league's waivers run on FAAB bids (`false`: rolling priority, no money). */
+function isFaab(ctx: TaskContext): boolean {
+  return ctx.league.settings.waivers.type === 'faab';
+}
+
 /** Your team's FAAB when waivers are open; null when they are closed. */
 export async function openTeam(ctx: TaskContext): Promise<{ faabRemaining: number } | null> {
   const state = optional(await ctx.tools.call('get_league_state', {}), StateSchema);
@@ -275,7 +280,7 @@ export async function scout(
       usedDrops.add(drop.id);
     }
     const bid =
-      kind === 'add_now'
+      kind === 'add_now' || !isFaab(ctx)
         ? 0
         : suggestFaabBid({
             gain: Math.max(0, gain),
@@ -396,8 +401,9 @@ export function suggestedClaims(prep: Pick<WaiverPrep, 'suggestions'>): WaiverDe
  * code), but the prompt only repeats what the agent's own research access could have found:
  * projected points need `projections`, trending counts need `trending` (issue #122).
  */
-function describeSuggestion(s: WaiverSuggestion, research: ResearchAccess): string {
-  const how = s.kind === 'add_now' ? 'free agent, add now' : `on waivers, bid $${s.bid}`;
+function describeSuggestion(s: WaiverSuggestion, research: ResearchAccess, faab: boolean): string {
+  const waivers = faab ? `on waivers, bid $${s.bid}` : 'on waivers, place a claim';
+  const how = s.kind === 'add_now' ? 'free agent, add now' : waivers;
   const drop = s.drop === null ? '' : `, drop ${s.drop.name} (${s.drop.id})`;
   const points = research.projections ? `: ${s.points} projected pts, +${s.gain} over the drop;` : ':';
   const trend = research.trending ? ` Trending adds: ${s.trendingCount}.` : '';
@@ -430,7 +436,7 @@ export async function submitClaims(
   const failed: string[] = [];
   const pending: string[] = [];
   for (const claim of claims) {
-    const bid = Math.min(Math.max(0, claim.bid), prep.faabRemaining);
+    const bid = isFaab(ctx) ? Math.min(Math.max(0, claim.bid), prep.faabRemaining) : 0;
     const result = await ctx.tools.call('claim_waiver', {
       playerId: claim.playerId,
       ...(claim.dropPlayerId === undefined ? {} : { dropPlayerId: claim.dropPlayerId }),
@@ -438,7 +444,7 @@ export async function submitClaims(
     });
     if ('error' in result) failed.push(`${label(claim.playerId)} (${result.error.code})`);
     else {
-      made.push(`${label(claim.playerId)} ($${bid})`);
+      made.push(isFaab(ctx) ? `${label(claim.playerId)} ($${bid})` : label(claim.playerId));
       const id = ClaimResultSchema.safeParse(result.data).data?.claim?.id;
       if (id !== undefined) pending.push(id);
     }
@@ -459,7 +465,7 @@ export async function submitClaims(
       ? {}
       : {
           sealed: {
-            summary: `Made ${made.length} waiver claim(s); players and bids are hidden until waivers are processed.`,
+            summary: `Made ${made.length} waiver claim(s); players${isFaab(ctx) ? ' and bids are' : ' are'} hidden until waivers are processed.`,
             trades: [],
             waiverClaims: pending
           }
@@ -505,12 +511,14 @@ export const waiverTask = defineTaskKind<WaiverPayload, WaiverDecision, WaiverPr
         : ` Claims on players on waivers are processed at ${payload.closesAt}.`;
     return [
       ...tip,
-      `A waiver window is open.${closes} You have $${prep.faabRemaining} FAAB left; the highest bid wins a player on waivers and free agents cost nothing.`,
+      isFaab(ctx)
+        ? `A waiver window is open.${closes} You have $${prep.faabRemaining} FAAB left; the highest bid wins a player on waivers and free agents cost nothing.`
+        : `A waiver window is open.${closes} This league uses rolling waivers: there is no money and no bidding, and claims on players on waivers go to the team highest on the waiver priority list. Free agents can be added at once.`,
       prep.suggestions.length === 0
         ? 'No trending pickup looks better than your roster right now.'
-        : `Your scouting suggests:\n${prep.suggestions.map((s) => describeSuggestion(s, research)).join('\n')}`,
+        : `Your scouting suggests:\n${prep.suggestions.map((s) => describeSuggestion(s, research, isFaab(ctx))).join('\n')}`,
       `Your roster: ${prep.roster.map((p) => `${p.name} (${p.id}, ${p.position})`).join(', ') || 'unknown'}.`,
-      `Check anyone you are unsure about with your research tools, then answer with the \`claims\` to make (most wanted first, at most ${most}; any more are ignored), each with a \`bid\` and a \`dropPlayerId\` when your roster is full. Keep FAAB for the rest of the season: bid big only on a real starter. An empty list is fine.`
+      `Check anyone you are unsure about with your research tools, then answer with the \`claims\` to make (most wanted first, at most ${most}; any more are ignored), each with ${isFaab(ctx) ? 'a `bid` and ' : 'a `bid` of 0 (bids are ignored) and '}a \`dropPlayerId\` when your roster is full.${isFaab(ctx) ? ' Keep FAAB for the rest of the season: bid big only on a real starter.' : ' A claim uses your place on the priority list when it wins, so save it for a real starter.'} An empty list is fine.`
     ].join('\n');
   },
   async apply(ctx, payload, prep, decision) {

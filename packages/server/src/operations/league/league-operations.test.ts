@@ -327,6 +327,42 @@ describe('update_league_settings', () => {
     expect(errorCode(await carol.patch('/leagues/lg-s/settings', { changes: {} }))).toBe('FORBIDDEN');
   });
 
+  it('refuses a waiver type change while claims are pending, and allows it once none are', async () => {
+    await h.repos.waivers.createClaim({
+      id: 'c-pending',
+      leagueId: 'lg-s',
+      teamId: 'team-1',
+      addPlayerId: 'fx-wr-2',
+      dropPlayerId: null,
+      bid: 5,
+      priority: 1,
+      status: 'pending',
+      week: 1,
+      processesAt: '2099-01-01T10:00:00.000Z',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'user#alice',
+      resolvedAt: null,
+      failure: null,
+      cost: null,
+      awardingRunId: null,
+      version: 1
+    });
+    const blocked = await alice.patch('/leagues/lg-s/settings', { changes: { waivers: { type: 'faab' } } });
+    expect(blocked.body).toMatchObject({ error: { code: 'PENDING_CLAIMS', details: { pendingClaims: 1 } } });
+    // Other waiver settings are not affected.
+    expect(
+      (
+        await alice.patch('/leagues/lg-s/settings', {
+          changes: { waivers: { faabTiebreak: 'earliest_claim' } }
+        })
+      ).status
+    ).toBe(200);
+    const [claim] = await h.repos.waivers.listClaims('lg-s', 'pending');
+    await h.repos.waivers.updateClaim({ ...(claim as NonNullable<typeof claim>), status: 'cancelled' });
+    const allowed = await alice.patch('/leagues/lg-s/settings', { changes: { waivers: { type: 'faab' } } });
+    expect(allowed.status).toBe(200);
+  });
+
   it('changes nothing for an empty patch', async () => {
     const res = await alice.patch('/leagues/lg-s/settings', { changes: { teamCount: 8 } });
     expect(data(res)).toMatchObject({ version: 1, changedPaths: [] });
