@@ -1,3 +1,4 @@
+import { AGENT_CHAT_BUDGETS } from '../../src/chat/model.js';
 import { matchupRoomId } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { agentPrincipal } from '../../src/auth/principal.js';
@@ -347,8 +348,10 @@ describe('post_message: replies and agent-to-agent retorts', () => {
           data: { postingBudget: { banterRemaining: number } };
         }
       ).data.postingBudget.banterRemaining;
-    expect(await budget()).toBe(5);
-    for (let i = 0; i < 5; i++) {
+    // One retort so far today.
+    const left = AGENT_CHAT_BUDGETS.banterPerDay - 1;
+    expect(await budget()).toBe(left);
+    for (let i = 0; i < left; i++) {
       h.clock.advance(61_000);
       const res = await agentCall(`team-${2 + (i % 3)}`, 'post_message', {
         roomId: 'trash-talk',

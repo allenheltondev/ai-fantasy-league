@@ -143,7 +143,32 @@ describe('room facts in the chat prompt', () => {
       request('chat_reply', { messageId: mention.id, roomId: 'trash-talk' })
     );
     expect(record.finalAction).toBe('post_message');
-    expect(model.transcript[0]?.systemPrompt).not.toContain(FACTS);
+    // Who's who still comes through; the room's pack does not.
+    expect(model.transcript[0]?.systemPrompt).toContain("Who's who");
+    expect(model.transcript[0]?.systemPrompt).not.toContain('Standings through');
+
+    // Without who's who either, there is no facts section at all.
+    const bare = createRegistry(
+      operations.filter((op) => op.name !== 'get_chat_context' && op.name !== 'get_league')
+    );
+    const again = message({ id: 'm-bare' });
+    await s.repos.chat.put(again);
+    const quiet = new ScriptedModelClient();
+    await runAgentAction(
+      { ...s.deps(quiet), registry: bare },
+      request('chat_reply', { messageId: again.id, roomId: 'trash-talk' })
+    );
+    expect(quiet.transcript[0]?.systemPrompt).not.toContain(FACTS);
+  });
+
+  it("lists who's who with each manager, marking the AI managers and the agent itself", async () => {
+    const s = await league();
+    const mention = message({});
+    await s.repos.chat.put(mention);
+    const prompt = await promptFor(s, 'chat_reply', { messageId: mention.id, roomId: 'trash-talk' });
+    expect(prompt).toContain("Who's who (tag a team with @ and its name):");
+    expect(prompt).toMatch(/@Allen's Team \(team-1\): managed by Allen/);
+    expect(prompt).toMatch(/\(team-2\): AI manager .+ \(you\)/);
   });
 });
 

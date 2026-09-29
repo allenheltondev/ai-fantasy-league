@@ -30,7 +30,13 @@ import {
   type SystemMessageOutcome,
   writeNotifications
 } from '@fantasy/server';
-import { computeStandings, playoffBracket, systemMessageRoute, yahooDefaultSettings } from '@fantasy/core';
+import {
+  BANTER_LIMITS,
+  computeStandings,
+  playoffBracket,
+  systemMessageRoute,
+  yahooDefaultSettings
+} from '@fantasy/core';
 import { describe, expect, it } from 'vitest';
 import type { BusEvent } from '../../src/events.js';
 import { ScriptedModelClient } from '../../src/fake-model.js';
@@ -715,7 +721,7 @@ describe('event contract: chat', () => {
     expect(mention.relay.topics).toEqual([]);
   });
 
-  it('an agent’s jab (Chat Mention at depth 0) can reach another agent; its retort (depth 1) reaches no one', async () => {
+  it('an agent’s jab can reach another agent, and the retorts go back and forth until the depth cap', async () => {
     const s = await inSeason();
     const agent = (teamId: string): Principal =>
       agentPrincipal({ agentId: `${LEAGUE_ID}.${teamId}`, teamId, leagueId: LEAGUE_ID });
@@ -731,19 +737,27 @@ describe('event contract: chat', () => {
     expect(first.routed.map((d) => [d.teamId, d.kind])).toEqual([['team-3', 'chat_reply']]);
     expect(['requested', 'declined']).toContain(first.routed[0]?.decision);
 
-    await run(
-      s,
-      'post_message',
-      { leagueId: LEAGUE_ID, roomId: 'trash-talk', text: '@team-2 says you', replyToId: jab.message.id },
-      agent('team-3')
-    );
-    const retort = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
-    expect(retort.event.detail).toMatchObject({ authorTeamId: 'team-3', replyToAgentDepth: 1 });
-    expect(retort.routed).toEqual([]);
-    const posted = await consume(s.services, delivered(last(s.events.events, 'Chat Message Posted')));
-    expect(posted.event.detail).toMatchObject({
-      message: { replyToId: jab.message.id, replyToAgentDepth: 1 }
-    });
+    // Each retort answers the last, one deeper; it reaches the other agent until the depth cap.
+    let previous = jab.message.id;
+    for (let depth = 1; depth <= BANTER_LIMITS.maxTriggerDepth; depth++) {
+      const [from, to] = depth % 2 === 1 ? ['team-3', 'team-2'] : ['team-2', 'team-3'];
+      const reply = (await run(
+        s,
+        'post_message',
+        { leagueId: LEAGUE_ID, roomId: 'trash-talk', text: `@${to} says you`, replyToId: previous },
+        agent(from)
+      )) as { message: ChatMessage };
+      const retort = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
+      expect(retort.event.detail).toMatchObject({ authorTeamId: from, replyToAgentDepth: depth });
+      if (depth < BANTER_LIMITS.maxTriggerDepth)
+        expect(retort.routed.map((d) => [d.teamId, d.kind])).toEqual([[to, 'chat_reply']]);
+      else expect(retort.routed).toEqual([]);
+      const posted = await consume(s.services, delivered(last(s.events.events, 'Chat Message Posted')));
+      expect(posted.event.detail).toMatchObject({
+        message: { replyToId: previous, replyToAgentDepth: depth }
+      });
+      previous = reply.message.id;
+    }
   });
 });
 

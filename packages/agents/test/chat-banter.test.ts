@@ -1,3 +1,4 @@
+import { BANTER_LIMITS } from '@fantasy/core';
 import { agentPrincipal, invokeTool, type ChatMessage } from '@fantasy/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AgentActionRequestedSchema, type BusEvent } from '../src/events.js';
@@ -8,9 +9,9 @@ import { defaultTaskKinds } from '../src/tasks/index.js';
 import { LEAGUE_ID, START, setup, type Setup } from './support.js';
 
 /**
- * Bounded agent-to-agent banter (#153): an agent's @mention of another agent can draw one retort,
- * never a chain; never in a DM; within a daily league budget; as the personality likes; and never
- * ahead of a person.
+ * Bounded agent-to-agent banter (#153): an agent's @mention of another agent can draw a retort, and
+ * the two can trade a few rounds, up to `BANTER_LIMITS.maxTriggerDepth`; never in a DM; within a
+ * daily league budget; as the personality likes (less each round); and never ahead of a person.
  */
 
 const CHAOS = { personalityId: 'chaos-agent', difficulty: 'pro', archetype: 'balanced' } as const;
@@ -98,26 +99,22 @@ const agentMessages = async (s: Setup): Promise<ChatMessage[]> =>
   );
 
 describe('agent-to-agent banter', () => {
-  it('two trash-talkers mentioning each other get exactly one retort per jab, never a chain', async () => {
+  it('two trash-talkers go back and forth, each retort answering the last, and stop at the depth cap', async () => {
     const s = await banterLeague({ 'team-2': CHAOS, 'team-3': CHAOS });
     let cursor = 0;
     expect((await jab(s, 'team-2', 'team-3')).status).toBe(200);
     cursor = await drain(s, cursor);
     const first = await agentMessages(s);
-    expect(first).toHaveLength(2);
-    // Both were posted at the same instant: tell them apart by author, not by order.
-    const opener = first.find((m) => m.author.teamId === 'team-2') as ChatMessage;
-    const retort = first.find((m) => m.author.teamId === 'team-3') as ChatMessage;
-    expect(opener.replyToAgentDepth).toBeUndefined();
-    expect(retort).toMatchObject({
-      author: { teamId: 'team-3' },
-      replyToId: opener.id,
-      replyToAgentDepth: 1
-    });
+    const opener = first.find((m) => m.replyToAgentDepth === undefined) as ChatMessage;
+    const retort = first.find((m) => m.replyToAgentDepth === 1) as ChatMessage;
+    expect(opener.author.teamId).toBe('team-2');
+    expect(retort).toMatchObject({ author: { teamId: 'team-3' }, replyToId: opener.id });
     expect(retort.mentionedTeamIds).toEqual(['team-2']);
 
-    // They keep at it: each new jab (past the banter cooldown) draws at most one retort.
+    // They keep at it: more jabs, past the banter cooldown.
     for (const [from, to] of [
+      ['team-3', 'team-2'],
+      ['team-2', 'team-3'],
       ['team-3', 'team-2'],
       ['team-2', 'team-3'],
       ['team-3', 'team-2']
@@ -127,29 +124,34 @@ describe('agent-to-agent banter', () => {
       cursor = await drain(s, cursor);
     }
     const all = await agentMessages(s);
+    const byId = new Map(all.map((m) => [m.id, m]));
     const retorts = all.filter((m) => (m.replyToAgentDepth ?? 0) > 0);
-    const openers = all.filter((m) => m.replyToAgentDepth === undefined);
-    expect(openers).toHaveLength(4);
-    expect(retorts.length).toBeGreaterThanOrEqual(1);
-    expect(retorts.length).toBeLessThanOrEqual(openers.length);
-    expect(all.every((m) => (m.replyToAgentDepth ?? 0) <= 1)).toBe(true);
-    // Every retort answers an opener, and no opener has two.
+    // Some spat ran the full distance (no cooldown inside a spat), and none went past the cap.
+    expect(Math.max(...retorts.map((m) => m.replyToAgentDepth ?? 0))).toBe(BANTER_LIMITS.maxTriggerDepth);
+    expect(all.every((m) => (m.replyToAgentDepth ?? 0) <= BANTER_LIMITS.maxTriggerDepth)).toBe(true);
+    // Every retort answers the message one shallower, by the other agent; no message has two answers.
+    for (const r of retorts) {
+      const answered = byId.get(r.replyToId as string) as ChatMessage;
+      expect(answered.replyToAgentDepth ?? 0).toBe((r.replyToAgentDepth ?? 0) - 1);
+      expect(answered.author.teamId).not.toBe(r.author.teamId);
+    }
     const answered = retorts.map((r) => r.replyToId);
     expect(new Set(answered).size).toBe(answered.length);
-    expect(answered.every((id) => openers.some((o) => o.id === id))).toBe(true);
   });
 
   it('never banters in a DM', async () => {
     const s = await banterLeague({ 'team-2': CHAOS, 'team-3': CHAOS });
     expect(await s.route(agentMention('team-2', 'team-3', { roomId: 'dm-team-2-team-3' }))).toEqual([]);
-    // A retort (depth 1), or an agent mention with no depth at all, triggers nothing either.
-    expect(await s.route(agentMention('team-2', 'team-3', { replyToAgentDepth: 1 }))).toEqual([]);
+    // A retort at the depth cap, or an agent mention with no depth at all, triggers nothing either.
+    expect(
+      await s.route(agentMention('team-2', 'team-3', { replyToAgentDepth: BANTER_LIMITS.maxTriggerDepth }))
+    ).toEqual([]);
     expect(await s.route(agentMention('team-2', 'team-3', { replyToAgentDepth: undefined }))).toEqual([]);
   });
 
   it('stops once the league has used its daily banter budget', async () => {
     const s = await banterLeague({ 'team-2': CHAOS, 'team-3': CHAOS });
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < BANTER_LIMITS.leaguePerDay; i++) {
       await s.repos.chat.put({
         id: `r-${i}`,
         leagueId: LEAGUE_ID,

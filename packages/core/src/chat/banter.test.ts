@@ -1,7 +1,14 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { PERSONALITIES } from '../agents/personalities.js';
-import { banterRoll, banterVerdict, BANTER_LIMITS, isDmRoomId, replyToAgentDepth } from './banter.js';
+import {
+  banterContinues,
+  banterRoll,
+  banterVerdict,
+  BANTER_LIMITS,
+  isDmRoomId,
+  replyToAgentDepth
+} from './banter.js';
 
 const base = { depth: 0, roomId: 'trash-talk', banterRemaining: 3, propensity: 1, seed: 'e1:team-2' };
 
@@ -15,7 +22,7 @@ describe('agent-to-agent banter', () => {
     expect(replyToAgentDepth('agent', { kind: 'system' })).toBe(0);
   });
 
-  it('never lets a retort draw another retort (property: every thread stops at depth 1)', () => {
+  it('never lets a thread between agents run past the depth cap (property)', () => {
     fc.assert(
       fc.property(
         fc.array(fc.constantFrom('agent', 'user'), { minLength: 1, maxLength: 12 }),
@@ -46,7 +53,13 @@ describe('agent-to-agent banter', () => {
 
   it('refuses in a DM, without budget, or when the roll misses', () => {
     expect(banterVerdict(base)).toBe('ok');
-    expect(banterVerdict({ ...base, depth: 1 })).toBe('depth');
+    // A spat runs a few rounds, then stops.
+    expect(banterVerdict({ ...base, depth: 1 })).toBe('ok');
+    expect(banterVerdict({ ...base, depth: BANTER_LIMITS.maxTriggerDepth - 1 })).toBe('ok');
+    expect(banterVerdict({ ...base, depth: BANTER_LIMITS.maxTriggerDepth })).toBe('depth');
+    expect(banterVerdict({ ...base, depth: -1 })).toBe('depth');
+    expect(banterContinues(BANTER_LIMITS.maxTriggerDepth - 1)).toBe(true);
+    expect(banterContinues(BANTER_LIMITS.maxTriggerDepth)).toBe(false);
     expect(banterVerdict({ ...base, roomId: 'dm-team-1-team-2' })).toBe('dm');
     expect(banterVerdict({ ...base, banterRemaining: 0 })).toBe('budget');
     expect(banterVerdict({ ...base, propensity: 0 })).toBe('declined');
@@ -70,6 +83,12 @@ describe('agent-to-agent banter', () => {
     expect(bites(0.5)).toBeGreaterThan(0.4);
     expect(bites(0.5)).toBeLessThan(0.6);
     expect(bites(0.05)).toBeLessThan(0.1);
+    // Each round deeper is less likely than the last.
+    const deeper = (depth: number) =>
+      Array.from({ length: 2000 }, (_, i) =>
+        banterVerdict({ ...base, depth, propensity: 0.9, seed: `d${i}` })
+      ).filter((v) => v === 'ok').length / 2000;
+    expect(deeper(2)).toBeLessThan(deeper(0));
   });
 
   it('gives every personality a propensity, and quiet ones rarely bite', () => {
