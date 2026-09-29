@@ -1,31 +1,51 @@
 import { emptyMemory, type AgentLeagueMemory } from '@fantasy/core';
 import {
+  gateCutoff,
   staleSeat,
+  type AgentDispatch,
+  type AgentDispatchReservation,
   type AgentRepository,
   type AgentSeatRecord,
   type AgentTaskClaim,
+  type AgentTaskClaimInput,
+  type AgentTaskFence,
+  type AgentTaskLease,
+  type AgentTaskPending,
   type AgentTaskRecord,
   type AgentTriggerState,
   type AgentUsageRow,
   type LimitClaim,
-  type LimitClaimResult
+  type LimitClaimResult,
+  type TriggerGate
 } from './agents.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
 
 interface TaskSlot {
+  state: 'running' | 'retry' | 'complete';
   lockUntil: number;
+  attempt: number;
+  effects: number;
+  pending: AgentTaskPending | null;
+  request: Record<string, unknown> | null;
   record: AgentTaskRecord | null;
 }
 
+type StateSlot = AgentTriggerState & { owner?: string };
+
+/**
+ * The agent repository in memory, with the DynamoDB repository's semantics: every conditional
+ * write there is a check and a write here that nothing can interleave with.
+ */
 export class InMemoryAgentRepository implements AgentRepository {
   readonly #seats = new Map<string, AgentSeatRecord>();
   readonly #history = new Map<string, AgentSeatRecord[]>();
   readonly #memory = new Map<string, AgentLeagueMemory>();
   readonly #tasks = new Map<string, TaskSlot>();
   readonly #usage = new Map<string, AgentUsageRow>();
-  readonly #state = new Map<string, AgentTriggerState>();
+  readonly #state = new Map<string, StateSlot>();
   readonly #limits = new Map<string, number[]>();
+  readonly #dispatches = new Map<string, AgentDispatch>();
 
   async getSeat(leagueId: string, teamId: string): Promise<AgentSeatRecord | null> {
     const seat = this.#seats.get(`${leagueId}\u0000${teamId}`);
@@ -67,16 +87,81 @@ export class InMemoryAgentRepository implements AgentRepository {
     return clone(next);
   }
 
-  async claimTask(input: { taskId: string; now: Date; lockUntil: Date }): Promise<AgentTaskClaim> {
+  async claimTask(input: AgentTaskClaimInput): Promise<AgentTaskClaim> {
     const slot = this.#tasks.get(input.taskId);
     if (slot?.record) return { status: 'done', record: clone(slot.record) };
-    if (slot !== undefined && slot.lockUntil > input.now.getTime()) return { status: 'in_progress' };
-    this.#tasks.set(input.taskId, { lockUntil: input.lockUntil.getTime(), record: null });
-    return { status: 'started' };
+    if (slot !== undefined && slot.state === 'running' && slot.lockUntil > input.now.getTime())
+      return { status: 'in_progress' };
+    const next: TaskSlot = {
+      state: 'running',
+      lockUntil: input.lockUntil.getTime(),
+      attempt: (slot?.attempt ?? 0) + 1,
+      effects: slot?.effects ?? 0,
+      pending: slot?.pending ?? null,
+      request: input.request === undefined ? (slot?.request ?? null) : clone(input.request),
+      record: null
+    };
+    this.#tasks.set(input.taskId, next);
+    return { status: 'started', attempt: next.attempt, effects: next.effects, pending: clone(next.pending) };
   }
 
-  async completeTask(record: AgentTaskRecord): Promise<void> {
-    this.#tasks.set(record.taskId, { lockUntil: 0, record: clone(record) });
+  async completeTask(record: AgentTaskRecord, _expiresAt: Date, fence?: AgentTaskFence): Promise<boolean> {
+    if (fence !== undefined && !this.#holds(fence)) return false;
+    const slot = this.#tasks.get(record.taskId);
+    this.#tasks.set(record.taskId, {
+      state: 'complete',
+      lockUntil: 0,
+      attempt: slot?.attempt ?? 0,
+      effects: slot?.effects ?? 0,
+      pending: null,
+      request: null,
+      record: clone(record)
+    });
+    return true;
+  }
+
+  async recordTaskEffect(fence: AgentTaskFence): Promise<boolean> {
+    return this.#update(fence, (slot) => ({ ...slot, effects: slot.effects + 1 }));
+  }
+
+  async saveTaskPending(fence: AgentTaskFence, pending: AgentTaskPending): Promise<boolean> {
+    return this.#update(fence, (slot) => ({ ...slot, pending: clone(pending) }));
+  }
+
+  async releaseTask(fence: AgentTaskFence, retryAt: Date): Promise<boolean> {
+    return this.#update(fence, (slot) => ({ ...slot, state: 'retry', lockUntil: retryAt.getTime() }));
+  }
+
+  async listExpiredTaskLeases(now: Date, limit: number): Promise<AgentTaskLease[]> {
+    return [...this.#tasks.entries()]
+      .filter(([, slot]) => slot.state !== 'complete' && slot.lockUntil <= now.getTime())
+      .sort(([a, x], [b, y]) => x.lockUntil - y.lockUntil || a.localeCompare(b))
+      .slice(0, limit)
+      .map(([taskId, slot]) => ({
+        taskId,
+        attempt: slot.attempt,
+        lockUntil: slot.lockUntil,
+        request: clone(slot.request)
+      }));
+  }
+
+  async requeueTaskLease(lease: Pick<AgentTaskLease, 'taskId' | 'lockUntil'>, until: Date): Promise<boolean> {
+    const slot = this.#tasks.get(lease.taskId);
+    if (slot === undefined || slot.state === 'complete' || slot.lockUntil !== lease.lockUntil) return false;
+    this.#tasks.set(lease.taskId, { ...slot, state: 'retry', lockUntil: until.getTime() });
+    return true;
+  }
+
+  #holds(fence: AgentTaskFence): boolean {
+    const slot = this.#tasks.get(fence.taskId);
+    return slot !== undefined && slot.state !== 'complete' && slot.attempt === fence.attempt;
+  }
+
+  #update(fence: AgentTaskFence, change: (slot: TaskSlot) => TaskSlot): boolean {
+    const slot = this.#tasks.get(fence.taskId);
+    if (slot === undefined || !this.#holds(fence)) return false;
+    this.#tasks.set(fence.taskId, change(slot));
+    return true;
   }
 
   async listTasks(
@@ -117,11 +202,72 @@ export class InMemoryAgentRepository implements AgentRepository {
 
   async getTriggerState(leagueId: string, agentId: string): Promise<AgentTriggerState | null> {
     const state = this.#state.get(`${leagueId}\u0000${agentId}`);
-    return state === undefined ? null : clone(state);
+    if (state === undefined) return null;
+    return { leagueId: state.leagueId, agentId: state.agentId, lastTriggeredAt: state.lastTriggeredAt };
   }
 
   async putTriggerState(state: AgentTriggerState): Promise<void> {
     this.#state.set(`${state.leagueId}\u0000${state.agentId}`, clone(state));
+  }
+
+  async admitTrigger(leagueId: string, gate: TriggerGate): Promise<boolean> {
+    if (!this.#gateOpen(leagueId, gate)) return false;
+    this.#takeGate(leagueId, gate);
+    return true;
+  }
+
+  async reserveDispatch(dispatch: AgentDispatch, gate?: TriggerGate): Promise<AgentDispatchReservation> {
+    const existing = this.#dispatches.get(dispatch.taskId);
+    if (existing !== undefined) return { status: 'exists', dispatch: clone(existing) };
+    if (gate !== undefined) {
+      if (!this.#gateOpen(dispatch.leagueId, gate)) return { status: 'gated' };
+      this.#takeGate(dispatch.leagueId, gate);
+    }
+    this.#dispatches.set(dispatch.taskId, clone(dispatch));
+    return { status: 'reserved' };
+  }
+
+  async getDispatch(taskId: string): Promise<AgentDispatch | null> {
+    const dispatch = this.#dispatches.get(taskId);
+    return dispatch === undefined ? null : clone(dispatch);
+  }
+
+  async settleDispatch(taskId: string, state: 'dispatched' | 'abandoned'): Promise<void> {
+    const dispatch = this.#dispatches.get(taskId);
+    if (dispatch !== undefined) this.#dispatches.set(taskId, { ...dispatch, state });
+  }
+
+  async failDispatch(taskId: string, retryAt: Date): Promise<number> {
+    const dispatch = this.#dispatches.get(taskId);
+    if (dispatch === undefined) return 0;
+    const attempts = dispatch.attempts + 1;
+    this.#dispatches.set(taskId, { ...dispatch, attempts, retryAt: retryAt.toISOString() });
+    return attempts;
+  }
+
+  async listDueDispatches(now: Date, limit: number): Promise<AgentDispatch[]> {
+    return [...this.#dispatches.values()]
+      .filter((d) => d.state === 'reserved' && Date.parse(d.retryAt) <= now.getTime())
+      .sort((a, b) => a.retryAt.localeCompare(b.retryAt) || a.taskId.localeCompare(b.taskId))
+      .slice(0, limit)
+      .map(clone);
+  }
+
+  #gateOpen(leagueId: string, gate: TriggerGate): boolean {
+    const current = this.#state.get(`${leagueId}\u0000${gate.slot}`);
+    if (current === undefined || current.owner === gate.owner || gate.windowMs === 0) return true;
+    return (
+      gate.windowMs !== null && current.lastTriggeredAt <= gateCutoff({ ...gate, windowMs: gate.windowMs })
+    );
+  }
+
+  #takeGate(leagueId: string, gate: TriggerGate): void {
+    this.#state.set(`${leagueId}\u0000${gate.slot}`, {
+      leagueId,
+      agentId: gate.slot,
+      lastTriggeredAt: gate.now.toISOString(),
+      owner: gate.owner
+    });
   }
 
   /** Same semantics as DynamoDB's conditional write: the read and the write cannot interleave here. */

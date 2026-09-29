@@ -26,7 +26,9 @@ import {
  *   chosen by the model, so a redelivered trigger replays instead of acting twice;
  * - the free-text note on a trade offer (`message` on trade views) is withheld: it is written by
  *   another manager, reaches the agent only through tools, and would otherwise be a prompt
- *   injection path into a task that can accept trades (issue #122).
+ *   injection path into a task that can accept trades (issue #122);
+ * - every mutation first passes the runner's fence (`beforeMutation`, #207): the attempt must still
+ *   hold the task, so a worker whose lease was taken over cannot act any more (`fenced`).
  */
 
 /** Research tools by name (SPEC §6). Operations can also opt in with a `research:<kind>` tag. */
@@ -64,6 +66,11 @@ export interface ToolBoxOptions {
   actionsPerTrigger: number;
   /** Unique per trigger (the task id); the idempotency key is `<prefix>:<step>`. */
   idempotencyPrefix: string;
+  /**
+   * Called before each mutation reaches its operation (the runner records the effect under its
+   * fence). False refuses the mutation and every later one: the task was taken over.
+   */
+  beforeMutation?: () => Promise<boolean>;
 }
 
 /** Operations an agent may ever be given, before research and task filters. */
@@ -80,6 +87,7 @@ export class ToolBox {
   readonly calls: AgentToolCall[] = [];
   #mutations = 0;
   #step = 0;
+  #fenced = false;
   readonly #options: ToolBoxOptions;
   readonly #byName: ReadonlyMap<string, AnyOperation>;
 
@@ -106,6 +114,11 @@ export class ToolBox {
     return this.#mutations;
   }
 
+  /** True once a mutation was refused because a newer attempt holds the task. */
+  get fenced(): boolean {
+    return this.#fenced;
+  }
+
   /** Calls a tool by name with model-supplied arguments. Returns the response envelope. */
   async call(name: string, rawArgs: Record<string, unknown>): Promise<Envelope> {
     const { principal } = this.#options;
@@ -127,6 +140,15 @@ export class ToolBox {
         return this.#reject(name, true, 'FORBIDDEN', 'You have used every action allowed for this task.', {
           fix: 'Stop taking actions and give your final answer.',
           details: { actionsPerTrigger: this.#options.actionsPerTrigger }
+        });
+      }
+      if (
+        this.#fenced ||
+        (this.#options.beforeMutation !== undefined && !(await this.#options.beforeMutation()))
+      ) {
+        this.#fenced = true;
+        return this.#reject(name, true, 'CONFLICT', 'This task was taken over by a newer attempt.', {
+          fix: 'Stop taking actions and give your final answer; the newer attempt finishes the task.'
         });
       }
       this.#mutations += 1;
@@ -152,7 +174,7 @@ export class ToolBox {
   #reject(
     name: string,
     mutation: boolean,
-    code: 'FORBIDDEN',
+    code: 'FORBIDDEN' | 'CONFLICT',
     message: string,
     options: { fix: string; details?: Record<string, unknown> }
   ): Envelope {

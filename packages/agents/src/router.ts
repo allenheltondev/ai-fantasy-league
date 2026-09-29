@@ -1,4 +1,4 @@
-import { canonicalEvent, scheduleName } from '@fantasy/server';
+import { canonicalEvent, type AgentDispatch, type TriggerGate } from '@fantasy/server';
 import {
   CHECK_INS_PER_WEEK,
   IMMEDIATE_RESPONSE,
@@ -27,6 +27,7 @@ import {
   type Services
 } from '@fantasy/server';
 import { z } from 'zod';
+import { dispatchTask, sendDispatch, type DispatchOutcome } from './dispatch.js';
 import type { AgentActionRequested, BusEvent } from './events.js';
 import type { TaskKindRegistry } from './tasks/kinds.js';
 
@@ -59,9 +60,9 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * left before the event's deadline (a trade's `expiresAt`, the waiver run, the next lineup lock, the
  * pick clock) so a delayed agent never misses it. The roll is seeded by event and team, so a
  * replayed event gets the same delay. A delayed task is scheduled (`scheduleAt`, named by the task
- * id, so a redelivered trigger moves it instead of doubling it); cooldowns are still checked and
- * spent here, at route time. The task re-reads the league when it runs, so one that went stale
- * meanwhile (an offer withdrawn or answered, a message already answered, a pick already made) is a
+ * id, at the time fixed when it was reserved, so a redelivered trigger neither moves nor doubles
+ * it); cooldowns are still checked and spent here, at route time. The task re-reads the league
+ * when it runs, so one that went stale meanwhile (an offer withdrawn or answered, a message already answered, a pick already made) is a
  * no-op. Chat is not delayed: an agent answers a mention or reacts to a moment at once, and the
  * chat cooldowns and budgets pace it. Each `requested` decision logs its `delayMs`. Delays are on only when `RouterDeps` says
  * so (`responseDelays`): the router Lambda turns them on (`AGENT_RESPONSE_DELAYS`, on unless
@@ -120,6 +121,15 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * fired within the reply cooldown), and it keeps its own cooldown slot (`CHAT_COOLDOWNS.banter`),
  * so it never spends the reply cooldown a person's mention needs. The daily chat budgets apply on
  * top (the chat task checks them). So two agents can never talk each other into an endless thread.
+ *
+ * Durable dispatch (#207): every gate is an atomic conditional write owned by what passed it
+ * (`admitTrigger`): a `oncePer` key and a league cooldown by the event, an agent's cooldown slot by
+ * the task. Racing events cannot both pass one gate, and a redelivered event passes its own gates
+ * again, so a retry after a failure partway through a league's fan-out reaches the teams that were
+ * left, instead of finding them all `repeat`. Each team's task is reserved in the dispatch outbox
+ * together with its cooldown slot (`dispatchTask`), then sent; a redelivery finds the reservation
+ * and only resends one that was never sent. A send that fails is `reserved` (the decision says so)
+ * and the recovery sweep resends it (see dispatch.ts).
  */
 
 /** What a rule reads: the event's contract detail, every field optional (details are untrusted). */
@@ -401,21 +411,14 @@ async function checkInPayload(input: AdmitInput<'Manager Check-In'>): Promise<Re
   return { ...(await firstLook(input)), ...(naming === null ? {} : { naming }) };
 }
 
+/** Takes the naming cooldown for a check-in, atomically; the check-in's redelivery gets the same answer. */
 async function takeNamingSlot(input: AdmitInput): Promise<boolean> {
-  const { agents } = input.services.repos;
-  const slot = cooldownSlot(input.seat.agentId, { kind: 'team_identity', cooldown: NAMING_COOLDOWN });
-  const state = await agents.getTriggerState(input.leagueId, slot);
-  if (
-    state !== null &&
-    input.now.getTime() - Date.parse(state.lastTriggeredAt) < NAMING_COOLDOWN.agentMinutes * 60_000
-  )
-    return false;
-  await agents.putTriggerState({
-    leagueId: input.leagueId,
-    agentId: slot,
-    lastTriggeredAt: input.now.toISOString()
+  return input.services.repos.agents.admitTrigger(input.leagueId, {
+    slot: cooldownSlot(input.seat.agentId, { kind: 'team_identity', cooldown: NAMING_COOLDOWN }),
+    owner: input.eventId,
+    now: input.now,
+    windowMs: NAMING_COOLDOWN.agentMinutes * 60_000
   });
-  return true;
 }
 
 const namingRule = <T extends FantasyEventType>(
@@ -609,10 +612,20 @@ export type RouteDecision =
   | {
       teamId: string;
       leagueId: string;
+      /** Sent, now or by an earlier delivery of the event. */
       decision: 'requested';
       taskId: string;
       kind: string;
       /** How long the task waits before it runs (0: right away). */
+      delayMs: number;
+    }
+  | {
+      teamId: string;
+      leagueId: string;
+      /** `reserved`: admitted, but the send failed; the relay resends it. `abandoned`: every send failed. */
+      decision: 'reserved' | 'abandoned';
+      taskId: string;
+      kind: string;
       delayMs: number;
     }
   | {
@@ -688,8 +701,9 @@ async function routeRule(
 
   const decisions: RouteDecision[] = [];
   const now = services.clock.now();
+  const { agents } = services.repos;
   for (const target of targets) {
-    const seats = await services.repos.agents.listSeats(target.leagueId);
+    const seats = await agents.listSeats(target.leagueId);
     const agentTeams = seats.map((s) => s.teamId);
     const teams =
       rule.players !== undefined ? only(target.teams, agentTeams) : rule.teams(detail, agentTeams, event.id);
@@ -700,23 +714,35 @@ async function routeRule(
     const gate =
       teams.length === 0
         ? null
-        : (await repeated(deps, rule, target.leagueId, detail, now))
+        : (await repeated(deps, rule, target.leagueId, detail, event.id, now))
           ? 'repeat'
-          : (await leagueCooldown(deps, rule, target.leagueId, now))
+          : (await leagueCooldown(deps, rule, target.leagueId, event.id, now))
             ? 'cooldown'
             : null;
     for (const [index, teamId] of teams.entries()) {
+      const base = { teamId, leagueId: target.leagueId, kind: rule.kind };
       if (gate !== null) {
-        decisions.push({ teamId, leagueId: target.leagueId, decision: gate, kind: rule.kind });
+        decisions.push({ ...base, decision: gate });
+        continue;
+      }
+      if (deps.kinds.get(rule.kind) === undefined) {
+        decisions.push({ ...base, decision: 'no_handler' });
+        continue;
+      }
+      const taskId = taskIdFor(event.id, teamId, rule.kind);
+      // A redelivery: the task was admitted and reserved before; send it if it never went out.
+      const earlier = await agents.getDispatch(taskId);
+      if (earlier !== null) {
+        decisions.push(dispatched(base, taskId, await resend(services, earlier)));
         continue;
       }
       const seat = seats.find((s) => s.teamId === teamId) as AgentSeatRecord;
       const turnedAway =
-        rule.admit === undefined || deps.kinds.get(rule.kind) === undefined
+        rule.admit === undefined
           ? null
           : await rule.admit({ services, detail, seat, leagueId: target.leagueId, eventId: event.id, now });
       if (turnedAway !== null) {
-        decisions.push({ teamId, leagueId: target.leagueId, decision: turnedAway, kind: rule.kind });
+        decisions.push({ ...base, decision: turnedAway });
         continue;
       }
       const levers = resolveAgentConfig(seat.config).levers;
@@ -731,13 +757,8 @@ async function routeRule(
               eventId: event.id,
               now
             });
-      const decision = await decide(deps, rule, seat, levers, now);
-      if (decision !== 'requested') {
-        decisions.push({ teamId, leagueId: target.leagueId, decision, kind: rule.kind });
-        continue;
-      }
       const request: AgentActionRequested = {
-        taskId: taskIdFor(event.id, teamId, rule.kind),
+        taskId,
         leagueId: target.leagueId,
         teamId,
         agentId: seat.agentId,
@@ -758,15 +779,13 @@ async function routeRule(
           now,
           lockAt
         }) ?? 0;
-      await requestTask(services, request, delayMs > 0 ? delayMs : undefined);
-      decisions.push({
-        teamId,
-        leagueId: target.leagueId,
-        decision: 'requested',
-        taskId: request.taskId,
-        kind: rule.kind,
-        delayMs
+      const outcome = await dispatchTask(services, request, {
+        ...(delayMs > 0 ? { delayMs } : {}),
+        gate: cooldownGate(rule, seat, levers, taskId, now)
       });
+      decisions.push(
+        outcome.status === 'gated' ? { ...base, decision: 'cooldown' } : dispatched(base, taskId, outcome)
+      );
     }
   }
   for (const d of decisions) log.info('agent trigger decision', { ...d, urgent: rule.urgent });
@@ -775,26 +794,31 @@ async function routeRule(
   return decisions;
 }
 
-/**
- * Sends a task to the runner: right away, or after `delayMs` through the deferred-event scheduler
- * (named by the task id, so a redelivered trigger moves the schedule instead of doubling it).
- */
-export async function requestTask(
-  services: Services,
-  request: AgentActionRequested,
-  delayMs?: number
-): Promise<void> {
-  if (delayMs === undefined) {
-    await services.events.publish('Agent Action Requested', request);
-    return;
-  }
-  await services.events.scheduleAt({
-    at: new Date(services.clock.now().getTime() + delayMs),
-    name: scheduleName('agent-task', request.taskId),
-    whenPast: 'send',
-    event: { detailType: 'Agent Action Requested', detail: request }
-  });
+/** Resends an earlier reservation that never went out; reports one that did. */
+async function resend(services: Services, dispatch: AgentDispatch): Promise<SentOutcome> {
+  if (dispatch.state !== 'reserved') return { status: dispatch.state, delayMs: dispatch.delayMs };
+  return {
+    status: (await sendDispatch(services, dispatch)) ? 'dispatched' : 'pending',
+    delayMs: dispatch.delayMs
+  };
 }
+
+function dispatched(
+  base: { teamId: string; leagueId: string; kind: string },
+  taskId: string,
+  outcome: SentOutcome
+): RouteDecision {
+  if (outcome.status === 'dispatched')
+    return { ...base, decision: 'requested', taskId, delayMs: outcome.delayMs };
+  return {
+    ...base,
+    decision: outcome.status === 'pending' ? 'reserved' : 'abandoned',
+    taskId,
+    delayMs: outcome.delayMs
+  };
+}
+
+type SentOutcome = Exclude<DispatchOutcome, { status: 'gated' }>;
 
 /**
  * The agent's cooldown slot: one per agent and task kind, so a waiver look never delays a lineup
@@ -804,28 +828,24 @@ export function cooldownSlot(agentId: string, rule: Pick<ResolvedRule, 'kind' | 
   return `${agentId}#${rule.cooldown?.scope ?? rule.kind}`;
 }
 
-async function decide(
-  deps: RouterDeps,
+/**
+ * The gate a team's task takes with its reservation: the agent's cooldown slot, owned by the task.
+ * Urgent triggers go through any cooldown (`windowMs` 0) but still start one.
+ */
+function cooldownGate(
   rule: ResolvedRule,
   seat: AgentSeatRecord,
   levers: DifficultyLevers,
+  taskId: string,
   now: Date
-): Promise<'requested' | 'no_handler' | 'cooldown'> {
-  if (deps.kinds.get(rule.kind) === undefined) return 'no_handler';
-  const agents = deps.services.repos.agents;
-  const slot = cooldownSlot(seat.agentId, rule);
-  if (!rule.urgent) {
-    const state = await agents.getTriggerState(seat.leagueId, slot);
-    const minutes = rule.cooldown?.agentMinutes ?? levers.cooldownMinutes;
-    if (state !== null && now.getTime() - new Date(state.lastTriggeredAt).getTime() < minutes * 60_000)
-      return 'cooldown';
-  }
-  await agents.putTriggerState({
-    leagueId: seat.leagueId,
-    agentId: slot,
-    lastTriggeredAt: now.toISOString()
-  });
-  return 'requested';
+): TriggerGate {
+  const minutes = rule.cooldown?.agentMinutes ?? levers.cooldownMinutes;
+  return {
+    slot: cooldownSlot(seat.agentId, rule),
+    owner: taskId,
+    now,
+    windowMs: rule.urgent ? 0 : minutes * 60_000
+  };
 }
 
 /** The league's next lineup lock, or null when the league or its schedule is unknown. */
@@ -836,37 +856,45 @@ async function leagueLockAt(services: Services, leagueId: string, now: Date): Pr
   return at === null ? null : new Date(at);
 }
 
-/** True when the rule fired in this league too recently; otherwise starts a new league window. */
+/**
+ * True when the rule fired in this league too recently (for another event); otherwise this event
+ * takes the league window, atomically.
+ */
 async function leagueCooldown(
   deps: RouterDeps,
   rule: ResolvedRule,
   leagueId: string,
+  eventId: string,
   now: Date
 ): Promise<boolean> {
   const minutes = rule.cooldown?.leagueMinutes;
   if (minutes === undefined || deps.kinds.get(rule.kind) === undefined) return false;
-  const agents = deps.services.repos.agents;
-  const slot = `league#${rule.kind}`;
-  const state = await agents.getTriggerState(leagueId, slot);
-  if (state !== null && now.getTime() - new Date(state.lastTriggeredAt).getTime() < minutes * 60_000)
-    return true;
-  await agents.putTriggerState({ leagueId, agentId: slot, lastTriggeredAt: now.toISOString() });
-  return false;
+  return !(await deps.services.repos.agents.admitTrigger(leagueId, {
+    slot: `league#${rule.kind}`,
+    owner: eventId,
+    now,
+    windowMs: minutes * 60_000
+  }));
 }
 
-/** True when a `oncePer` rule already fired in this league for this key; otherwise records the key. */
+/**
+ * True when a `oncePer` rule already fired in this league for this key, for another event;
+ * otherwise this event takes the key, atomically (its own redelivery passes again).
+ */
 async function repeated(
   deps: RouterDeps,
   rule: ResolvedRule,
   leagueId: string,
   detail: RuleDetail<FantasyEventType>,
+  eventId: string,
   now: Date
 ): Promise<boolean> {
   const key = rule.oncePer?.(detail);
   if (key === undefined || deps.kinds.get(rule.kind) === undefined) return false;
-  const agents = deps.services.repos.agents;
-  const slot = `league#${rule.kind}#${key}`;
-  if ((await agents.getTriggerState(leagueId, slot)) !== null) return true;
-  await agents.putTriggerState({ leagueId, agentId: slot, lastTriggeredAt: now.toISOString() });
-  return false;
+  return !(await deps.services.repos.agents.admitTrigger(leagueId, {
+    slot: `league#${rule.kind}#${key}`,
+    owner: eventId,
+    now,
+    windowMs: null
+  }));
 }
