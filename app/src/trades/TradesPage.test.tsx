@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
+import type { ApiFetch } from '../api';
+import { PlayerCardProvider } from '../players/PlayerLink';
 import type { RealtimeInfo } from '../chat/api';
 import type { EventConnect, LeagueEvent } from '../realtime/leagueEvents';
 import type { PlayerRef, TradePreview, TradesApi, TradeView } from './api';
@@ -125,6 +127,45 @@ function renderPage(
 }
 
 describe('TradesPage', () => {
+  it("opens a player's card from the builder without ticking his box", async () => {
+    const user = userEvent.setup();
+    const api = fakeApi([]);
+    const card = vi.fn(async () => ({
+      data: {
+        player: { id: 'p', name: 'Christian McCaffrey', team: 'SF', position: 'RB' },
+        scoring: { source: 'league' },
+        bye: 9,
+        injuryStatus: null,
+        lastSeason: null,
+        projection: null,
+        news: []
+      },
+      league: null,
+      warnings: []
+    })) as unknown as ApiFetch;
+    render(
+      <PlayerCardProvider leagueId="L1" api={card}>
+        <MemoryRouter initialEntries={['/leagues/L1/trades']}>
+          <Routes>
+            <Route
+              path="/leagues/:leagueId/trades"
+              element={<TradesPage api={api} now={fixedNow} connect={noConnect} />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </PlayerCardProvider>
+    );
+    await user.selectOptions(await screen.findByLabelText('Trade with'), 'team-2');
+    const box = await screen.findByLabelText('You send: Christian McCaffrey');
+    await user.click(screen.getByRole('button', { name: 'Christian McCaffrey' }));
+    expect(await screen.findByTestId('player-card')).toBeInTheDocument();
+    expect(box).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: /^close/i }));
+    // The box still picks him.
+    await user.click(box);
+    expect(box).toBeChecked();
+  });
+
   it("starts the builder with a team picked from that team's page (?with=, #178)", async () => {
     const api = fakeApi([]);
     renderPage(api, fixedNow, noConnect, `/leagues/L1/trades?with=${ROBO.id}`);

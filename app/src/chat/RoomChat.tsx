@@ -17,6 +17,7 @@ import {
   TeamFace
 } from './mentions';
 import { useLeagueChat } from './useLeagueChat';
+import { PlayerLink } from '../players/PlayerLink';
 
 export { highlightMentions, suggestTeams } from './mentions';
 
@@ -185,7 +186,7 @@ function SystemCard({ message }: { message: ChatMessage }) {
                 data-testid="player-card"
                 className="inline-flex items-baseline gap-1 rounded border border-border bg-background px-2 py-0.5"
               >
-                <span className="font-medium">{p.name}</span>
+                <PlayerLink player={p} className="font-medium" />
                 <span className="text-xs text-muted-foreground">
                   {p.position}
                   {p.team === null ? '' : ` · ${p.team}`}

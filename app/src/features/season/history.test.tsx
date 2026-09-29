@@ -253,8 +253,11 @@ describe('History tab', () => {
     expect(records).toHaveTextContent('Team t2 over Team t1 by 0.50 (week 4)');
     expect(screen.getByRole('table', { name: 'Head to head' })).toHaveTextContent('Team t1 vs Team t22-1-1');
     expect(screen.getByText(/Blowout \(Won by 100.5 in week 3\)/)).toBeInTheDocument();
-    expect(screen.getByText('Week 5: Team t1 gets Player One')).toBeInTheDocument();
-    expect(screen.getByText('Week 5: Team t2 sends Player One')).toBeInTheDocument();
+    // Player names are clickable, so match each list item by its whole text.
+    const item = (text: string) => (_: string, el: Element | null) =>
+      el?.tagName === 'LI' && el.textContent === text;
+    expect(screen.getByText(item('Week 5: Team t1 gets Player One'))).toBeInTheDocument();
+    expect(screen.getByText(item('Week 5: Team t2 sends Player One'))).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Best trades' })).toHaveTextContent(
       'Team t1 +42.3 (week 5): got Player One for nothing from Team t2'
     );

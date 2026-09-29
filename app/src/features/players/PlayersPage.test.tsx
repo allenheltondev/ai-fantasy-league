@@ -1,8 +1,8 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderApp, signInAs } from '../../test/render';
-import { describeMove } from './Transactions';
+import { describeMove, MoveText } from './Transactions';
 import { describeError, formatTime, type Claim, type SearchPlayer } from './types';
 
 const ALICE = { sub: 'u1', email: 'alice@example.com', given_name: 'Alice' };
@@ -153,9 +153,15 @@ function fakeApi(
 beforeEach(() => signInAs(ALICE));
 afterEach(() => vi.unstubAllGlobals());
 
+/** A list item by its whole text: player names in it are separate (clickable) elements. */
+const item = (text: string | RegExp) => (_: string, el: Element | null) =>
+  el?.tagName === 'LI' &&
+  (typeof text === 'string' ? el.textContent === text : text.test(el.textContent ?? ''));
+
 async function openPage() {
   renderApp('/leagues/L1/players');
-  return screen.findByText('Bijan Robinson');
+  // The name shows in the pool and in the transaction log: the pool's comes first.
+  return (await screen.findAllByText('Bijan Robinson'))[0];
 }
 
 describe('players page', () => {
@@ -225,7 +231,7 @@ describe('players page', () => {
       dropPlayerId: 'fx-swift'
     });
     const claims = screen.getByRole('region', { name: 'My claims' });
-    expect(await within(claims).findByText(/Christian McCaffrey for \$12/)).toBeInTheDocument();
+    expect(await within(claims).findByText(item(/Christian McCaffrey for \$12/))).toBeInTheDocument();
   });
 
   it('shows pending claims and cancels one', async () => {
@@ -233,7 +239,7 @@ describe('players page', () => {
     await openPage();
     const claims = screen.getByRole('region', { name: 'My claims' });
     expect(
-      await within(claims).findByText(/1\. Breece Hall for \$7, dropping Josh Allen/)
+      await within(claims).findByText(item(/1\. Breece Hall for \$7, dropping Josh Allen/))
     ).toBeInTheDocument();
     await userEvent
       .setup()
@@ -344,10 +350,12 @@ describe('helpers', () => {
     const api = fakeApi();
     await openPage();
     const log = within(await screen.findByRole('list', { name: 'League transactions' }));
-    expect(await log.findByText(/claimed Breece Hall for \$7, dropping Josh Allen/)).toBeInTheDocument();
-    expect(log.getByText(/added Bijan Robinson/)).toBeInTheDocument();
+    expect(
+      await log.findByText(item(/claimed Breece Hall for \$7, dropping Josh Allen/))
+    ).toBeInTheDocument();
+    expect(log.getByText(item(/added Bijan Robinson/))).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Show older moves' }));
-    expect(await log.findByText(/dropped D'Andre Swift/)).toBeInTheDocument();
+    expect(await log.findByText(item(/dropped D'Andre Swift/))).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Show older moves' })).not.toBeInTheDocument();
     const last = api.calls.filter((c) => c.path === '/leagues/L1/transactions').at(-1);
     expect(last?.query.get('cursor')).toBe('older');
@@ -375,6 +383,12 @@ describe('helpers', () => {
     expect(describeMove({ ...base, type: 'waiver_claim' })).toBe('claimed a player for $0');
     expect(describeMove({ ...base, type: 'add' })).toBe('added a player');
     expect(describeMove({ ...base, type: 'drop' })).toBe('dropped a player');
+    // The on-screen line (clickable names) reads the same.
+    for (const type of ['waiver_claim', 'add', 'drop'] as const) {
+      const { container, unmount } = render(<MoveText t={{ ...base, type }} />);
+      expect(container).toHaveTextContent(describeMove({ ...base, type }));
+      unmount();
+    }
   });
 
   it('formats times and errors', () => {

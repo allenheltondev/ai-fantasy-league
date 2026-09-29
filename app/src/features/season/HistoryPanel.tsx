@@ -1,10 +1,11 @@
 import { useParams } from 'react-router';
 import { useLeagueApi } from '../../api/league';
-import type { PlayerRef, SeasonRecordsView, TradeValueRecord } from '../../api/types';
+import type { SeasonRecordsView, TradeValueRecord } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton, stagger, Trophy } from '../../motion/decor';
 import { TableScroll } from '../../components/TableScroll';
+import { PlayerLink, PlayerList } from '../../players/PlayerLink';
 
 const points = (n: number) => n.toFixed(2);
 
@@ -43,9 +44,6 @@ function Records({ records, label }: { records: SeasonRecordsView; label: string
   );
 }
 
-const names = (players: PlayerRef[]) =>
-  players.length === 0 ? 'nothing' : players.map((p) => p.name).join(', ');
-
 /** One side of a trade by the value it won or lost: "Team t1 +32.0 (week 5): got X for Y from Team t2". */
 function TradeRecordList({ label, records }: { label: string; records: TradeValueRecord[] }) {
   return (
@@ -62,7 +60,8 @@ function TradeRecordList({ label, records }: { label: string; records: TradeValu
                 {r.valueDelta > 0 ? '+' : ''}
                 {r.valueDelta.toFixed(1)}
               </span>{' '}
-              (week {r.week}): got {names(r.received)} for {names(r.sent)} from {r.partnerName}
+              (week {r.week}): got <PlayerList players={r.received} /> for <PlayerList players={r.sent} />{' '}
+              from {r.partnerName}
             </li>
           ))}
         </ol>
@@ -190,8 +189,18 @@ export function HistoryPanel() {
             {trades.map((t) => (
               <li key={t.id}>
                 Week {t.week}: {t.teamName}
-                {t.added && ` gets ${t.added.name}`}
-                {t.dropped && ` sends ${t.dropped.name}`}
+                {t.added && (
+                  <>
+                    {' '}
+                    gets <PlayerLink player={t.added} />
+                  </>
+                )}
+                {t.dropped && (
+                  <>
+                    {' '}
+                    sends <PlayerLink player={t.dropped} />
+                  </>
+                )}
               </li>
             ))}
           </ul>

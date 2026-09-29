@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card, CardBody, CardHeader, CardTitle } from '@readysetcloud/ui';
 import { apiFetch } from '../../api';
 import { describeError, formatTime, type Transaction } from './types';
+import { PlayerLink } from '../../players/PlayerLink';
 
 const PAGE = 20;
 /** One team's moves are filtered from the league's, so read more at a time. */
@@ -19,6 +20,31 @@ export function describeMove(t: Transaction): string {
   if (t.type === 'waiver_claim') return `claimed ${added} for $${t.cost ?? 0}${dropping}`;
   if (t.type === 'add') return `added ${added}${dropping}`;
   return `dropped ${t.dropped?.name ?? 'a player'}`;
+}
+
+/** `describeMove` with each player's name clickable (opens his card). */
+export function MoveText({ t }: { t: Transaction }) {
+  const added = t.added ? <PlayerLink player={t.added} /> : 'a player';
+  const dropping = t.dropped ? (
+    <>
+      , dropping <PlayerLink player={t.dropped} />
+    </>
+  ) : null;
+  if (t.type === 'waiver_claim')
+    return (
+      <>
+        claimed {added} for ${t.cost ?? 0}
+        {dropping}
+      </>
+    );
+  if (t.type === 'add')
+    return (
+      <>
+        added {added}
+        {dropping}
+      </>
+    );
+  return <>dropped {t.dropped ? <PlayerLink player={t.dropped} /> : 'a player'}</>;
 }
 
 /**
@@ -85,7 +111,7 @@ export function Transactions({
         <ol className="space-y-1" aria-label={teamId ? `${title} list` : 'League transactions'}>
           {shown?.map((t) => (
             <li key={t.id}>
-              <strong>{t.teamName}</strong> {describeMove(t)}{' '}
+              <strong>{t.teamName}</strong> <MoveText t={t} />{' '}
               <span className="text-sm text-muted-foreground">
                 (week {t.week}, {formatTime(t.at)})
               </span>

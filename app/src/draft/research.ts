@@ -27,6 +27,25 @@ export interface PlayerCardData {
     totals: Record<string, number>;
   } | null;
   projection: { season: number; points: number; totals: Record<string, number> } | null;
+  /** This regular season so far; null before his first stat line (or on an older server). */
+  thisSeason?: {
+    season: number;
+    points: number;
+    ppg: number;
+    games: number;
+    weekly: { week: number; points: number }[];
+    totals: Record<string, number>;
+  } | null;
+  /** The current NFL week's projection and matchup; null in the offseason (or on an older server). */
+  nextWeek?: {
+    season: number;
+    week: number;
+    points: number | null;
+    totals: Record<string, number>;
+    bye: boolean;
+    opponent: { team: string; home: boolean } | null;
+    kickoff: string | null;
+  } | null;
   news: NewsHeadline[];
 }
 
