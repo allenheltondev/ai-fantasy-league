@@ -83,7 +83,10 @@ export const DataStatusSchema = z.object({
     stats: SeasonSetSchema.describe(
       "Last season's weekly stats (the draft room's Pts and PPG); null if none."
     ),
-    projections: SeasonSetSchema.describe("This season's projections (the draft room's Proj); null if none.")
+    projections: SeasonSetSchema.describe("This season's projections (the draft room's Proj); null if none."),
+    currentStats: SeasonSetSchema.optional().describe(
+      "This season's weekly stats so far (the player card's season to date); null if none. Pulled during the regular season."
+    )
   }),
   jobs: z
     .array(
@@ -113,7 +116,7 @@ export const getDataStatus = defineOperation({
   path: '/leagues/{leagueId}/data-status',
   summary: 'Check the NFL data behind projections and research',
   description: [
-    'Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with.',
+    'Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the research sets (last season’s stats, this season’s projections, and this season’s stats so far), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with.',
     'Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause.',
     'Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.'
   ].join(' '),
@@ -157,9 +160,10 @@ export const getDataStatus = defineOperation({
     // The seasons the draft room reads: the NFL state's, or the league's when none is stored.
     const seasons =
       state === null ? { season: league.season, lastSeason: league.season - 1 } : researchSeasons(state);
-    const [stats, projections] = await Promise.all([
+    const [stats, projections, currentStats] = await Promise.all([
       reference.seasons.getMeta('stats', seasons.lastSeason),
-      reference.seasons.getMeta('projections', seasons.season)
+      reference.seasons.getMeta('projections', seasons.season),
+      reference.seasons.getMeta('stats', seasons.season)
     ]);
     const byPosition = Object.fromEntries(POSITIONS.map((p) => [p, 0])) as Record<Position, number>;
     for (const player of players) byPosition[player.position] += 1;
@@ -183,7 +187,11 @@ export const getDataStatus = defineOperation({
       league: { season: league.season, week: league.week },
       players: { total: players.length, byPosition },
       weeks,
-      research: { stats: seasonSet(stats), projections: seasonSet(projections) },
+      research: {
+        stats: seasonSet(stats),
+        projections: seasonSet(projections),
+        currentStats: seasonSet(currentStats)
+      },
       jobs: jobs.map((j) => ({ job: j.job, latest: run(j.latest), lastOk: run(j.lastOk) }))
     };
   }

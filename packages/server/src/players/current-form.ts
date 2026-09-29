@@ -69,16 +69,22 @@ export async function loadCurrentForm(
   if (current === null) return { thisSeason: null, nextWeek: null };
   const { season, week } = current;
 
-  const [history, snapshot, games] = await Promise.all([
+  const [history, research, snapshot, games] = await Promise.all([
     reference.stats.getPlayerHistory(player.id, season),
+    reference.seasons.get('stats', season, [player.id]),
     reference.projections.latestSnapshot(season, week, ctx.clock.now()),
     reference.schedule.getWeek(season, week)
   ]);
 
-  const played = history
-    .filter((l) => l.season === season && l.week >= 1 && l.week <= LAST_REGULAR_WEEK)
-    .sort((a, b) => a.week - b.week)
-    .map((l) => ({ week: l.week, stats: l.stats }));
+  // Completed weeks come from the research set (every week, even one the live job missed); the
+  // live stat lines win where both have a week, since they are fresher during a game.
+  const byWeek = new Map<number, Record<string, number>>();
+  for (const w of research[0]?.weeks ?? []) byWeek.set(w.week, w.stats as Record<string, number>);
+  for (const l of history) if (l.season === season) byWeek.set(l.week, l.stats as Record<string, number>);
+  const played = [...byWeek]
+    .filter(([week]) => week >= 1 && week <= LAST_REGULAR_WEEK)
+    .sort(([a], [b]) => a - b)
+    .map(([week, stats]) => ({ week, stats }));
   let thisSeason: ThisSeason | null = null;
   if (played.length > 0) {
     const scored = seasonPoints(scoring, played);

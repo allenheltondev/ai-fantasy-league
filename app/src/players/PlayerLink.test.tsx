@@ -127,7 +127,9 @@ describe('PlayerLink', () => {
     await user.click(screen.getByRole('button', { name: 'CeeDee Lamb' }));
     const week = within(await screen.findByTestId('card-next-week'));
     expect(week.getByText('at PHI')).toBeInTheDocument();
-    expect(week.getByText('No projection for this week yet.')).toBeInTheDocument();
+    expect(
+      week.getByText("No projection for this week yet; he's averaging 13.5 pts a game this season.")
+    ).toBeInTheDocument();
   });
 
   it('says when the opponent is not scheduled yet', async () => {
@@ -173,6 +175,65 @@ describe('PlayerLink', () => {
     );
     expect(screen.getByText("Ja'Marr Chase").tagName).toBe('SPAN');
     expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+describe('player card without projections', () => {
+  it('falls back to his season average when the week has no projection yet', async () => {
+    const user = userEvent.setup();
+    const { api } = fakeApi(
+      cardFor({
+        nextWeek: {
+          season: 2026,
+          week: 4,
+          points: null,
+          totals: {},
+          bye: false,
+          opponent: null,
+          kickoff: null
+        }
+      })
+    );
+    render(
+      <PlayerCardProvider leagueId="L1" api={api}>
+        <PlayerLink player={CHASE} />
+      </PlayerCardProvider>
+    );
+    await user.click(screen.getByRole('button', { name: "Ja'Marr Chase" }));
+    const week = within(await screen.findByTestId('card-next-week'));
+    expect(
+      week.getByText("No projection for this week yet; he's averaging 13.5 pts a game this season.")
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('card-no-data')).toBeNull();
+  });
+
+  it('says plainly when there is no data at all', async () => {
+    const user = userEvent.setup();
+    const { api } = fakeApi(
+      cardFor({
+        thisSeason: null,
+        nextWeek: {
+          season: 2026,
+          week: 4,
+          points: null,
+          totals: {},
+          bye: false,
+          opponent: { team: 'BAL', home: false },
+          kickoff: null
+        }
+      })
+    );
+    render(
+      <PlayerCardProvider leagueId="L1" api={api}>
+        <PlayerLink player={LAMB} />
+      </PlayerCardProvider>
+    );
+    await user.click(screen.getByRole('button', { name: 'CeeDee Lamb' }));
+    expect(await screen.findByTestId('card-no-data')).toHaveTextContent(
+      'No NFL stats or projections for him yet'
+    );
+    // The week still shows who he plays.
+    expect(within(screen.getByTestId('card-next-week')).getByText('at BAL')).toBeInTheDocument();
   });
 });
 

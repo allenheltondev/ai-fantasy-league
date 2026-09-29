@@ -65,6 +65,16 @@ function Totals({ totals, label }: { totals: Record<string, number>; label: stri
   );
 }
 
+/** True when the card has nothing to show: no games this or last season, and no projection at all. */
+function noData(card: PlayerCardData): boolean {
+  return (
+    (card.thisSeason ?? null) === null &&
+    card.lastSeason === null &&
+    card.projection === null &&
+    (card.nextWeek?.points ?? null) === null
+  );
+}
+
 /** "vs BAL, Sun 1:00 PM" / "at BAL" / "BYE". */
 function matchupText(next: NonNullable<PlayerCardData['nextWeek']>): string {
   if (next.bye) return 'BYE';
@@ -147,6 +157,15 @@ export function PlayerCard(props: PlayerCardProps) {
         )}
         {error !== null && <p role="alert">{error}</p>}
         {card === null && error === null && <p className="text-muted-foreground">Loading…</p>}
+        {card !== null && noData(card) && (
+          <p
+            className="rounded-md border border-border p-3 text-sm text-muted-foreground"
+            data-testid="card-no-data"
+          >
+            No NFL stats or projections for him yet. He is most likely a rookie or a reserve who has not
+            played, and no source projects him to.
+          </p>
+        )}
         {card !== null && (
           <>
             {card.thisSeason != null && (
@@ -169,7 +188,12 @@ export function PlayerCard(props: PlayerCardProps) {
                 {card.nextWeek.bye ? (
                   <p>On bye: no points this week.</p>
                 ) : card.nextWeek.points === null ? (
-                  <p className="text-muted-foreground">No projection for this week yet.</p>
+                  <p className="text-muted-foreground">
+                    No projection for this week yet
+                    {card.thisSeason != null && card.thisSeason.games > 0
+                      ? `; he's averaging ${fmt(card.thisSeason.ppg)} pts a game this season.`
+                      : '.'}
+                  </p>
                 ) : (
                   <>
                     <p>

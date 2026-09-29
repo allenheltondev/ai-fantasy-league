@@ -43,7 +43,14 @@ function status(overrides: Partial<DataStatus> = {}): DataStatus {
         players: 640,
         weeks: Array.from({ length: 18 }, (_, i) => i + 1)
       },
-      projections: null
+      projections: null,
+      currentStats: {
+        season: 2026,
+        updatedAt: '2026-09-28T13:00:00.000Z',
+        checkedAt: null,
+        players: 812,
+        weeks: [1, 2, 3, 4]
+      }
     },
     jobs: [
       {
@@ -121,6 +128,9 @@ describe('settings: data status (#181)', () => {
     const research = within(panel).getByRole('table', { name: 'Draft research' });
     expect(within(research).getAllByRole('row')[1]).toHaveTextContent(/2025640\s*18/);
     expect(within(research).getAllByRole('row')[2]).toHaveTextContent('Not stored');
+    expect(within(research).getAllByRole('row')[3]).toHaveTextContent(
+      /This season's stats so far2026812\s*4/
+    );
 
     const jobs = within(panel).getByRole('table', { name: 'Data jobs' });
     const rows = within(jobs).getAllByRole('row');

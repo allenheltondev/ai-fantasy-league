@@ -72,6 +72,21 @@ beforeAll(async () => {
     { playerId: 'fx-chase', season: 2025, week: 3, stats: { gp: 1, rec: 9, rec_yd: 200 }, updatedAt: 'x' },
     { playerId: 'fx-chase', season: 2026, week: 19, stats: { gp: 1, rec: 9, rec_yd: 200 }, updatedAt: 'x' }
   ]);
+  // The research sync's copy of this season: week 2, which the live job missed, and a stale week 1
+  // that the live line overrides.
+  await reference.seasons.put(
+    { kind: 'stats', season: 2026, updatedAt: 'x', checkedAt: 'x', players: 1, weeks: [1, 2], hash: 'h' },
+    [
+      {
+        playerId: 'fx-chase',
+        season: 2026,
+        weeks: [
+          { week: 1, stats: { gp: 1, rec: 1, rec_yd: 1 } },
+          { week: 2, stats: { gp: 1, rec: 5, rec_yd: 60 } }
+        ]
+      }
+    ]
+  );
   await reference.projections.putSnapshot(
     { season: 2026, week: 4, capturedAt: '2026-09-09T00:00:00.000Z', hash: 'h', count: 1 },
     [{ playerId: 'fx-chase', season: 2026, week: 4, stats: { rec: 6, rec_yd: 80 } }]
@@ -98,19 +113,21 @@ beforeAll(async () => {
 afterAll(() => h.close());
 
 describe('the player card in season', () => {
-  it("shows this season so far, week by week, scored with the league's settings", async () => {
+  it("shows this season so far, week by week, with weeks the live job missed, scored with the league's settings", async () => {
     const { thisSeason } = await card('fx-chase');
-    // Half PPR: week 1 = 4 + 10 + 6 = 20; week 3 = 2 + 5 = 7.
+    // Half PPR: week 1 = 4 + 10 + 6 = 20 (the live line, not the stale copy); week 2 = 2.5 + 6 =
+    // 8.5 (only in the research set); week 3 = 2 + 5 = 7.
     expect(thisSeason).toEqual({
       season: 2026,
-      points: 27,
-      ppg: 13.5,
-      games: 2,
+      points: 35.5,
+      ppg: 11.83,
+      games: 3,
       weekly: [
         { week: 1, points: 20 },
+        { week: 2, points: 8.5 },
         { week: 3, points: 7 }
       ],
-      totals: expect.objectContaining({ rec: 12, rec_yd: 150, rec_td: 1 })
+      totals: expect.objectContaining({ rec: 17, rec_yd: 210, rec_td: 1 })
     });
   });
 

@@ -9950,7 +9950,7 @@
       "get": {
         "operationId": "get_data_status",
         "summary": "Check the NFL data behind projections and research",
-        "description": "Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the draft research sets (last season’s stats and this season’s projections), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with. Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
+        "description": "Commissioner only. A diagnostic of the reference data this league reads: the stored NFL state, the player universe (by position), the latest projection snapshot (with the Sleeper endpoint that served it: v1, or the app fallback) and stat line count for the league’s current and next week, the research sets (last season’s stats, this season’s projections, and this season’s stats so far), and each scheduled data job’s latest run and last successful run, with the reason a run skipped or the error it failed with. Use it when projections, last-season points, or scores look empty: a null NFL state, a job that keeps skipping, or a job with no recorded run points at the cause. Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.",
         "tags": [
           "leagues"
         ],
@@ -10281,6 +10281,57 @@
                                 }
                               ],
                               "description": "This season's projections (the draft room's Proj); null if none."
+                            },
+                            "currentStats": {
+                              "description": "This season's weekly stats so far (the player card's season to date); null if none. Pulled during the regular season.",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "season": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "updatedAt": {
+                                      "type": "string",
+                                      "description": "When the set was last replaced."
+                                    },
+                                    "checkedAt": {
+                                      "description": "When the source was last checked (null before the first check that found no change).",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "players": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "weeks": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "description": "Weeks the source had lines for."
+                                    }
+                                  },
+                                  "required": [
+                                    "season",
+                                    "updatedAt",
+                                    "checkedAt",
+                                    "players",
+                                    "weeks"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
