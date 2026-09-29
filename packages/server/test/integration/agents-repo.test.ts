@@ -1,7 +1,7 @@
 import { OWNER_ONLY, emptyMemory, rememberEvent } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
-import type { AgentSeatRecord, AgentTaskRecord } from '../../src/repos/agents.js';
+import type { AgentDispatch, AgentSeatRecord, AgentTaskRecord } from '../../src/repos/agents.js';
 import { createDynamoRepos } from '../../src/repos/dynamo/index.js';
 import { createInMemoryRepos } from '../../src/repos/memory.js';
 import type { Repos } from '../../src/repos/types.js';
@@ -109,14 +109,20 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     const record = task(leagueId, 't1', '2026-09-10T12:00:01.000Z');
     const lockUntil = new Date(T0.getTime() + 60_000);
     expect(await agents.claimTask({ taskId: record.taskId, now: T0, lockUntil })).toEqual({
-      status: 'started'
+      status: 'started',
+      attempt: 1,
+      effects: 0,
+      pending: null
     });
     expect(await agents.claimTask({ taskId: record.taskId, now: T0, lockUntil })).toEqual({
       status: 'in_progress'
     });
     const later = new Date(T0.getTime() + 61_000);
     expect(await agents.claimTask({ taskId: record.taskId, now: later, lockUntil: later })).toEqual({
-      status: 'started'
+      status: 'started',
+      attempt: 2,
+      effects: 0,
+      pending: null
     });
     await agents.completeTask(record, new Date(T0.getTime() + 86_400_000));
     expect(await agents.claimTask({ taskId: record.taskId, now: later, lockUntil })).toEqual({
@@ -130,6 +136,151 @@ describe.each(backends)('%s agent repository', (_name, make) => {
       record.taskId
     ]);
     expect(await agents.listTasks(leagueId, { limit: 1 })).toHaveLength(1);
+  });
+
+  it('fences every write to the attempt holding the task, and lists expired leases for recovery (#207)', async () => {
+    const { agents } = make();
+    const leagueId = unique('lg');
+    const record = task(leagueId, 't1', T0.toISOString());
+    const { taskId } = record;
+    const request = { taskId, leagueId, kind: 'lineup' };
+    const lease = new Date(T0.getTime() + 60_000);
+    expect(await agents.claimTask({ taskId, now: T0, lockUntil: lease, request })).toMatchObject({
+      attempt: 1
+    });
+    const first = { taskId, attempt: 1 };
+    expect(await agents.recordTaskEffect(first)).toBe(true);
+    // Nothing expired yet; at the lease's end it is listed with its request.
+    expect((await agents.listExpiredTaskLeases(T0, 10)).map((l) => l.taskId)).not.toContain(taskId);
+    const expired = await agents.listExpiredTaskLeases(lease, 10);
+    expect(expired).toContainEqual({ taskId, attempt: 1, lockUntil: lease.getTime(), request });
+
+    // Two sweeps race to requeue it: one wins; the requeued task can be claimed at once.
+    const until = new Date(lease.getTime() + 300_000);
+    const requeued = await Promise.all([
+      agents.requeueTaskLease({ taskId, lockUntil: lease.getTime() }, until),
+      agents.requeueTaskLease({ taskId, lockUntil: lease.getTime() }, until)
+    ]);
+    expect(requeued.filter(Boolean)).toHaveLength(1);
+    expect((await agents.listExpiredTaskLeases(lease, 10)).map((l) => l.taskId)).not.toContain(taskId);
+    const second = await agents.claimTask({ taskId, now: lease, lockUntil: until });
+    expect(second).toEqual({ status: 'started', attempt: 2, effects: 1, pending: null });
+
+    // The stale first attempt is fenced off everywhere.
+    const pending = {
+      status: 'completed' as const,
+      fallbackReason: null,
+      toolsCalled: [],
+      finalAction: 'none',
+      reasoningSummary: 'Done.',
+      usage: [],
+      followUps: [{ kind: 'noop', payload: { a: 1 }, delayMs: 5 }]
+    };
+    expect(await agents.recordTaskEffect(first)).toBe(false);
+    expect(await agents.saveTaskPending(first, pending)).toBe(false);
+    expect(await agents.releaseTask(first, until, 'Error')).toBe(false);
+    expect(await agents.completeTask(record, until, first)).toBe(false);
+
+    // The live attempt checkpoints, gives the task back for a retry, and the retry sees the checkpoint.
+    const live = { taskId, attempt: 2 };
+    expect(await agents.saveTaskPending(live, pending)).toBe(true);
+    const retryAt = new Date(lease.getTime() + 120_000);
+    expect(await agents.releaseTask(live, retryAt, 'ThrottlingException')).toBe(true);
+    expect((await agents.listExpiredTaskLeases(retryAt, 10)).map((l) => l.taskId)).toContain(taskId);
+    expect(await agents.claimTask({ taskId, now: lease, lockUntil: until })).toEqual({
+      status: 'started',
+      attempt: 3,
+      effects: 1,
+      pending
+    });
+    expect(await agents.completeTask(record, until, { taskId, attempt: 3 })).toBe(true);
+    expect(await agents.recordTaskEffect({ taskId, attempt: 3 })).toBe(false);
+    expect((await agents.listExpiredTaskLeases(until, 10)).map((l) => l.taskId)).not.toContain(taskId);
+    expect(await agents.claimTask({ taskId, now: until, lockUntil: until })).toEqual({
+      status: 'done',
+      record
+    });
+    // A claim made before #207 kept no request.
+    const legacy = unique('task');
+    await agents.claimTask({ taskId: legacy, now: T0, lockUntil: T0 });
+    // Leases that expire together come out in task-id order.
+    await agents.claimTask({ taskId: `${legacy}-b`, now: T0, lockUntil: T0 });
+    const together = (await agents.listExpiredTaskLeases(T0, 100)).map((l) => l.taskId);
+    expect(together.indexOf(legacy)).toBeLessThan(together.indexOf(`${legacy}-b`));
+    expect(await agents.listExpiredTaskLeases(T0, 100)).toContainEqual(
+      expect.objectContaining({ taskId: legacy, request: null })
+    );
+  });
+
+  it('admits a trigger gate atomically: once per key, a window, and the same answer for its owner (#207)', async () => {
+    const { agents } = make();
+    const leagueId = unique('lg');
+    const gate = (owner: string, now: Date, windowMs: number | null, slot = 'league#waivers#week-5') =>
+      agents.admitTrigger(leagueId, { slot, owner, now, windowMs });
+    // Two events race for a once-per key: exactly one gets it; its redelivery still does.
+    const raced = await Promise.all(['evt-1', 'evt-2', 'evt-3'].map((owner) => gate(owner, T0, null)));
+    expect(raced.filter(Boolean)).toHaveLength(1);
+    const winner = ['evt-1', 'evt-2', 'evt-3'][raced.indexOf(true)] as string;
+    expect(await gate(winner, new Date(T0.getTime() + 86_400_000), null)).toBe(true);
+    expect(await gate('evt-9', new Date(T0.getTime() + 86_400_000), null)).toBe(false);
+    // A windowed gate opens again once the window has passed.
+    expect(await gate('a', T0, 60_000, 'agent#lineup')).toBe(true);
+    expect(await gate('b', new Date(T0.getTime() + 59_999), 60_000, 'agent#lineup')).toBe(false);
+    expect(await gate('b', new Date(T0.getTime() + 60_000), 60_000, 'agent#lineup')).toBe(true);
+    expect((await agents.getTriggerState(leagueId, 'agent#lineup'))?.lastTriggeredAt).toBe(
+      new Date(T0.getTime() + 60_000).toISOString()
+    );
+    // A slot written before #207 (no owner) is judged by its time alone.
+    await agents.putTriggerState({ leagueId, agentId: 'old', lastTriggeredAt: T0.toISOString() });
+    expect(await gate('c', T0, 60_000, 'old')).toBe(false);
+    expect(await gate('c', new Date(T0.getTime() + 60_000), 60_000, 'old')).toBe(true);
+  });
+
+  it('keeps a dispatch outbox: reserve once (with its gate), relay what is due, settle (#207)', async () => {
+    const { agents } = make();
+    const leagueId = unique('lg');
+    const dispatch = (taskId: string, retryAt = T0): AgentDispatch => ({
+      taskId,
+      leagueId,
+      request: { taskId, payload: { week: 5 } },
+      at: null,
+      delayMs: 0,
+      state: 'reserved',
+      attempts: 0,
+      reservedAt: T0.toISOString(),
+      retryAt: retryAt.toISOString()
+    });
+    const a = unique('task');
+    const b = unique('task');
+    const gate = { slot: 'agent#waivers', owner: a, now: T0, windowMs: 3_600_000 };
+    expect(await agents.getDispatch(a)).toBeNull();
+    // Racing reservations of one task: one reserves, the other finds it.
+    const raced = await Promise.all([
+      agents.reserveDispatch(dispatch(a), gate),
+      agents.reserveDispatch(dispatch(a), gate)
+    ]);
+    expect(raced.map((r) => r.status).sort()).toEqual(['exists', 'reserved']);
+    expect(raced.find((r) => r.status === 'exists')).toEqual({ status: 'exists', dispatch: dispatch(a) });
+    // Another task for the same agent inside the cooldown is gated, and nothing is written for it.
+    expect(await agents.reserveDispatch(dispatch(b), { ...gate, owner: b })).toEqual({ status: 'gated' });
+    expect(await agents.getDispatch(b)).toBeNull();
+    // Without a gate it reserves; later than now it is not due yet.
+    const later = new Date(T0.getTime() + 120_000);
+    expect(await agents.reserveDispatch(dispatch(b, later))).toEqual({ status: 'reserved' });
+    expect(await agents.reserveDispatch(dispatch(b, later))).toMatchObject({ status: 'exists' });
+    const due = async (now: Date) =>
+      (await agents.listDueDispatches(now, 100)).filter((d) => d.leagueId === leagueId).map((d) => d.taskId);
+    expect(await due(T0)).toEqual([a]);
+    expect(await due(later)).toEqual([a, b]);
+    // A failed send pushes it back and counts; a settled one leaves the outbox.
+    expect(await agents.failDispatch(a, new Date(T0.getTime() + 300_000))).toBe(1);
+    expect(await agents.failDispatch(a, new Date(T0.getTime() + 300_000))).toBe(2);
+    expect(await due(later)).toEqual([b]);
+    await agents.settleDispatch(b, 'dispatched');
+    await agents.settleDispatch(a, 'abandoned');
+    expect(await due(new Date(T0.getTime() + 600_000))).toEqual([]);
+    expect(await agents.getDispatch(a)).toMatchObject({ state: 'abandoned', attempts: 2 });
+    expect(await agents.getDispatch(b)).toMatchObject({ state: 'dispatched', attempts: 0 });
   });
 
   it('claims a rolling-window limit atomically: N parallel claims against a cap of 3 get exactly 3', async () => {

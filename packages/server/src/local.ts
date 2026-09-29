@@ -25,6 +25,9 @@ import { limitsFromEnv } from './context.js';
 import { createDynamoReferenceStore } from './repos/dynamo/reference.js';
 import { createServices } from './services.js';
 
+/** An isolated DynamoDB Local table, for tests in other packages (the agents' durability suite). */
+export { startLocalTable, type LocalTable } from './dev/local-table.js';
+
 export interface LocalServerOptions {
   port?: number;
   env?: Record<string, string | undefined>;

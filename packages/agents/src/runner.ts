@@ -14,15 +14,22 @@ import {
 import {
   agentPrincipal,
   budgetWeek,
+  isApiError,
   leagueBudget,
+  type AgentFollowUp,
   type AgentModelUsage,
+  type AgentTaskFence,
+  type AgentTaskPending,
   type AgentTaskRecord,
   type AgentTaskSeal,
   type League,
   type LeagueBudget,
+  type Logger,
   type Registry,
   type Services
 } from '@fantasy/server';
+import { ZodError } from 'zod';
+import { dispatchTask, errorName } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
@@ -39,7 +46,7 @@ import {
 } from './memory.js';
 import { estimateTokens, isModelUnavailable, type ModelClient } from './model.js';
 import { MEMORY_NOTE_MAX, assembleSystemPrompt } from './prompt.js';
-import { requestTask, taskIdFor } from './router.js';
+import { taskIdFor } from './router.js';
 import type {
   BaseDecision,
   PreparedTask,
@@ -53,19 +60,43 @@ import { ToolBox, keyPrefix } from './tools.js';
 /**
  * Runs one `Agent Action Requested` task in the Lambda (issue #41). In order:
  *
- * 1. Claim the task id (idempotent per trigger event: a redelivery returns the stored record).
+ * 1. Claim the task id (idempotent per trigger event: a redelivery returns the stored record). Each
+ *    claim is an attempt; its number fences every later write (#207).
  * 2. Load the league and seat, resolve the config, and let the task kind prepare.
  * 3. Decide the mode: deterministic fallback if the kill switch is on or the league's weekly budget
  *    is spent; otherwise the model, trying each model in the tier's chain.
  * 4. On a model timeout or failure, fall back to the kind's deterministic behavior. The failed run
  *    still counts against the budget: its usage is estimated from the prompt and the token limit.
- * 5. Record everything (#45): trigger, tools called, final action, reasoning summary, latency,
- *    tokens and estimated cost per model; add the weekly rollups; update the agent's memory (#44):
- *    its decision, its note, and whatever the kind adds (a chat snapshot). Summaries with sealed
- *    information carry the kind's `sealed` marker, so the activity log withholds them (#122).
- * 6. Request the outcome's follow-up tasks (`followUps`), each a task of its own for the same agent.
- *    Chat-driven ones (#196, a conversation handed to an action task) are held to
- *    `SOCIAL_LIMITS.chatActionsPerDay` per agent (`takeChatActionSlot`).
+ * 5. Checkpoint the result (`saveTaskPending`), then record everything (#45): trigger, tools called,
+ *    final action, reasoning summary, latency, tokens and estimated cost per model; add the weekly
+ *    rollups; update the agent's memory (#44): its decision, its note, and whatever the kind adds (a
+ *    chat snapshot). Summaries with sealed information carry the kind's `sealed` marker, so the
+ *    activity log withholds them (#122).
+ * 6. Dispatch the outcome's follow-up tasks (`followUps`) through the outbox (dispatch.ts), each a
+ *    task of its own for the same agent. Chat-driven ones (#196, a conversation handed to an action
+ *    task) are held to `SOCIAL_LIMITS.chatActionsPerDay` per agent (`takeChatActionSlot`).
+ *
+ * The task lifecycle (#207):
+ *
+ * - Expected no-ops (a stale trigger, `TaskUnavailableError`; a missing league, seat, or kind) are
+ *   `skipped`. Permanent failures (bugs, invalid input: `failureClass`) are `failed` at once.
+ *   Retryable ones (throttling, timeouts, a 5xx, a conflict) give the task back for a retry after
+ *   `taskRetryDelayMs` (`releaseTask`); the recovery sweep (recovery.ts) delivers it again, and after
+ *   `TASK_ATTEMPTS` deliveries it is `failed` as `retries_exhausted`.
+ * - A worker that crashes or stalls keeps its lease until `TASK_LOCK_MS`; the recovery sweep then
+ *   delivers the task again, without waiting for another event.
+ * - Partial effects are reconciled, not replayed: every mutation is counted under the attempt's
+ *   fence first (`recordTaskEffect`), so a retry knows whether an earlier attempt acted. If it did,
+ *   the model never runs again (its actions were not deterministic); the kind prepares from the
+ *   league as it is now and its deterministic fallback finishes the job (`recovered`), with the
+ *   same idempotency keys, so a deterministic step already done replays instead of acting twice. An
+ *   attempt that got as far as its checkpoint finishes from it: memory is left as it was, follow-ups
+ *   are dispatched (idempotently, by task id), and the record is written.
+ * - A stale attempt cannot overwrite a newer one: its mutations are refused (the ToolBox fence), its
+ *   checkpoint and record are not written, and it only adds the usage it spent.
+ *
+ * Budget seam (#209): `modelTurn` is where one model call runs; `TaskAttempt.recordUsage` is the
+ * one place spend reaches the weekly rollups (finished, fenced off, or given back for a retry).
  *
  * The first task that finds the league's weekly budget spent announces it in the league chat
  * (`Agent Budget Exceeded`, once per league and budget week).
@@ -83,12 +114,19 @@ export interface RunnerDeps {
   memory?: AgentMemoryStore;
 }
 
-/** How long a crashed run blocks a retry of the same task. */
+/** How long a crashed run blocks a retry of the same task (its lease). */
 export const TASK_LOCK_MS = 5 * 60 * 1000;
+/** Deliveries of one task that may run; one more records it as failed (`retries_exhausted`). */
+export const TASK_ATTEMPTS = 3;
 /** How long task records are kept. */
 export const TASK_RECORD_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 /** Mutations deterministic code may make in one task. */
 export const DETERMINISTIC_ACTIONS = 10;
+
+/** Wait before the next delivery after a retryable failure of attempt `attempt`: 1, 2, 4 minutes. */
+export function taskRetryDelayMs(attempt: number): number {
+  return 60_000 * 2 ** Math.max(0, attempt - 1);
+}
 
 const MAX_TOKENS: Record<ReasoningEffort, number> = { low: 1024, medium: 2048, high: 4096 };
 
@@ -104,28 +142,63 @@ export const THINKING_BUDGET: Readonly<Record<ReasoningEffort, number>> = {
 
 const FULL_RESEARCH = Object.fromEntries(RESEARCH_KINDS.map((k) => [k, true])) as ResearchAccess;
 
+/** Error names (or codes) of failures worth another try: throttling, timeouts, dropped connections. */
+const TRANSIENT_ERRORS: ReadonlySet<string> = new Set([
+  'ThrottlingException',
+  'ProvisionedThroughputExceededException',
+  'RequestLimitExceeded',
+  'TransactionConflictException',
+  'InternalServerError',
+  'InternalFailure',
+  'ServiceUnavailable',
+  'ServiceUnavailableException',
+  'TimeoutError',
+  'RequestTimeout',
+  'RequestTimeoutException',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'EAI_AGAIN'
+]);
+/** API error codes that may pass on a retry (the rest are deterministic answers). */
+const TRANSIENT_API_CODES: ReadonlySet<string> = new Set([
+  'INTERNAL',
+  'CONFLICT',
+  'IDEMPOTENCY_IN_PROGRESS',
+  'RATE_LIMITED'
+]);
+
+/**
+ * Whether a task failure may pass on another delivery (`retryable`: throttling, timeouts, dropped
+ * connections, a 5xx or conflict from an operation, any AWS SDK error it marks retryable) or will
+ * fail the same way again (`permanent`: invalid input, a bug, a 4xx answer).
+ */
+export function failureClass(error: unknown): 'retryable' | 'permanent' {
+  if (isApiError(error)) return TRANSIENT_API_CODES.has(error.code) ? 'retryable' : 'permanent';
+  if (error instanceof ZodError || !(error instanceof Error)) return 'permanent';
+  const sdk = error as Error & { $retryable?: unknown; code?: unknown };
+  if (sdk.$retryable !== undefined && sdk.$retryable !== null) return 'retryable';
+  return TRANSIENT_ERRORS.has(error.name) || (typeof sdk.code === 'string' && TRANSIENT_ERRORS.has(sdk.code))
+    ? 'retryable'
+    : 'permanent';
+}
+
 export async function runAgentAction(
   deps: RunnerDeps,
   request: AgentActionRequested
 ): Promise<AgentTaskRecord> {
   const { services } = deps;
+  const { agents } = services.repos;
   const clock = services.clock;
   const log = services.log.child({ taskId: request.taskId, kind: request.kind, teamId: request.teamId });
   const started = clock.now();
-  const base = {
-    taskId: request.taskId,
-    leagueId: request.leagueId,
-    teamId: request.teamId,
-    agentId: request.agentId,
-    kind: request.kind,
-    trigger: { detailType: request.trigger.detailType, eventId: request.trigger.eventId },
-    startedAt: started.toISOString()
-  };
 
-  const claim = await services.repos.agents.claimTask({
+  const claim = await agents.claimTask({
     taskId: request.taskId,
     now: started,
-    lockUntil: new Date(started.getTime() + TASK_LOCK_MS)
+    lockUntil: new Date(started.getTime() + TASK_LOCK_MS),
+    request
   });
   if (claim.status === 'done') {
     log.info('agent task already done; replaying', { status: claim.record.status });
@@ -133,13 +206,22 @@ export async function runAgentAction(
   }
   if (claim.status === 'in_progress') {
     log.info('agent task already running elsewhere');
-    return finish(deps, { ...base, week: 0 }, started, skipped('in_progress'), false);
+    return new TaskAttempt(deps, request, null, started, log, 0).report(skipped('in_progress'));
+  }
+  if (claim.attempt > 1) {
+    log.info('agent task delivered again', {
+      attempt: claim.attempt,
+      effects: claim.effects,
+      checkpointed: claim.pending !== null
+    });
   }
 
   const league = await services.repos.leagues.get(request.leagueId);
-  const seat = league === null ? null : await services.repos.agents.getSeat(request.leagueId, request.teamId);
+  const seat = league === null ? null : await agents.getSeat(request.leagueId, request.teamId);
   const kind = deps.kinds.get(request.kind);
   const week = league === null ? 0 : budgetWeek(league);
+  const fence: AgentTaskFence = { taskId: request.taskId, attempt: claim.attempt };
+  const attempt = new TaskAttempt(deps, request, fence, started, log, week);
   if (league === null || seat === null || seat.agentId !== request.agentId || kind === undefined) {
     const reason =
       league === null
@@ -147,20 +229,35 @@ export async function runAgentAction(
         : seat === null || seat.agentId !== request.agentId
           ? 'no_agent_seat'
           : 'unknown_kind';
-    return finish(deps, { ...base, week }, started, skipped(reason), true);
+    return attempt.finish(skipped(reason));
+  }
+  if (claim.attempt > TASK_ATTEMPTS) {
+    log.warn('agent task gave up: every attempt failed', { attempt: claim.attempt });
+    return attempt.finish({
+      ...skipped('retries_exhausted'),
+      status: 'failed',
+      reasoningSummary: `Gave up after ${TASK_ATTEMPTS} attempts failed.`
+    });
+  }
+  if (claim.pending !== null) {
+    log.info('agent task finishing from its checkpoint', { attempt: claim.attempt });
+    return attempt.conclude(claim.pending, league.id, seat.agentId);
   }
 
   const principal = agentPrincipal({ agentId: seat.agentId, teamId: seat.teamId, leagueId: league.id });
   const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
   const prefix = keyPrefix(request.taskId);
+  const beforeMutation = () => agents.recordTaskEffect(fence);
   const system = new ToolBox({
     registry: deps.registry,
     services,
     principal,
     research: FULL_RESEARCH,
     actionsPerTrigger: DETERMINISTIC_ACTIONS,
-    idempotencyPrefix: `${prefix}:sys`
+    idempotencyPrefix: `${prefix}:sys`,
+    beforeMutation
   });
+  attempt.toolboxes.push(system);
   const ctx: TaskContext = {
     taskId: request.taskId,
     principal,
@@ -170,9 +267,9 @@ export async function runAgentAction(
     tools: system,
     clock,
     log,
-    trigger: base.trigger,
+    trigger: { detailType: request.trigger.detailType, eventId: request.trigger.eventId },
     claimLimit: async (name, cap, windowMs) => {
-      const result = await services.repos.agents.claimLimit({
+      const result = await agents.claimLimit({
         leagueId: league.id,
         key: `${seat.agentId}#${name}`,
         now: clock.now(),
@@ -188,27 +285,25 @@ export async function runAgentAction(
   try {
     prepared = await kind.prepare(ctx, request.payload);
   } catch (error) {
-    const reason = error instanceof TaskUnavailableError ? error.message : 'prepare_failed';
-    if (!(error instanceof TaskUnavailableError)) log.error('agent task prepare failed', { error });
-    const sealed = error instanceof TaskUnavailableError ? error.sealed : undefined;
-    const summary = error instanceof TaskUnavailableError ? error.summary : undefined;
-    return finish(
-      deps,
-      { ...base, week },
-      started,
-      {
-        ...skipped(reason),
+    if (error instanceof TaskUnavailableError) {
+      return attempt.finish({
+        ...skipped(error.message),
         toolsCalled: [...system.calls],
-        ...(sealed === undefined ? {} : { sealed }),
-        ...(summary === undefined ? {} : { reasoningSummary: summary })
-      },
-      true
-    );
+        ...(error.sealed === undefined ? {} : { sealed: error.sealed }),
+        ...(error.summary === undefined ? {} : { reasoningSummary: error.summary })
+      });
+    }
+    return attempt.failed('prepare', error, {
+      ...skipped('prepare_failed'),
+      status: 'failed',
+      toolsCalled: [...system.calls],
+      reasoningSummary: `Could not prepare the task (${errorName(error)}).`
+    });
   }
 
-  const memoryStore = deps.memory ?? tableMemoryStore(services.repos.agents);
+  const memoryStore = deps.memory ?? tableMemoryStore(agents);
   const audience = prepared.memoryAudience ?? defaultAudience(kind.modelRole, prepared.memoryScope);
-  const remember = async (outcome: TaskOutcome, note?: string) => {
+  attempt.remember = async (outcome: TaskOutcome, note?: string) => {
     const events: MemoryEvent[] = [];
     // The decision and its note are as private as the task's summary (#206).
     const visibility = outcomeVisibility(outcome.sealed, audience);
@@ -248,44 +343,22 @@ export async function runAgentAction(
       await memoryStore.remember(league.id, seat.agentId, events);
     } catch (error) {
       // Memory is best effort: a failed write never undoes or fails the decision.
-      log.warn('agent memory write failed', { error });
+      log.warn('agent memory write failed', { error: errorName(error) });
     }
   };
-  const followUp = async (outcome: TaskOutcome) => {
-    for (const next of outcome.followUps ?? []) {
-      if (next.chatDriven === true && !(await takeChatActionSlot(services, league.id, seat.agentId, log))) {
-        log.info('chat follow-up skipped: daily limit', { followUp: next.kind });
-        continue;
-      }
-      const task: AgentActionRequested = {
-        ...request,
-        taskId: taskIdFor(request.trigger.eventId, request.teamId, next.kind),
-        kind: next.kind,
-        payload: next.payload,
-        requestedAt: clock.now().toISOString()
-      };
-      try {
-        await requestTask(services, task, next.delayMs);
-      } catch (error) {
-        // Best effort, like memory: the follow-up is lost, this task's decision stands.
-        log.warn('agent follow-up task could not be requested', { followUp: next.kind, error });
-      }
-    }
-  };
-  const deterministic: PreparedTask = {
-    ...prepared,
-    fallback: async () => {
-      const outcome = await prepared.fallback();
-      await remember(outcome);
-      await followUp(outcome);
-      return outcome;
-    }
-  };
+  attempt.owner = { leagueId: league.id, agentId: seat.agentId };
+
+  // An earlier attempt acted: reconcile from the league as it is now, never replay the model.
+  if (claim.effects > 0) {
+    log.warn('agent task recovering after partial effects', {
+      attempt: claim.attempt,
+      effects: claim.effects
+    });
+    return attempt.fallback(prepared, 'recovered');
+  }
 
   const gate = await modeGate(deps, league);
-  if (gate !== null) {
-    return runFallback(deps, { ...base, week }, started, deterministic, system, gate);
-  }
+  if (gate !== null) return attempt.fallback(prepared, gate);
 
   const modelTools = new ToolBox({
     registry: deps.registry,
@@ -294,8 +367,10 @@ export async function runAgentAction(
     research: config.levers.research,
     ...((prepared.tools ?? kind.tools) === undefined ? {} : { allow: prepared.tools ?? kind.tools }),
     actionsPerTrigger: kind.modelActions ?? config.levers.actionsPerTrigger,
-    idempotencyPrefix: prefix
+    idempotencyPrefix: prefix,
+    beforeMutation
   });
+  attempt.toolboxes.unshift(modelTools);
   const [memory, teams] = await Promise.all([
     memoryStore.load(league.id, seat.agentId),
     services.repos.teams.list(league.id)
@@ -337,7 +412,9 @@ export async function runAgentAction(
     const thinking = model.thinkingBudget === true ? THINKING_BUDGET[effort] : 0;
     const input = `Trigger: ${request.trigger.detailType}. Do the current task, then give your structured answer.`;
     const maxTokens = MAX_TOKENS[effort] + thinking;
+    let decision: BaseDecision;
     try {
+      // The model turn: where #209 reserves budget before the call and reconciles after it.
       const runRequest = {
         modelId: model.bedrockId,
         systemPrompt,
@@ -365,49 +442,11 @@ export async function runAgentAction(
         estimatedCostUsd: estimateCostUsd(modelKey, result.usage),
         estimatedTokens: result.usage.estimated
       });
-      clearTimeout(timer);
-      let outcome: TaskOutcome;
-      try {
-        outcome = sealHeard(await prepared.apply(result.decision));
-      } catch (error) {
-        log.error('agent decision could not be applied', { error });
-        return finish(
-          deps,
-          { ...base, week },
-          started,
-          {
-            status: 'failed',
-            fallbackReason: null,
-            toolsCalled: [...modelTools.calls, ...system.calls],
-            finalAction: 'none',
-            reasoningSummary: `Could not apply the decision: ${error instanceof Error ? error.message : String(error)}`,
-            usage
-          },
-          true
-        );
-      }
-      await remember(outcome, result.decision.memoryNote);
-      await followUp(outcome);
-      return finish(
-        deps,
-        { ...base, week },
-        started,
-        {
-          status: 'completed',
-          fallbackReason: null,
-          toolsCalled: [...modelTools.calls, ...system.calls],
-          finalAction: outcome.action,
-          reasoningSummary: outcome.summary,
-          usage,
-          ...(outcome.sealed === undefined ? {} : { sealed: outcome.sealed })
-        },
-        true
-      );
+      decision = result.decision;
     } catch (error) {
-      clearTimeout(timer);
       lastError = error;
       const timedOut = controller.signal.aborted;
-      log.warn('agent model run failed', { model: modelKey, timedOut, error });
+      log.warn('agent model run failed', { model: modelKey, timedOut, error: errorName(error) });
       if (!timedOut && isModelUnavailable(error) && modelTools.actionsTaken === 0) continue;
       // The run got far enough to cost something: count an estimate (the prompt, and the whole
       // response limit) so failures cannot slip past the weekly budget.
@@ -418,29 +457,40 @@ export async function runAgentAction(
         estimatedCostUsd: estimateCostUsd(modelKey, estimate),
         estimatedTokens: true
       });
-      return runFallback(
-        deps,
-        { ...base, week },
-        started,
-        deterministic,
-        system,
-        timedOut ? 'timeout' : 'model_error',
-        modelTools,
-        usage
-      );
+      return attempt.fallback(prepared, timedOut ? 'timeout' : 'model_error', usage);
+    } finally {
+      clearTimeout(timer);
     }
+
+    let outcome: TaskOutcome;
+    try {
+      outcome = sealHeard(await prepared.apply(decision));
+    } catch (error) {
+      if (attempt.fenced) return attempt.discard(attempt.failedResult('apply', error, null, usage));
+      // After an action, or on a failure that may pass: retry, and reconcile then. Otherwise the
+      // decision itself is unusable, and the deterministic fallback decides instead.
+      if (attempt.actionsTaken > 0 || failureClass(error) === 'retryable') {
+        return attempt.retryLater('apply', error, usage);
+      }
+      log.warn('agent decision could not be applied; falling back', { error: errorName(error) });
+      return attempt.fallback(prepared, 'apply_failed', usage);
+    }
+    return attempt.settle(
+      {
+        status: 'completed',
+        fallbackReason: null,
+        toolsCalled: attempt.calls(),
+        finalAction: outcome.action,
+        reasoningSummary: outcome.summary,
+        usage,
+        ...(outcome.sealed === undefined ? {} : { sealed: outcome.sealed })
+      },
+      outcome,
+      decision.memoryNote
+    );
   }
-  log.warn('every model in the chain was unavailable', { chain, error: lastError });
-  return runFallback(
-    deps,
-    { ...base, week },
-    started,
-    deterministic,
-    system,
-    'models_unavailable',
-    modelTools,
-    usage
-  );
+  log.warn('every model in the chain was unavailable', { chain, error: errorName(lastError) });
+  return attempt.fallback(prepared, 'models_unavailable', usage);
 }
 
 async function modeGate(deps: RunnerDeps, league: League): Promise<string | null> {
@@ -481,18 +531,6 @@ async function announceBudget(deps: RunnerDeps, league: League, budget: LeagueBu
   });
 }
 
-type Base = Omit<
-  AgentTaskRecord,
-  | 'status'
-  | 'fallbackReason'
-  | 'toolsCalled'
-  | 'finalAction'
-  | 'reasoningSummary'
-  | 'latencyMs'
-  | 'usage'
-  | 'costUsd'
-  | 'finishedAt'
->;
 type Result = Pick<
   AgentTaskRecord,
   'status' | 'fallbackReason' | 'toolsCalled' | 'finalAction' | 'reasoningSummary' | 'usage'
@@ -509,98 +547,250 @@ function skipped(reason: string): Result {
   };
 }
 
-async function runFallback(
-  deps: RunnerDeps,
-  base: Base,
-  started: Date,
-  prepared: PreparedTask,
-  system: ToolBox,
-  reason: string,
-  modelTools?: ToolBox,
-  usage: AgentModelUsage[] = []
-): Promise<AgentTaskRecord> {
-  const calls = () => [...(modelTools?.calls ?? []), ...system.calls];
-  try {
-    const outcome = await prepared.fallback();
-    return finish(
-      deps,
-      base,
-      started,
+/**
+ * One attempt at a task: what it knows about itself (the fence, the tool boxes, the agent) and the
+ * ways it ends — finished and recorded, given back for a retry, or fenced off by a newer attempt.
+ */
+class TaskAttempt {
+  /** Model tools first, then the deterministic ones. */
+  readonly toolboxes: ToolBox[] = [];
+  /** Writes the outcome to the agent's memory (set once the kind has prepared). */
+  remember: ((outcome: TaskOutcome, note?: string) => Promise<void>) | null = null;
+  /** Whose follow-ups these are (set with `remember`; a checkpoint passes its own). */
+  owner: { leagueId: string; agentId: string } | null = null;
+
+  constructor(
+    readonly deps: RunnerDeps,
+    readonly request: AgentActionRequested,
+    readonly fence: AgentTaskFence | null,
+    readonly started: Date,
+    readonly log: Logger,
+    readonly week: number
+  ) {}
+
+  get services(): Services {
+    return this.deps.services;
+  }
+
+  /** True once a mutation was refused: a newer attempt holds the task. */
+  get fenced(): boolean {
+    return this.toolboxes.some((t) => t.fenced);
+  }
+
+  get actionsTaken(): number {
+    return this.toolboxes.reduce((sum, t) => sum + t.actionsTaken, 0);
+  }
+
+  calls() {
+    return this.toolboxes.flatMap((t) => t.calls);
+  }
+
+  /** Runs the kind's deterministic fallback and settles its outcome. */
+  async fallback(
+    prepared: PreparedTask,
+    reason: string,
+    usage: AgentModelUsage[] = []
+  ): Promise<AgentTaskRecord> {
+    let outcome: TaskOutcome;
+    try {
+      outcome = await prepared.fallback();
+    } catch (error) {
+      return this.failed('fallback', error, this.failedResult('fallback', error, reason, usage));
+    }
+    return this.settle(
       {
         status: 'fallback',
         fallbackReason: reason,
-        toolsCalled: calls(),
+        toolsCalled: this.calls(),
         finalAction: outcome.action,
         reasoningSummary: outcome.summary,
         usage,
         ...(outcome.sealed === undefined ? {} : { sealed: outcome.sealed })
       },
-      true
-    );
-  } catch (error) {
-    deps.services.log.error('agent fallback failed', { taskId: base.taskId, error });
-    return finish(
-      deps,
-      base,
-      started,
-      {
-        status: 'failed',
-        fallbackReason: reason,
-        toolsCalled: calls(),
-        finalAction: 'none',
-        reasoningSummary: `Fallback failed: ${error instanceof Error ? error.message : String(error)}`,
-        usage
-      },
-      true
+      outcome
     );
   }
-}
 
-async function finish(
-  deps: RunnerDeps,
-  base: Base,
-  started: Date,
-  result: Result,
-  store: boolean
-): Promise<AgentTaskRecord> {
-  const { services } = deps;
-  const finished = services.clock.now();
-  const record: AgentTaskRecord = {
-    ...base,
-    ...result,
-    latencyMs: Math.max(0, finished.getTime() - started.getTime()),
-    costUsd: Math.round(result.usage.reduce((sum, u) => sum + u.estimatedCostUsd, 0) * 1_000_000) / 1_000_000,
-    finishedAt: finished.toISOString()
-  };
-  if (store) {
-    await services.repos.agents.completeTask(record, new Date(finished.getTime() + TASK_RECORD_TTL_MS));
-    for (const u of result.usage) {
-      await services.repos.agents.addUsage({
-        leagueId: record.leagueId,
-        week: record.week,
-        agentId: record.agentId,
+  /**
+   * The action is done: checkpoint the result, then remember, dispatch follow-ups, and record it.
+   * A crash after the checkpoint resumes from it (`conclude`) and never acts again.
+   */
+  async settle(result: Result, outcome: TaskOutcome, note?: string): Promise<AgentTaskRecord> {
+    if (this.fenced || this.fence === null) return this.discard(result);
+    const pending: AgentTaskPending = { ...result, followUps: outcome.followUps ?? [] };
+    if (!(await this.services.repos.agents.saveTaskPending(this.fence, pending))) return this.discard(result);
+    await this.remember?.(outcome, note);
+    const owner = this.owner as { leagueId: string; agentId: string };
+    return this.conclude(pending, owner.leagueId, owner.agentId);
+  }
+
+  /** Dispatches a checkpoint's follow-ups and records the task. */
+  async conclude(pending: AgentTaskPending, leagueId: string, agentId: string): Promise<AgentTaskRecord> {
+    const { followUps, ...result } = pending;
+    try {
+      await this.dispatchFollowUps(followUps, leagueId, agentId);
+    } catch (error) {
+      // The checkpoint holds the follow-ups: the retry dispatches them without acting again.
+      return this.retryLater('follow_ups', error, []);
+    }
+    return this.finish(result);
+  }
+
+  /**
+   * Each follow-up is a task of its own, reserved in the outbox under an id from the trigger and its
+   * kind, so a retry or a redelivery never doubles it. A chat-driven one spends a daily use only
+   * when it is reserved the first time.
+   */
+  async dispatchFollowUps(
+    followUps: readonly AgentFollowUp[],
+    leagueId: string,
+    agentId: string
+  ): Promise<void> {
+    const { services, request } = this;
+    for (const next of followUps) {
+      const task: AgentActionRequested = {
+        ...request,
+        taskId: taskIdFor(request.trigger.eventId, request.teamId, next.kind),
+        kind: next.kind,
+        payload: next.payload,
+        requestedAt: services.clock.now().toISOString()
+      };
+      if (
+        next.chatDriven === true &&
+        (await services.repos.agents.getDispatch(task.taskId)) === null &&
+        !(await takeChatActionSlot(services, leagueId, agentId, this.log))
+      ) {
+        this.log.info('chat follow-up skipped: daily limit', { followUp: next.kind });
+        continue;
+      }
+      await dispatchTask(services, task, next.delayMs === undefined ? {} : { delayMs: next.delayMs });
+    }
+  }
+
+  /** A failure: retried when it may pass (or when this attempt acted), otherwise recorded as `failed`. */
+  async failed(stage: string, error: unknown, result: Result): Promise<AgentTaskRecord> {
+    if (this.fenced) return this.discard(result);
+    if (failureClass(error) === 'retryable' || this.actionsTaken > 0) {
+      return this.retryLater(stage, error, result.usage);
+    }
+    this.log.error('agent task failed', { stage, error: errorName(error) });
+    return this.finish(result);
+  }
+
+  failedResult(stage: string, error: unknown, reason: string | null, usage: AgentModelUsage[]): Result {
+    return {
+      status: 'failed',
+      fallbackReason: reason,
+      toolsCalled: this.calls(),
+      finalAction: 'none',
+      reasoningSummary: `${stage === 'apply' ? 'Could not apply the decision' : 'Fallback failed'} (${errorName(error)}).`,
+      usage
+    };
+  }
+
+  /**
+   * Gives the task back for a later delivery (the recovery sweep sends it at `retryAt`). What the
+   * model already spent is counted now; the record is written by the attempt that finishes.
+   */
+  async retryLater(stage: string, error: unknown, usage: AgentModelUsage[]): Promise<AgentTaskRecord> {
+    const fence = this.fence as AgentTaskFence;
+    const retryAt = new Date(this.services.clock.now().getTime() + taskRetryDelayMs(fence.attempt));
+    const released = await this.services.repos.agents.releaseTask(fence, retryAt, errorName(error));
+    await this.recordUsage(usage, 0);
+    this.log.warn('agent task will be retried', {
+      stage,
+      attempt: fence.attempt,
+      retryAt: retryAt.toISOString(),
+      released,
+      error: errorName(error)
+    });
+    return this.report({ ...skipped('retry_scheduled'), toolsCalled: this.calls(), usage });
+  }
+
+  /** A newer attempt holds the task: this one writes nothing but the usage it spent. */
+  async discard(result: Result): Promise<AgentTaskRecord> {
+    await this.recordUsage(result.usage, 0);
+    this.log.warn('agent task result discarded: a newer attempt holds the task', {
+      attempt: this.fence?.attempt ?? null
+    });
+    return this.report(result);
+  }
+
+  /** Records the finished task (fenced to this attempt) and its usage. */
+  async finish(result: Result): Promise<AgentTaskRecord> {
+    const record = this.record(result);
+    const fence = this.fence as AgentTaskFence;
+    const stored = await this.services.repos.agents.completeTask(
+      record,
+      new Date(Date.parse(record.finishedAt) + TASK_RECORD_TTL_MS),
+      fence
+    );
+    if (!stored) return this.discard(result);
+    await this.recordUsage(result.usage, 1);
+    this.log.info('agent task finished', {
+      taskId: record.taskId,
+      leagueId: record.leagueId,
+      teamId: record.teamId,
+      kind: record.kind,
+      trigger: record.trigger.detailType,
+      status: record.status,
+      fallbackReason: record.fallbackReason,
+      finalAction: record.finalAction,
+      tools: record.toolsCalled.map((c) => c.name),
+      latencyMs: record.latencyMs,
+      costUsd: record.costUsd,
+      ...(record.attempts === undefined ? {} : { attempts: record.attempts })
+    });
+    return record;
+  }
+
+  /** The record, not stored: a skip, a pending retry, or a discarded run. */
+  report(result: Result): AgentTaskRecord {
+    const record = this.record(result);
+    this.log.info('agent task not recorded', {
+      status: record.status,
+      fallbackReason: record.fallbackReason,
+      costUsd: record.costUsd
+    });
+    return record;
+  }
+
+  /** Adds spend to the weekly rollups; `tasks` is 0 for a run that did not finish the task. */
+  async recordUsage(usage: readonly AgentModelUsage[], tasks: number): Promise<void> {
+    for (const u of usage) {
+      await this.services.repos.agents.addUsage({
+        leagueId: this.request.leagueId,
+        week: this.week,
+        agentId: this.request.agentId,
         modelKey: u.modelKey,
         inputTokens: u.inputTokens,
         outputTokens: u.outputTokens,
         costUsd: u.estimatedCostUsd,
-        tasks: 1
+        tasks
       });
     }
   }
-  services.log.info('agent task finished', {
-    taskId: record.taskId,
-    leagueId: record.leagueId,
-    teamId: record.teamId,
-    kind: record.kind,
-    trigger: record.trigger.detailType,
-    status: record.status,
-    fallbackReason: record.fallbackReason,
-    finalAction: record.finalAction,
-    tools: record.toolsCalled.map((c) => c.name),
-    latencyMs: record.latencyMs,
-    costUsd: record.costUsd
-  });
-  return record;
+
+  record(result: Result): AgentTaskRecord {
+    const { request, started } = this;
+    const finished = this.services.clock.now();
+    return {
+      taskId: request.taskId,
+      leagueId: request.leagueId,
+      teamId: request.teamId,
+      agentId: request.agentId,
+      kind: request.kind,
+      week: this.week,
+      trigger: { detailType: request.trigger.detailType, eventId: request.trigger.eventId },
+      startedAt: started.toISOString(),
+      ...result,
+      latencyMs: Math.max(0, finished.getTime() - started.getTime()),
+      costUsd:
+        Math.round(result.usage.reduce((sum, u) => sum + u.estimatedCostUsd, 0) * 1_000_000) / 1_000_000,
+      finishedAt: finished.toISOString(),
+      ...(this.fence !== null && this.fence.attempt > 1 ? { attempts: this.fence.attempt } : {})
+    };
+  }
 }
 
 /**
