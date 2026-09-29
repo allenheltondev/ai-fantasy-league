@@ -409,7 +409,7 @@ describe('the roster workspace on a phone', () => {
     const sheet = await screen.findByRole('list', { name: 'Available players' });
     const fa = within(await within(sheet).findByTestId('market-row-fa'));
     const wv = within(within(sheet).getByTestId('market-row-wv'));
-    expect(fa.getByTestId('market-cost')).toHaveTextContent('$0 � free');
+    expect(fa.getByTestId('market-cost')).toHaveTextContent('$0 · free');
     expect(wv.getByTestId('market-cost')).toHaveTextContent('Bid up to $88');
   });
 
