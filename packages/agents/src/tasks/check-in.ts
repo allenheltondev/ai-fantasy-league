@@ -22,6 +22,14 @@ import {
   type TaskFollowUp,
   type TaskOutcome
 } from './kinds.js';
+import {
+  SOCIAL_PROBES,
+  SOCIAL_STEPS,
+  fakeSocialActions,
+  lookSocial,
+  socialInstructions,
+  type SocialLook
+} from './check-in-social.js';
 import { TaskUnavailableError, readLineup, setLineup, type LineupPrep } from './lineup.js';
 import {
   EARLY_LOOK_OFFERS,
@@ -68,7 +76,10 @@ import {
  * ended before the post-draft kickoff existed (#175) runs as the kickoff would (`firstLook`, set by
  * the router): lineup, roster holes, and one trade look for a high-appetite archetype.
  *
- * Extending the check-in (#196): add a probe to `CHECK_IN_PROBES` for a new reason to think, and
+ * The social side (#196, tasks/check-in-social.ts): a rename when the router asks for one
+ * (`naming`), a board post, matchup talk, and a DM with a goal, all within the same decision.
+ *
+ * Extending the check-in: add a probe to `CHECK_IN_PROBES` for a new reason to think, and
  * an action type to `CHECK_IN_ACTIONS` with a step in `ACTION_STEPS` that carries it out. The
  * activity line and the final action are built from what the steps report (`Run.done`), so they
  * need no change.
@@ -91,19 +102,31 @@ const PayloadSchema = z.object({
   date: z.string().optional(),
   week: z.number().int().nullable().optional(),
   /** The league's first look since its draft (#175 never ran for it): the kickoff's steps. */
-  firstLook: z.boolean().default(false)
+  firstLook: z.boolean().default(false),
+  /** The router found the team name generic, or the rebrand roll passed (#196). */
+  naming: z.enum(['placeholder', 'rebrand']).optional()
 });
 type Payload = z.infer<typeof PayloadSchema>;
 
-/** The action types a check-in decision may list. #196 adds social ones. */
-export const CHECK_IN_ACTIONS = ['set_lineup', 'add_drop', 'claim', 'propose_trade', 'none'] as const;
+/** The action types a check-in decision may list, the social ones (#196) included. */
+export const CHECK_IN_ACTIONS = [
+  'set_lineup',
+  'add_drop',
+  'claim',
+  'propose_trade',
+  'rename_team',
+  'post_chat',
+  'matchup_post',
+  'send_dm',
+  'none'
+] as const;
 export type CheckInActionType = (typeof CHECK_IN_ACTIONS)[number];
 
 export const CheckInActionSchema = z.object({
   type: z
     .enum(CHECK_IN_ACTIONS)
     .describe(
-      'set_lineup: start the proposed lineup. add_drop: add a free agent now (`pickup`). claim: bid on a player on waivers (`pickup`, `bid`). propose_trade: send a trade offer (`candidate`, optional `message`). none: do nothing.'
+      'set_lineup: start the proposed lineup. add_drop: add a free agent now (`pickup`). claim: bid on a player on waivers (`pickup`, `bid`). propose_trade: send a trade offer (`candidate`, optional `message`). rename_team: rename your team (`teamName`). post_chat: post on a league board (`message`, optional `room`). matchup_post: talk in your matchup room (`message`). send_dm: a direct message for a listed goal (`goal`, `message`). none: do nothing.'
     ),
   pickup: z
     .number()
@@ -123,7 +146,25 @@ export const CheckInActionSchema = z.object({
     .min(1)
     .optional()
     .describe('propose_trade: the number of a trade idea from the list.'),
-  message: z.string().max(300).optional().describe('propose_trade: a short note to the other manager.')
+  message: z
+    .string()
+    .max(300)
+    .optional()
+    .describe(
+      'propose_trade: a short note to the other manager. post_chat, matchup_post, send_dm: the message, at most 280 characters.'
+    ),
+  teamName: z.string().max(60).optional().describe('rename_team: the new team name.'),
+  room: z
+    .string()
+    .max(40)
+    .optional()
+    .describe('post_chat: the room, "trash-talk" (default), "league", "trades", or "waivers-news".'),
+  goal: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe('send_dm: the number of a direct-message goal from the list.')
 });
 export type CheckInAction = z.infer<typeof CheckInActionSchema>;
 
@@ -164,6 +205,8 @@ export interface CheckInLook {
   trade: { shopping: boolean; offersLeft: number; prep: ProposalPrep | null };
   /** Offers waiting on this team's answer for at least `OFFER_NUDGE_AFTER_MS`, oldest first. */
   offers: IncomingOffer[];
+  /** A rename, a board post, matchup talk, DMs (#196). */
+  social: SocialLook;
 }
 
 export interface CheckInReason {
@@ -209,6 +252,7 @@ export const CHECK_IN_PROBES: readonly CheckInProbe[] = [
     look.offers.length === 0
       ? null
       : { code: 'offer_pending', line: `Offer waiting on me from ${names(look.offers.map((o) => o.from))}.` },
+  ...SOCIAL_PROBES,
   (look) =>
     look.payload.slot === 'morning' ? { code: 'first_of_day', line: 'Morning check on my team.' } : null
 ];
@@ -483,7 +527,8 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep>
   const waivers = await lookAtWaivers(ctx, bye, keep);
   const offers = await lookAtOffers(ctx);
   const trade = await lookAtTrades(ctx, payload, offers);
-  const look: CheckInLook = { payload, lineup, unavailable, waivers, trade, offers: offers.waiting };
+  const social = await lookSocial(ctx, payload.naming, { trade });
+  const look: CheckInLook = { payload, lineup, unavailable, waivers, trade, offers: offers.waiting, social };
   const reasons = checkInReasons(look);
   if (reasons.length === 0) throw new TaskUnavailableError('nothing_to_do', undefined, nothingToDoLine(look));
   return { look, reasons, context: await leagueContext(ctx) };
@@ -570,7 +615,8 @@ function instructions(ctx: TaskContext, prep: CheckInPrep): string {
     look.offers.length === 0
       ? ''
       : 'An offer waiting on you gets its own answer right after this; do not propose to that team now.',
-    `Answer with \`actions\`: at most ${ctx.config.levers.actionsPerTrigger} pickups and trade offers in all, by their numbers. You cannot change the players in a pickup or a trade. Never start a player who is out or on bye. Doing nothing (\`[{ "type": "none" }]\`) is a fine answer.`
+    ...socialInstructions(ctx, prep),
+    `Answer with \`actions\`: at most ${ctx.config.levers.actionsPerTrigger} pickups and trade offers in all, by their numbers. You cannot change the players in a pickup or a trade. Never start a player who is out or on bye. Chat actions are optional and at most one of each; they are in your own voice. Doing nothing (\`[{ "type": "none" }]\`) is a fine answer.`
   ]
     .filter((line) => line !== '')
     .join('\n');
@@ -672,11 +718,12 @@ async function offers(ctx: TaskContext, prep: CheckInPrep, actions: readonly Che
   });
 }
 
-/** How a decision's actions are carried out. #196 appends its steps (a rename, a chat post). */
+/** How a decision's actions are carried out, the social steps (#196) last. */
 export const ACTION_STEPS: readonly ActionStep[] = [
   { types: ['add_drop', 'claim'], run: pickups },
   { types: ['set_lineup'], run: lineup },
-  { types: ['propose_trade'], run: offers }
+  { types: ['propose_trade'], run: offers },
+  ...SOCIAL_STEPS
 ];
 
 /** A `trade_response` follow-up for the oldest offer waiting on this team. */
@@ -735,15 +782,19 @@ async function act(
   };
 }
 
-/** The fake model's choice: the lineup when it needs fixing, every pickup, and the best trade idea. */
-function fakeActions(prep: CheckInPrep): CheckInAction[] {
+/**
+ * The fake model's choice: the lineup when it needs fixing, every pickup, the best trade idea, and
+ * each social action the look offers (canned lines).
+ */
+function fakeActions(ctx: TaskContext, prep: CheckInPrep): CheckInAction[] {
   const { look } = prep;
   const actions: CheckInAction[] = [
     ...look.waivers.pickups.map((p, i): CheckInAction => ({
       type: p.kind === 'add_now' ? 'add_drop' : 'claim',
       pickup: i + 1
     })),
-    ...(look.trade.prep === null ? [] : [{ type: 'propose_trade' as const, candidate: 1 }])
+    ...(look.trade.prep === null ? [] : [{ type: 'propose_trade' as const, candidate: 1 }]),
+    ...fakeSocialActions(ctx, look)
   ];
   if (look.unavailable.length > 0) actions.unshift({ type: 'set_lineup' });
   return actions.length === 0 ? [{ type: 'none' }] : actions;
@@ -780,11 +831,11 @@ export const checkInTask = defineTaskKind<Payload, CheckInDecision, CheckInPrep>
       ),
       'Autopilot check-in.'
     ),
-  fakeScript: (_ctx, _payload, prep) => ({
+  fakeScript: (ctx, _payload, prep) => ({
     steps: [],
     decision: {
       summary: prep.reasons.map((r) => r.line).join(' '),
-      actions: fakeActions(prep)
+      actions: fakeActions(ctx, prep)
     }
   })
 });

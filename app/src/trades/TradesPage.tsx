@@ -14,6 +14,7 @@ import {
   type TradesApi,
   type TradeView
 } from './api';
+import { PlayerHeadshot } from '../players/PlayerHeadshot';
 import { PlayerLink, PlayerList } from '../players/PlayerLink';
 
 const defaultApi = createTradesApi(apiFetch);
@@ -79,6 +80,7 @@ function PlayerPicker(props: {
               aria-label={`${props.label}: ${p.name}`}
             />
           </label>
+          <PlayerHeadshot player={p} size={24} />
           <PlayerLink player={p} /> <span className="text-muted-foreground">{p.position}</span>
         </div>
       ))}

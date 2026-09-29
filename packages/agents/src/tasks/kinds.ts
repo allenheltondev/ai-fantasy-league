@@ -54,6 +54,11 @@ export interface TaskContext {
   clock: Clock;
   log: Logger;
   trigger: { detailType: string; eventId: string };
+  /**
+   * Takes one use of this agent's rolling-window limit `name` (#196: DM threads, matchup posts),
+   * atomically, so two tasks running at once cannot both take the last use. False when used up.
+   */
+  claimLimit(name: string, cap: number, windowMs: number): Promise<boolean>;
 }
 
 export interface TaskOutcome {
@@ -88,6 +93,11 @@ export interface TaskFollowUp {
   payload: Record<string, unknown>;
   /** Wait this long before it runs (scheduled); right away when left out. */
   delayMs?: number;
+  /**
+   * A conversation handed to an action task (#196): the runner holds these to
+   * `SOCIAL_LIMITS.chatActionsPerDay` per agent.
+   */
+  chatDriven?: boolean;
 }
 
 export interface TaskKindSpec<P, D extends BaseDecision, Prep> {

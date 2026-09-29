@@ -108,8 +108,16 @@ export function placeholderNaming(
   return { current: own.name, occasion: 'placeholder', others: othersOf(teams, own.id), highlights };
 }
 
-/** The naming prompt: who you are as a namer, the league, the rules, and how to finish. */
-export function namingSection(ctx: TaskContext, naming: NamingPrep, league: { name: string }): string {
+/**
+ * The naming prompt: who you are as a namer, the league, the rules, and how to finish (`how`
+ * replaces the rename_team steps where the name goes through a decision instead: the check-in).
+ */
+export function namingSection(
+  ctx: TaskContext,
+  naming: NamingPrep,
+  league: { name: string },
+  how?: string
+): string {
   const p = ctx.config.personality;
   const why =
     naming.occasion === 'placeholder'
@@ -132,7 +140,8 @@ export function namingSection(ctx: TaskContext, naming: NamingPrep, league: { na
     ].join('\n'),
     [
       `Pick ONE team name, ${AGENT_TEAM_NAME.min}-${AGENT_TEAM_NAME.max} characters, that sounds unmistakably like you. It must be new in this league, not a placeholder, free of slurs and strong profanity, and it must not use another manager's name.`,
-      `Set it with rename_team (teamId "${ctx.principal.teamId}", \`name\`). If it is refused, read the reason and fix, and try once more with a different name. After a second refusal, keep the current name. Put the name you picked in \`teamName\`.`
+      how ??
+        `Set it with rename_team (teamId "${ctx.principal.teamId}", \`name\`). If it is refused, read the reason and fix, and try once more with a different name. After a second refusal, keep the current name. Put the name you picked in \`teamName\`.`
     ].join(' ')
   ].join('\n\n');
 }
@@ -271,7 +280,26 @@ async function rosterHighlights(ctx: TaskContext): Promise<string[]> {
     );
 }
 
-async function prepare(ctx: TaskContext, payload: Payload): Promise<IdentityPrep> {
+/**
+ * The naming step a check-in folds into its decision (#196), when the router found the name generic
+ * or the rebrand roll passed (`naming`): the same rules as `team_identity`, or null when there is
+ * nothing to name after all (a locked name, no rebrand moment, the league unreadable).
+ */
+export async function namingFor(
+  ctx: TaskContext,
+  naming: 'placeholder' | 'rebrand'
+): Promise<NamingPrep | null> {
+  try {
+    const prep = await prepare(ctx, { rebrand: naming === 'rebrand' }, false);
+    return prep.naming;
+  } catch (error) {
+    if (error instanceof TaskUnavailableError) return null;
+    /* v8 ignore next -- only a bug (a response that breaks its schema) gets here */
+    throw error;
+  }
+}
+
+async function prepare(ctx: TaskContext, payload: Payload, chat = true): Promise<IdentityPrep> {
   if (ctx.league.phase === 'complete') throw new TaskUnavailableError('league_complete');
   const teams = await leagueTeams(ctx);
   const own = teams.find((t) => t.id === ctx.principal.teamId);
@@ -292,7 +320,7 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<IdentityPrep
     highlights: await rosterHighlights(ctx)
   };
   // No chat (budget spent) never holds up the name.
-  return { naming, ...(await leagueChatOrQuiet(ctx)) };
+  return { naming, ...(chat ? await leagueChatOrQuiet(ctx) : { chat: null, quiet: '' }) };
 }
 
 async function apply(ctx: TaskContext, prep: IdentityPrep, decision: IdentityDecision): Promise<TaskOutcome> {

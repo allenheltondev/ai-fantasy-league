@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Button, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { Roster, RosterEntry, WaiverClaim } from '../../api/types';
+import { PlayerHeadshot } from '../../players/PlayerHeadshot';
 import { PlayerLink, useOpenPlayerCard } from '../../players/PlayerLink';
 import { gameContext } from '../season/gameState';
 import { placementOf, seats, statusLabel, willPlay } from '../season/slots';
@@ -139,6 +140,10 @@ function PlayerRow(
           onClick={() => props.setOpen(expanded ? null : id)}
           className="flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-md py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
         >
+          {/* The row is tight on a phone (slot tag, name, projection): the picture joins from sm up. */}
+          <span className="hidden shrink-0 sm:inline-flex">
+            <PlayerHeadshot player={entry.player} size={32} />
+          </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-medium">
               {entry.player.name}{' '}

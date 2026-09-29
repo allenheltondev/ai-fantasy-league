@@ -5,6 +5,7 @@ import { useLeagueApi } from '../../api/league';
 import type { MarketPage, MarketPlayer, MarketSort } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { LoadingSkeleton } from '../../motion/decor';
+import { PlayerHeadshot, TeamLogo } from '../../players/PlayerHeadshot';
 import { useOpenPlayerCard } from '../../players/PlayerLink';
 import { gameText } from '../season/gameState';
 import { pts, standingText, trendOf } from './moves';
@@ -242,13 +243,16 @@ function MarketRow(props: MarketProps & { row: MarketPlayer }) {
         type="button"
         onClick={() => openCard?.(row.player)}
         aria-haspopup="dialog"
-        className="group -my-1 min-h-11 min-w-0 flex-1 rounded-md py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+        className="group -my-1 flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
       >
-        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {/* Sleeper's CDN picture (#222): lazy, in a fixed box, decorative (the name is beside it). */}
+        <PlayerHeadshot player={player} size={32} />
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium group-hover:text-primary-700 group-hover:underline">
             {player.name}
           </span>
-          <span className="text-xs text-muted-foreground">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <TeamLogo team={player.team} size={14} />
             {player.position} · {player.team ?? 'FA'}
           </span>
           <StatusBadge

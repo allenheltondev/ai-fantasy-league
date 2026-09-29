@@ -1,5 +1,6 @@
 import {
   RESEARCH_KINDS,
+  SOCIAL_LIMITS,
   estimateCostUsd,
   getModel,
   resolveAgentConfig,
@@ -62,6 +63,8 @@ import { ToolBox, keyPrefix } from './tools.js';
  *    its decision, its note, and whatever the kind adds (a chat snapshot). Summaries with sealed
  *    information carry the kind's `sealed` marker, so the activity log withholds them (#122).
  * 6. Request the outcome's follow-up tasks (`followUps`), each a task of its own for the same agent.
+ *    Chat-driven ones (#196, a conversation handed to an action task) are held to
+ *    `SOCIAL_LIMITS.chatActionsPerDay` per agent (`takeChatActionSlot`).
  *
  * The first task that finds the league's weekly budget spent announces it in the league chat
  * (`Agent Budget Exceeded`, once per league and budget week).
@@ -166,7 +169,18 @@ export async function runAgentAction(
     tools: system,
     clock,
     log,
-    trigger: base.trigger
+    trigger: base.trigger,
+    claimLimit: async (name, cap, windowMs) => {
+      const result = await services.repos.agents.claimLimit({
+        leagueId: league.id,
+        key: `${seat.agentId}#${name}`,
+        now: clock.now(),
+        windowMs,
+        cap
+      });
+      if (result === 'contended') log.warn('agent limit contended; treated as used up', { limit: name });
+      return result === 'claimed';
+    }
   };
 
   let prepared: PreparedTask;
@@ -233,6 +247,10 @@ export async function runAgentAction(
   };
   const followUp = async (outcome: TaskOutcome) => {
     for (const next of outcome.followUps ?? []) {
+      if (next.chatDriven === true && !(await takeChatActionSlot(services, league.id, seat.agentId, log))) {
+        log.info('chat follow-up skipped: daily limit', { followUp: next.kind });
+        continue;
+      }
       const task: AgentActionRequested = {
         ...request,
         taskId: taskIdFor(request.trigger.eventId, request.teamId, next.kind),
@@ -575,4 +593,26 @@ async function finish(
     costUsd: record.costUsd
   });
   return record;
+}
+
+/**
+ * Takes one of the agent's daily chat-action uses (#196): at most `SOCIAL_LIMITS.chatActionsPerDay`
+ * in any 24 hours, claimed atomically (`claimLimit`: a conditional write, so two replies running at
+ * once cannot both take the last one). False when they are used up, or the claim stayed contended.
+ */
+export async function takeChatActionSlot(
+  services: Services,
+  leagueId: string,
+  agentId: string,
+  log: Services['log'] = services.log
+): Promise<boolean> {
+  const result = await services.repos.agents.claimLimit({
+    leagueId,
+    key: `${agentId}#chat-action`,
+    now: services.clock.now(),
+    windowMs: SOCIAL_LIMITS.windowMs,
+    cap: SOCIAL_LIMITS.chatActionsPerDay
+  });
+  if (result === 'contended') log.warn('chat-action limit contended; treated as used up', { agentId });
+  return result === 'claimed';
 }

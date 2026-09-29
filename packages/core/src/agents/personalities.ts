@@ -34,6 +34,18 @@ export interface PersonalityPreset {
    * an agent @mentions it. Quiet personalities rarely bite.
    */
   banter: number;
+  /**
+   * How much it talks on its own (#196), 0-1: how often a check-in turns into a post on a league
+   * board or in its matchup room (core `checkInChatChance`). A showman posts most days; a quiet
+   * one may go days without a word.
+   */
+  chattiness: number;
+  /**
+   * How readily a good argument in chat changes its mind (#196), 0-1: how far a verified, relevant
+   * pitch can move a borderline decision (core `persuasionAllowance`). A stubborn veteran rarely
+   * budges; an eager one is easier to talk into things. Authority and instructions never count.
+   */
+  persuadability: number;
   /** Seed for the generated avatar (the SPA hashes it into a picture). */
   avatarSeed: string;
 }
@@ -57,6 +69,8 @@ export const PERSONALITIES = [
       'I ran ten thousand simulations. You won the ones where my team forfeits.'
     ],
     banter: 0.5,
+    chattiness: 0.45,
+    persuadability: 0.55,
     avatarSeed: 'spreadsheet-sigma'
   },
   {
@@ -77,6 +91,8 @@ export const PERSONALITIES = [
       'Back in my day we drafted linemen for fun. You would not survive a single one.'
     ],
     banter: 0.5,
+    chattiness: 0.35,
+    persuadability: 0.15,
     avatarSeed: 'scout-whistle'
   },
   {
@@ -96,6 +112,8 @@ export const PERSONALITIES = [
       'Home team wins, my team wins. That is just science.'
     ],
     banter: 0.6,
+    chattiness: 0.6,
+    persuadability: 0.35,
     avatarSeed: 'homer-foam-finger'
   },
   {
@@ -115,6 +133,8 @@ export const PERSONALITIES = [
       'Offered three trades before breakfast. One of them was to myself.'
     ],
     banter: 0.9,
+    chattiness: 0.85,
+    persuadability: 0.75,
     avatarSeed: 'chaos-dice'
   },
   {
@@ -134,6 +154,8 @@ export const PERSONALITIES = [
       'Trophies are heavy. You would not know.'
     ],
     banter: 0.7,
+    chattiness: 0.55,
+    persuadability: 0.1,
     avatarSeed: 'veteran-ring'
   },
   {
@@ -153,6 +175,8 @@ export const PERSONALITIES = [
       'Tell your bench to buckle up, it is about to get LOUD.'
     ],
     banter: 0.8,
+    chattiness: 0.95,
+    persuadability: 0.7,
     avatarSeed: 'hype-megaphone'
   },
   {
@@ -172,6 +196,8 @@ export const PERSONALITIES = [
       'A loss is only a win that has not yet found its week.'
     ],
     banter: 0.05,
+    chattiness: 0.08,
+    persuadability: 0.3,
     avatarSeed: 'zen-lotus'
   },
   {
@@ -191,6 +217,8 @@ export const PERSONALITIES = [
       'I have notes on your lineup. Eleven pages of notes.'
     ],
     banter: 0.4,
+    chattiness: 0.4,
+    persuadability: 0.45,
     avatarSeed: 'film-reel'
   },
   {
@@ -209,6 +237,8 @@ export const PERSONALITIES = [
       'Next week, betrayal. A trade offer arrives at midnight.'
     ],
     banter: 0.7,
+    chattiness: 0.7,
+    persuadability: 0.5,
     avatarSeed: 'narrator-curtain'
   },
   {
@@ -227,6 +257,8 @@ export const PERSONALITIES = [
       'Heave ho! Another sleeper hauled aboard the ship.'
     ],
     banter: 0.7,
+    chattiness: 0.6,
+    persuadability: 0.4,
     avatarSeed: 'pirate-parrot'
   },
   {
@@ -246,6 +278,8 @@ export const PERSONALITIES = [
       'I won this week and I am still annoyed about it.'
     ],
     banter: 0.6,
+    chattiness: 0.4,
+    persuadability: 0.05,
     avatarSeed: 'gus-cardigan'
   },
   {
@@ -265,6 +299,8 @@ export const PERSONALITIES = [
       'Per my last trade offer, you are leaving points on the table.'
     ],
     banter: 0.4,
+    chattiness: 0.5,
+    persuadability: 0.6,
     avatarSeed: 'consultant-briefcase'
   },
   {
@@ -283,6 +319,8 @@ export const PERSONALITIES = [
       'Every trade has a motive. I just have not figured out yours.'
     ],
     banter: 0.4,
+    chattiness: 0.35,
+    persuadability: 0.3,
     avatarSeed: 'detective-fedora'
   },
   {
@@ -301,6 +339,8 @@ export const PERSONALITIES = [
       'I have been saying it for weeks, nobody listens: sell high on everything.'
     ],
     banter: 0.8,
+    chattiness: 0.9,
+    persuadability: 0.55,
     avatarSeed: 'caller-phone'
   },
   {
@@ -319,6 +359,8 @@ export const PERSONALITIES = [
       'Friendly reminder: your tight end is on bye. Friendly reminder complete.'
     ],
     banter: 0.1,
+    chattiness: 0.15,
+    persuadability: 0.5,
     avatarSeed: 'unit-seven'
   },
   {
@@ -337,6 +379,8 @@ export const PERSONALITIES = [
       'Beware the Monday night game, for it is not in your favor.'
     ],
     banter: 0.3,
+    chattiness: 0.3,
+    persuadability: 0.2,
     avatarSeed: 'oracle-orb'
   },
   {
@@ -355,6 +399,8 @@ export const PERSONALITIES = [
       'No worries, brah, you will catch the next wave. Maybe.'
     ],
     banter: 0.2,
+    chattiness: 0.25,
+    persuadability: 0.65,
     avatarSeed: 'surfer-board'
   },
   {
@@ -373,6 +419,8 @@ export const PERSONALITIES = [
       'This trade offer? Sent back to the kitchen.'
     ],
     banter: 0.4,
+    chattiness: 0.4,
+    persuadability: 0.35,
     avatarSeed: 'chef-toque'
   },
   {
@@ -392,6 +440,8 @@ export const PERSONALITIES = [
       'You changed your lineup after a win? Bold. Cursed, but bold.'
     ],
     banter: 0.3,
+    chattiness: 0.35,
+    persuadability: 0.4,
     avatarSeed: 'lucky-socks'
   },
   {
@@ -410,6 +460,8 @@ export const PERSONALITIES = [
       'Remarkable. It has benched its best player again.'
     ],
     banter: 0.15,
+    chattiness: 0.2,
+    persuadability: 0.3,
     avatarSeed: 'naturalist-binoculars'
   },
   {
@@ -428,6 +480,8 @@ export const PERSONALITIES = [
       'That waiver claim? Denied. Report back when you have a plan.'
     ],
     banter: 0.8,
+    chattiness: 0.6,
+    persuadability: 0.1,
     avatarSeed: 'sarge-whistle'
   },
   {
@@ -446,6 +500,8 @@ export const PERSONALITIES = [
       'Your season, dear rival, is a tragedy in three acts. We are in act two.'
     ],
     banter: 0.3,
+    chattiness: 0.4,
+    persuadability: 0.45,
     avatarSeed: 'bard-quill'
   },
   {
@@ -465,6 +521,8 @@ export const PERSONALITIES = [
       'This trade is a strategic acquisition. You will understand in Q4.'
     ],
     banter: 0.5,
+    chattiness: 0.65,
+    persuadability: 0.8,
     avatarSeed: 'founder-hoodie'
   },
   {
@@ -483,6 +541,8 @@ export const PERSONALITIES = [
       'Unsportsmanlike roster conduct. Loss of down.'
     ],
     banter: 0.6,
+    chattiness: 0.45,
+    persuadability: 0.15,
     avatarSeed: 'ref-flag'
   }
 ] as const satisfies readonly PersonalityPreset[];

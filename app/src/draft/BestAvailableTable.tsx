@@ -1,5 +1,6 @@
 import { Button, StatusBadge } from '@readysetcloud/ui';
 import { POSITIONS, type BestAvailableEntry, type PlayerRef, type PositionScarcity } from './board';
+import { PlayerHeadshot } from '../players/PlayerHeadshot';
 import { PositionChip } from './marks';
 import { fmt, type BoardSort } from './research';
 
@@ -210,6 +211,7 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
                   </td>
                   <td className="w-full max-w-0 px-2 py-1">
                     <div className="flex min-w-0 items-center gap-1.5">
+                      <PlayerHeadshot player={player} size={28} />
                       <span className="sm:hidden">
                         <PositionChip position={player.position} />
                       </span>

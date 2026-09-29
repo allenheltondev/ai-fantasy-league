@@ -8,6 +8,7 @@ import {
   type DraftBoard,
   type PlayerRef
 } from './board';
+import { PlayerHeadshot } from '../players/PlayerHeadshot';
 import { PositionChip, TeamMark } from './marks';
 
 type Team = DraftBoard['order'][number];
@@ -232,19 +233,22 @@ export function BoardGrid({
                   >
                     <span
                       key={pick.player.id}
-                      className={`block min-w-0 ${arrived(String(overall)) ? 'motion-flip-in' : ''}`}
+                      className={`flex min-w-0 items-start gap-1 ${arrived(String(overall)) ? 'motion-flip-in' : ''}`}
                     >
-                      <button
-                        type="button"
-                        className="block w-full truncate text-left font-semibold hover:underline"
-                        onClick={() => onOpen(pick.player)}
-                        aria-label={pick.player.name}
-                      >
-                        {shortName(pick.player)}
-                      </button>
-                      <span className="block truncate text-[0.6875rem] text-muted-foreground">
-                        {pick.player.position} · {pick.player.team ?? 'FA'}
-                        {pick.auto ? ' · auto' : ''}
+                      <PlayerHeadshot player={pick.player} size={24} className="mt-0.5" />
+                      <span className="block min-w-0 flex-1">
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left font-semibold hover:underline"
+                          onClick={() => onOpen(pick.player)}
+                          aria-label={pick.player.name}
+                        >
+                          {shortName(pick.player)}
+                        </button>
+                        <span className="block truncate text-[0.6875rem] text-muted-foreground">
+                          {pick.player.position} · {pick.player.team ?? 'FA'}
+                          {pick.auto ? ' · auto' : ''}
+                        </span>
                       </span>
                     </span>
                   </td>

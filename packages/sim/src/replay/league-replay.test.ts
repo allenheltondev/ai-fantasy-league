@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FixedClock, isGenericTeamName, yahooDefaultSettings } from '@fantasy/core';
 import { ScriptedModelClient } from '@fantasy/agents';
 import {
+  AGENT_CHAT_BUDGETS,
   InMemoryEventPublisher,
   createInMemoryRepos,
   createServices,
@@ -13,7 +14,7 @@ import { fixtureArchive } from '../../test/helpers.js';
 import { SimulationError } from '../runner/run-season.js';
 import { REPLAY_INVARIANTS } from './checks.js';
 import { addViolation, championOf, readAudit, replayLeague } from './league-replay.js';
-import { renderLeagueReport, type LeagueReplayReport } from './report.js';
+import { agentVolume, renderLeagueReport, type LeagueReplayReport } from './report.js';
 
 /**
  * The short replay CI runs on the committed 4-week fixture: the real server operations, jobs, and
@@ -41,7 +42,11 @@ describe('replayLeague: the real league on the simulated clock', () => {
     const model = new ScriptedModelClient();
     const report = await replayLeague({
       archive: await fixtureArchive(),
-      seed: 'ci',
+      // Valuation noise is keyed by what an offer is, not its generated id (tasks/noise.ts), so
+      // unrelated activity no longer reshuffles trades. Judged on its merits, seed 'ci' has no
+      // agent-to-agent offer that clears its bar (its closest scores 1.8 against a bar of 2, on
+      // main's code as well), so this replay uses 'ci-2', whose season covers every path.
+      seed: 'ci-2',
       weeks: 3,
       model,
       log: (l) => lines.push(l)
@@ -115,11 +120,23 @@ describe('replayLeague: the real league on the simulated clock', () => {
       report.chat.byKind.agent ?? 0
     );
     expect(report.chat.retorts).toBeLessThanOrEqual(report.chat.byKind.agent ?? 0);
+    // Check-ins are social too (#196), and chat volume stays within the budgets.
+    const social = report.decisions.filter(
+      (d) => d.kind === 'check_in' && /post_message|matchup_post|send_dm/.test(d.action)
+    );
+    expect(social.length).toBeGreaterThan(0);
+    expect(Object.keys(report.chat.byAgent).length).toBeGreaterThan(0);
+    for (const v of Object.values(report.chat.byAgent)) {
+      expect(v.maxPerDay).toBeLessThanOrEqual(AGENT_CHAT_BUDGETS.agentPerDay);
+      expect(v.perWeek.reduce((a, b) => a + b, 0)).toBe(v.messages);
+    }
+    expect(report.chat.leagueMaxPerDay).toBeLessThanOrEqual(AGENT_CHAT_BUDGETS.leaguePerDay);
     expect(report.timings.map((t) => t.label)).toEqual(['draft', 'regular', 'regular', 'playoffs']);
 
     const markdown = renderLeagueReport(report);
     expect(markdown).toContain('# 2025 season replay');
     expect(markdown).toContain('**Invariants:** all held');
+    expect(markdown).toContain('Agent chat volume (#196; budgets 25 per agent and 100 per league');
   });
 
   it('starts a league mid-season through the server cycle, and gives the same league for the same seed', async () => {
@@ -137,7 +154,8 @@ describe('replayLeague: the real league on the simulated clock', () => {
       timings: r.timings.map((t) => ({ ...t, wallMs: 0 }))
     });
     expect(stable(again)).toEqual(stable(first));
-  });
+    // Two full replays take about 55s under coverage: the default 60s is too tight under load.
+  }, 150_000);
 
   it('starts a scheduled draft by itself when the clock reaches its time', async () => {
     const report = await replayLeague({
@@ -218,5 +236,27 @@ describe('replayLeague: the real league on the simulated clock', () => {
     expect(
       await championOf(services, league, standings, settings.playoffs.startWeek === 15 ? [15, 16] : [])
     ).toBeNull();
+  });
+});
+
+describe('agentVolume', () => {
+  it('counts each agent by 7-day block and in its busiest 24 hours', () => {
+    const h = 3_600_000;
+    expect(
+      agentVolume([
+        { teamId: 'a', at: 0 },
+        { teamId: 'a', at: 10 * h },
+        { teamId: 'a', at: 30 * h },
+        { teamId: 'b', at: 20 * h },
+        { teamId: 'a', at: 8 * 24 * h }
+      ])
+    ).toEqual({
+      byAgent: {
+        a: { messages: 4, perWeek: [3, 1], maxPerDay: 2 },
+        b: { messages: 1, perWeek: [1], maxPerDay: 1 }
+      },
+      leagueMaxPerDay: 3
+    });
+    expect(agentVolume([])).toEqual({ byAgent: {}, leagueMaxPerDay: 0 });
   });
 });

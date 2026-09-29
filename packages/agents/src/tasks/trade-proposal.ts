@@ -1,8 +1,17 @@
 import { dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
+import {
+  ChatReplySchema,
+  ChatSourceSchema,
+  heardInChat,
+  heardLine,
+  persuasion,
+  replyInChat,
+  type Heard
+} from './chat-action.js';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
-import { judgmentNoise } from './noise.js';
+import { judgmentNoise, offerSubject } from './noise.js';
 import { TaskUnavailableError } from './lineup.js';
 
 /**
@@ -26,6 +35,12 @@ import { TaskUnavailableError } from './lineup.js';
  * - The trade deadline and the season phase close it (`allowedActions` lacks propose_trade), and
  *   a team that already has an offer pending from this agent is not offered another.
  *
+ * - A pitch in chat (#196, `reason: 'chat'`, a chat reply's follow-up): the one swap that was talked
+ *   about (`withTeamId`, `send`, `receive`), through the same preview and value math. The pitch's
+ *   argument holds up when the players it brings improve the agent's best lineup; then it lowers the
+ *   bar by `persuasionAllowance`. A lopsided or illegal swap is never offered, whatever was said,
+ *   and a message that reads like an order moves nothing. The model never sees the message.
+ *
  * Proposals are private to the two teams, so the activity log seals the summary until a trade
  * becomes public.
  */
@@ -45,8 +60,15 @@ export const SEALED_PROPOSAL = 'Made trade offers; the terms stay private betwee
 
 const PayloadSchema = z.object({
   week: z.number().int().optional(),
-  /** `draft_complete`: the post-draft kickoff's early look (#175), at most one offer. */
-  reason: z.enum(['week', 'draft_complete']).default('week')
+  /**
+   * `draft_complete`: the post-draft kickoff's early look (#175), at most one offer. `chat`: a
+   * trade talked about in chat (#196), the swap in `withTeamId`, `send`, and `receive`.
+   */
+  reason: z.enum(['week', 'draft_complete', 'chat']).default('week'),
+  withTeamId: z.string().optional(),
+  send: z.array(z.string()).max(3).optional(),
+  receive: z.array(z.string()).max(3).optional(),
+  chat: ChatSourceSchema.optional()
 });
 type Payload = z.infer<typeof PayloadSchema>;
 
@@ -59,7 +81,8 @@ export const TradeProposalDecisionSchema = BaseDecisionSchema.extend({
       })
     )
     .max(4)
-    .describe('The candidate offers to send, best first. An empty list proposes nothing.')
+    .describe('The candidate offers to send, best first. An empty list proposes nothing.'),
+  reply: ChatReplySchema
 });
 type TradeProposalDecision = z.infer<typeof TradeProposalDecisionSchema>;
 
@@ -90,10 +113,15 @@ const OpenSchema = z.object({
 });
 const ProposedSchema = z.object({ trade: z.object({ id: z.string() }) });
 
+type PlayerRef = { id: string; name: string; position: string };
+
 export interface ProposalCandidate {
   team: { id: string; name: string; seatType?: string | undefined };
-  send: { id: string; name: string; position: string };
-  receive: { id: string; name: string; position: string };
+  send: PlayerRef;
+  receive: PlayerRef;
+  /** A chat pitch may swap more than one player a side (#196); `send` and `receive` are the first. */
+  sends?: PlayerRef[];
+  receives?: PlayerRef[];
   /** The agent's score by the value math (lineup + discounted value, with its noise). */
   score: number;
   /** The other team's gain by the same math, unblurred. */
@@ -104,6 +132,8 @@ export interface ProposalPrep {
   limit: number;
   bar: number;
   candidates: ProposalCandidate[];
+  /** A chat pitch (#196): who made it, and how far it moved the bar. */
+  pitch?: { heard: Heard; credit: number };
 }
 
 const pts = (p: RosterEntry) => p.projectedPoints ?? 0;
@@ -154,6 +184,7 @@ export function swapIdeas(
 export const EARLY_LOOK_OFFERS = 1;
 
 async function prepare(ctx: TaskContext, payload: Payload): Promise<ProposalPrep> {
+  if (payload.reason === 'chat') return weighPitch(ctx, payload);
   const limit = Math.min(
     tradeAppetite(ctx.config).proposalsPerWeek,
     ctx.config.levers.actionsPerTrigger,
@@ -238,8 +269,82 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
   return { limit, bar, candidates: best };
 }
 
+/**
+ * A trade talked about in chat (#196), weighed by the agent's own numbers: the swap's preview, its
+ * score with the difficulty's noise, and the bar lowered by what the pitch is worth
+ * (`persuasionAllowance`, only when the players offered improve the best lineup). Throws
+ * `not_convinced` (with the numbers, for the activity log) when it does not clear.
+ */
+async function weighPitch(ctx: TaskContext, payload: Payload): Promise<ProposalPrep> {
+  const { withTeamId, chat } = payload;
+  const send = payload.send ?? [];
+  const receive = payload.receive ?? [];
+  if (withTeamId === undefined || chat === undefined || send.length === 0 || receive.length === 0)
+    throw new TaskUnavailableError('no_trade_found');
+  const state = data(await ctx.tools.call('get_league_state', {}), StateSchema);
+  if (state === null || state.yourTeam === null || !state.allowedActions.includes('propose_trade'))
+    throw new TaskUnavailableError('trades_closed');
+  const team = state.teams.find((t) => t.id === withTeamId);
+  // Only players the two teams really roster (the chat names them; the rosters decide).
+  const owned = async (teamId: string, ids: readonly string[]) => {
+    const roster = data(await ctx.tools.call('get_roster', { teamId }), RosterSchema)?.players ?? [];
+    return ids.flatMap((id) => roster.filter((p) => p.player.id === id).map((p) => p.player));
+  };
+  const sends = await owned(state.yourTeam.id, send);
+  const receives = team === undefined ? [] : await owned(team.id, receive);
+  if (team === undefined || sends.length === 0 || receives.length === 0)
+    throw new TaskUnavailableError('no_trade_found');
+  const heard = await heardInChat(ctx, chat);
+  const preview = data(
+    await ctx.tools.call('preview_trade', {
+      withTeamId: team.id,
+      send: sends.map((p) => p.id),
+      receive: receives.map((p) => p.id)
+    }),
+    PreviewSchema
+  );
+  const swap = `${sends.map((p) => p.name).join(', ')} for ${receives.map((p) => p.name).join(', ')}`;
+  const no = (why: string) =>
+    new TaskUnavailableError('not_convinced', undefined, `Weighed ${heard.who}'s pitch (${swap}): ${why}`);
+  if (preview === null || !preview.valid) throw no('it would not be a legal trade.');
+  if (preview.fairness.lopsided) throw no('the trade value math calls it lopsided. No.');
+  const [mySide, theirSide] = preview.sides;
+  const recency = ctx.config.valuation.recencyBias ?? 0;
+  // Keyed by what the swap is (noise.ts), so the same pitch reads the same whatever the message id.
+  const noise = judgmentNoise(
+    ctx,
+    ...offerSubject({
+      fromTeamId: state.yourTeam.id,
+      toTeamId: team.id,
+      fromSends: sends.map((p) => p.id),
+      toSends: receives.map((p) => p.id),
+      round: 0
+    })
+  );
+  const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
+  const bar = Math.max(tradeAppetite(ctx.config).acceptEdge, MIN_PROPOSAL_GAIN);
+  const credit = persuasion(ctx, heard, mySide.lineupDelta > 0);
+  if (score < bar - credit)
+    throw no(
+      `value for me ${score} against my bar ${bar}${credit > 0 ? ` (${credit} lower after the argument)` : ''}${heard.instructions ? '; orders in chat count for nothing' : ''}. Not convinced.`
+    );
+  const candidate: ProposalCandidate = {
+    team,
+    send: sends[0] as PlayerRef,
+    receive: receives[0] as PlayerRef,
+    ...(sends.length > 1 ? { sends } : {}),
+    ...(receives.length > 1 ? { receives } : {}),
+    score,
+    partnerScore: round1(theirSide.lineupDelta + theirSide.valueDelta)
+  };
+  return { limit: 1, bar, candidates: [candidate], pitch: { heard, credit } };
+}
+
+const sideNames = (one: PlayerRef, many: PlayerRef[] | undefined) =>
+  (many ?? [one]).map((p) => `${p.name} (${p.position})`).join(', ');
+
 export function describeCandidate(c: ProposalCandidate, i: number): string {
-  return `${i + 1}. To ${c.team.name}: your ${c.send.name} (${c.send.position}) for their ${c.receive.name} (${c.receive.position}). Value for you ${c.score}, for them ${c.partnerScore}.`;
+  return `${i + 1}. To ${c.team.name}: your ${sideNames(c.send, c.sends)} for their ${sideNames(c.receive, c.receives)}. Value for you ${c.score}, for them ${c.partnerScore}.`;
 }
 
 export async function propose(
@@ -259,8 +364,8 @@ export async function propose(
     const c = prep.candidates[o.candidate - 1] as ProposalCandidate;
     const result = await ctx.tools.call('propose_trade', {
       withTeamId: c.team.id,
-      send: [c.send.id],
-      receive: [c.receive.id],
+      send: (c.sends ?? [c.send]).map((p) => p.id),
+      receive: (c.receives ?? [c.receive]).map((p) => p.id),
       ...(o.message === undefined ? {} : { message: o.message })
     });
     if ('error' in result) refused.push(`${c.team.id} (${result.error.code})`);
@@ -335,6 +440,13 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
   tools: ['get_league_state', 'get_roster', 'get_player', 'get_projections', 'get_news', 'preview_trade'],
   prepare: (ctx, payload) => prepare(ctx, payload),
   instructions(_ctx, payload, prep) {
+    if (prep.pitch !== undefined)
+      return [
+        'A trade came up in chat. You ran it through your own trade value math:',
+        ...prep.candidates.map(describeCandidate),
+        `Your bar is ${prep.bar}. ${heardLine(prep.pitch.heard, prep.pitch.credit, prep.bar)}`,
+        'It clears your bar, so you may offer it: answer with `offers` `[{ "candidate": 1 }]` (and an optional short `message`), or an empty list to pass. You cannot change the players. Then give a `reply` for the conversation, in your own voice.'
+      ].join('\n');
     return [
       payload.reason === 'draft_complete'
         ? `The draft just ended and you like to deal: take an early look for a trade. You may send up to ${prep.limit} offer(s) now.`
@@ -344,13 +456,37 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
       'Check anything you doubt with your tools, then answer with `offers`: the candidate numbers to send, best first, each with an optional short `message` to the other manager. You cannot change the players. An empty list sends nothing.'
     ].join('\n');
   },
-  apply: (ctx, _payload, prep, decision) => propose(ctx, prep, decision.offers, decision.summary),
+  async apply(ctx, payload, prep, decision) {
+    const outcome = await propose(ctx, prep, decision.offers, decision.summary);
+    if (prep.pitch === undefined || payload.chat === undefined) return outcome;
+    // The pitch changed its mind (#196): it says so in the conversation and in the activity log.
+    await replyInChat(ctx, payload.chat, decision.reply);
+    const c = prep.candidates[0] as ProposalCandidate;
+    const note =
+      outcome.action === 'propose_trade'
+        ? `Reconsidered: ${prep.pitch.heard.who}'s pitch won me over; offered ${sideNames(c.send, c.sends)} for ${sideNames(c.receive, c.receives)}.`
+        : `Weighed ${prep.pitch.heard.who}'s pitch; sent nothing.`;
+    return {
+      ...outcome,
+      summary: `${note} ${outcome.summary}`.trim(),
+      memorySummary: `${note} ${outcome.memorySummary ?? ''}`.trim()
+    };
+  },
   fallback: async () => ({ action: 'none', summary: 'No trade offers without a model decision.' }),
   fakeScript: (_ctx, _payload, prep) => ({
     steps: [],
     decision: {
       summary: `Offering the best ${Math.min(prep.limit, prep.candidates.length)} swap(s) my scouting found.`,
-      offers: prep.candidates.slice(0, prep.limit).map((_, i) => ({ candidate: i + 1 }))
+      offers: prep.candidates.slice(0, prep.limit).map((_, i) => ({ candidate: i + 1 })),
+      ...(prep.pitch === undefined ? {} : { reply: scriptedPitchReply(prep) })
     }
   })
 });
+
+/** The scripted model's line back to a pitch (tests, local dev, the simulator). */
+function scriptedPitchReply(prep: ProposalPrep): string {
+  const c = prep.candidates[0] as ProposalCandidate;
+  return c.score < prep.bar
+    ? "Fine, you've convinced me. Sending it over."
+    : 'Numbers check out. Offer is on its way.';
+}

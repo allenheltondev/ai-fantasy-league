@@ -20,6 +20,7 @@ import {
   unavailableStarters,
   type CheckInLook
 } from '../src/tasks/check-in.js';
+import { NO_SOCIAL } from '../src/tasks/check-in-social.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import type { LineupPrep } from '../src/tasks/lineup.js';
 import { HAPPY, market } from './market.js';
@@ -132,7 +133,7 @@ describe('check-in pre-check', () => {
   });
 
   it('thinks it over at the first check-in of the day, and may change nothing', async () => {
-    const s = await market(HAPPY);
+    const s = await market({ ...HAPPY, personalityId: 'zen-master' });
     await s.repos.schedule.putMatchups([
       {
         id: 'W05-M1',
@@ -149,7 +150,7 @@ describe('check-in pre-check', () => {
     const model = new ScriptedModelClient();
     const record = await runAgentAction(
       s.deps(model),
-      checkIn(rolled('trade_happy', false), { slot: 'morning' })
+      checkIn(rolled('trade_happy', false, 1), { slot: 'morning' })
     );
     expect(record).toMatchObject({
       status: 'completed',
@@ -172,7 +173,8 @@ describe('check-in pre-check', () => {
       unavailable: [],
       waivers: { open: false, faabRemaining: 0, pickups: [], holes: [] },
       trade: { shopping: true, offersLeft: 1, prep: null },
-      offers: []
+      offers: [],
+      social: NO_SOCIAL
     };
     expect(checkInReasons(look)).toEqual([]);
     expect(nothingToDoLine(look)).toBe(
@@ -451,7 +453,7 @@ describe('check-in decisions', () => {
       s.deps(model),
       checkIn('evt-first', { slot: 'afternoon', firstLook: true })
     );
-    expect(record).toMatchObject({ status: 'completed', finalAction: 'set_lineup+propose_trade' });
+    expect(record).toMatchObject({ status: 'completed', finalAction: 'set_lineup+propose_trade+send_dm' });
     expect(model.transcript[0]?.systemPrompt).toContain('Your first real look at your team since the draft');
     expect((await startersOf(s)).get('qb1')).toBe('QB');
     // A cautious archetype does not shop on its first look.
@@ -600,9 +602,10 @@ describe('check-in routing', () => {
       ['team-2', 'check_in', 'requested'],
       ['team-3', 'check_in', 'requested']
     ]);
+    // Both still have placeholder names (#196): the check-in may name them.
     expect(s.requested().map((r) => [r.teamId, r.payload])).toEqual([
-      ['team-2', { slot: 'afternoon', date: '2026-10-04', week: 5, firstLook: true }],
-      ['team-3', { slot: 'afternoon', date: '2026-10-04', week: 5, firstLook: false }]
+      ['team-2', { slot: 'afternoon', date: '2026-10-04', week: 5, firstLook: true, naming: 'placeholder' }],
+      ['team-3', { slot: 'afternoon', date: '2026-10-04', week: 5, firstLook: false, naming: 'placeholder' }]
     ]);
     // A replayed event (same date and slot) is ignored.
     expect((await s.route(event('evt-c1-again', detail('afternoon')))).map((d) => d.decision)).toEqual([
@@ -676,6 +679,6 @@ describe('check-in routing', () => {
     expect(await s.route(event('evt-none', { slot: 'morning' }))).toEqual([]);
     const unkeyed = await s.route(event('evt-u1', { leagueId: LEAGUE_ID }));
     expect(unkeyed.map((d) => d.decision)).toEqual(['requested', 'requested']);
-    expect(s.requested().at(-1)?.payload).toEqual({ firstLook: true });
+    expect(s.requested().at(-1)?.payload).toEqual({ firstLook: true, naming: 'placeholder' });
   });
 });

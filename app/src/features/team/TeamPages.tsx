@@ -15,6 +15,7 @@ import { initials } from '../home/TeamBadge';
 import { Transactions } from '../players/Transactions';
 import { isStarter, statusLabel } from '../season/slots';
 import { TeamAchievements } from '../season/TeamAchievements';
+import { PlayerHeadshot } from '../../players/PlayerHeadshot';
 import { PlayerLink } from '../../players/PlayerLink';
 
 /** Who plays a team: the AI manager, the person, or nobody yet. */
@@ -363,6 +364,7 @@ function ReadOnlyLineup({ leagueId, teamId }: { leagueId: string; teamId: string
                   <td className="py-1 pr-2 font-medium">{entry.slot}</td>
                   <td className="py-1 pr-2">
                     <span className="flex flex-wrap items-center gap-x-2">
+                      <PlayerHeadshot player={entry.player} size={24} />
                       <PlayerLink player={entry.player} />
                       <span className="text-xs text-muted-foreground">
                         {entry.player.position} · {entry.player.team ?? 'FA'}

@@ -5,13 +5,16 @@ import {
   AgentSeatRecordSchema,
   AgentTaskRecordSchema,
   AgentUsageRowSchema,
+  LIMIT_CLAIM_ATTEMPTS,
   staleSeat,
   type AgentRepository,
   type AgentSeatRecord,
   type AgentTaskClaim,
   type AgentTaskRecord,
   type AgentTriggerState,
-  type AgentUsageRow
+  type AgentUsageRow,
+  type LimitClaim,
+  type LimitClaimResult
 } from '../agents.js';
 import { TABLE_KEYS, epochSeconds, isConditionalCheckFailure, type TableContext } from './table.js';
 
@@ -21,6 +24,7 @@ import { TABLE_KEYS, epochSeconds, isConditionalCheckFailure, type TableContext 
  * - Seat history:     pk LEAGUE#<leagueId>  sk AGENTSEATV#<teamId>#<version, 6 digits>
  * - Agent memory:     pk LEAGUE#<leagueId>  sk AGENTMEM#<agentId>  (notes, rivals, trades, decisions, chat; rev)
  * - Trigger state:    pk LEAGUE#<leagueId>  sk AGENTSTATE#<agentId>
+ * - Limit (#196):     pk LEAGUE#<leagueId>  sk AGENTLIMIT#<key>     (rev, uses: epoch ms; TTL)
  * - Task:             pk AGENTTASK#<taskId> sk STATUS
  *                     GSI1 AGENTTASKS#<leagueId> / <startedAt>#<taskId>     (once complete)
  *                     GSI2 AGENTTASKS#<leagueId>#<teamId> / <startedAt>#<taskId>
@@ -40,6 +44,7 @@ const stateKey = (leagueId: string, agentId: string) => ({
   pk: leaguePk(leagueId),
   sk: `AGENTSTATE#${agentId}`
 });
+const limitKey = (leagueId: string, key: string) => ({ pk: leaguePk(leagueId), sk: `AGENTLIMIT#${key}` });
 const taskKey = (taskId: string) => ({ pk: `AGENTTASK#${taskId}`, sk: 'STATUS' });
 const usagePk = (leagueId: string, week: number) => `AGENTUSAGE#${leagueId}#W${week}`;
 
@@ -50,6 +55,7 @@ const TaskSlotSchema = z.object({
   record: AgentTaskRecordSchema.optional()
 });
 const StateSchema = z.object({ leagueId: z.string(), agentId: z.string(), lastTriggeredAt: z.string() });
+const LimitSchema = z.object({ rev: z.number(), uses: z.array(z.number()) });
 
 export class DynamoAgentRepository implements AgentRepository {
   constructor(private readonly table: TableContext) {}
@@ -233,6 +239,35 @@ export class DynamoAgentRepository implements AgentRepository {
         Item: { ...stateKey(state.leagueId, state.agentId), ...state }
       })
     );
+  }
+
+  async claimLimit(input: LimitClaim): Promise<LimitClaimResult> {
+    const key = limitKey(input.leagueId, input.key);
+    const since = input.now.getTime() - input.windowMs;
+    for (let attempt = 0; attempt < LIMIT_CLAIM_ATTEMPTS; attempt++) {
+      const { rev, uses } = LimitSchema.parse((await this.#get(key)) ?? { rev: 0, uses: [] });
+      const live = uses.filter((at) => at > since);
+      if (live.length >= input.cap) return 'full';
+      try {
+        await this.table.doc.send(
+          new PutCommand({
+            TableName: this.table.tableName,
+            Item: {
+              ...key,
+              rev: rev + 1,
+              uses: [...live, input.now.getTime()],
+              [TABLE_KEYS.ttl]: epochSeconds(new Date(input.now.getTime() + input.windowMs))
+            },
+            ConditionExpression: rev === 0 ? 'attribute_not_exists(pk)' : 'rev = :rev',
+            ExpressionAttributeValues: rev === 0 ? undefined : { ':rev': rev }
+          })
+        );
+        return 'claimed';
+      } catch (error) {
+        if (!isConditionalCheckFailure(error)) throw error;
+      }
+    }
+    return 'contended';
   }
 
   async #get(key: { pk: string; sk: string }): Promise<Record<string, unknown> | undefined> {

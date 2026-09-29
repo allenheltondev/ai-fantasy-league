@@ -380,6 +380,7 @@ describe('the roster workspace on a phone', () => {
     expect(screen.getByRole('list', { name: 'Bench' })).toHaveTextContent('Jaylen Warren');
     expect(screen.getByRole('list', { name: 'IR' })).toHaveTextContent('Out or IR players can rest here');
     expect(screen.getByTestId('roster-row-wr')).toHaveTextContent('Locked');
+    expect(screen.getByTestId('roster-row-wr').querySelector('img[loading="lazy"]')).not.toBeNull();
     expect(screen.getByTestId('roster-row-bn2')).toHaveTextContent('Season average –');
     const needs = screen.getByRole('region', { name: 'Roster needs' });
     expect(within(needs).getByText('RB2 Kenneth Walker is on bye: find a replacement')).toBeInTheDocument();
@@ -574,6 +575,10 @@ describe('the roster workspace on a desktop', () => {
     expect(within(list).getByTestId('market-row-ro')).toHaveTextContent('Questionable');
     expect(within(list).getByTestId('market-row-mine')).toHaveTextContent('Your team');
     expect(within(list).getByTestId('market-row-mine')).toHaveTextContent('OUT');
+    // Sleeper CDN pictures (#222): a lazy headshot in each row, and the team's logo.
+    const pics = within(list).getByTestId('market-row-ro').querySelectorAll('img');
+    expect([...pics].every((img) => img.getAttribute('loading') === 'lazy')).toBe(true);
+    expect(pics.length).toBeGreaterThanOrEqual(1);
     expect(
       within(list).getByTestId('market-row-fa').querySelector('[data-testid="market-trend"]')
     ).toHaveTextContent('2.2k adds');
