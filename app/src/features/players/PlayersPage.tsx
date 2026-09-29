@@ -35,7 +35,6 @@ export function PlayersPage() {
 
   return (
     <div data-testid="league-section-players" className="space-y-4">
-      <h1 className="sr-only">Players</h1>
       {faab !== null && (
         <p className="text-sm text-muted-foreground">
           {context?.waiverType === 'rolling' ? 'Rolling waivers' : `$${faab} FAAB left`}

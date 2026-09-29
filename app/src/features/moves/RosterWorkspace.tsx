@@ -66,7 +66,6 @@ export function RosterWorkspace() {
   const team = state?.yourTeam ?? null;
   return (
     <div data-testid="team-page-moves" className="space-y-4">
-      <h1 className="sr-only">Roster &amp; moves</h1>
       {state === null ? (
         <LoadingSkeleton label="Loading your team…" />
       ) : team === null ? (
