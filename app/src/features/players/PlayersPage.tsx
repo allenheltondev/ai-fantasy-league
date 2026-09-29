@@ -7,6 +7,7 @@ import { MyClaims } from './MyClaims';
 import { Transactions } from './Transactions';
 import { describeError, formatTime, type LeagueStateData, type SearchPlayer } from './types';
 import { TableScroll } from '../../components/TableScroll';
+import { PlayerHeadshot, TeamLogo } from '../../players/PlayerHeadshot';
 import { PlayerLink } from '../../players/PlayerLink';
 
 export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
@@ -147,10 +148,18 @@ export function PlayersPage() {
                 return (
                   <tr key={player.id}>
                     <td>
-                      <PlayerLink player={player} />
+                      <span className="flex items-center gap-2">
+                        <PlayerHeadshot player={player} size={28} />
+                        <PlayerLink player={player} />
+                      </span>
                     </td>
                     <td>{player.position}</td>
-                    <td>{player.team ?? 'FA'}</td>
+                    <td>
+                      <span className="flex items-center gap-1.5">
+                        <TeamLogo team={player.team} size={18} />
+                        {player.team ?? 'FA'}
+                      </span>
+                    </td>
                     <td>
                       <StatusCell player={player} teams={state?.teams ?? []} />
                     </td>

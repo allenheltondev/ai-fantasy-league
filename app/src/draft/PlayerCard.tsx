@@ -3,6 +3,7 @@ import { Button, Drawer } from '@readysetcloud/ui';
 import { ApiError, type ApiFetch } from '../api';
 import type { PlayerRef } from './board';
 import { InjuryBadge } from './BestAvailableTable';
+import { PlayerHeadshot, TeamLogo } from '../players/PlayerHeadshot';
 import { fmt, sparklinePoints, STAT_NAMES, type PlayerCardData } from './research';
 
 export interface PlayerCardProps {
@@ -129,15 +130,19 @@ export function PlayerCard(props: PlayerCardProps) {
       onOpenChange={(open) => !open && props.onClose()}
     >
       <div className="space-y-4" data-testid="player-card">
-        <p className="text-muted-foreground">
-          {player.position} · {player.team ?? 'FA'}
-          {card !== null && (
-            <>
-              {' '}
-              · bye {card.bye ?? '—'} <InjuryBadge status={card.injuryStatus} />
-            </>
-          )}
-        </p>
+        <div className="flex items-center gap-3">
+          <PlayerHeadshot player={player} size={64} eager />
+          <p className="flex flex-wrap items-center gap-x-1 text-muted-foreground">
+            {player.position} · <TeamLogo team={player.team} size={18} eager />
+            {player.team ?? 'FA'}
+            {card !== null && (
+              <>
+                {' '}
+                · bye {card.bye ?? '—'} <InjuryBadge status={card.injuryStatus} />
+              </>
+            )}
+          </p>
+        </div>
         {props.onQueue !== undefined && (
           <div className="flex gap-2">
             <Button
@@ -184,7 +189,10 @@ export function PlayerCard(props: PlayerCardProps) {
             {card.nextWeek != null && (
               <section className="space-y-2" aria-label="Next game" data-testid="card-next-week">
                 <h4 className="font-semibold">Week {card.nextWeek.week}</h4>
-                <p className="text-sm text-muted-foreground">{matchupText(card.nextWeek)}</p>
+                <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <TeamLogo team={card.nextWeek.opponent?.team} size={16} eager />
+                  {matchupText(card.nextWeek)}
+                </p>
                 {card.nextWeek.bye ? (
                   <p>On bye: no points this week.</p>
                 ) : card.nextWeek.points === null ? (

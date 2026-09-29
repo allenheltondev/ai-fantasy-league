@@ -38,6 +38,7 @@ import {
   type Target
 } from './slots';
 import { locksIn, periodLabel } from './gameState';
+import { PlayerHeadshot } from '../../players/PlayerHeadshot';
 import { PlayerLink, useOpenPlayerCard } from '../../players/PlayerLink';
 
 const pts = (n: number) => n.toFixed(1);
@@ -330,8 +331,11 @@ export function LineupBoard(props: {
           data-testid="moving-banner"
           className="motion-pop sticky top-2 z-20 flex items-center justify-between gap-3 rounded-lg border border-primary-300 bg-primary-50 px-3 py-2 text-sm shadow-md"
         >
-          <span>
-            Moving <strong>{mover.player.name}</strong>: choose a highlighted spot.
+          <span className="flex min-w-0 items-center gap-2">
+            <PlayerHeadshot player={mover.player} size={32} className="sm:hidden" />
+            <span>
+              Moving <strong>{mover.player.name}</strong>: choose a highlighted spot.
+            </span>
           </span>
           <span className="flex shrink-0 gap-1">
             {/* The row itself selects and drags, so a selected player's card opens from here. */}
@@ -735,6 +739,8 @@ function PlayerCard(props: {
         entry.locked ? 'cursor-not-allowed' : actsAsTarget ? 'cursor-pointer' : 'cursor-grab'
       } ${selectedHere ? 'bg-primary-100 ring-2 ring-primary-500' : ''} ${isDragging ? 'opacity-30' : ''}`}
     >
+      {/* Rows are full on a phone: the headshot shows from `sm` up, and in the moving banner. */}
+      <PlayerHeadshot player={entry.player} size={36} className="max-sm:hidden" />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">
           {entry.player.name}{' '}
