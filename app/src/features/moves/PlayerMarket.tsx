@@ -70,7 +70,6 @@ export function PlayerMarket(props: MarketProps) {
   // (the market's context arriving, a filter toggling) leaves the 25+ rows alone.
   const latest = useRef(props);
   latest.current = props;
-  const teamName = useCallback((id: string) => latest.current.teamName(id), []);
   const tradeHref = useCallback((r: MarketPlayer) => latest.current.tradeHref(r), []);
   const onAdd = useCallback((r: MarketPlayer) => latest.current.onAdd(r), []);
 
@@ -220,10 +219,15 @@ export function PlayerMarket(props: MarketProps) {
             <MarketRow
               key={row.player.id}
               row={row}
+              // The standing is resolved here as text, so a renamed team re-renders its rows.
+              standing={
+                row.availability.status === 'rostered' && row.availability.teamId === props.yourTeamId
+                  ? 'Your team'
+                  : standingText(row.availability, props.teamName)
+              }
               yourTeamId={props.yourTeamId}
               canAdd={props.canAdd}
               canTrade={props.canTrade}
-              teamName={teamName}
               tradeHref={tradeHref}
               onAdd={onAdd}
             />
@@ -245,11 +249,10 @@ export function PlayerMarket(props: MarketProps) {
   );
 }
 
-interface RowProps extends Pick<
-  MarketProps,
-  'yourTeamId' | 'canAdd' | 'canTrade' | 'teamName' | 'tradeHref' | 'onAdd'
-> {
+interface RowProps extends Pick<MarketProps, 'yourTeamId' | 'canAdd' | 'canTrade' | 'tradeHref' | 'onAdd'> {
   row: MarketPlayer;
+  /** "Free agent", "Waivers · clears …", "Your team", or the rostering team's name. */
+  standing: string;
 }
 
 const MarketRow = memo(function MarketRow(props: RowProps) {
@@ -259,7 +262,7 @@ const MarketRow = memo(function MarketRow(props: RowProps) {
   const trend = trendOf(row.trend);
   const mine = availability.status === 'rostered' && availability.teamId === props.yourTeamId;
   const injured = row.status !== 'active';
-  const standing = mine ? 'Your team' : standingText(availability, props.teamName);
+  const { standing } = props;
   return (
     <li
       className="flex items-center gap-3 px-3 py-2.5 [contain-intrinsic-size:auto_4.5rem] [content-visibility:auto]"
