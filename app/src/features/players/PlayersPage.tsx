@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams } from 'react-router';
 import { useToast } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
@@ -30,7 +30,11 @@ export function PlayersPage() {
   const [adding, setAdding] = useState<MarketPlayer | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const allowed = (action: string) => state?.allowedActions.includes(action) === true;
-  const teamName = (id: string) => state?.teams?.find((t) => t.id === id)?.name ?? 'Another team';
+  const teams = state?.teams;
+  const teamName = useCallback(
+    (id: string) => teams?.find((t) => t.id === id)?.name ?? 'Another team',
+    [teams]
+  );
   const faab = context?.faabRemaining ?? null;
 
   return (

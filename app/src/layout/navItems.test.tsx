@@ -8,7 +8,7 @@ import { TeamFace } from '../chat/mentions';
 import { AgentAvatar, ManagerTag } from '../components/AgentAvatar';
 import { TeamMark } from '../draft/marks';
 import { TeamAvatar } from '../features/home/TeamBadge';
-import { draftIsLive, leagueTabs, movedSectionTarget, otherTeamPath, teamPath } from '../routes/leagueRoutes';
+import { draftIsLive, movedSectionTarget, otherTeamPath, teamPath } from '../routes/leagueRoutes';
 import { useLeagueOutlet } from '../routes/leagueContext';
 import {
   LeagueTeamsContext,
@@ -34,17 +34,16 @@ describe('the league IA (#178)', () => {
     expect(movedSectionTarget('players', '')).toBe('league/players');
     expect(movedSectionTarget('standings', '')).toBe('league/standings');
     expect(movedSectionTarget('standings', '?view=playoffs')).toBe('league/playoffs');
-    expect(movedSectionTarget('standings', '?view=history&x=1')).toBe('league/history?x=1');
+    expect(movedSectionTarget('standings', '?view=history&x=1')).toBe('settings?view=history&x=1');
+    expect(movedSectionTarget('standings', '?view=history')).toBe('settings?view=history');
     expect(movedSectionTarget('standings', '?view=nope')).toBe('league/standings');
+    expect(movedSectionTarget('standings', '?view=playoffs&x=1')).toBe('league/playoffs?x=1');
   });
 
-  it('keeps the Draft a section until it is over, then a League tab', () => {
+  it('keeps the Draft a section until it is over, then its results are League info', () => {
     expect(draftIsLive('setup')).toBe(true);
     expect(draftIsLive('drafting')).toBe(true);
     expect(draftIsLive('regular_season')).toBe(false);
-    expect(leagueTabs('drafting').map((t) => t.path)).not.toContain('draft');
-    expect(leagueTabs(null).map((t) => t.path)).not.toContain('draft');
-    expect(leagueTabs('complete').map((t) => t.path)).toContain('draft');
   });
 
   it('builds and reads paths with encoded ids', () => {
@@ -73,6 +72,10 @@ describe('the side nav items', () => {
       ['Home', 'League'],
       ['Draft', 'League'],
       ['Scoreboard', 'League'],
+      ['Standings', 'League'],
+      ['Playoffs', 'League'],
+      ['Transactions', 'League'],
+      ['Players', 'League'],
       ['Chat', 'League'],
       ['Lineup', 'My Team'],
       ['Matchup', 'My Team'],
@@ -96,19 +99,26 @@ describe('the side nav items', () => {
     expect(member?.icon).not.toEqual(commissioner?.icon);
   });
 
-  it('marks the draft live, then folds it into Scoreboard once it is over', () => {
+  it('marks the draft live, then folds its results into League info once it is over', () => {
     const drafting = nav('/leagues/L1/draft', { phase: 'drafting' });
     expect(find(drafting, 'draft')).toMatchObject({ active: true, badge: 'Live', badgeTone: 'success' });
     const after = nav('/leagues/L1/draft');
     expect(find(after, 'draft')).toBeUndefined();
-    expect(find(after, 'league')?.active).toBe(true);
+    expect(find(after, 'settings')?.active).toBe(true);
   });
 
   it('marks the page you are on, another team counting as Other teams', () => {
     const items = nav('/leagues/L1/team/teams/team-2');
     expect(find(items, 'team-teams')?.active).toBe(true);
     expect(find(items, 'team-lineup')?.active).toBe(false);
-    expect(find(nav('/leagues/L1/league/standings'), 'league')?.active).toBe(true);
+    const standings = nav('/leagues/L1/league/standings');
+    expect(find(standings, 'standings')?.active).toBe(true);
+    expect(find(standings, 'scoreboard')?.active).toBe(false);
+    expect(find(nav('/leagues/L1/league/players'), 'players')).toMatchObject({
+      active: true,
+      section: 'League',
+      href: '/leagues/L1/league/players'
+    });
   });
 
   it('carries the trade-offer and chat-unread badges, and drops chat’s while you are in it', () => {

@@ -8,13 +8,7 @@ import { DraftPage } from './draft/DraftPage';
 import { RequireSignIn } from './auth/RequireSignIn';
 import { LeagueHomePage } from './features/home/LeagueDashboard';
 import { JoinPage } from './features/join/JoinPage';
-import {
-  HistoryPage,
-  LeagueSectionLayout,
-  PlayoffsPage,
-  ScoreboardPage,
-  TransactionsPage
-} from './features/league/LeaguePages';
+import { PlayoffsPage, ScoreboardPage, TransactionsPage } from './features/league/LeaguePages';
 import { RosterWorkspace } from './features/moves/RosterWorkspace';
 import { PlayersPage } from './features/players/PlayersPage';
 import { MatchupPage } from './features/season/MatchupPage';
@@ -40,8 +34,9 @@ import { TradesPage } from './trades/TradesPage';
  * swap in a fake league API.
  *
  * A league (#178): Home, Draft, My Team (lineup, matchup, moves, trades, achievements, your
- * profile, and the other teams), League (scoreboard, standings, playoffs, players, transactions,
- * history, draft results), Chat, and Settings. Older section URLs redirect to their new homes.
+ * profile, and the other teams), League (scoreboard, standings, playoffs, transactions, and
+ * players, each its own side-nav item), Chat, and Settings or League info (which also holds the
+ * league's history and the draft's results). Older section URLs redirect to their new homes.
  */
 export function App({ api = leagueApi }: { api?: LeagueApi }) {
   return (
@@ -78,15 +73,16 @@ export function App({ api = leagueApi }: { api?: LeagueApi }) {
                 <Route path="teams" element={<OtherTeamsPage />} />
                 <Route path="teams/:teamId" element={<TeamViewPage />} />
               </Route>
-              <Route path="league" element={<LeagueSectionLayout />}>
+              <Route path="league">
                 <Route index element={<RedirectTo to="scoreboard" />} />
                 <Route path="scoreboard" element={<ScoreboardPage />} />
                 <Route path="standings" element={<StandingsPage />} />
                 <Route path="playoffs" element={<PlayoffsPage />} />
                 <Route path="players" element={<PlayersPage />} />
                 <Route path="transactions" element={<TransactionsPage />} />
-                <Route path="history" element={<HistoryPage />} />
-                <Route path="draft" element={<DraftPage />} />
+                {/* History and the draft's results are League info views. */}
+                <Route path="history" element={<Navigate to="../../settings?view=history" replace />} />
+                <Route path="draft" element={<Navigate to="../../settings?view=draft" replace />} />
               </Route>
               <Route path="chat" element={<ChatPage />} />
               <Route path="settings" element={<SettingsPage />} />

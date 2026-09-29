@@ -1,9 +1,9 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LeagueApi } from '../../api/league';
 import type { DashboardMatchup, Roster, RosterEntry } from '../../api/types';
-import { dashboard, fakeApi, state, team } from '../../test/fakeApi';
+import { dashboard, fakeApi, league, state, team } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 
 /** My Team (#178): your team's profile and moves, and the other teams, read-only. */
@@ -322,11 +322,59 @@ describe('League pages', () => {
     expect(within(region).getByRole('img', { name: "Bob's Team avatar" })).toBeInTheDocument();
   });
 
-  it('has no Scoreboard before the draft, and lists Draft results only after it', async () => {
+  it('has no Scoreboard before the draft', async () => {
     open('/leagues/L1/league/scoreboard', { getLeagueState: vi.fn(async () => state({ teams: TEAMS })) });
     expect(await screen.findByText('No matchups yet')).toBeInTheDocument();
-    const pages = screen.getByRole('navigation', { name: 'League pages' });
-    expect(within(pages).queryByRole('link', { name: 'Draft results' })).not.toBeInTheDocument();
+  });
+
+  it('shows History in League info, and Draft results only once the draft is over', async () => {
+    open('/leagues/L1/settings', {
+      getLeagueState: vi.fn(async () => state({ teams: TEAMS, phase: 'setup' }))
+    });
+    const views = await screen.findByRole('group', { name: 'Settings view' });
+    expect(within(views).getByRole('button', { name: 'History' })).toBeInTheDocument();
+    expect(within(views).queryByRole('button', { name: 'Draft results' })).not.toBeInTheDocument();
+  });
+
+  it('reports a Scoreboard that fails to load', async () => {
+    open('/leagues/L1/league/scoreboard', {
+      getLeagueDashboard: vi.fn(async () => {
+        throw new Error('down');
+      })
+    });
+    expect(await screen.findAllByRole('alert')).not.toHaveLength(0);
+  });
+
+  it('opens League info on History, and falls back for views you cannot see', async () => {
+    const member = () => ({
+      getLeagueState: vi.fn(async () => state({ teams: TEAMS, youAreCommissioner: false })),
+      getLeague: vi.fn(async () => league({ phase: 'regular_season' }))
+    });
+    open('/leagues/L1/settings?view=history', member());
+    expect(await screen.findByText('No completed seasons yet.')).toBeInTheDocument();
+    cleanup();
+    // A member has no AI activity view: the URL falls back to the settings.
+    open('/leagues/L1/settings?view=ai', member());
+    const views = await screen.findByRole('group', { name: 'Settings view' });
+    expect(within(views).getByRole('button', { name: 'Rules & seats' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(within(views).getByRole('button', { name: 'Draft results' })).toBeInTheDocument();
+    expect(within(views).queryByRole('button', { name: 'AI activity' })).not.toBeInTheDocument();
+  });
+
+  it('switches between League info views', async () => {
+    const user = userEvent.setup();
+    open('/leagues/L1/settings');
+    const views = await screen.findByRole('group', { name: 'Settings view' });
+    await user.click(within(views).getByRole('button', { name: 'History' }));
+    expect(await screen.findByText('No completed seasons yet.')).toBeInTheDocument();
+    await user.click(within(views).getByRole('button', { name: 'League settings' }));
+    expect(within(views).getByRole('button', { name: 'League settings' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
   });
 
   it('shows the move board and the full log on Transactions', async () => {
@@ -334,11 +382,6 @@ describe('League pages', () => {
     expect(await screen.findByRole('region', { name: 'Move board' })).toBeInTheDocument();
     const log = screen.getByRole('region', { name: 'Transactions' });
     expect(await within(log).findByText(/Zach Charbonnet/)).toBeInTheDocument();
-    const pages = screen.getByRole('navigation', { name: 'League pages' });
-    expect(within(pages).getByRole('link', { name: 'Draft results' })).toHaveAttribute(
-      'href',
-      '/leagues/L1/league/draft'
-    );
   });
 
   it('reports a dashboard that fails to load', async () => {
