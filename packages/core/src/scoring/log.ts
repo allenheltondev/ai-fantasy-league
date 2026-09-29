@@ -196,6 +196,11 @@ export const LOG_STAT_LABELS: Readonly<Record<string, readonly [string, string]>
   yds_allow: ['yd allowed', 'yds allowed']
 };
 
+/** The short label for a stat and an amount ("rec yd" for 1, "rec yds" for more); the key if unknown. */
+export function statLabel(stat: string, amount: number): string {
+  return label(stat, amount);
+}
+
 function label(stat: string, amount: number): string {
   const labels = LOG_STAT_LABELS[stat];
   if (labels === undefined) return stat;

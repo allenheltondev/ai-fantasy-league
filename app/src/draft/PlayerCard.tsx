@@ -5,6 +5,7 @@ import type { PlayerRef } from './board';
 import { InjuryBadge } from './BestAvailableTable';
 import { PlayerHeadshot, TeamLogo } from '../players/PlayerHeadshot';
 import { fmt, STAT_NAMES, type PlayerCardData } from './research';
+import { RecentGames } from './RecentGames';
 import { WeeklyPoints } from './WeeklyPoints';
 
 export interface PlayerCardProps {
@@ -164,6 +165,11 @@ export function PlayerCard(props: PlayerCardProps) {
                     }
                   />
                 )}
+                <RecentGames
+                  recent={card.thisSeason.recent ?? []}
+                  ppg={card.thisSeason.ppg}
+                  games={card.thisSeason.games}
+                />
                 <Totals totals={card.thisSeason.totals} label="This season totals" />
               </section>
             )}
