@@ -41,9 +41,7 @@ describe('replayLeague: the real league on the simulated clock', () => {
     const model = new ScriptedModelClient();
     const report = await replayLeague({
       archive: await fixtureArchive(),
-      // Event ids are positions in the log, and they seed the agents' valuation noise: any new event
-      // (Team Renamed, #194) reshuffles which offers clear the bar. This seed has an accepted deal.
-      seed: 'ci-2',
+      seed: 'ci',
       weeks: 3,
       model,
       log: (l) => lines.push(l)

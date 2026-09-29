@@ -230,6 +230,25 @@ export interface PlayerRef {
   position: string;
 }
 
+/**
+ * A player's NFL game this week as the server sees it (#193, core `playerGame`): the matchup, the
+ * outlook, the lineup locks, and the agents all use this one state.
+ */
+export interface PlayerGame {
+  state: 'upcoming' | 'live' | 'final' | 'bye';
+  opponent: string | null;
+  home: boolean | null;
+  kickoff: string | null;
+  period: number | null;
+  clock: string | null;
+  teamScore: number | null;
+  opponentScore: number | null;
+  possession: boolean;
+  redZone: boolean;
+  /** Share of the game played, 0-1; null when unknown. */
+  progress: number | null;
+}
+
 export interface RosterEntry {
   player: PlayerRef;
   slot: string;
@@ -245,6 +264,12 @@ export interface RosterEntry {
   points: number | null;
   /** Points per game over the last 3 NFL weeks (get_roster, #176), or null with no games yet. */
   recentPoints?: { average: number; games: number } | null;
+  /** His game (#193); absent on older responses. */
+  game?: PlayerGame;
+  /** Expected final points, live-adjusted (#193), or null with no projection and no points. */
+  expectedPoints?: number | null;
+  /** "18/27 · 212 yds · 2 TD" once his game is under way (#193). */
+  statLine?: string | null;
 }
 
 export interface SlotCount {
@@ -281,6 +306,8 @@ export interface MatchupSide {
 export interface MatchupLineup {
   teamId: string;
   points: number;
+  /** The starters' expected final score, live-adjusted (#193); absent on older responses. */
+  projectedPoints?: number;
   players: RosterEntry[];
 }
 
@@ -370,6 +397,10 @@ export interface OutlookSide {
   remainingPoints: number;
   playersYetToPlay: number;
   playersInProgress: number;
+  /** Starters whose game is final (#193). */
+  playersDone?: number;
+  /** Starters on bye or ruled out (#193). */
+  playersNotPlaying?: number;
   winProbability: number | null;
 }
 

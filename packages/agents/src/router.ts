@@ -79,7 +79,7 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * names its team, the name is not one the commissioner locked, and the league is past the draft
  * and not complete; then either the name is still a placeholder ("Team 3"), or, on the weekly
  * rollover only, a rebrand is allowed (regular season, none in the last `REBRAND_RULES.cooldownWeeks`
- * weeks) and the personality's `rebrandPropensity` roll hits (seeded by event and team). The task
+ * weeks) and the personality's `rebrandPropensity` roll hits (seeded by league, team, and week). The task
  * then looks for the moment itself (a losing streak, a clinch, the trade deadline). There is no
  * "seat configured" event before the draft, so the draft's own kickoff names teams (folded into
  * `post_draft`, one model call); `Member Left` covers a seat a person gives back, `Agent Seat
@@ -317,7 +317,7 @@ export const NAMING_COOLDOWN = {
  */
 function admitNaming(rebrand: boolean) {
   return async (input: AdmitInput): Promise<GateDecision | null> => {
-    const { services, seat, leagueId, eventId } = input;
+    const { services, seat, leagueId } = input;
     const [league, team] = await Promise.all([
       services.repos.leagues.get(leagueId),
       services.repos.teams.get(leagueId, seat.teamId)
@@ -337,7 +337,10 @@ function admitNaming(rebrand: boolean) {
       lastRenameWeek: last?.week ?? null
     });
     if (window !== 'ok') return 'declined';
-    return rebrandRoll(config.personality.rebrandPropensity, `${eventId}:${seat.teamId}`) ? null : 'declined';
+    // One roll per team and week, whatever else happened: a redelivered rollover rolls the same.
+    return rebrandRoll(config.personality.rebrandPropensity, `${leagueId}:${seat.teamId}:week-${league.week}`)
+      ? null
+      : 'declined';
   };
 }
 
@@ -428,9 +431,10 @@ export const TRIGGER_RULES: RuleMap = {
   'Lineup Lock Approaching': {
     kind: 'lineup',
     urgent: true,
-    // A game window locks every team's players in it: every agent team checks its lineup, at once.
+    // A kickoff locks the players in its games: every agent team checks its lineup, at once. The
+    // task skips (no model call) when none of its players kick off then (#193).
     teams: (_d, agents) => [...agents],
-    payload: (d) => ({ reason: 'lock', week: d.week })
+    payload: (d) => ({ reason: 'lock', week: d.week, nflTeams: strs(d.nflTeams) })
   },
   'Chat Mention': {
     kind: 'chat_reply',

@@ -193,8 +193,10 @@ describe('MatchupPage', () => {
     open('/leagues/L1/matchup', { getMatchup: vi.fn(async () => matchupData('in_progress', score)) });
     expect(await screen.findByTestId('score-team-1')).toHaveTextContent('10.00');
     expect(screen.getByText('Live')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Robots' })).getByText('QB2')).toBeInTheDocument();
-    expect(screen.queryByText('WR9')).not.toBeInTheDocument();
+    // Head to head by slot: their QB faces yours.
+    expect(within(screen.getByTestId('h2h-row-QB-0')).getAllByText('QB2').length).toBeGreaterThan(0);
+    // The bench starts collapsed.
+    expect(screen.getByTestId('h2h-bench')).not.toBeVisible();
     score = 24.5;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(MATCHUP_POLL_MS);
@@ -238,10 +240,44 @@ describe('MatchupPage', () => {
     await waitFor(() => expect(screen.getByTestId('score-team-1')).toHaveTextContent('31.00'));
   });
 
-  it('shows a final matchup', async () => {
+  it('shows a final matchup, with no lineup to edit', async () => {
     open('/leagues/L1/matchup', { getMatchup: vi.fn(async () => matchupData('final', null)) });
     expect(await screen.findByText('Final')).toBeInTheDocument();
     expect(screen.getByTestId('score-team-1')).toHaveTextContent('0.00');
+    expect(screen.queryByRole('link', { name: 'Edit lineup' })).toBeNull();
+  });
+
+  it('puts your locks and Edit lineup on your side when you are the away team (#193)', async () => {
+    const away = matchupData('in_progress', 10);
+    away.teamId = 'team-2';
+    away.lineups!.away.players = [entry('qb2', 'QB', 'QB', { locked: true, points: 12.5 })];
+    away.lineups!.away.players.push(entry('wr2', 'WR', 'WR'));
+    open('/leagues/L1/matchup', { getMatchup: vi.fn(async () => away) });
+    const qb2 = await screen.findByTestId('h2h-player-qb2');
+    expect(within(qb2).getByRole('img', { name: 'Locked: game started' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('h2h-player-qb1')).queryByTestId('lock-mark')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Edit lineup' })).toHaveAttribute(
+      'href',
+      '/leagues/L1/team/lineup'
+    );
+  });
+
+  it('shows no locks, lineup link, or outlook on a matchup you are not in', async () => {
+    const theirs = matchupData('in_progress', 10);
+    theirs.teamId = 'team-3';
+    const api = open('/leagues/L1/matchup', { getMatchup: vi.fn(async () => theirs) });
+    expect(await screen.findByTestId('score-team-1')).toHaveTextContent('10.00');
+    expect(screen.queryByTestId('lock-mark')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Edit lineup' })).toBeNull();
+    expect(api.getMatchupOutlook).toHaveBeenCalled();
+  });
+
+  it("keeps another team's empty week free of your outlook", async () => {
+    const api = open('/leagues/L1/team/matchup?team=team-3', {
+      getMatchup: vi.fn(async () => ({ week: 3, teamId: 'team-3', matchup: null, lineups: null }))
+    });
+    expect(await screen.findByText('No matchup in week 3')).toBeInTheDocument();
+    expect(api.getMatchupOutlook).not.toHaveBeenCalled();
   });
 
   it('shows when there is no matchup', async () => {

@@ -337,7 +337,7 @@ describe('team_identity triggers', () => {
       name: 'Unicorn Backfield',
       nameSetBy: 'agent'
     });
-    const seedHit = rebrandRoll(0.7, 'evt-1:team-4');
+    const seedHit = rebrandRoll(0.7, `${LEAGUE_ID}:team-4:week-5`);
     expect(s.naming(await s.route(event('Week Rolled Over', rollover)))).toEqual([
       ['team-2', 'requested'],
       ['team-3', 'declined'],

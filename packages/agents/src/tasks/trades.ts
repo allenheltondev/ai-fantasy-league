@@ -1,7 +1,8 @@
-import { hashString, tradeAcceptEdge, tradeAppetite } from '@fantasy/core';
+import { tradeAcceptEdge, tradeAppetite } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
+import { judgmentNoise } from './noise.js';
 import { TaskUnavailableError } from './lineup.js';
 
 /**
@@ -118,8 +119,8 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
   const preview = parse(await ctx.tools.call('preview_trade', { tradeId: trade.id }), PreviewSchema);
   if (preview === null) return { trade, preview: null, roundsLeft: 0, suggestion: REJECT };
   const me = preview.sides[1];
-  const unit = (hashString(`${ctx.taskId}|${trade.id}`) % 2001) / 1000 - 1;
-  const noise = 1 + unit * ctx.config.levers.valuationNoise;
+  // Keyed by the offer and its round, not the trigger, so it replays the same (see noise.ts).
+  const noise = judgmentNoise(ctx, 'trade', trade.id, trade.round);
   const score =
     Math.round(
       (me.lineupDelta + me.valueDelta * (1 - (ctx.config.valuation.recencyBias ?? 0))) * noise * 10

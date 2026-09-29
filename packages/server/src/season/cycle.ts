@@ -1,6 +1,5 @@
 import {
   firstKickoff,
-  gameWindows,
   kickoffTimes,
   nextLeagueWeek,
   reverseStandingsOrder,
@@ -32,12 +31,20 @@ import { recordStandings, scoreLine, updateMatchupScores } from './scoring.js';
  * See docs/adr/002-weekly-cycle.md.
  */
 
-/** How long before a game window's first kickoff agents are told lineups are about to lock. */
+/** How long before each kickoff agents are told lineups are about to lock. */
 export const LOCK_WARNING_LEAD_MS = 60 * 60 * 1000;
 
-/** rsc-core schedule name for a week's lock warning, per game window (1-based). */
-export function lineupLockName(leagueId: string, week: number, window: number): string {
-  return scheduleName('lineup-lock', leagueId, weekKey(week), window);
+/**
+ * rsc-core schedule name for a week's lock warning, per kickoff time (#193): `2026-10-04T17:00:00.000Z`
+ * becomes `20261004T1700Z`. Keyed by the kickoff rather than its place in the week, so a moved game
+ * never shifts another kickoff's warning.
+ */
+export function lineupLockName(leagueId: string, week: number, kickoff: string): string {
+  const at = new Date(kickoff)
+    .toISOString()
+    .replace(/[-:]|\.\d{3}/g, '')
+    .replace(/00Z$/, 'Z');
+  return scheduleName('lineup-lock', leagueId, weekKey(week), at);
 }
 
 export type AdvanceOutcome =
@@ -252,9 +259,11 @@ async function carryLineupsForward(
 }
 
 /**
- * Schedules `Lineup Lock Approaching` (a deferred event through the rsc-core scheduler) before
- * each game window of the league's week that has not started. Names are stable per league, week,
- * and window, so scheduling again moves the pending event instead of adding another.
+ * Schedules `Lineup Lock Approaching` (a deferred event through the rsc-core scheduler) an hour
+ * before every distinct kickoff time of the league's week that has not come yet (#193): a lone
+ * Thursday, Monday, or international game gets its own warning, not just the first game of a window.
+ * Each names the NFL teams kicking off then. Names are stable per league, week, and kickoff, so
+ * scheduling again moves the pending event instead of adding another.
  */
 export async function scheduleLockWarnings(
   deps: Pick<SeasonDeps, 'events'>,
@@ -264,12 +273,15 @@ export async function scheduleLockWarnings(
 ): Promise<number> {
   let scheduled = 0;
   const week = league.week as number;
-  for (const [i, window] of gameWindows(games).entries()) {
-    const lockAt = Date.parse(window.startsAt);
+  for (const kickoff of kickoffTimes(games)) {
+    const lockAt = Date.parse(kickoff);
     if (lockAt <= now.getTime()) continue;
+    const teams = games
+      .filter((g) => Date.parse(g.kickoff) === lockAt)
+      .flatMap((g) => [g.homeTeam, g.awayTeam]);
     await deps.events.scheduleAt({
       at: new Date(Math.max(now.getTime(), lockAt - LOCK_WARNING_LEAD_MS)),
-      name: lineupLockName(league.id, week, i + 1),
+      name: lineupLockName(league.id, week, kickoff),
       whenPast: 'send',
       event: {
         detailType: 'Lineup Lock Approaching',
@@ -277,8 +289,8 @@ export async function scheduleLockWarnings(
           leagueId: league.id,
           season: league.season,
           week,
-          lockAt: window.startsAt,
-          nflTeams: window.teams
+          lockAt: kickoff,
+          nflTeams: [...new Set(teams)].sort()
         }
       }
     });

@@ -1,7 +1,8 @@
-import { dmRoomId, hashString, tradeAppetite, type MemoryEvent } from '@fantasy/core';
+import { dmRoomId, tradeAppetite, type MemoryEvent } from '@fantasy/core';
 import type { Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import { BaseDecisionSchema, defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
+import { judgmentNoise } from './noise.js';
 import { TaskUnavailableError } from './lineup.js';
 
 /**
@@ -208,11 +209,8 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<ProposalPrep
     );
     if (preview === null || !preview.valid || preview.fairness.lopsided) continue;
     const [mySide, theirSide] = preview.sides;
-    const unit =
-      (hashString(`${ctx.taskId}|${idea.send.player.id}|${idea.receive.player.id}`) % 2001) / 1000 - 1;
-    const score = round1(
-      (mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * (1 + unit * ctx.config.levers.valuationNoise)
-    );
+    const noise = judgmentNoise(ctx, 'proposal', idea.team.id, idea.send.player.id, idea.receive.player.id);
+    const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
     const partnerScore = round1(theirSide.lineupDelta + theirSide.valueDelta);
     if (score < bar || partnerScore < PARTNER_FLOOR) continue;
     candidates.push({

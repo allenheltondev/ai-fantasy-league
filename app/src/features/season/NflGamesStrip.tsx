@@ -99,15 +99,20 @@ function TeamLine({ team, score, hasBall }: { team: string; score: number | null
     <p className="flex items-center justify-between font-medium">
       <span className="flex items-center gap-1.5">
         {team}
-        {hasBall && (
-          <>
-            <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-warning-600" />
-            <span className="sr-only">has the ball</span>
-          </>
-        )}
+        {hasBall && <BallMark />}
       </span>
       <span className="tabular-nums">{score ?? ''}</span>
     </p>
+  );
+}
+
+/** The team with the ball: a dot, and the words for screen readers. */
+export function BallMark() {
+  return (
+    <span className="inline-flex items-center" data-testid="ball-mark">
+      <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-warning-600" />
+      <span className="sr-only">has the ball</span>
+    </span>
   );
 }
 

@@ -270,8 +270,17 @@ describe('set_lineup', () => {
       error: {
         code: 'PLAYER_LOCKED',
         message: expect.stringContaining('Patrick Mahomes'),
-        fix: expect.stringContaining('Keep')
+        fix: expect.stringContaining('Keep'),
+        // The app names the locked player from these (#193).
+        details: { lockedPlayerIds: ['fx-mahomes'] }
       }
+    });
+    // And the roster shows why: his game is live, Allen's is still to come.
+    expect(roster.players.find((p) => p.player.id === 'fx-mahomes')).toMatchObject({
+      game: { state: 'live', opponent: 'BAL', home: true }
+    });
+    expect(roster.players.find((p) => p.player.id === 'fx-jallen')).toMatchObject({
+      game: { state: 'upcoming', kickoff: SUNDAY_KICKOFF }
     });
     // Unlocked players still move freely.
     const ok = await alice.put(`${L}/teams/team-1/lineup`, {
@@ -420,6 +429,76 @@ describe('live scoring and the weekly cycle', () => {
     expect(lineup.points).toBe(41);
   });
 
+  it('gives every player one game state: ESPN finals at once, started-but-unread games live (#193)', async () => {
+    // Sunday, an hour after the 1pm kickoffs. The schedule still has Thursday's KC game as
+    // scheduled, but the scoreboard read it as final; BUF-MIA is in the 2nd quarter; SF-ARI and
+    // CIN-DET kicked off but have not been read yet; PHI-DAL is at 4:25; SEA is on bye.
+    const readAt = new Date(Date.parse(SUNDAY_KICKOFF) + 3_600_000);
+    h.clock.set(readAt);
+    await h.services.data.reference.nflGames.put({
+      season: SEASON,
+      week: 1,
+      games: [
+        liveGame('2026_01_BAL_KC', {
+          state: 'post',
+          status: 'Final',
+          period: 4,
+          clock: null,
+          homeScore: 27,
+          awayScore: 20
+        }),
+        liveGame('2026_01_MIA_BUF', { period: 2, clock: '8:32', possessionTeam: 'BUF', homeScore: 10 })
+      ],
+      updatedAt: readAt.toISOString()
+    });
+    type Game = { state: string; progress: number | null; opponent: string | null; teamScore: number | null };
+    type Row = RosterRow & { game: Game; expectedPoints: number | null; statLine: string | null };
+    const body = data<{
+      lineups: {
+        home: { teamId: string; projectedPoints: number; players: Row[] };
+        away: { teamId: string; players: Row[] };
+      };
+    }>(await alice.get(`${L}/matchup`));
+    const lineup = body.lineups.home.teamId === 'team-1' ? body.lineups.home : body.lineups.away;
+    const row = (id: string) => lineup.players.find((p) => p.player.id === id) as Row;
+    expect(row('fx-mahomes')).toMatchObject({
+      game: { state: 'final', progress: 1, opponent: 'BAL', teamScore: 27 },
+      points: 20,
+      expectedPoints: 20,
+      statLine: '300 yds · 2 TD'
+    });
+    expect(row('fx-jallen').game).toMatchObject({
+      state: 'live',
+      progress: 0.358,
+      opponent: 'MIA',
+      teamScore: 10
+    });
+    expect(row('fx-cmc').game).toMatchObject({ state: 'live', progress: null, teamScore: null });
+    expect(row('fx-lamb').game).toMatchObject({ state: 'upcoming', progress: 0, opponent: 'PHI' });
+    expect(row('fx-lamb').statLine).toBeNull();
+    expect(row('fx-kwalker').game).toMatchObject({ state: 'bye', opponent: null });
+    // CMC's game has no read: half his unmet projection (16) is still to come.
+    expect(row('fx-cmc')).toMatchObject({ projectedPoints: 16, expectedPoints: 21 });
+    expect(typeof body.lineups.home.projectedPoints).toBe('number');
+
+    // The outlook agrees: the final counts as done, the unread game as playing.
+    const outlook = data<{
+      you: {
+        playersInProgress: number;
+        playersDone: number;
+        playersNotPlaying: number;
+        players: { player: { id: string }; game: string; expectedPoints: number }[];
+      };
+    }>(await alice.get(`${L}/matchup/outlook?detail=true`));
+    const game = (id: string) => outlook.you.players.find((p) => p.player.id === id);
+    expect(game('fx-mahomes')).toMatchObject({ game: 'final', expectedPoints: 20 });
+    expect(game('fx-cmc')).toMatchObject({ game: 'live', expectedPoints: 21 });
+    expect(game('fx-lamb')?.game).toBe('upcoming');
+    expect(outlook.you.playersInProgress).toBeGreaterThan(0);
+    expect(outlook.you).toHaveProperty('playersDone');
+    expect(outlook.you).toHaveProperty('playersNotPlaying');
+  });
+
   it('finalizes the week after Monday night and rolls over to week 2', async () => {
     h.clock.set(new Date(Date.parse(MONDAY_KICKOFF) + 60 * 60_000));
     expect(await advanceSeason(jobDeps(), h.clock)).toMatchObject({ skipped: 1 });
@@ -443,7 +522,7 @@ describe('live scoring and the weekly cycle', () => {
       phase: 'regular_season'
     });
     expect(emitted[2]?.detail).toMatchObject({
-      name: 'lineup-lock-lg-season-W02-1',
+      name: 'lineup-lock-lg-season-W02-20260918T0020Z',
       event: { detailType: 'Lineup Lock Approaching', detail: { leagueId: 'lg-season', week: 2 } }
     });
 

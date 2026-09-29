@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { EmptyState, StatusBadge } from '@readysetcloud/ui';
+import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
-import type { MatchupData, MatchupLineup, MatchupSide, RedZoneTeam, ScoringLogEntry } from '../../api/types';
-import { ManagerTag } from '../../components/AgentAvatar';
+import type { MatchupData, ScoringLogEntry } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import {
@@ -12,15 +11,15 @@ import {
   type EventConnect,
   type LeagueEvent
 } from '../../realtime/leagueEvents';
-import { AnimatedNumber, DeltaFloater } from '../../motion/AnimatedNumber';
 import { useCelebrateOnce } from '../../motion/celebration';
 import { Confetti } from '../../motion/Confetti';
 import { LoadingSkeleton } from '../../motion/decor';
 import { MatchupOutlookPanel } from './MatchupOutlookPanel';
 import { NflGamesStrip } from './NflGamesStrip';
 import { mergeEntries, ScoringLog } from './ScoringLog';
-import { RedZoneChip, redZoneClass, redZoneFor, usePrefersReducedMotion } from './RedZone';
+import { HeadToHead, ScoreBar } from './MatchupBoard';
 import { isStarter } from './slots';
+import { teamPath } from '../../routes/leagueRoutes';
 
 /** How often live scores refresh without realtime. The server recomputes them on every read. */
 export const MATCHUP_POLL_MS = 30_000;
@@ -42,9 +41,10 @@ export const MATCHUP_EVENTS = [
   'Week Official Final'
 ] as const;
 
-const STATUS_LABEL = { scheduled: 'Upcoming', in_progress: 'Live', final: 'Final' } as const;
-
-/** The Matchup section (#58): both lineups side by side with live scores. */
+/**
+ * The Matchup section (#58, #193): a sticky score bar, the two lineups head to head by slot with
+ * each player's game, then the outlook, the scoring log, and the week's NFL games.
+ */
 export function MatchupPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
   // `?team=` opens another team's matchup (tapped on the league dashboard, #166).
@@ -54,6 +54,8 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
   // The scoring log (#162): entries pushed with `Scores Updated`, and a bump to reload its newest page.
   const [pushed, setPushed] = useState<{ matchupId: string; entries: ScoringLogEntry[] }[]>([]);
   const [logVersion, setLogVersion] = useState(0);
+  // Every live event also refreshes the outlook, so win % and projections move with the games.
+  const [outlookVersion, setOutlookVersion] = useState(0);
   const live = useLiveEvents({
     leagueId,
     types: MATCHUP_EVENTS,
@@ -61,7 +63,12 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
     realtime: api.getRealtime,
     connect,
     onEvent: (event) => {
-      if (event.detailType === NFL_GAMES_EVENT) return nfl.reload();
+      setOutlookVersion((v) => v + 1);
+      if (event.detailType === NFL_GAMES_EVENT) {
+        // A quarter, a clock, a final: each player's game state lives on the matchup too.
+        nfl.reload();
+        return loaded.reload();
+      }
       const logs = pushedLog(event);
       if (logs.length > 0) setPushed((current) => [...current, ...logs]);
       else setLogVersion((v) => v + 1);
@@ -90,38 +97,50 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
     );
   } else if (loaded.data.matchup === null || loaded.data.lineups === null) {
     body = (
-      <EmptyState
-        title={`No matchup in week ${loaded.data.week}`}
-        description="Check back once the schedule is set."
-      />
+      <div className="space-y-4">
+        <EmptyState
+          title={`No matchup in week ${loaded.data.week}`}
+          description="Check back once the schedule is set."
+        />
+        {/* A bye week still has your projection and lineup advice. */}
+        {viewTeam === undefined && (
+          <MatchupOutlookPanel
+            leagueId={leagueId}
+            pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
+            version={outlookVersion}
+          />
+        )}
+      </div>
     );
   } else {
     const { matchup, lineups } = loaded.data;
     const leader = leadingTeam(matchup);
+    const own = viewTeam === undefined;
+    const yourSide = !own
+      ? null
+      : matchup.home.teamId === loaded.data.teamId
+        ? ('home' as const)
+        : matchup.away.teamId === loaded.data.teamId
+          ? ('away' as const)
+          : null;
     body = (
       <div className="space-y-4">
-        <p className="flex items-center gap-2 text-muted-foreground">
-          Week {loaded.data.week}
-          <StatusBadge tone={matchup.status === 'in_progress' ? 'success' : 'neutral'}>
-            {matchup.status === 'in_progress' && <span className="motion-live-dot mr-1" aria-hidden="true" />}
-            {STATUS_LABEL[matchup.status]}
-          </StatusBadge>
-        </p>
-        {viewTeam === undefined && <WinCelebration leagueId={leagueId} data={loaded.data} />}
-        <div className="grid gap-4 md:grid-cols-2">
-          <Side
-            side={matchup.home}
-            lineup={lineups.home}
-            redZone={redZone}
-            leading={leader === matchup.home.teamId}
+        <ScoreBar week={loaded.data.week} matchup={matchup} lineups={lineups} leader={leader} />
+        {own && <WinCelebration leagueId={leagueId} data={loaded.data} />}
+        <HeadToHead
+          matchup={matchup}
+          lineups={lineups}
+          yourSide={yourSide}
+          editLineup={yourSide === null || matchup.status === 'final' ? null : teamPath(leagueId, 'lineup')}
+          redZone={redZone}
+        />
+        {own && (
+          <MatchupOutlookPanel
+            leagueId={leagueId}
+            pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
+            version={outlookVersion}
           />
-          <Side
-            side={matchup.away}
-            lineup={lineups.away}
-            redZone={redZone}
-            leading={leader === matchup.away.teamId}
-          />
-        </div>
+        )}
         <ScoringLog
           leagueId={leagueId}
           matchupId={matchup.id}
@@ -146,12 +165,6 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
         </Link>
       )}
       {body}
-      {viewTeam === undefined && (
-        <MatchupOutlookPanel
-          leagueId={leagueId}
-          pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
-        />
-      )}
     </div>
   );
 }
@@ -214,61 +227,5 @@ function WinCelebration({ leagueId, data }: { leagueId: string; data: MatchupDat
       </p>
       <Confetti size="burst" />
     </>
-  );
-}
-
-function Side({
-  side,
-  lineup,
-  redZone,
-  leading
-}: {
-  side: MatchupSide;
-  lineup: MatchupLineup;
-  redZone: readonly RedZoneTeam[];
-  leading: boolean;
-}) {
-  const reducedMotion = usePrefersReducedMotion();
-  return (
-    <section
-      aria-label={side.teamName}
-      data-leading={leading || undefined}
-      className={`motion-side rounded-lg border border-border p-4${leading ? ' motion-leader' : ''}`}
-    >
-      <h3 className="flex items-baseline justify-between gap-2 font-semibold">
-        <span className="flex min-w-0 flex-col">
-          <span className="break-words">{side.teamName}</span>
-          <ManagerTag manager={side.manager} teamId={side.teamId} />
-        </span>
-        <AnimatedNumber className="text-2xl" data-testid={`score-${side.teamId}`} value={side.score ?? 0} />
-      </h3>
-      <table className="mt-2 w-full text-sm">
-        <tbody>
-          {lineup.players
-            .filter((p) => isStarter(p.slot))
-            .map((p) => {
-              const zone = redZoneFor(p, redZone);
-              return (
-                <tr
-                  key={p.player.id}
-                  data-testid={`matchup-row-${p.player.id}`}
-                  className={zone === null ? undefined : redZoneClass('red-zone-row', reducedMotion)}
-                >
-                  <td className="w-16 font-mono">{p.slot}</td>
-                  <td>
-                    {p.player.name} <span className="text-muted-foreground">{p.player.team ?? 'FA'}</span>
-                    {zone !== null && <RedZoneChip zone={zone} />}
-                  </td>
-                  <td className="text-right text-muted-foreground">{p.projectedPoints ?? '–'}</td>
-                  <td className="relative w-16 text-right">
-                    {p.points ?? '–'}
-                    <DeltaFloater value={p.points} />
-                  </td>
-                </tr>
-              );
-            })}
-        </tbody>
-      </table>
-    </section>
   );
 }

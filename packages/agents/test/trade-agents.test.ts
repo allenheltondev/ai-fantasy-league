@@ -482,6 +482,8 @@ function scripted(answers: Record<string, unknown>, config: AgentSeatConfig = HA
   return {
     taskId: 'scripted',
     config: resolveAgentConfig(config),
+    seat: { agentId: `${LEAGUE_ID}.${AGENT_TEAM}` },
+    league: { week: 5 },
     clock: new FixedClock(START),
     calls,
     tools: {

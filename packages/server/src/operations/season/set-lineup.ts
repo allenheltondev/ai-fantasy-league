@@ -103,7 +103,9 @@ export const setLineup = defineOperation({
         {
           fix: `${shown.map((e) => e.fix).join(' ')} Nothing was changed; get_roster shows the current lineup and which players are locked.`,
           details: {
-            issues: check.errors.map(({ code, path, message, fix }) => ({ code, path, message, fix }))
+            issues: check.errors.map(({ code, path, message, fix }) => ({ code, path, message, fix })),
+            // The players whose kickoff blocked the change, so a client can name them (#193).
+            lockedPlayerIds: locked.map((e) => e.path.replace(/^lineup\./, ''))
           }
         }
       );

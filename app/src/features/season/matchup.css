@@ -1,0 +1,129 @@
+/*
+ * The live matchup (#193). Every color is a design token, so the ramps invert in dark mode. States
+ * never rely on color: each cell also says it in words (a quarter and clock, "Final", "BYE"), and
+ * the pips have a label beside them. Only the red-zone bar pulses, and never under
+ * prefers-reduced-motion (the component also drops the pulse class then); the live dot is the
+ * app-wide `motion-live-dot`, which stands still under reduced motion.
+ */
+
+.h2h td,
+.h2h th {
+  padding: 0.5rem 0.25rem;
+}
+.h2h td:first-child {
+  padding-left: 0.5rem;
+}
+.h2h td:last-child {
+  padding-right: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .h2h td,
+  .h2h th {
+    padding: 0.625rem 0.75rem;
+  }
+}
+
+.h2h-slot {
+  text-align: center;
+  vertical-align: middle;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgb(var(--muted-foreground));
+  background-color: rgb(var(--muted) / 0.6);
+}
+
+.h2h-bench-total {
+  font-size: 0.75rem;
+  color: rgb(var(--muted-foreground));
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A player whose game is on: a thin success bar on the row's outer edge. */
+.h2h-live.h2h-edge-start {
+  box-shadow: inset 3px 0 0 rgb(var(--success-500));
+}
+.h2h-live.h2h-edge-end {
+  box-shadow: inset -3px 0 0 rgb(var(--success-500));
+}
+
+/* His team is inside the opponent's 20 (#132's highlight, per cell). */
+.h2h-redzone {
+  background-color: rgb(var(--error-500) / 0.08);
+}
+.h2h-redzone.h2h-edge-start {
+  box-shadow: inset 3px 0 0 rgb(var(--error-500));
+}
+.h2h-redzone.h2h-edge-end {
+  box-shadow: inset -3px 0 0 rgb(var(--error-500));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .h2h-pulse.h2h-edge-start {
+    animation: h2h-pulse-start 1.6s ease-in-out infinite;
+  }
+  .h2h-pulse.h2h-edge-end {
+    animation: h2h-pulse-end 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes h2h-pulse-start {
+  0%,
+  100% {
+    box-shadow: inset 3px 0 0 rgb(var(--error-500));
+  }
+  50% {
+    box-shadow: inset 6px 0 0 rgb(var(--error-500) / 0.45);
+  }
+}
+
+@keyframes h2h-pulse-end {
+  0%,
+  100% {
+    box-shadow: inset -3px 0 0 rgb(var(--error-500));
+  }
+  50% {
+    box-shadow: inset -6px 0 0 rgb(var(--error-500) / 0.45);
+  }
+}
+
+.h2h-final-tag {
+  display: inline-block;
+  border: 1px solid rgb(var(--border));
+  border-radius: var(--radius-sm);
+  padding: 0 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1rem;
+  text-transform: uppercase;
+}
+
+/* The score bar while the matchup is live: a success rule along its top. */
+.h2h-bar-live {
+  box-shadow: inset 0 3px 0 rgb(var(--success-500));
+}
+
+/* One pip per starter. Upcoming is an open ring, live and final are filled, out is a warning. */
+.h2h-pip {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+}
+.h2h-pip-live {
+  background-color: rgb(var(--success-500));
+}
+.h2h-pip-upcoming {
+  box-shadow: inset 0 0 0 1.5px rgb(var(--muted-foreground));
+}
+.h2h-pip-final {
+  background-color: rgb(var(--muted-foreground));
+}
+.h2h-pip-out,
+.h2h-pip-bye {
+  border-radius: 1px;
+  background-color: rgb(var(--warning-500));
+}
