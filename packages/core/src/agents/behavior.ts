@@ -16,6 +16,23 @@ import type { ResolvedAgentConfig } from './seat-config.js';
  *   (`tradeAppetite`, for the trade task kinds).
  * - Trade votes: how one-sided another pair's trade must be before the agent votes to veto it
  *   (`tradeVetoVote`, for the trade_vote task kind).
+ *
+ * What an agent's history with other teams may change (#210), the design decision in one place:
+ *
+ * - Dialogue: the relationship stance (`relationshipsFrom`: warmth, rivalry, grudge, repair, and
+ *   decay), the records behind it, and the agent's own beliefs are in its prompt (`summarizeMemory`),
+ *   so it talks like it remembers: warm after a fair trade, needling after a close game, cold while a
+ *   grudge lasts, softer once a grudge has cooled or been mended.
+ * - Bounded decisions: decision tasks see the same stance (built from league records only, never from
+ *   chat text), so the model may lean on it when it chooses among options this code already vetted:
+ *   which vetted trade candidate to send, whether to take an offer that already clears the accept
+ *   floor, what to write in a note. The options, the accept bar and floor, the persuasion allowance
+ *   (#196), and every legality check are computed without it.
+ * - Fixed: authorization, legality, roster and economic floors, veto votes (`tradeVetoVote`), and
+ *   the deterministic fallbacks never read relationships or notes.
+ * - Strategy adaptation from outcomes: none yet. Nothing in this module moves with results, and a
+ *   note the model wrote cannot change it. A future adaptation must be an explicit, bounded function
+ *   of records (never beliefs), added here, and measured by a controlled evaluation first (#211).
  */
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0));

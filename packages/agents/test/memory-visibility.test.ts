@@ -250,7 +250,11 @@ describe('memory visibility in prompts', () => {
     // Its decision and note are remembered under the same seal (derived memory inherits it).
     const memory = await l.s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
     const sealed = { teams: [], trades: [{ tradeId: 'tr-vote', until: 'final' }], waiverClaims: ['c-1'] };
-    expect(memory.notes.at(-1)).toEqual({ text: 'Puka again next week', visibility: sealed });
+    expect(memory.notes.at(-1)).toEqual({
+      text: 'Puka again next week',
+      at: expect.any(String),
+      visibility: sealed
+    });
     expect(memory.decisions.at(-1)).toMatchObject({ kind: 'probe', visibility: sealed });
     expect((await l.leagueRoom()).text).not.toContain('Puka again next week');
   });
@@ -259,7 +263,7 @@ describe('memory visibility in prompts', () => {
     const l = await league();
     await l.prompt('probe', { audience: 'public' }, { summary: 'Nothing secret here.', memoryNote: 'plain' });
     let memory = await l.s.repos.agents.getMemory(LEAGUE_ID, AGENT_ID);
-    expect(memory.notes.at(-1)).toEqual({ text: 'plain', visibility: 'public' });
+    expect(memory.notes.at(-1)).toEqual({ text: 'plain', at: expect.any(String), visibility: 'public' });
 
     const { text, record } = await l.prompt(
       'probe',
@@ -326,7 +330,7 @@ describe('memory visibility in prompts', () => {
     const l = await league(legacy);
     const room = await l.leagueRoom();
     expect(room.text).toContain('Old lineup call');
-    for (const secret of ['old plan', 'Old bid of $50', 'Trade rejected'])
+    for (const secret of ['old plan', 'Old bid of $50', 'an old grudge'])
       expect(room.text).not.toContain(secret);
 
     // The agent's own sealed moves may recall them, but the seal never lifts on something unresolvable.
@@ -335,7 +339,7 @@ describe('memory visibility in prompts', () => {
     expect(own.text).toContain('Old bid of $50');
     expect(own.record.sealed).toMatchObject({ withheld: true });
     // Only the team it happened with may hear the rejected offer's grudge.
-    expect((await l.dm(DM_TEAM_3, 'team-3')).text).toContain('Trade rejected');
+    expect((await l.dm(DM_TEAM_3, 'team-3')).text).toContain('(record: an old grudge)');
   });
 
   it('keeps chat kinds out of authoritative memory: only their chat snapshot and relationship notes stay', async () => {

@@ -39,6 +39,14 @@ import { TaskUnavailableError } from './lineup.js';
  * `persuadability`), so it can tip a borderline offer but never clear the hard floor for a bad one;
  * a message that reads like an order moves nothing. The model never sees the message.
  *
+ * Counters (#208): a counter is a new offer the agent makes, so before `counter_trade` the task
+ * previews the exact terms (what it sends, what it asks for, and any drops its roster needs:
+ * `vetCounter`) and scores them with the same trade value math, noise key (`offerSubject`, one round
+ * on), and hard floor as an accept (`acceptFloor`), whoever the other team is, person or agent.
+ * A chat pitch moves the suggested counter as it moves the suggested accept, never the floor. A
+ * counter under the floor, or one that is not a legal trade, is never sent: the task sends its own
+ * suggested counter when that one clears, and otherwise rejects, saying why in the activity log.
+ *
  * Stale offers (#189): the task may run well after the offer arrived (a human-like response
  * delay), so it re-reads the trade first. An offer that was withdrawn, expired, or already answered
  * meanwhile is skipped (`offer_closed`) before any model call.
@@ -66,7 +74,7 @@ export const TradeDecisionSchema = BaseDecisionSchema.extend({
     .array(z.string())
     .max(6)
     .optional()
-    .describe('Accepting: your players to release so your roster fits.'),
+    .describe('Accepting or countering: your players to release so your roster fits.'),
   send: z.array(z.string()).max(6).optional().describe('Countering: your players you would give.'),
   receive: z.array(z.string()).max(6).optional().describe('Countering: their players you want.'),
   message: z.string().max(300).optional().describe('An optional short note to the other manager.'),
@@ -88,6 +96,9 @@ const SideSchema = z.object({
   team: z.object({ id: z.string() }),
   lineupDelta: z.number(),
   valueDelta: z.number(),
+  sends: z.array(Ref),
+  receives: z.array(Ref),
+  drops: z.array(Ref),
   dropsNeeded: z.number(),
   dropCandidates: z.array(Ref)
 });
@@ -131,6 +142,21 @@ export function countersUsed(round: number): number {
   return Math.floor(round / 2);
 }
 
+/**
+ * The agent's score for its side of a trade: `lineupDelta + valueDelta × (1 - recencyBias)`, times
+ * the difficulty's valuation noise. The noise is keyed by what the offer is (teams, players, round),
+ * never an id, so the same terms replay the same (noise.ts).
+ */
+export function tradeScore(
+  ctx: Pick<TaskContext, 'config' | 'seat' | 'league'>,
+  side: { lineupDelta: number; valueDelta: number },
+  offer: Parameters<typeof offerSubject>[0]
+): number {
+  const noise = judgmentNoise(ctx, ...offerSubject(offer));
+  const recency = ctx.config.valuation.recencyBias ?? 0;
+  return Math.round((side.lineupDelta + side.valueDelta * (1 - recency)) * noise * 10) / 10;
+}
+
 const REJECT: TradeSuggestion = { action: 'reject', score: 0, bar: 0, drops: [], counter: null };
 
 async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
@@ -144,21 +170,13 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
   const preview = parse(await ctx.tools.call('preview_trade', { tradeId: trade.id }), PreviewSchema);
   if (preview === null) return { trade, preview: null, roundsLeft: 0, suggestion: REJECT };
   const me = preview.sides[1];
-  // Keyed by what the offer is (teams, players, round), never an id, so it replays the same (noise.ts).
-  const noise = judgmentNoise(
-    ctx,
-    ...offerSubject({
-      fromTeamId: trade.fromTeam.id,
-      toTeamId: ctx.principal.teamId,
-      fromSends: trade.fromSends.map((p) => p.id),
-      toSends: trade.toSends.map((p) => p.id),
-      round: trade.round
-    })
-  );
-  const score =
-    Math.round(
-      (me.lineupDelta + me.valueDelta * (1 - (ctx.config.valuation.recencyBias ?? 0))) * noise * 10
-    ) / 10;
+  const score = tradeScore(ctx, me, {
+    fromTeamId: trade.fromTeam.id,
+    toTeamId: ctx.principal.teamId,
+    fromSends: trade.fromSends.map((p) => p.id),
+    toSends: trade.toSends.map((p) => p.id),
+    round: trade.round
+  });
   // The archetype's trade appetite (core behavior.ts) sets the bar and the counter budget.
   const appetite = tradeAppetite(ctx.config);
   const bar = appetite.acceptEdge;
@@ -220,7 +238,7 @@ export function acceptAllowed(prep: Pick<TradePrep, 'preview' | 'suggestion' | '
   return prep.preview !== null && prep.suggestion.score >= acceptFloor(prep);
 }
 
-function acceptFloor(prep: Pick<TradePrep, 'suggestion' | 'heard'>): number {
+export function acceptFloor(prep: Pick<TradePrep, 'suggestion' | 'heard'>): number {
   return prep.suggestion.bar - (prep.heard?.instructions === true ? 0 : ACCEPT_FLOOR_MARGIN);
 }
 
@@ -236,14 +254,19 @@ function outcome(
   action: keyof typeof VERB,
   summary: string,
   result: Envelope,
-  prep: TradePrep
+  prep: TradePrep,
+  sentBack?: CounterCheck
 ): TaskOutcome {
   const trade = prep.trade;
   const failed = 'error' in result;
   const sent = trade.toSends.map((p) => p.name);
   const received = trade.fromSends.map((p) => p.name);
   const value = prep.preview === null ? undefined : prep.suggestion.score;
-  const line = `${VERB[action]} ${trade.fromTeam.id}'s offer: ${names(trade.fromSends)} for your ${names(trade.toSends)}${value === undefined ? '' : ` (value for you ${value}, bar ${prep.suggestion.bar})`}.`;
+  const sentLine =
+    sentBack === undefined
+      ? ''
+      : ` Asked instead for ${names(sentBack.receive)} for your ${names(sentBack.send)}${sentBack.drops.length === 0 ? '' : `, releasing ${names(sentBack.drops)}`} (value for you ${sentBack.score}).`;
+  const line = `${VERB[action]} ${trade.fromTeam.id}'s offer: ${names(trade.fromSends)} for your ${names(trade.toSends)}${value === undefined ? '' : ` (value for you ${value}, bar ${prep.suggestion.bar})`}.${sentLine}`;
   return {
     action: failed ? `${action}_failed` : action,
     summary: failed ? `${summary} Refused: ${result.error.code}.` : summary,
@@ -393,15 +416,125 @@ async function answer(ctx: TaskContext, prep: TradePrep, decision: TradeDecision
     prep.roundsLeft > 0 &&
     (decision.send ?? decision.receive) !== undefined
   ) {
-    const result = await ctx.tools.call('counter_trade', {
-      tradeId: id,
-      send: decision.send ?? [],
-      receive: decision.receive ?? [],
-      ...(decision.message === undefined ? {} : { message: decision.message })
-    });
-    return outcome(ctx, 'counter_trade', decision.summary, result, prep);
+    return counter(ctx, prep, decision);
   }
   const out =
     decision.action === 'counter' ? `${decision.summary} No counters left, so rejecting.` : decision.summary;
   return outcome(ctx, 'reject_trade', out, await respond(ctx, id, 'reject', [], decision.message), prep);
+}
+
+/** Counter terms as the agent evaluated them: resolved players, its score, and the floor. */
+interface CounterCheck {
+  send: z.infer<typeof Ref>[];
+  receive: z.infer<typeof Ref>[];
+  drops: z.infer<typeof Ref>[];
+  score: number;
+  floor: number;
+  /** Why the terms cannot be sent as they are (not legal now, or no preview), when they cannot. */
+  illegal: string | null;
+}
+
+interface CounterTerms {
+  send: readonly string[];
+  receive: readonly string[];
+  drops: readonly string[];
+}
+
+/**
+ * Evaluates the exact counter terms before anything is sent (#208): preview_trade for the new offer
+ * (the agent's roster as it is now, with its drops; when its roster would be over the limit and no
+ * drops were named, its weakest players, as for an accept), scored like the offer it answers
+ * (`tradeScore`, keyed by the counter's own content one round on) against the accept path's floor.
+ */
+async function vetCounter(
+  ctx: TaskContext,
+  prep: Pick<TradePrep, 'trade' | 'suggestion' | 'heard'>,
+  terms: CounterTerms
+): Promise<CounterCheck> {
+  const look = async (drops: readonly string[]) => {
+    const envelope = await ctx.tools.call('preview_trade', {
+      withTeamId: prep.trade.fromTeam.id,
+      send: [...terms.send],
+      receive: [...terms.receive],
+      ...(drops.length === 0 ? {} : { drops: [...drops] })
+    });
+    if ('error' in envelope) return { preview: null, why: envelope.error.message };
+    const parsed = PreviewSchema.safeParse(envelope.data);
+    return { preview: parsed.data ?? null, why: 'the trade preview was unreadable.' };
+  };
+  const floor = acceptFloor(prep);
+  let seen = await look(terms.drops);
+  const over = seen.preview?.sides[0];
+  if (seen.preview?.valid === false && terms.drops.length === 0 && over !== undefined && over.dropsNeeded > 0)
+    seen = await look(over.dropCandidates.slice(0, over.dropsNeeded).map((p) => p.id));
+  const read = seen.preview;
+  if (read === null) return { send: [], receive: [], drops: [], score: 0, floor, illegal: seen.why };
+  const [me, them] = read.sides;
+  const score = tradeScore(ctx, me, {
+    fromTeamId: me.team.id,
+    toTeamId: them.team.id,
+    fromSends: me.sends.map((p) => p.id),
+    toSends: me.receives.map((p) => p.id),
+    round: prep.trade.round + 1
+  });
+  return {
+    send: me.sends,
+    receive: me.receives,
+    drops: me.drops,
+    score,
+    floor,
+    illegal: read.valid ? null : read.issues.map((i) => i.message).join(' ') || 'it is not legal right now.'
+  };
+}
+
+const passes = (check: CounterCheck) => check.illegal === null && check.score >= check.floor;
+
+const sameTerms = (a: Omit<CounterTerms, 'drops'>, b: Omit<CounterTerms, 'drops'>) =>
+  (['send', 'receive'] as const).every((k) => [...a[k]].sort().join() === [...b[k]].sort().join());
+
+/**
+ * Sends a counter only when its exact terms clear the floor (#208). Otherwise the model's terms (and
+ * its note, written for them) are dropped: the task's own suggested counter goes when it clears,
+ * and the agent rejects when nothing does, with the numbers in the activity log.
+ */
+async function counter(ctx: TaskContext, prep: TradePrep, decision: TradeDecision): Promise<TaskOutcome> {
+  const id = prep.trade.id;
+  const proposed: CounterTerms = {
+    send: decision.send ?? [],
+    receive: decision.receive ?? [],
+    drops: decision.drops ?? []
+  };
+  const check = await vetCounter(ctx, prep, proposed);
+  if (passes(check)) return sendCounter(ctx, prep, check, decision.summary, decision.message);
+  const why =
+    check.illegal === null
+      ? `That counter would cost me too much by the trade value math (score ${check.score}, floor ${check.floor}),`
+      : `Those counter terms are not a legal trade right now (${check.illegal.trim()}),`;
+  const own = prep.suggestion.counter;
+  if (own !== null && !sameTerms(own, proposed)) {
+    const mine = await vetCounter(ctx, prep, { ...own, drops: [] });
+    if (passes(mine)) {
+      const summary = `${decision.summary} ${why} so I sent my own counter: ${names(mine.receive)} for my ${names(mine.send)} (score ${mine.score}).`;
+      return sendCounter(ctx, prep, mine, summary);
+    }
+  }
+  const summary = `${decision.summary} ${why} so rejecting.`;
+  return outcome(ctx, 'reject_trade', summary, await respond(ctx, id, 'reject'), prep);
+}
+
+async function sendCounter(
+  ctx: TaskContext,
+  prep: TradePrep,
+  check: CounterCheck,
+  summary: string,
+  message?: string
+): Promise<TaskOutcome> {
+  const result = await ctx.tools.call('counter_trade', {
+    tradeId: prep.trade.id,
+    send: check.send.map((p) => p.id),
+    receive: check.receive.map((p) => p.id),
+    ...(check.drops.length === 0 ? {} : { drops: check.drops.map((p) => p.id) }),
+    ...(message === undefined ? {} : { message })
+  });
+  return outcome(ctx, 'counter_trade', summary, result, prep, check);
 }

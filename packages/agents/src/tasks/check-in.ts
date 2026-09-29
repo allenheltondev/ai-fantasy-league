@@ -821,6 +821,13 @@ export const checkInTask = defineTaskKind<Payload, CheckInDecision, CheckInPrep>
   ],
   prepare: (ctx, payload) => prepare(ctx, payload),
   instructions: (ctx, _payload, prep) => instructions(ctx, prep),
+  // Recall first what it has with the teams it may talk or trade with (#210).
+  memoryFocus: (_ctx, _payload, { look }) => [
+    ...(look.social.matchup === null ? [] : [look.social.matchup.opponent.teamId]),
+    ...look.social.dms.map((d) => d.teamId),
+    ...look.offers.map((o) => o.from.id),
+    ...(look.trade.prep?.candidates.map((c) => c.team.id) ?? [])
+  ],
   apply: (ctx, _payload, prep, decision) => act(ctx, prep, decision.actions, decision.summary),
   fallback: (ctx, _payload, prep) =>
     act(

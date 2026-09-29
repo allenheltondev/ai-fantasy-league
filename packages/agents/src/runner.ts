@@ -30,6 +30,7 @@ import {
   MEMORY_BUDGETS,
   defaultAudience,
   memoryForPrompt,
+  recallFocus,
   outcomeVisibility,
   sealChecker,
   sealWithMemory,
@@ -228,7 +229,12 @@ export async function runAgentAction(
       kind.modelRole === 'decision' &&
       kind.modelNotes !== false
     ) {
-      events.push({ type: 'note', text: note.trim().slice(0, MEMORY_NOTE_MAX), visibility });
+      events.push({
+        type: 'note',
+        text: note.trim().slice(0, MEMORY_NOTE_MAX),
+        at: clock.now().toISOString(),
+        visibility
+      });
     }
     // A chat kind keeps only chat: its room snapshot and relationship notes, never a decision,
     // note, or trade record that later prompts would treat as the agent's own.
@@ -311,7 +317,9 @@ export async function runAgentAction(
     teamId: seat.teamId,
     memory: summarizeMemory(heard.memory, {
       tokenBudget: MEMORY_BUDGETS[config.levers.reasoningEffort],
-      teamName: (id) => teams.find((t) => t.id === id)?.name ?? id
+      teamName: (id) => teams.find((t) => t.id === id)?.name ?? id,
+      now: clock.now().toISOString(),
+      focus: recallFocus(kind, prepared, audience)
     }),
     task: { title: kind.title, instructions: prepared.instructions }
   });
