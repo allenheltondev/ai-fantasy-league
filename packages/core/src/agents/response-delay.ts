@@ -47,7 +47,8 @@ const HOUR = 60 * MINUTE;
  * Base median and cap per event class, before the multiplier.
  *
  * - trade: Trade Proposed / Countered. Clamped to half the time left before `expiresAt`.
- * - roster: Waiver Window Opened, Player News Alert, Player Status Changed, Week Rolled Over.
+ * - roster: Waiver Window Opened, Player News Alert, Player Status Changed, Week Rolled Over,
+ *   Manager Check-In (clamped to half the time before the next check-in).
  *   Clamped to half the time left before the waiver run or the next lineup lock.
  * - deadline: Draft Turn Started: a short think time, at most 40% of the pick clock. Without a
  *   deadline the class is immediate (Lineup Lock Approaching and Trade Accepted never wait).

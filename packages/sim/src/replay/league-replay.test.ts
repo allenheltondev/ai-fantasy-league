@@ -95,6 +95,12 @@ describe('replayLeague: the real league on the simulated clock', () => {
     // The jobs ran on their cadences, and deferred events (pick deadlines, lock warnings) fired.
     expect(report.events.jobRuns.advanceSeason).toBeGreaterThan(100);
     expect(report.events.jobRuns.processWaivers).toBeGreaterThan(10);
+    // Three check-ins a day (#195): every agent looks at its team, and some of them act.
+    expect(report.events.jobRuns.managerCheckIns).toBeGreaterThan(20);
+    expect(report.agents.totals.byKind.check_in).toBeGreaterThan(7 * 20);
+    expect(report.decisions.some((d) => d.kind === 'check_in' && d.action.includes('claim_waiver'))).toBe(
+      true
+    );
     expect(report.events.deferredReleased).toBeGreaterThan(0);
     expect(report.events.delivered['Lineup Lock Approaching']).toBeGreaterThan(0);
     expect(report.chat.byKind.system).toBeGreaterThan(0);

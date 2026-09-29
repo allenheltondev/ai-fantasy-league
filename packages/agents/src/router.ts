@@ -47,6 +47,7 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * | Chat Mention (any room; every DM message)    | chat_reply     | `detail.mentionedTeamIds` (see banter)  | no     | none (chat cooldowns pace it)          |
  * | Chat Moment                                  | chat_moment    | up to 2 agent teams, picked by event id | no     | none (chat cooldowns pace it)          |
  * | Draft Completed (once per draft)             | post_draft     | every agent team, staggered             | yes    | stagger + post_draft jitter            |
+ * | Manager Check-In (once per date and slot)    | check_in       | every agent team in the league          | no     | roster, ≤ half the time to next check-in or lock |
  * | Member Left / Agent Seat Changed             | team_identity  | `detail.teamId`, if it needs a name     | no     | roster                                 |
  * | Week Rolled Over (once per league week)      | team_identity  | placeholder names; rare rebrand rolls   | no     | roster                                 |
  *
@@ -73,6 +74,13 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * agents do not all fire at once, nor on top of the draft's last pick. A replayed or recovered
  * `Draft Completed` (the stalled-draft watchdog finishing a draft) is a `repeat`: the once-per key
  * is the draft's completion time.
+ *
+ * Manager check-ins (#195): the check-in job publishes one `Manager Check-In` per league three
+ * times a day; every agent gets a `check_in` task (its own cooldown slot, so a check-in never holds
+ * up a lineup or trade answer), after its own roster-class delay clamped to half the time before
+ * the next check-in and the next lineup lock, so each manager wanders in at its own time. An agent
+ * that has had neither a post-draft kickoff nor a check-in yet (a league drafted before #175) gets
+ * `firstLook: true` (`teamPayload`).
  *
  * Team names (#194): an AI manager names its own team (`team_identity`, see
  * tasks/team-identity.ts). The naming gate (`admitNaming`) lets a team through only when its seat
@@ -138,6 +146,11 @@ export interface TriggerRule<T extends FantasyEventType = FantasyEventType> {
   delay?(input: DelayInput<T>): number;
   /** Clamp the delay to the league's next lineup lock too (`DelayInput.lockAt`). */
   lockBound?: boolean;
+  /**
+   * Payload fields for one team that need a lookup (the check-in's `firstLook`), read before the
+   * team's cooldown slot is spent.
+   */
+  teamPayload?(input: AdmitInput<T>): Promise<Record<string, unknown>>;
   /** Player events: the players whose rostering teams are affected (found through the roster index). */
   players?(detail: RuleDetail<T>): string[];
   /** Which of the league's agent teams this event affects (rules without `players`). */
@@ -277,6 +290,20 @@ async function admitBanter(input: AdmitInput<'Chat Mention'>): Promise<GateDecis
   });
   if (verdict === 'ok') return null;
   return verdict === 'budget' ? 'budget' : 'declined';
+}
+
+/**
+ * A check-in is the agent's first look when it has had neither a post-draft kickoff nor a check-in
+ * (its league was drafted before #175 shipped).
+ */
+async function firstLook(input: AdmitInput<'Manager Check-In'>): Promise<Record<string, unknown>> {
+  const { agents } = input.services.repos;
+  const seen = await Promise.all(
+    ['post_draft', 'check_in'].map((kind) =>
+      agents.getTriggerState(input.leagueId, cooldownSlot(input.seat.agentId, { kind }))
+    )
+  );
+  return { firstLook: seen.every((state) => state === null) };
 }
 
 const tradeRule: TriggerRule<'Trade Proposed' | 'Trade Countered'> = {
@@ -478,6 +505,18 @@ export const TRIGGER_RULES: RuleMap = {
     delay: (input) =>
       POST_DRAFT_KICKOFF.firstMs + input.index * POST_DRAFT_KICKOFF.spacingMs + postDraftJitter(input),
     payload: (d) => ({ week: d.week, completedAt: d.completedAt })
+  },
+  // Three times a day every agent looks at its team (#195), once per league, date, and slot.
+  'Manager Check-In': {
+    kind: 'check_in',
+    urgent: false,
+    oncePer: (d) =>
+      typeof d.date === 'string' && typeof d.slot === 'string' ? `${d.date}-${d.slot}` : undefined,
+    lockBound: true,
+    delay: humanDelay('roster', { deadline: (d) => d.nextAt }),
+    teams: (_d, agents) => [...agents],
+    teamPayload: firstLook,
+    payload: (d) => ({ slot: d.slot, date: d.date, week: d.week })
   }
 };
 
@@ -634,6 +673,17 @@ async function routeRule(
         continue;
       }
       const levers = resolveAgentConfig(seat.config).levers;
+      const extra =
+        rule.teamPayload === undefined
+          ? {}
+          : await rule.teamPayload({
+              services,
+              detail,
+              seat,
+              leagueId: target.leagueId,
+              eventId: event.id,
+              now
+            });
       const decision = await decide(deps, rule, seat, levers, now);
       if (decision !== 'requested') {
         decisions.push({ teamId, leagueId: target.leagueId, decision, kind: rule.kind });
@@ -646,7 +696,9 @@ async function routeRule(
         agentId: seat.agentId,
         kind: rule.kind,
         trigger: { detailType, eventId: event.id, urgent: rule.urgent },
-        payload: Object.fromEntries(Object.entries(rule.payload(detail)).filter(([, v]) => v !== undefined)),
+        payload: Object.fromEntries(
+          Object.entries({ ...rule.payload(detail), ...extra }).filter(([, v]) => v !== undefined)
+        ),
         requestedAt: now.toISOString()
       };
       const delayMs =

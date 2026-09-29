@@ -9,6 +9,7 @@
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { systemClock, type Clock } from '@fantasy/core';
 import { EspnClient, LiveDataProvider, NflverseClient, SleeperClient } from '@fantasy/data';
+import { killSwitchFromParameter } from '../agents/kill-switch.js';
 import { EventBridgePublisher } from '../events/eventbridge.js';
 import { createLogger } from '../log.js';
 import { PlayerDirectory } from '../players/directory.js';
@@ -31,6 +32,7 @@ export function createJobDeps(env: Record<string, string | undefined>, clock: Cl
   const log = createLogger({ level: config.logLevel, bindings: { component: 'data-jobs' } });
   const table = { doc: createDocumentClient(), tableName: config.tableName };
   const repos = createDynamoRepos(table);
+  const agentKillSwitch = killSwitchFromParameter(config.agentKillSwitchParam, { clock, log });
   const provider = new LiveDataProvider({
     sleeper: new SleeperClient({ clock, ...(config.sleeperBaseUrl && { baseUrl: config.sleeperBaseUrl }) }),
     nflverse: new NflverseClient(),
@@ -45,6 +47,7 @@ export function createJobDeps(env: Record<string, string | undefined>, clock: Cl
     directory: new PlayerDirectory({ repo: repos.players, clock }),
     log,
     badgeChest: config.badgeChest,
+    ...(agentKillSwitch === undefined ? {} : { agentKillSwitch }),
     news: createNewsSource({
       parameterName: config.newsFeedsParameter,
       ssm: new SSMClient({}),
