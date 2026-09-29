@@ -591,6 +591,7 @@ describe('event contract: the official final and the season finale', () => {
     const s = await setup({ league: { phase: 'playoffs', week: 17 } });
     for (const teamId of ['team-2', 'team-3', 'team-4']) await s.seat(teamId, ROOKIE);
     const settings = yahooDefaultSettings(4);
+    settings.waivers.type = 'faab';
     const teamIds = ['team-1', 'team-2', 'team-3', 'team-4'];
     const rows = computeStandings(settings, [], { teamIds, seed: 'seed-1' });
     await s.repos.schedule.putStandings({ leagueId: LEAGUE_ID, week: 15, rows, computedAt: START });

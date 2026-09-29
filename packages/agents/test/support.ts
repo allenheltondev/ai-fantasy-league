@@ -20,6 +20,13 @@ import type { RunnerDeps } from '../src/runner.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import type { TaskKindRegistry } from '../src/tasks/kinds.js';
 
+/** The tests were written for FAAB leagues; the product default is rolling waivers. */
+function faabSettings() {
+  const settings = yahooDefaultSettings(4);
+  settings.waivers.type = 'faab';
+  return settings;
+}
+
 export const START = '2026-10-04T15:00:00.000Z';
 export const LEAGUE_ID = 'lg-1';
 export const AGENT_TEAM = 'team-2';
@@ -87,7 +94,7 @@ export function league(overrides: Partial<League> = {}): League {
     season: 2026,
     phase: 'regular_season',
     week: 5,
-    settings: yahooDefaultSettings(4),
+    settings: faabSettings(),
     commissionerId: 'user-123',
     commissionerName: 'Allen',
     createdBy: 'user-123',

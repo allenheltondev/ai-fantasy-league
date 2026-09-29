@@ -36,9 +36,10 @@ function request(overrides: Partial<AgentActionRequested> = {}): AgentActionRequ
 async function waiverLeague(
   config: typeof HAWK | typeof PATIENT,
   phase: 'regular_season' | 'drafting' = 'regular_season',
-  options: { allowZeroBids?: boolean; trending?: boolean } = {}
+  options: { allowZeroBids?: boolean; trending?: boolean; rolling?: boolean } = {}
 ) {
   const settings = yahooDefaultSettings(4);
+  settings.waivers.type = options.rolling === true ? 'rolling' : 'faab';
   settings.roster.slots = { QB: 1, RB: 1, BN: 1 };
   settings.waivers.allowZeroBids = options.allowZeroBids ?? true;
   const s = await setup({ league: { settings, phase } });
@@ -99,6 +100,19 @@ describe('waiver task', () => {
     expect(patientBid).toBeGreaterThan(
       suggestFaabBid({ gain: 30, faabRemaining: 100, aggressiveness: 0.5 }) - 5
     );
+  });
+
+  it('talks about priority, not money, in a rolling league, and claims with no bid', async () => {
+    const s = await waiverLeague(HAWK, 'regular_season', { rolling: true });
+    const model = new ScriptedModelClient();
+    const record = await runAgentAction(s.deps(model), request());
+    expect(record).toMatchObject({ status: 'completed', finalAction: 'claim_waiver' });
+    const input = model.transcript[0]?.systemPrompt ?? '';
+    expect(input).toContain('rolling waivers');
+    expect(input).toContain('RB3 (rb3, RB): 30 projected pts, +30 over the drop; on waivers, place a claim');
+    expect(input).not.toMatch(/FAAB|highest bid|bid \$/);
+    const [claim] = await s.repos.waivers.listClaims(LEAGUE_ID, 'pending');
+    expect(claim).toMatchObject({ addPlayerId: 'rb3', bid: 0 });
   });
 
   it('adds a free agent at no cost, and uses an open roster spot without a drop', async () => {

@@ -207,8 +207,11 @@ describe('prompt assembly', () => {
     expect(prompt).not.toContain('# Your notes');
     expect(prompt).toContain('Phase: setup.');
     expect(prompt).toContain('rolling-priority waivers');
-    expect(leagueRulesSummary(yahooDefaultSettings(8))).toContain('$100 season budget ($0 bids allowed)');
-    const noZero = yahooDefaultSettings(8);
+    const faab = yahooDefaultSettings(8);
+    faab.waivers.type = 'faab';
+    expect(leagueRulesSummary(faab)).toContain('$100 season budget ($0 bids allowed)');
+    expect(leagueRulesSummary(yahooDefaultSettings(8))).toContain('rolling-priority waivers');
+    const noZero = structuredClone(faab);
     noZero.waivers.allowZeroBids = false;
     expect(leagueRulesSummary(noZero)).not.toContain('$0 bids');
   });
