@@ -1,5 +1,7 @@
 import { useId, useState, type ReactNode } from 'react';
+import type { LeagueTeam } from '../api/types';
 import { AgentAvatar, hashSeed } from '../components/AgentAvatar';
+import { useLeagueTeams } from '../routes/leagueTeams';
 import { initials } from '../features/home/TeamBadge';
 import type { ChatTeam } from './api';
 
@@ -76,12 +78,18 @@ const TONES = [
   'bg-secondary-100 text-secondary-800'
 ] as const;
 
-/** An AI manager's avatar, or a person's initials. Decorative: the name is always beside it. */
+function picked(teams: readonly LeagueTeam[], teamId: string): string | null {
+  return teams.find((t) => t.id === teamId)?.avatarSeed ?? null;
+}
+
+/** An AI manager's avatar, the one a person picked for their team (#178), or a person's initials. Decorative: the name is always beside it. */
 export function TeamFace({ team, size = 20 }: { team: ChatTeam; size?: number }) {
-  if (team.avatarSeed !== undefined) {
+  const teams = useLeagueTeams();
+  const seed = team.avatarSeed ?? picked(teams, team.id);
+  if (seed !== null) {
     return (
       <span aria-hidden="true" className="inline-flex shrink-0">
-        <AgentAvatar seed={team.avatarSeed} label="" size={size} />
+        <AgentAvatar seed={seed} label="" size={size} />
       </span>
     );
   }

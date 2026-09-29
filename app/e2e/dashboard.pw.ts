@@ -73,7 +73,7 @@ test('the league opens on its dashboard and the move board updates live', async 
   await page.goto(`/leagues/${L}`);
   await expect(page).toHaveURL(/\/home$/);
   await expect(
-    page.getByRole('navigation', { name: 'League sections' }).getByRole('link', { name: 'Home' })
+    page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Home' })
   ).toHaveAttribute('aria-current', 'page');
 
   // Your matchup leads the strip, highlighted; every tile shows both managers.

@@ -199,7 +199,7 @@ export function DraftLobby({
               <ol aria-label="Draft order" className="list-decimal pl-5">
                 {lobby.order.map((t) => (
                   <li key={t.teamId}>
-                    {t.teamName} <ManagerTag manager={t.manager} size={16} />
+                    {t.teamName} <ManagerTag manager={t.manager} teamId={t.teamId} size={16} />
                   </li>
                 ))}
               </ol>
@@ -218,7 +218,7 @@ export function DraftLobby({
                 <li key={t.teamId} className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 flex-col">
                     <span className="break-words">{t.teamName}</span>
-                    <ManagerTag manager={t.manager} size={16} />
+                    <ManagerTag manager={t.manager} teamId={t.teamId} size={16} />
                   </span>
                   <StatusBadge tone={t.here ? 'success' : 'neutral'}>
                     {t.seatType === 'agent' ? 'AI · here' : t.here ? 'Here' : 'Away'}

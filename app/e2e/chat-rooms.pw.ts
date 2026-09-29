@@ -46,7 +46,7 @@ test('rooms: trash talk, the #Draft announcement, and a DM an AI manager answers
 
   // Trash talk is where you land.
   await expect(page.getByRole('heading', { name: 'Trash Talk', level: 2 })).toBeVisible();
-  const box = page.getByRole('combobox');
+  const box = page.getByRole('combobox', { name: 'Message' });
   const line = `Week 1 is mine ${Date.now().toString(36)}`;
   await box.fill(line);
   await box.press('Enter');
@@ -87,7 +87,7 @@ test('mentions: press @, pick an AI manager, and the server resolves the mention
   await signIn(context);
   const page = await context.newPage();
   await page.goto(CHAT);
-  const box = page.getByRole('combobox');
+  const box = page.getByRole('combobox', { name: 'Message' });
   await expect(box).toHaveAttribute('placeholder', 'Message Trash Talk. Type @ to talk to an AI manager.');
   await expect(page.getByTestId('chat-members')).toContainText('AI');
 

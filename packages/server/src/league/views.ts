@@ -46,6 +46,12 @@ export const TeamSummarySchema = z.object({
   open: z.boolean().describe('True when no person holds this seat, so someone joining could take it.'),
   ownerName: z.string().nullable(),
   draftSlot: z.number().int(),
+  avatarSeed: z
+    .string()
+    .nullable()
+    .describe(
+      "Seed for the team's own avatar picture, set by its owner with rename_team; null until set. An AI manager's avatar is `manager.avatarSeed`."
+    ),
   manager: TeamManagerSchema.optional().describe(
     'The AI manager playing this team (name, avatar seed, personality); null when a person plays it. Present in league listings (get_league, get_league_state, create_league).'
   )
@@ -71,6 +77,7 @@ export function teamSummary(team: Team, managers?: ManagerLookup): z.infer<typeo
     open: isOpenSeat(team),
     ownerName: team.ownerName,
     draftSlot: team.draftSlot,
+    avatarSeed: team.avatarSeed ?? null,
     ...(managers === undefined ? {} : { manager: teamManager(managers, team.id) })
   };
 }

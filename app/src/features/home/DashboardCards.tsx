@@ -11,12 +11,10 @@ import { AnimatedNumber } from '../../motion/AnimatedNumber';
 import { Confetti } from '../../motion/Confetti';
 import { useCelebrateOnce } from '../../motion/celebration';
 import { stagger, Trophy } from '../../motion/decor';
+import { leaguePath, leagueTabPath, teamPath } from '../../routes/leagueRoutes';
 import { managerName, TeamAvatar } from './TeamBadge';
 
 /** The league dashboard's cards (#166): matchups, standings, the draft, and the champion. */
-
-const leaguePath = (leagueId: string, section: string) =>
-  `/leagues/${encodeURIComponent(leagueId)}/${section}`;
 
 const STATUS = {
   scheduled: { label: 'Upcoming', tone: 'neutral' },
@@ -79,8 +77,8 @@ function MatchupTile({
   const yours = yourTeamId !== null && [matchup.home.teamId, matchup.away.teamId].includes(yourTeamId);
   const leader = matchupLeader(matchup);
   const href = yours
-    ? leaguePath(leagueId, 'matchup')
-    : `${leaguePath(leagueId, 'matchup')}?team=${encodeURIComponent(matchup.home.teamId)}`;
+    ? teamPath(leagueId, 'matchup')
+    : `${teamPath(leagueId, 'matchup')}?team=${encodeURIComponent(matchup.home.teamId)}`;
   return (
     <Link
       to={href}
@@ -218,7 +216,7 @@ export function StandingsCard({
           })}
         </ol>
         <Link
-          to={leaguePath(leagueId, 'standings')}
+          to={leagueTabPath(leagueId, 'standings')}
           className="inline-flex min-h-11 items-center text-sm font-medium text-primary-700 hover:underline"
         >
           Full standings

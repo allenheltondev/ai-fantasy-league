@@ -6,9 +6,8 @@ import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton } from '../../motion/decor';
 import { LineupBoard } from './LineupBoard';
-import { TeamAchievements } from './TeamAchievements';
 
-/** The Roster section (#58, #176): your lineup, with projections, drag and drop, and Optimize. */
+/** My Team › Lineup (#58, #176, #178): your lineup, with projections, drag and drop, and Optimize. */
 export function RosterPage() {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
@@ -24,16 +23,11 @@ export function RosterPage() {
   } else if (state.data.yourTeam === null) {
     body = <EmptyState title="No team" description="You do not manage a team in this league." />;
   } else {
-    body = (
-      <>
-        <TeamAchievements leagueId={leagueId} teamId={state.data.yourTeam.id} />
-        <LineupEditor leagueId={leagueId} teamId={state.data.yourTeam.id} />
-      </>
-    );
+    body = <LineupEditor leagueId={leagueId} teamId={state.data.yourTeam.id} />;
   }
   return (
     <div data-testid="league-section-roster" className="space-y-4">
-      <h2 className="text-xl font-semibold">Roster</h2>
+      <h2 className="text-xl font-semibold">Lineup</h2>
       {body}
     </div>
   );

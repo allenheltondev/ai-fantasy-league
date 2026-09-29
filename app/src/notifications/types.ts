@@ -3,6 +3,8 @@
  * mark_notifications_read, mark_notifications_delivered) in openapi.json.
  */
 
+import { leaguePath } from '../routes/leagueRoutes';
+
 export type NotificationSection = 'trades' | 'roster' | 'draft';
 
 export interface AppNotification {
@@ -40,9 +42,16 @@ export interface NotificationSummary {
   leagues: LeagueNotificationSummary[];
 }
 
+/** Where each notification section lives in the league (#178). */
+const SECTION_PAGES: Record<NotificationSection, string> = {
+  trades: 'team/trades',
+  roster: 'team/lineup',
+  draft: 'draft'
+};
+
 /** Where a notification leads in the app. */
 export function notificationHref(n: Pick<AppNotification, 'leagueId' | 'target'>): string {
-  const base = `/leagues/${encodeURIComponent(n.leagueId)}/${n.target.section}`;
+  const base = leaguePath(n.leagueId, SECTION_PAGES[n.target.section]);
   return n.target.section === 'trades' && n.target.tradeId !== null
     ? `${base}?trade=${encodeURIComponent(n.target.tradeId)}`
     : base;

@@ -76,13 +76,13 @@ const bell = () => screen.getAllByTestId('notification-bell')[0] as HTMLElement;
 afterEach(() => vi.useRealTimers());
 
 describe('the notification bell', () => {
-  it('shows every unread item across leagues, on the header and beside the phone menu', async () => {
+  it('shows every unread item across leagues on the header bar, one bell for every screen size', async () => {
     signInAs(ALICE);
     renderApp('/', undefined, api());
     await waitFor(() => expect(bell()).toHaveAccessibleName('Notifications, 3 unread'));
     const bells = screen.getAllByTestId('notification-bell');
-    expect(bells).toHaveLength(2);
-    for (const b of bells) expect(within(b).getByTestId('notification-count')).toHaveTextContent('3');
+    expect(bells).toHaveLength(1);
+    expect(within(bells[0]!).getByTestId('notification-count')).toHaveTextContent('3');
   });
 
   it('shows no count when nothing is unread', async () => {
@@ -111,8 +111,8 @@ describe('the notification bell', () => {
     ]);
     expect(links.map((l) => l.getAttribute('href'))).toEqual([
       '/leagues/L2/draft',
-      '/leagues/L1/trades?trade=tr1',
-      '/leagues/L1/roster'
+      '/leagues/L1/team/trades?trade=tr1',
+      '/leagues/L1/team/lineup'
     ]);
     // More than one league: each item names its league.
     expect(within(links[1] as HTMLElement).getByText(/Sunday Funday/)).toBeInTheDocument();
@@ -166,14 +166,12 @@ describe('the notification bell', () => {
     expect(await screen.findByText('The inbox is unavailable.')).toBeInTheDocument();
   });
 
-  it('badges the league’s Trades tab with the offers waiting on you', async () => {
+  it('badges My Team › Trades in the league nav with the offers waiting on you', async () => {
     signInAs(ALICE);
     renderApp('/leagues/L1/matchup', undefined, api());
-    const nav = await screen.findByRole('navigation', { name: 'League sections' });
-    const badge = await within(nav).findByTestId('trades-badge');
-    expect(badge).toHaveTextContent('1');
-    expect(badge).toHaveAccessibleName('1 offer waiting');
-    expect(within(nav).getByRole('link', { name: /Trades/ })).toContainElement(badge);
+    const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
+    const trades = await within(nav).findByRole('link', { name: 'Trades 1 offer waiting' });
+    expect(trades.querySelector('.app-nav-link-badge-error')).toHaveTextContent('1');
   });
 
   it('re-reads the summary when the tab comes back into view', async () => {
@@ -201,7 +199,8 @@ describe('the notification panel, one league', () => {
     signInAs(ALICE);
     const fake = api(ONE);
     renderApp('/leagues/L1/matchup', undefined, fake);
-    expect(await screen.findByTestId('trades-badge')).toHaveAccessibleName('2 offers waiting');
+    const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
+    expect(await within(nav).findByRole('link', { name: 'Trades 2 offers waiting' })).toBeInTheDocument();
     await waitFor(() => expect(bell()).toHaveAccessibleName('Notifications, 1 unread'));
     await user.click(bell());
     const panel = await screen.findByRole('dialog', { name: 'Notifications' });
@@ -241,7 +240,7 @@ describe('helpers', () => {
     expect(timeAgo('2026-09-01T15:00:00Z', NOW)).toMatch(/Sep/);
     expect(timeAgo('2026-10-05T15:00:00Z', NOW)).toBe('just now');
     expect(notificationHref(item({ target: { section: 'trades', tradeId: null } }))).toBe(
-      '/leagues/L1/trades'
+      '/leagues/L1/team/trades'
     );
     expect(countLabel(7)).toBe('7');
     expect(countLabel(100)).toBe('99+');

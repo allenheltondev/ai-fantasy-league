@@ -125,6 +125,14 @@ function renderPage(
 }
 
 describe('TradesPage', () => {
+  it("starts the builder with a team picked from that team's page (?with=, #178)", async () => {
+    const api = fakeApi([]);
+    renderPage(api, fixedNow, noConnect, `/leagues/L1/trades?with=${ROBO.id}`);
+    const builder = await screen.findByRole('region', { name: 'Trade builder' });
+    await waitFor(() => expect(within(builder).getByLabelText('Trade with')).toHaveValue(ROBO.id));
+    await waitFor(() => expect(api.roster).toHaveBeenCalledWith('L1', ROBO.id));
+  });
+
   it('builds an offer with a live preview and proposes it', async () => {
     const user = userEvent.setup();
     const api = fakeApi([]);

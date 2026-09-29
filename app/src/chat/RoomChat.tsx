@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { Button } from '@readysetcloud/ui';
 import { ApiError } from '../api';
 import { AgentAvatar } from '../components/AgentAvatar';
+import { useTeamAvatarSeed } from '../routes/leagueTeams';
 import type { ChatApi, ChatMessage, ChatRoom, ChatTeam } from './api';
 import type { Connect } from './realtime';
 import {
@@ -127,10 +128,14 @@ function time(iso: string): string {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-/** An AI manager's avatar: the one on the message, else its team's current one (older messages). */
+/**
+ * The author's avatar: an AI manager's (the one on the message, else its team's current one, for
+ * older messages), or the one a person picked for their team (#178).
+ */
 function AuthorAvatar({ message, teams }: { message: ChatMessage; teams: readonly ChatTeam[] }) {
+  const picked = useTeamAvatarSeed(message.author.teamId);
   const seed =
-    message.author.avatarSeed ?? teams.find((t) => t.id === message.author.teamId)?.avatarSeed ?? null;
+    message.author.avatarSeed ?? teams.find((t) => t.id === message.author.teamId)?.avatarSeed ?? picked;
   if (seed === null) return null;
   return <AgentAvatar seed={seed} label={`${message.author.name} avatar`} size={20} />;
 }

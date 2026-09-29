@@ -94,6 +94,13 @@ function draftApi(
     warnings: []
   });
   const posted: unknown[] = [];
+  // The shell (#178): the header's league switcher and the side nav's chat unread count.
+  void page.route('**/api/v1/leagues', (route) =>
+    route.fulfill({ json: envelope({ leagues: [{ id: 'L1', name: 'Draft Day League' }] }) })
+  );
+  void page.route('**/api/v1/leagues/L1/chat/rooms', (route) =>
+    route.fulfill({ json: envelope({ defaultRoomId: 'trash-talk', rooms: [] }) })
+  );
   // A scheduled draft: before `startsAt` there is no board (the lobby shows), then the draft is on.
   const startsAt = options.startsAt;
   void page.route('**/api/v1/leagues/L1/draft?*', (route) =>

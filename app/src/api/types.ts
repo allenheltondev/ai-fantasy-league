@@ -38,7 +38,12 @@ export interface TeamDetail {
   ownerUserId: string | null;
   draftSlot: number;
   manager?: Manager | null;
+  /** The seed its owner picked for the team's avatar (#178); null until set, absent on older responses. */
+  avatarSeed?: string | null;
 }
+
+/** A team in get_league_state's `teams`. */
+export type LeagueTeam = Omit<TeamDetail, 'ownerUserId'>;
 
 /** A scoring bucket: `min` to `max` inclusive (`max` null means no upper bound) scores `points`. */
 export interface TierBand {
@@ -95,6 +100,8 @@ export interface LeagueState {
   youAreCommissioner: boolean;
   yourTeam: TeamDetail | null;
   allowedActions: string[];
+  /** Every team: names, seats, AI managers, and team avatars. */
+  teams?: LeagueTeam[];
 }
 
 export type InviteStatus = 'active' | 'expired' | 'used_up' | 'revoked';

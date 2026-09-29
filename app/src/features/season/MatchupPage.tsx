@@ -238,7 +238,7 @@ function Side({
       <h3 className="flex items-baseline justify-between gap-2 font-semibold">
         <span className="flex min-w-0 flex-col">
           <span className="break-words">{side.teamName}</span>
-          <ManagerTag manager={side.manager} />
+          <ManagerTag manager={side.manager} teamId={side.teamId} />
         </span>
         <AnimatedNumber className="text-2xl" data-testid={`score-${side.teamId}`} value={side.score ?? 0} />
       </h3>

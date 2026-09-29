@@ -1,5 +1,6 @@
 import { AgentAvatar, hashSeed } from '../components/AgentAvatar';
 import type { Manager } from '../api/types';
+import { useTeamAvatarSeed } from '../routes/leagueTeams';
 import { positionTone } from './board';
 
 /** A position label in its board color: QB red, RB green, WR blue, TE orange, K and DEF gray. */
@@ -36,8 +37,8 @@ function initials(name: string): string {
 }
 
 /**
- * A team's mark: its AI manager's avatar (#161), or for a person's team, its initials in a tone of
- * its own. Decorative next to the team's name, so it is hidden from screen readers.
+ * A team's mark: its AI manager's avatar (#161), the avatar its person picked (#178), or its
+ * initials in a tone of its own. Decorative next to the team's name, so it is hidden from screen readers.
  */
 export function TeamMark({
   teamId,
@@ -50,10 +51,18 @@ export function TeamMark({
   manager?: Manager | null;
   size?: number;
 }) {
+  const picked = useTeamAvatarSeed(teamId);
   if (manager !== null && manager !== undefined) {
     return (
       <span aria-hidden="true" className="inline-flex shrink-0" title={manager.name}>
         <AgentAvatar seed={manager.avatarSeed} label={`${manager.name} avatar`} size={size} />
+      </span>
+    );
+  }
+  if (picked !== null) {
+    return (
+      <span aria-hidden="true" className="inline-flex shrink-0" title={teamName}>
+        <AgentAvatar seed={picked} label={`${teamName} avatar`} size={size} />
       </span>
     );
   }
