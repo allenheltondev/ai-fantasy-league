@@ -4,8 +4,21 @@ import { z } from 'zod';
  * Per-agent league memory (issue #44): a compact, bounded record of what an agent has lived through
  * in one league, summarized into its prompt within a token budget.
  *
+ * Two kinds of memory are kept apart (#210):
+ *
+ * - Records, backed by league evidence: `results` (its matchup scores, corrected by the official
+ *   final) and `trades` (each trade's latest step), written only from structured league events and
+ *   the agent's own tool results; and `decisions` (what it did). How it gets along with each team
+ *   (`relationships.ts`) is computed from these records alone, never stored and never written by the
+ *   model.
+ * - Beliefs, written by the model: `notes` (`memoryNote` on a decision) and `relationships` (a
+ *   line from a league-room chat). Each carries when it was written; a belief is never evidence, and
+ *   the prompt says which is which (`recall.ts`).
+ *
  * - `notes`: facts the agent wrote down itself (`memoryNote` on a decision).
- * - `rivals`: grudges by team, built from matchup results, trades, and chat.
+ * - `results`: its matchup results by week, from `Week Provisionally Final`, replaced by `Week
+ *   Official Final` when stat corrections changed a score (the correction path for outcomes).
+ * - `rivals`: grudge counts from before #210. No longer written; still read as a decaying baseline.
  * - `trades`: the agent's trade history with each team.
  * - `decisions`: its own recent decisions (what it did and why).
  * - `chatRooms`: per room, a snapshot of the latest exchange it took part in there (conversation
@@ -14,7 +27,7 @@ import { z } from 'zod';
  *   Tuna after the week 3 trade"), written after a league-room exchange (never from a DM) and shown
  *   only to chat tasks for the teams in the conversation.
  * - `seen`: ids of the league events already applied, so a redelivered event (EventBridge delivers
- *   at least once) never bumps a grudge twice.
+ *   at least once) never counts a result or a trade step twice.
  *
  * Memory is private to one agent: it is keyed by league and agent id and only that agent's tasks
  * read it. Everything here is pure; the storage lives behind `AgentMemoryStore` in the runtime.
@@ -39,6 +52,8 @@ export const MEMORY_LIMITS = {
   relationships: 8,
   /** Characters in a relationship note. */
   relationshipText: 140,
+  /** Matchup results kept (a season and its playoffs; the newest weeks win). */
+  results: 20,
   /** League event ids remembered for idempotency (a redelivery comes soon after the first). */
   seen: 64,
   /** Player names kept per side of a remembered trade. */
@@ -68,10 +83,13 @@ export type MemoryVisibility = z.infer<typeof MemoryVisibilitySchema>;
 /** Known to this agent alone, for good. */
 export const OWNER_ONLY: MemorySeal = { teams: [], trades: [], waiverClaims: [] };
 
+/**
+ * A grudge count stored before #210 (losses and trade spats only ever added to it). Nothing writes
+ * these any more: `relationships.ts` reads each as a starting grudge that decays from its `at`.
+ */
 export const RivalSchema = z.object({
   teamId: z.string(),
-  /** Grows with every loss to them, trade spat, and chat jab; the biggest grudges are kept. */
-  grudge: z.number().int().min(0),
+  grudge: z.number().min(0),
   /** The latest reason, in words. */
   reason: Text,
   at: z.string(),
@@ -90,10 +108,15 @@ export const TRADE_MEMORY_OUTCOMES = [
   'vetoed'
 ] as const;
 
+export const TRADE_DIRECTIONS = ['outgoing', 'incoming'] as const;
+export type TradeDirection = (typeof TRADE_DIRECTIONS)[number];
+
 export const TradeMemorySchema = z.object({
   teamId: z.string(),
   tradeId: z.string(),
   outcome: z.enum(TRADE_MEMORY_OUTCOMES),
+  /** Who made the offer: this agent (`outgoing`) or the other team. See `tradeDirection`. */
+  direction: z.enum(TRADE_DIRECTIONS).optional(),
   summary: Text,
   at: z.string(),
   /** Players this agent gave up and got (names). */
@@ -117,8 +140,25 @@ export const DecisionMemorySchema = z.object({
 });
 export type DecisionMemory = z.infer<typeof DecisionMemorySchema>;
 
+/**
+ * A matchup result (evidence). One per week; a later result for the same week (the official final
+ * after stat corrections) replaces it, and `corrected` marks one whose score changed.
+ */
+export const ResultMemorySchema = z.object({
+  teamId: z.string(),
+  week: z.number().int(),
+  pointsFor: z.number(),
+  pointsAgainst: z.number(),
+  at: z.string(),
+  official: z.boolean().optional(),
+  corrected: z.boolean().optional()
+});
+export type ResultMemory = z.infer<typeof ResultMemorySchema>;
+
 export const NoteSchema = z.object({
   text: Text,
+  /** When the model wrote it (absent on notes from before #210). */
+  at: z.string().optional(),
   /** Absent on notes from before #206, which are kept to the agent alone. */
   visibility: MemoryVisibilitySchema.optional()
 });
@@ -135,6 +175,7 @@ export const ChatRoomMemorySchema = z.object({
 });
 export type ChatRoomMemory = z.infer<typeof ChatRoomMemorySchema>;
 
+/** A model-written line about another team, from a league-room chat: a belief, not a record. */
 export const RelationshipSchema = z.object({
   teamId: z.string(),
   note: z.string().max(MEMORY_LIMITS.relationshipText),
@@ -149,6 +190,7 @@ export type Relationship = z.infer<typeof RelationshipSchema>;
 export const AgentLeagueMemorySchema = z.object({
   /** Notes stored before #206 are bare strings: read as notes with no visibility. */
   notes: z.array(z.union([Text.transform((text): NoteMemory => ({ text })), NoteSchema])).default([]),
+  results: z.array(ResultMemorySchema).default([]),
   rivals: z.array(RivalSchema).default([]),
   trades: z.array(TradeMemorySchema).default([]),
   decisions: z.array(DecisionMemorySchema).default([]),
@@ -159,12 +201,21 @@ export const AgentLeagueMemorySchema = z.object({
 export type AgentLeagueMemory = z.infer<typeof AgentLeagueMemorySchema>;
 
 export function emptyMemory(): AgentLeagueMemory {
-  return { notes: [], rivals: [], trades: [], decisions: [], chatRooms: [], relationships: [], seen: [] };
+  return {
+    notes: [],
+    results: [],
+    rivals: [],
+    trades: [],
+    decisions: [],
+    chatRooms: [],
+    relationships: [],
+    seen: []
+  };
 }
 
 export type MemoryEvent =
   /** Notes and decisions without a visibility are kept to the agent alone (`OWNER_ONLY`). */
-  | { type: 'note'; text: string; visibility?: MemoryVisibility }
+  | { type: 'note'; text: string; at?: string; visibility?: MemoryVisibility }
   | {
       type: 'decision';
       kind: string;
@@ -182,6 +233,8 @@ export type MemoryEvent =
       at: string;
       /** The league event it came from: applied once per id. */
       eventId?: string;
+      /** From `Week Official Final` (stat corrections applied): a later provisional result never replaces it. */
+      official?: boolean;
     }
   | {
       type: 'trade';
@@ -191,6 +244,7 @@ export type MemoryEvent =
       summary: string;
       at: string;
       eventId?: string;
+      direction?: TradeDirection;
       sent?: readonly string[];
       received?: readonly string[];
       value?: number;
@@ -207,39 +261,6 @@ function clipTo(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 const clip = (text: string) => clipTo(text, MEMORY_LIMITS.text);
-
-/** Grudge points by trade outcome: a veto or rejection stings, a done deal leaves a little history. */
-const TRADE_GRUDGE: Readonly<Record<(typeof TRADE_MEMORY_OUTCOMES)[number], number>> = {
-  proposed: 0,
-  countered: 0,
-  accepted: 0,
-  rejected: 1,
-  expired: 0,
-  processed: 1,
-  vetoed: 2
-};
-
-function bumpRival(
-  rivals: readonly Rival[],
-  teamId: string,
-  points: number,
-  reason: string,
-  at: string,
-  visibility: MemoryVisibility
-): Rival[] {
-  if (points <= 0) return [...rivals];
-  const current = rivals.find((r) => r.teamId === teamId);
-  const next: Rival = {
-    teamId,
-    grudge: (current?.grudge ?? 0) + points,
-    reason: clip(reason),
-    at,
-    visibility
-  };
-  return [...rivals.filter((r) => r.teamId !== teamId), next]
-    .sort((a, b) => b.grudge - a.grudge || b.at.localeCompare(a.at) || a.teamId.localeCompare(b.teamId))
-    .slice(0, MEMORY_LIMITS.rivals);
-}
 
 /** Records a league event id as applied (bounded, newest last). */
 function markSeen(memory: AgentLeagueMemory, eventId: string | undefined): AgentLeagueMemory {
@@ -266,7 +287,11 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
     case 'note': {
       const text = clip(event.text);
       if (text.length === 0) return memory;
-      const note: NoteMemory = { text, visibility: event.visibility ?? OWNER_ONLY };
+      const note: NoteMemory = {
+        text,
+        ...(event.at === undefined ? {} : { at: event.at }),
+        visibility: event.visibility ?? OWNER_ONLY
+      };
       return { ...memory, notes: [...memory.notes, note].slice(-MEMORY_LIMITS.notes) };
     }
     case 'decision':
@@ -283,30 +308,20 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
           }
         ].slice(-MEMORY_LIMITS.decisions)
       };
-    case 'matchup': {
-      const margin = Math.round((event.pointsFor - event.pointsAgainst) * 100) / 100;
-      const result = margin > 0 ? 'beat' : margin < 0 ? 'lost to' : 'tied';
-      const reason = `Week ${event.week}: ${result} them ${event.pointsFor}-${event.pointsAgainst}.`;
-      // Losing builds a grudge; a blowout loss builds a bigger one. Winning is remembered as bragging rights.
-      const points = margin < 0 ? (margin <= -30 ? 3 : 2) : 1;
-      return markSeen(
-        {
-          ...memory,
-          rivals: bumpRival(memory.rivals, event.opponentTeamId, points, reason, event.at, 'public')
-        },
-        event.eventId
-      );
-    }
+    case 'matchup':
+      return markSeen({ ...memory, results: rememberResult(memory.results, event) }, event.eventId);
     case 'trade': {
       // Later steps of a trade keep what earlier ones knew (the players, the value it agreed to).
       const previous = memory.trades.find((t) => t.tradeId === event.tradeId);
       const sent = players(event.sent) ?? previous?.sent;
       const received = players(event.received) ?? previous?.received;
       const value = event.value ?? previous?.value;
+      const direction = event.direction ?? previous?.direction;
       const entry: TradeMemory = {
         teamId: event.teamId,
         tradeId: event.tradeId,
         outcome: event.outcome,
+        ...(direction === undefined ? {} : { direction }),
         summary: clip(event.summary),
         at: event.at,
         ...(sent === undefined ? {} : { sent }),
@@ -318,14 +333,6 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
           ...memory,
           trades: [...memory.trades.filter((t) => t.tradeId !== event.tradeId), entry].slice(
             -MEMORY_LIMITS.trades
-          ),
-          rivals: bumpRival(
-            memory.rivals,
-            event.teamId,
-            TRADE_GRUDGE[event.outcome],
-            `Trade ${event.outcome}: ${event.summary}`,
-            event.at,
-            tradeVisibility(entry)
           )
         },
         event.eventId
@@ -361,7 +368,7 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
 }
 
 /** What changed hands and who won it, for a remembered trade. */
-function tradeDetail(t: TradeMemory): string {
+export function tradeDetail(t: TradeMemory): string {
   const parts: string[] = [];
   if (t.sent !== undefined || t.received !== undefined)
     parts.push(`you sent ${t.sent?.join(', ') || 'nothing'} for ${t.received?.join(', ') || 'nothing'}`);
@@ -372,6 +379,44 @@ function tradeDetail(t: TradeMemory): string {
   return parts.length === 0 ? '' : ` [${parts.join('; ')}]`;
 }
 
+/**
+ * Who made a remembered offer. Trades stored before #210 carry no direction: it is read from the
+ * summary the league event or the proposing task wrote ("Your offer to ...", "Offered ...").
+ */
+export function tradeDirection(t: Pick<TradeMemory, 'direction' | 'summary'>): TradeDirection {
+  return t.direction ?? (/^(Your offer|Offered)\b/.test(t.summary) ? 'outgoing' : 'incoming');
+}
+
+/**
+ * One week's result into the results (the evidence of how the agent fared against each team). A
+ * result for a week already kept replaces it (the official final after stat corrections) and is
+ * marked `corrected` when the score changed; a provisional result never replaces an official one.
+ */
+function rememberResult(
+  results: readonly ResultMemory[],
+  event: Extract<MemoryEvent, { type: 'matchup' }>
+): ResultMemory[] {
+  const previous = results.find((r) => r.week === event.week);
+  if (previous?.official === true && event.official !== true) return [...results];
+  const changed =
+    previous !== undefined &&
+    (previous.teamId !== event.opponentTeamId ||
+      previous.pointsFor !== event.pointsFor ||
+      previous.pointsAgainst !== event.pointsAgainst);
+  const result: ResultMemory = {
+    teamId: event.opponentTeamId,
+    week: event.week,
+    pointsFor: event.pointsFor,
+    pointsAgainst: event.pointsAgainst,
+    at: previous?.at ?? event.at,
+    ...(event.official === true ? { official: true } : {}),
+    ...(changed || previous?.corrected === true ? { corrected: true } : {})
+  };
+  return [...results.filter((r) => r.week !== event.week), result]
+    .sort((a, b) => a.week - b.week)
+    .slice(-MEMORY_LIMITS.results);
+}
+
 /** A rough token estimate (about four characters per token), good enough for prompt budgets. */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -379,45 +424,6 @@ export function estimateTokens(text: string): number {
 
 /** Default prompt budget for the memory section, in estimated tokens. */
 export const MEMORY_TOKEN_BUDGET = 400;
-
-/**
- * The memory as prompt lines, most useful first (rivalries, trades, the agent's own notes, recent
- * decisions, relationship notes, the last chat exchange), cut off once `tokenBudget` is spent. Newest entries win within
- * each group. `teamName` turns team ids into names the model can use in chat.
- */
-export function summarizeMemory(
-  memory: AgentLeagueMemory,
-  options: { tokenBudget?: number; teamName?: (teamId: string) => string } = {}
-): string[] {
-  const budget = options.tokenBudget ?? MEMORY_TOKEN_BUDGET;
-  const name = options.teamName ?? ((id: string) => id);
-  const groups: string[][] = [
-    memory.rivals.map((r) => `Rivalry with ${name(r.teamId)} (grudge ${r.grudge}): ${r.reason}`),
-    [...memory.trades]
-      .reverse()
-      .map((t) => `Trade with ${name(t.teamId)} (${t.outcome}): ${t.summary}${tradeDetail(t)}`),
-    [...memory.notes].reverse().map((n) => `Your note: ${n.text}`),
-    [...memory.decisions].reverse().map((d) => `You did ${d.kind} -> ${d.action}: ${d.summary}`),
-    [...memory.relationships].reverse().map((r) => `Between you and ${name(r.teamId)}: ${r.note}`),
-    [...memory.chatRooms]
-      .reverse()
-      .filter((r) => r.messages.length > 0)
-      .map(
-        (r) => `Last chat you were in here: ${r.messages.map((c) => `${c.author}: ${c.text}`).join(' | ')}`
-      )
-  ];
-  const lines: string[] = [];
-  let used = 0;
-  for (const group of groups) {
-    for (const line of group) {
-      const cost = estimateTokens(line) + 1;
-      if (used + cost > budget) return lines;
-      lines.push(line);
-      used += cost;
-    }
-  }
-  return lines;
-}
 
 /** Trade outcomes other teams can see (the trade is public from acceptance on). */
 const PUBLIC_TRADE_OUTCOMES: ReadonlySet<string> = new Set(['accepted', 'processed', 'vetoed']);
@@ -494,7 +500,8 @@ export interface AudienceMemory {
 /**
  * The memory a prompt with this audience may see (#206): public memories, released ones, and
  * sealed ones every reader already knows. A rivalry whose reason is withheld is left out whole (its
- * grudge would give the offer away). Chat snapshots and relationship notes are not filtered here:
+ * grudge would give the offer away), and so is a private trade: the relationships computed from what
+ * is left (`relationshipsFrom`) never hint at it. Results are public. Chat snapshots and relationship notes are not filtered here:
  * they are untrusted chat, scoped by room (`memoryForPrompt` in the runtime).
  */
 export function memoryForAudience(

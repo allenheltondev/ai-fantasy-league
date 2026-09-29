@@ -133,6 +133,11 @@ export interface TaskKindSpec<P, D extends BaseDecision, Prep> {
    * (core `memoryForAudience`). Defaults to the DM's other teams for a DM, else anyone (`public`).
    */
   memoryAudience?(ctx: TaskContext, payload: P, prep: Prep): MemoryAudience;
+  /**
+   * The teams this task deals with, whose memories its prompt recalls first (#210): a matchup
+   * opponent, the teams it may trade with. The runner adds the conversation's and the audience's.
+   */
+  memoryFocus?(ctx: TaskContext, payload: P, prep: Prep): readonly string[];
 }
 
 /** A kind with its types closed over, as the runtime sees it. */
@@ -144,6 +149,7 @@ export interface PreparedTask {
   fakeScript?: () => FakeScript;
   memoryScope?: ChatMemoryScope;
   memoryAudience?: MemoryAudience;
+  memoryFocus?: readonly string[];
   /** The model's tools for this run, when the kind narrows them (`toolsFor`). */
   tools?: readonly string[];
 }
@@ -172,6 +178,7 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
       const fakeScript = spec.fakeScript;
       const memoryScope = spec.memoryScope?.(ctx, payload, prep);
       const memoryAudience = spec.memoryAudience?.(ctx, payload, prep);
+      const memoryFocus = spec.memoryFocus?.(ctx, payload, prep);
       const tools = spec.toolsFor?.(ctx, payload, prep);
       return {
         instructions: spec.instructions(ctx, payload, prep),
@@ -181,6 +188,7 @@ export function defineTaskKind<P, D extends BaseDecision, Prep>(spec: TaskKindSp
         ...(fakeScript === undefined ? {} : { fakeScript: () => fakeScript(ctx, payload, prep) }),
         ...(memoryScope === undefined ? {} : { memoryScope }),
         ...(memoryAudience === undefined ? {} : { memoryAudience }),
+        ...(memoryFocus === undefined ? {} : { memoryFocus }),
         ...(tools === undefined ? {} : { tools })
       };
     }
