@@ -210,7 +210,13 @@ export function PlayerMarket(props: MarketProps) {
           className="divide-y divide-border rounded-lg border border-border bg-surface"
         >
           {rows.map((row) => (
-            <MarketRow key={row.player.id} row={row} {...props} />
+            <MarketRow
+              key={row.player.id}
+              row={row}
+              showCost={page?.waiverType === 'faab'}
+              faabRemaining={page?.faabRemaining ?? null}
+              {...props}
+            />
           ))}
         </ul>
       )}
@@ -229,7 +235,9 @@ export function PlayerMarket(props: MarketProps) {
   );
 }
 
-function MarketRow(props: MarketProps & { row: MarketPlayer }) {
+function MarketRow(
+  props: MarketProps & { row: MarketPlayer; showCost: boolean; faabRemaining: number | null }
+) {
   const openCard = useOpenPlayerCard();
   const { row } = props;
   const { player, availability } = row;
@@ -296,18 +304,29 @@ function MarketRow(props: MarketProps & { row: MarketPlayer }) {
           {pts(row.average)}
         </span>
       </div>
-      <div className="w-20 shrink-0 text-right">
+      <div className="w-24 shrink-0 text-right">
         {availability.status !== 'rostered' ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={!props.canAdd}
-            aria-label={`${availability.status === 'waivers' ? 'Claim' : 'Add'} ${player.name}`}
-            onClick={() => props.onAdd(row)}
-            className="min-h-11 w-full"
-          >
-            {availability.status === 'waivers' ? 'Claim' : 'Add'}
-          </Button>
+          <div className="flex flex-col items-end">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!props.canAdd}
+              aria-label={`${availability.status === 'waivers' ? 'Claim' : 'Add'} ${player.name}`}
+              onClick={() => props.onAdd(row)}
+              className="min-h-11 w-full"
+            >
+              {availability.status === 'waivers' ? 'Claim' : 'Add'}
+            </Button>
+            {props.showCost && (
+              <span className="text-[0.7rem] tabular-nums text-muted-foreground" data-testid="market-cost">
+                {availability.status === 'waivers'
+                  ? props.faabRemaining === null
+                    ? 'Bid to claim'
+                    : `Bid up to $${props.faabRemaining}`
+                  : '$0 · free'}
+              </span>
+            )}
+          </div>
         ) : !mine && props.canTrade ? (
           <Link
             to={props.tradeHref(row)}

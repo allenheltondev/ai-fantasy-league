@@ -19,6 +19,7 @@ export async function seedSeasonLeague(
 ): Promise<SeededLeague> {
   const teamCount = options.teamCount ?? 4;
   const settings = yahooDefaultSettings(teamCount);
+  settings.waivers.type = 'faab';
   settings.roster.slots = { QB: 1, RB: 1, BN: 1 };
   const seeded = await seedLeague(repos, {
     id: options.id,

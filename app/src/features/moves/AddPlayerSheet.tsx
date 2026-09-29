@@ -4,6 +4,7 @@ import { useLeagueApi } from '../../api/league';
 import type { ClaimPreview, ClaimResult, MarketPlayer, Roster, RosterEntry } from '../../api/types';
 import { gameContext, gameText } from '../season/gameState';
 import { statusLabel } from '../season/slots';
+import { FaabExplainer } from './FaabExplainer';
 import { dropCandidates, moveErrorText, pts, roleOf, waiverTime } from './moves';
 
 export interface AddSheetProps {
@@ -139,19 +140,31 @@ export function AddPlayerSheet({ leagueId, row, roster, waiverType, onClose, onD
         {dropping !== null && <Compare row={row} drop={dropping} />}
 
         {faab && (
-          <Input
-            label="FAAB bid ($)"
-            type="number"
-            inputMode="numeric"
-            min={0}
-            value={bid}
-            onChange={(e) => setBid(e.target.value)}
-            hint={
-              preview === null
-                ? undefined
-                : `$${preview.faabRemaining} left; $${preview.faabAfter} if this claim wins.`
-            }
-          />
+          <div className="flex items-start gap-1">
+            <div className="min-w-0 flex-1">
+              <Input
+                label="FAAB bid ($)"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={bid}
+                onChange={(e) => setBid(e.target.value)}
+                hint={
+                  preview === null
+                    ? undefined
+                    : `$${preview.faabRemaining} left; $${preview.faabAfter} if this claim wins.`
+                }
+              />
+            </div>
+            <div className="pt-6">
+              <FaabExplainer remaining={preview?.faabRemaining} />
+            </div>
+          </div>
+        )}
+        {!claim && waiverType === 'faab' && (
+          <p className="text-sm text-muted-foreground" data-testid="free-agent-cost">
+            Free agent: costs $0, no bid needed.
+          </p>
         )}
         {claim && !faab && (
           <p className="text-sm text-muted-foreground">

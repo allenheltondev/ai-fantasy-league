@@ -1,7 +1,12 @@
 import type { DefaultSettings, LeagueSettings, Phase, ScoringPreset, TierRule } from '../../api/types';
 
 /** One editable rule, addressed by its dotted settings path. */
-export type RuleField = { path: string; label: string } & (
+export type RuleField = {
+  path: string;
+  label: string;
+  /** Show the field only while another setting has this value (FAAB details when FAAB is on). */
+  showWhen?: { path: string; equals: unknown };
+} & (
   | { kind: 'int'; min: number; max: number; fallback?: number }
   | { kind: 'decimal'; fallback?: number }
   | { kind: 'enum'; options: readonly (readonly [string, string])[] }
@@ -17,6 +22,7 @@ export interface RuleSection {
   fields: RuleField[];
 }
 
+const FAAB_ON = { path: 'waivers.type', equals: 'faab' } as const;
 const WEEK = { kind: 'int', min: 1, max: 18 } as const;
 
 /** The rules editor's sections, built from the league's and the defaults' keys. */
@@ -62,19 +68,27 @@ export function ruleSections(settings: LeagueSettings, defaults: DefaultSettings
       fields: [
         {
           path: 'waivers.type',
-          label: 'Waiver type',
+          label: 'FAAB bidding',
           kind: 'enum',
           options: [
-            ['faab', 'FAAB bidding'],
-            ['rolling', 'Rolling priority']
+            ['faab', 'On: teams bid from a season budget'],
+            ['rolling', 'Off: rolling priority, no bids']
           ]
         },
-        { path: 'waivers.faabBudget', label: 'FAAB budget ($)', kind: 'int', min: 0, max: 1000 },
-        { path: 'waivers.allowZeroBids', label: 'Allow $0 bids', kind: 'bool' },
+        {
+          path: 'waivers.faabBudget',
+          label: 'FAAB budget ($)',
+          kind: 'int',
+          min: 0,
+          max: 1000,
+          showWhen: FAAB_ON
+        },
+        { path: 'waivers.allowZeroBids', label: 'Allow $0 bids', kind: 'bool', showWhen: FAAB_ON },
         { path: 'waivers.waiverPeriodDays', label: 'Waiver period (days)', kind: 'int', min: 0, max: 7 },
         {
           path: 'waivers.faabTiebreak',
           label: 'FAAB tiebreak',
+          showWhen: FAAB_ON,
           kind: 'enum',
           options: [
             ['waiver_priority', 'Waiver priority'],

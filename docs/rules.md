@@ -186,7 +186,7 @@ Validation also enforces these limits:
 
 | Setting | Default |
 |---|---|
-| Type | FAAB (`rolling` = Yahoo continual rolling priority, as an option) |
+| Type | `rolling` (Yahoo continual rolling priority, no bids); `faab` (blind bidding from a season budget) is an option, changeable any time |
 | FAAB budget | $100 |
 | $0 bids | Allowed |
 | Waiver period for dropped players | 2 days |
@@ -294,7 +294,8 @@ A league plays from `schedule.startWeek` through `schedule.regularSeasonEndWeek`
 | `roster.slots` | ✔ | |
 | `roster.irEligibleStatuses` | | ✔ |
 | `scoring.*` | ✔ | |
-| `waivers.type`, `faabBudget`, `priorityOrder`, `postDraftPlayers` | ✔ | |
+| `waivers.faabBudget`, `priorityOrder`, `postDraftPlayers` | ✔ | |
+| `waivers.type` | | ✔ |
 | `waivers.allowZeroBids`, `waiverPeriodDays`, `faabTiebreak`, `maxAcquisitionsPerWeek` | | ✔ |
 | `trades.*` | | ✔ |
 | `playoffs.*` | ✔ | |

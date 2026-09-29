@@ -17,6 +17,7 @@ import { useLeagueOutlet } from '../../routes/leagueContext';
 import { teamPath } from '../../routes/leagueRoutes';
 import { Transactions } from '../players/Transactions';
 import { AddPlayerSheet } from './AddPlayerSheet';
+import { FaabExplainer } from './FaabExplainer';
 import { rosterNeeds, waiverTime, type RosterNeed } from './moves';
 import { PlayerMarket } from './PlayerMarket';
 import { RosterPanel } from './RosterPanel';
@@ -168,6 +169,7 @@ function Workspace({ leagueId, teamId, state }: { leagueId: string; teamId: stri
         ]
           .filter((part) => part !== null)
           .join(' · ')}
+        {known != null && waiverType === 'faab' && <FaabExplainer remaining={faab} />}
       </p>
       <RosterNeeds
         needs={rosterNeeds(data)}

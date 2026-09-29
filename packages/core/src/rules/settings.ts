@@ -179,7 +179,7 @@ export function yahooDefaultSettings(teamCount = 8, options: DefaultSettingsOpti
     roster: { slots: yahooDefaultRosterSlots(), irEligibleStatuses: [...DEFAULT_IR_ELIGIBLE_STATUSES] },
     scoring: scoringPreset(options.scoring ?? 'yahoo_standard'),
     waivers: {
-      type: 'faab',
+      type: 'rolling',
       faabBudget: 100,
       allowZeroBids: true,
       waiverPeriodDays: 2,
