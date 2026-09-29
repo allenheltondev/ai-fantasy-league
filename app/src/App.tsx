@@ -15,18 +15,13 @@ import {
   ScoreboardPage,
   TransactionsPage
 } from './features/league/LeaguePages';
+import { RosterWorkspace } from './features/moves/RosterWorkspace';
 import { PlayersPage } from './features/players/PlayersPage';
 import { MatchupPage } from './features/season/MatchupPage';
 import { RosterPage } from './features/season/RosterPage';
 import { StandingsPage } from './features/season/StandingsPage';
 import { SettingsPage } from './features/settings/SettingsPage';
-import {
-  AchievementsPage,
-  MovesPage,
-  OtherTeamsPage,
-  TeamProfilePage,
-  TeamViewPage
-} from './features/team/TeamPages';
+import { AchievementsPage, OtherTeamsPage, TeamProfilePage, TeamViewPage } from './features/team/TeamPages';
 import { AppLayout } from './layout/AppLayout';
 import { MOVED_SECTIONS } from './routes/leagueRoutes';
 import {
@@ -76,7 +71,7 @@ export function App({ api = leagueApi }: { api?: LeagueApi }) {
                 <Route index element={<RedirectTo to="lineup" />} />
                 <Route path="lineup" element={<RosterPage />} />
                 <Route path="matchup" element={<MatchupPage />} />
-                <Route path="moves" element={<MovesPage />} />
+                <Route path="moves" element={<RosterWorkspace />} />
                 <Route path="trades" element={<TradesPage />} />
                 <Route path="achievements" element={<AchievementsPage />} />
                 <Route path="profile" element={<TeamProfilePage />} />

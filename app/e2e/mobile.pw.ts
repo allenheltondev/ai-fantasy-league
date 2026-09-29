@@ -576,7 +576,9 @@ for (const viewport of VIEWPORTS) {
       await expectFits(page, 'players');
       if (await claim.isEnabled()) {
         await claim.click();
-        await expectFits(page, 'players: claim panel');
+        await expect(page.getByTestId('add-sheet')).toBeVisible();
+        await expectFits(page, 'players: add sheet');
+        await page.getByTestId('add-sheet').getByRole('button', { name: 'Cancel' }).tap();
       }
 
       await page.goto('/leagues/demo-season/trades');
@@ -631,7 +633,25 @@ for (const viewport of VIEWPORTS) {
       // My Team (#178): moves, your profile, and another team, read-only.
       await page.goto('/leagues/demo-season/team/moves');
       await expect(page.getByRole('region', { name: 'Your moves' })).toBeVisible();
+      await expect(page.getByRole('list', { name: 'Starters' })).toBeVisible();
       await expectFits(page, 'my team: roster & moves');
+      // The roster workspace on a phone (#205): the market is a full-height sheet, and choosing a
+      // player comes back to a compact add step. Nothing is added: the lineup specs share this team.
+      await page.getByRole('button', { name: 'Add players' }).tap();
+      const market = page.getByRole('list', { name: 'Available players' });
+      await expect(market.getByRole('button', { name: /^(Add|Claim) / }).first()).toBeVisible();
+      await expectFits(page, 'my team: add players sheet');
+      await market
+        .getByRole('button', { name: /^(Add|Claim) / })
+        .first()
+        .tap();
+      await expect(page.getByTestId('add-sheet')).toBeVisible();
+      await expect(market).toBeHidden();
+      await expectFits(page, 'my team: add step');
+      await page.getByTestId('add-sheet').getByRole('button', { name: 'Cancel' }).tap();
+      await page.getByRole('button', { name: /^Josh Allen, QB/ }).tap();
+      await expect(page.getByTestId('moves-fx-jallen').getByRole('button', { name: 'Drop' })).toBeVisible();
+      await expectFits(page, 'my team: player moves');
       await page.goto('/leagues/demo-season/team/profile');
       await expect(page.getByLabel('Team name')).toBeVisible();
       await expectFits(page, 'my team: profile');

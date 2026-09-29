@@ -34,7 +34,7 @@ export const getRoster = defineOperation({
   path: '/leagues/{leagueId}/teams/{teamId}/roster',
   summary: "A team's roster and lineup for a week",
   description: [
-    "Returns a team's players and where each sits in the week's lineup (a starting slot, BN for bench, or IR), with position, NFL team, opponent, kickoff, bye week, injury status, projected and actual points, the average of his last 3 weeks, and whether he is locked.",
+    "Returns a team's players and where each sits in the week's lineup (a starting slot, BN for bench, or IR), with position, NFL team, opponent, kickoff, bye week, injury status, projected and actual points, his average over the last 3 weeks and over the season so far, and whether he is locked.",
     "A player locks at his own game's kickoff: after that he cannot change slots until next week (set_lineup returns PLAYER_LOCKED).",
     'The week defaults to the current one. A week with no saved lineup shows the latest earlier lineup carried forward (`carriedFromWeek`); new players sit on the bench.',
     '`projectedPoints` is the starters’ projection under league scoring (starters on bye or ruled out count 0). `optimal` is the best legal lineup (locked players stay put; Out, IR, and bye players never start) and the set_lineup `moves` that reach it: pass them to set_lineup as they are to apply it. It ranks players by projection, or by consensus rank when no projections are stored for the week (`optimal.basis: rank`).',
@@ -121,7 +121,11 @@ export const getRoster = defineOperation({
       carriedFromWeek: lineup.carriedFromWeek,
       slots: slotCounts(league),
       players: rosterEntries(lineup.entries, players, data, now, input.detail ? league.settings : null).map(
-        (e) => ({ ...e, recentPoints: recent.get(e.player.id) ?? null })
+        (e) => ({
+          ...e,
+          recentPoints: recent.last3.get(e.player.id) ?? null,
+          seasonAverage: recent.season.get(e.player.id) ?? null
+        })
       ),
       projectedPoints: startersProjection(roster, lineup.entries, projections, data.games),
       optimal: !best.validation.valid
@@ -137,24 +141,36 @@ export const getRoster = defineOperation({
 });
 
 /**
- * Each player's points per game over the last `RECENT_WEEKS` NFL weeks before `week`, under league
- * scoring (one small history query per player). Players without a game in that window are left out.
+ * Each player's points per game under league scoring over the last `RECENT_WEEKS` NFL weeks before
+ * `week`, and over the whole season so far (one small history query per player). Players without a
+ * game in a window are left out of it.
  */
 async function recentPoints(
   ctx: Ctx,
   league: League,
   week: number,
   playerIds: readonly string[]
-): Promise<Map<string, { average: number; games: number }>> {
-  const out = new Map<string, { average: number; games: number }>();
+): Promise<Record<'last3' | 'season', Map<string, PerGame>>> {
+  const out = { last3: new Map<string, PerGame>(), season: new Map<string, PerGame>() };
   if (week <= 1) return out;
   const histories = await Promise.all(
     playerIds.map((id) => ctx.data.reference.stats.getPlayerHistory(id, league.season))
   );
   for (const [i, history] of histories.entries()) {
-    const lines = history.filter((l) => l.week < week && l.week >= week - RECENT_WEEKS);
-    const season = seasonPoints(league.settings, lines);
-    if (season.games > 0) out.set(playerIds[i] as string, { average: season.ppg, games: season.games });
+    const id = playerIds[i] as string;
+    const before = history.filter((l) => l.week < week);
+    for (const [key, lines] of [
+      ['last3', before.filter((l) => l.week >= week - RECENT_WEEKS)],
+      ['season', before]
+    ] as const) {
+      const season = seasonPoints(league.settings, lines);
+      if (season.games > 0) out[key].set(id, { average: season.ppg, games: season.games });
+    }
   }
   return out;
+}
+
+interface PerGame {
+  average: number;
+  games: number;
 }

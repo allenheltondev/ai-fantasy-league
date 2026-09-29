@@ -23,6 +23,7 @@ interface Row {
   opponent: { team: string; home: boolean } | null;
   projectedPoints: number | null;
   recentPoints: { average: number; games: number } | null;
+  seasonAverage: { average: number; games: number } | null;
 }
 interface RosterData {
   players: Row[];
@@ -85,10 +86,12 @@ describe('get_roster for the lineup editor', () => {
     });
     expect(row(roster, 'fx-cmc')).toMatchObject({
       opponent: { team: 'ARI', home: true },
-      recentPoints: { average: 10, games: 1 }
+      recentPoints: { average: 10, games: 1 },
+      seasonAverage: { average: 10, games: 1 }
     });
     // A week without a game played does not count.
     expect(row(roster, 'fx-chase')?.recentPoints).toBeNull();
+    expect(row(roster, 'fx-chase')?.seasonAverage).toBeNull();
     expect(row(roster, 'fx-kwalker')?.opponent).toBeNull();
     // Allen 20 + McCaffrey 10; Bijan (Out) counts 0.
     expect(roster.projectedPoints).toBe(30);

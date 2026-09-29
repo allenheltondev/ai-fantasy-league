@@ -1,193 +1,77 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { useParams } from 'react-router';
-import { Alert, Button, Input, Select, StatusBadge } from '@readysetcloud/ui';
-import { apiFetch } from '../../api';
-import { ClaimPanel } from './ClaimPanel';
-import { MyClaims } from './MyClaims';
-import { Transactions } from './Transactions';
-import { describeError, formatTime, type LeagueStateData, type SearchPlayer } from './types';
-import { TableScroll } from '../../components/TableScroll';
-import { PlayerHeadshot, TeamLogo } from '../../players/PlayerHeadshot';
-import { PlayerLink } from '../../players/PlayerLink';
+import { useToast } from '@readysetcloud/ui';
+import { useLeagueApi } from '../../api/league';
+import type { MarketPage, MarketPlayer, Roster } from '../../api/types';
+import { useLoad } from '../../lib/useLoad';
+import { useLeagueOutlet } from '../../routes/leagueContext';
+import { AddPlayerSheet } from '../moves/AddPlayerSheet';
+import { PlayerMarket } from '../moves/PlayerMarket';
+import { addedMessage, tradeLink } from '../moves/RosterWorkspace';
 
-export const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
-const SEARCH_LIMIT = 50;
-
-function StatusCell({ player, teams }: { player: SearchPlayer; teams: LeagueStateData['teams'] }) {
-  const a = player.availability;
-  if (a?.status === 'waivers')
-    return <StatusBadge tone="warning">Waivers until {formatTime(a.clearsAt ?? '')}</StatusBadge>;
-  if (a?.status === 'rostered') {
-    return (
-      <StatusBadge tone="neutral">{teams.find((t) => t.id === a.teamId)?.name ?? 'Rostered'}</StatusBadge>
-    );
-  }
-  return <StatusBadge tone="success">Free agent</StatusBadge>;
-}
+const NO_ROSTER: Promise<Roster | null> = Promise.resolve(null);
 
 /**
- * The league's player browser: search by name and position, show where each player stands
- * (free agent, on waivers, or on a team), add or claim one with a drop and a FAAB bid, and manage
- * pending claims.
+ * League › Players (#205): the league-wide research view. Every player, rostered ones too, with
+ * the market's columns and sorts; free agents and waiver players open the same inline add flow as
+ * My Team › Roster & moves, and another team's players offer a trade.
  */
 export function PlayersPage() {
   const { leagueId = '' } = useParams();
-  const [state, setState] = useState<LeagueStateData | null>(null);
-  const [query, setQuery] = useState('');
-  const [position, setPosition] = useState('');
-  const [availableOnly, setAvailableOnly] = useState(true);
-  const [players, setPlayers] = useState<SearchPlayer[] | null>(null);
-  const [selected, setSelected] = useState<SearchPlayer | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const api = useLeagueApi();
+  const { toast } = useToast();
+  const state = useLeagueOutlet()?.state ?? null;
+  const teamId = state?.yourTeam?.id ?? null;
+  const roster = useLoad(
+    () => (teamId === null ? NO_ROSTER : api.getRoster(leagueId, teamId)),
+    `${leagueId}:${teamId}`
+  );
+  const [context, setContext] = useState<MarketPage | null>(null);
+  const [adding, setAdding] = useState<MarketPlayer | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  /** The submitted search; the form fields above are only drafts until Search is pressed. */
-  const [criteria, setCriteria] = useState({ q: '', position: '', availableOnly: true });
-
-  useEffect(() => {
-    const fail = (err: unknown) => setError(describeError(err));
-    apiFetch<LeagueStateData>(`/leagues/${leagueId}/state`)
-      .then((res) => setState(res.data))
-      .catch(fail);
-    apiFetch<{ players: SearchPlayer[] }>('/players', {
-      query: {
-        q: criteria.q || undefined,
-        position: criteria.position || undefined,
-        leagueId,
-        // Filter on the server: the best 50 players overall are mostly rostered after a draft.
-        availability: criteria.availableOnly ? 'available' : undefined,
-        limit: SEARCH_LIMIT
-      }
-    })
-      .then((res) => setPlayers(res.data.players))
-      .catch(fail);
-  }, [leagueId, refreshKey, criteria]);
-
-  const canClaim = state?.allowedActions.includes('claim_waiver') === true;
-  const shown = players ?? [];
-  const refresh = () => setRefreshKey((k) => k + 1);
+  const allowed = (action: string) => state?.allowedActions.includes(action) === true;
+  const teamName = (id: string) => state?.teams?.find((t) => t.id === id)?.name ?? 'Another team';
+  const faab = context?.faabRemaining ?? null;
 
   return (
     <div data-testid="league-section-players" className="space-y-4">
-      <h2 className="text-xl font-semibold">Players</h2>
-      {state?.yourTeam && (
+      {faab !== null && (
         <p className="text-sm text-muted-foreground">
-          {state.yourTeam.name}: ${state.yourTeam.faabRemaining} FAAB left
-          {!canClaim && ' · Adds and claims are closed right now.'}
+          {context?.waiverType === 'rolling' ? 'Rolling waivers' : `$${faab} FAAB left`}
+          {!allowed('claim_waiver') && ' · Adds and claims are closed right now.'}
         </p>
       )}
-      {notice && <Alert variant="success">{notice}</Alert>}
-      {error && <Alert variant="error">{error}</Alert>}
-      <form
-        role="search"
-        className="flex flex-wrap items-end gap-3"
-        onSubmit={(e: FormEvent) => {
-          e.preventDefault();
-          setCriteria({ q: query.trim(), position, availableOnly });
-        }}
-      >
-        <Input label="Search players" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <Select label="Position" value={position} onChange={(e) => setPosition(e.target.value)}>
-          <option value="">All</option>
-          {POSITIONS.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </Select>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={availableOnly}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              setAvailableOnly(checked);
-              // The toggle applies at once, like a filter chip; the text search waits for Search.
-              setCriteria((c) => ({ ...c, availableOnly: checked }));
-            }}
-          />
-          Available only
-        </label>
-        <Button type="submit" variant="primary">
-          Search
-        </Button>
-      </form>
-      {selected && (
-        <ClaimPanel
-          key={selected.id}
+      <PlayerMarket
+        leagueId={leagueId}
+        title="All players"
+        position=""
+        availableOnly={false}
+        teamName={teamName}
+        yourTeamId={teamId}
+        canAdd={allowed('claim_waiver') && roster.data !== null}
+        canTrade={allowed('propose_trade')}
+        refreshKey={refreshKey}
+        onContext={setContext}
+        tradeHref={(row) =>
+          tradeLink(leagueId, { playerId: row.player.id, teamId: row.availability.teamId as string })
+        }
+        onAdd={setAdding}
+      />
+      {adding !== null && roster.data !== null && context !== null && (
+        <AddPlayerSheet
           leagueId={leagueId}
-          player={selected}
-          onClose={() => setSelected(null)}
-          onDone={(message) => {
-            setNotice(message);
-            setSelected(null);
-            refresh();
+          row={adding}
+          roster={roster.data}
+          waiverType={context.waiverType}
+          onClose={() => setAdding(null)}
+          onDone={(result, dropName) => {
+            setAdding(null);
+            toast(addedMessage(result, dropName), { variant: 'success' });
+            roster.reload();
+            setRefreshKey((k) => k + 1);
           }}
         />
       )}
-      {players !== null && shown.length === 0 ? (
-        <p className="text-muted-foreground">No players match.</p>
-      ) : (
-        <TableScroll label="Players">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Pos</th>
-                <th>Team</th>
-                <th>Status</th>
-                <th>
-                  <span className="sr-only">Action</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((player) => {
-                const status = player.availability?.status;
-                const verb = status === 'waivers' ? 'Claim' : 'Add';
-                return (
-                  <tr key={player.id}>
-                    <td>
-                      <span className="flex items-center gap-2">
-                        <PlayerHeadshot player={player} size={28} />
-                        <PlayerLink player={player} />
-                      </span>
-                    </td>
-                    <td>{player.position}</td>
-                    <td>
-                      <span className="flex items-center gap-1.5">
-                        <TeamLogo team={player.team} size={18} />
-                        {player.team ?? 'FA'}
-                      </span>
-                    </td>
-                    <td>
-                      <StatusCell player={player} teams={state?.teams ?? []} />
-                    </td>
-                    <td>
-                      {status !== 'rostered' && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={!canClaim}
-                          aria-label={`${verb} ${player.name}`}
-                          onClick={() => {
-                            setNotice(null);
-                            setSelected(player);
-                          }}
-                        >
-                          {verb}
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </TableScroll>
-      )}
-      <MyClaims leagueId={leagueId} refreshKey={refreshKey} onChanged={refresh} />
-      <Transactions leagueId={leagueId} refreshKey={refreshKey} />
     </div>
   );
 }

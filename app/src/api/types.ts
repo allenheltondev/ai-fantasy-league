@@ -264,6 +264,8 @@ export interface RosterEntry {
   points: number | null;
   /** Points per game over the last 3 NFL weeks (get_roster, #176), or null with no games yet. */
   recentPoints?: { average: number; games: number } | null;
+  /** Points per game this season before this week (get_roster, #205), or null with no games yet. */
+  seasonAverage?: { average: number; games: number } | null;
   /** His game (#193); absent on older responses. */
   game?: PlayerGame;
   /** Expected final points, live-adjusted (#193), or null with no projection and no points. */
@@ -766,4 +768,80 @@ export interface LeagueDashboardData {
   moves: Move[];
   hasMoreMoves: boolean;
   champion: DashboardTeam | null;
+}
+
+/** Where a player stands in the league (search_players, list_league_players). */
+export interface Standing {
+  status: 'free_agent' | 'waivers' | 'rostered';
+  teamId?: string;
+  clearsAt?: string;
+}
+
+/** One row of the player market (list_league_players, #205). */
+export interface MarketPlayer {
+  player: PlayerRef;
+  availability: Standing;
+  status: string;
+  injuryStatus: string | null;
+  byeWeek: number | null;
+  game: PlayerGame;
+  projectedPoints: number | null;
+  projectedRos: number | null;
+  seasonPoints: number | null;
+  average: number | null;
+  games: number;
+  trend: { adds: number; drops: number } | null;
+}
+
+export type MarketSort = 'projected_week' | 'projected_ros' | 'season_points' | 'average' | 'trending';
+
+export interface MarketQuery {
+  q?: string;
+  position?: string;
+  availability?: 'available' | 'all';
+  healthy?: boolean;
+  sort?: MarketSort;
+  offset?: number;
+  limit?: number;
+}
+
+export interface MarketPage {
+  season: number;
+  week: number;
+  total: number;
+  nextOffset: number | null;
+  trendHours: number | null;
+  waiverType: 'faab' | 'rolling';
+  faabRemaining: number | null;
+  dropClearsAt: string | null;
+  players: MarketPlayer[];
+}
+
+/** A waiver claim (list_waiver_claims, claim_waiver). */
+export interface WaiverClaim {
+  id: string;
+  teamName: string;
+  player: PlayerRef;
+  drop: PlayerRef | null;
+  bid: number;
+  priority: number;
+  status: string;
+  processesAt: string;
+}
+
+/** preview_waiver_claim: would the add work, and what it costs. */
+export interface ClaimPreview {
+  wouldSucceed: boolean;
+  outcome: 'add_now' | 'claim_pending' | 'blocked';
+  issues: { code: string; message: string; fix: string }[];
+  processesAt: string | null;
+  faabRemaining: number;
+  faabAfter: number;
+}
+
+export interface ClaimResult {
+  outcome: 'added' | 'claim_pending';
+  player: PlayerRef;
+  dropped: PlayerRef | null;
+  claim: WaiverClaim | null;
 }

@@ -133,7 +133,9 @@ export async function planClaim(
   access: LeagueAccess,
   team: Team,
   input: { player: Player; drop: Player | null; bid: number },
-  now: Date
+  now: Date,
+  /** The pending claim being edited (update_waiver_claim): it is not a duplicate of itself. */
+  editing: string | null = null
 ): Promise<ClaimPlan> {
   const { league, teams } = access;
   const { player, drop } = input;
@@ -195,7 +197,7 @@ export async function planClaim(
       );
     }
     const duplicate = (await ctx.repos.waivers.listClaims(league.id, 'pending')).find(
-      (c) => c.teamId === team.id && c.addPlayerId === player.id
+      (c) => c.teamId === team.id && c.addPlayerId === player.id && c.id !== editing
     );
     if (duplicate !== undefined) {
       throw new ApiError('DUPLICATE_WAIVER_CLAIM', `You already have a pending claim for ${player.name}.`, {
