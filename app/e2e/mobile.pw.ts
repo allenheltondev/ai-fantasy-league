@@ -550,7 +550,8 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByRole('list', { name: 'Starters' })).toBeVisible();
       await expectFits(page, 'roster');
       // Tap-to-swap (#176): tap a bench player, then the slot he goes to; the change waits for Save.
-      await page.getByRole('button', { name: 'Patrick Mahomes, BN' }).tap();
+      // Off his name: the name opens his card, the rest of the row picks him up.
+      await page.getByRole('button', { name: 'Patrick Mahomes, BN' }).tap({ position: { x: 6, y: 6 } });
       await expect(page.getByTestId('moving-banner')).toBeInViewport();
       await expectFits(page, 'roster: player selected');
       await page.getByRole('button', { name: 'Move Patrick Mahomes to QB, swapping with Josh Allen' }).tap();
