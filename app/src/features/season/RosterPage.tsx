@@ -8,12 +8,15 @@ import { LoadingSkeleton } from '../../motion/decor';
 import { LineupBoard } from './LineupBoard';
 import { nextKickoff, useNow, withLocksAt } from './gameState';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
+import { TRADE_EVENTS, TRADES_POLL_MS } from '../../trades/TradesPage';
+import { pendingTrades, TradeCallout, tradingAway } from './TradeCallout';
 
 /**
  * The week's games changed (a kickoff, a quarter, a final): the locks may have too (#193). A
  * player's status changed (#200, e.g. ruled out on game day): the OUT chip shows without a reload.
  */
-const LINEUP_EVENTS = ['NFL Games Updated', 'Player Status Changed'] as const;
+const LINEUP_EVENTS = ['NFL Games Updated', 'Player Status Changed', ...TRADE_EVENTS] as const;
+const TRADE_EVENT_TYPES: readonly string[] = TRADE_EVENTS;
 /** How often the lock countdowns tick; each kickoff also lands exactly on time. */
 export const LOCK_TICK_MS = 30_000;
 
@@ -56,6 +59,11 @@ function LineupEditor({
   const [params] = useSearchParams();
   const highlight = params.get('player');
   const roster = useLoad(() => api.getRoster(leagueId, teamId), `${leagueId}:${teamId}`);
+  // Trades still in play for this team, for the callout above the lineup. Best effort: a failed
+  // read just leaves the callout out.
+  const trades = useLoad(() => api.listTrades(leagueId), `trades:${leagueId}`, TRADES_POLL_MS);
+  const pending = useMemo(() => pendingTrades(trades.data ?? []), [trades.data]);
+  const onTheBlock = useMemo(() => tradingAway(pending), [pending]);
   const [warnings, setWarnings] = useState<{ code: string; message: string }[]>([]);
   // A save that lost the race with a kickoff: who locked, and a fresh board from the server's lineup.
   const [lockRace, setLockRace] = useState<{ names: string[]; round: number } | null>(null);
@@ -66,6 +74,12 @@ function LineupEditor({
     realtime: api.getRealtime,
     connect,
     onEvent: (event) => {
+      if (TRADE_EVENT_TYPES.includes(event.detailType)) {
+        trades.reload();
+        // A processed trade moves players on or off this roster.
+        if (event.detailType === 'Trade Processed') roster.reload();
+        return;
+      }
       // Another team's player changing status changes nothing here.
       const playerId = event.detail?.playerId;
       if (
@@ -119,6 +133,7 @@ function LineupEditor({
           <p className="text-sm">Here is your lineup as it stands now. Make your other moves again.</p>
         </Alert>
       )}
+      <TradeCallout leagueId={leagueId} trades={pending} now={now} />
       {warnings.map((w) => (
         <Alert key={`${w.code}:${w.message}`} variant="info">
           {w.message}
@@ -133,6 +148,7 @@ function LineupEditor({
         data={data}
         now={now}
         highlight={highlight}
+        onTheBlock={onTheBlock}
         onSaved={(next) => {
           setWarnings(next);
           setLockRace(null);

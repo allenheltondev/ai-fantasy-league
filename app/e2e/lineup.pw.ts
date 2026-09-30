@@ -141,6 +141,19 @@ test('a manager optimizes the lineup, reviews the diff, and saves it', async ({ 
   await restoreLineup(page);
 });
 
+test("a manager opens a player's stats from his name without moving him", async ({ page }) => {
+  const row = page.getByTestId('roster-row-fx-mahomes');
+  await row.getByRole('button', { name: 'Patrick Mahomes', exact: true }).click();
+  await expect(page.getByTestId('player-card')).toBeVisible();
+  await expect(page.getByTestId('moving-banner')).toHaveCount(0);
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/card.png` });
+  await page.getByRole('button', { name: /^close/i }).click();
+  // Anywhere else on the row still picks him up.
+  await page.getByRole('button', { name: 'Patrick Mahomes, BN' }).click({ position: { x: 6, y: 6 } });
+  await expect(page.getByTestId('moving-banner')).toContainText('Moving Patrick Mahomes');
+  await page.getByTestId('moving-banner').getByRole('button', { name: 'Cancel' }).click();
+});
+
 test('a manager moves players from the keyboard and discards the change', async ({ page }) => {
   await page.getByRole('button', { name: 'Josh Allen, QB' }).focus();
   await page.keyboard.press('Enter');
