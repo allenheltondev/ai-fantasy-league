@@ -222,6 +222,7 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     createLeague: vi.fn(async () => league()),
     getLeague: vi.fn(async () => league()),
     getLeagueState: vi.fn(async () => state()),
+    listTrades: vi.fn(async () => []),
     updateSettings: vi.fn(async () => ({ version: 4, changedPaths: [] })),
     getDefaultSettings: vi.fn(async () => defaults()),
     createInvite: vi.fn(async () => ({
