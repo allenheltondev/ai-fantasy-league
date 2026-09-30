@@ -1,4 +1,4 @@
-import { CHAT_COOLDOWNS } from '@fantasy/agents';
+import { CHAT_COOLDOWNS, burstTaskId } from '@fantasy/agents';
 import { SOCIAL_ACT_LIMITS } from '@fantasy/core';
 import type { AgentActionRequested } from '@fantasy/agents';
 import type { BusEvent, ChatMessage } from '@fantasy/server';
@@ -40,6 +40,9 @@ let linesAfterCheckIn: string[][];
 const agentLines = async () =>
   (await w.repos.chat.list(w.league.id, ROOM, { limit: 200 })).messages.filter((m) => m.kind === 'agent');
 const chatReplies = () => w.requests().filter((r) => r.kind === 'chat_reply');
+/** Replies the router deferred past the cooldown (every reply to a person coalesces its burst). */
+const isDeferred = (r: AgentActionRequested) =>
+  r.taskId === burstTaskId(r.trigger.eventId, r.teamId, 'chat_reply');
 
 beforeAll(async () => {
   model = new RecordingModel(acceptanceModel());
@@ -68,7 +71,7 @@ beforeAll(async () => {
     second: await answers(w, burst[1] as ChatMessage),
     newest: await answers(w, burst[2] as ChatMessage)
   };
-  deferred = chatReplies().filter((r) => r.payload.coalesce === true);
+  deferred = chatReplies().filter(isDeferred);
   coalescedPrompt =
     model.runs.find((r) => r.kind === 'chat_reply' && r.systemPrompt.includes('several messages'))
       ?.systemPrompt ?? '';
@@ -86,7 +89,7 @@ beforeAll(async () => {
   // A late redelivery may defer another reply; it finds the burst answered and posts nothing.
   const tasks = await w.repos.agents.listTasks(w.league.id, { limit: 200 });
   lateOutcomes = chatReplies()
-    .filter((r) => r.payload.coalesce === true && r.taskId !== deferred[0]?.taskId)
+    .filter((r) => isDeferred(r) && r.taskId !== deferred[0]?.taskId)
     .map((r) => tasks.find((t) => t.taskId === r.taskId)?.fallbackReason ?? null);
   await w.advance(SOCIAL_ACT_LIMITS.questionGraceMs);
   await w.checkIn('afternoon');

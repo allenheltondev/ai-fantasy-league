@@ -212,7 +212,7 @@ describe('pendingQuestions', () => {
     ]);
   });
 
-  it('treats a reply to it, or in a DM any later message of its own, as the answer', () => {
+  it('treats only a reply to it, or one naming it, as the answer (#215)', () => {
     const reply = msg({
       id: 'r',
       at: -0.5,
@@ -222,27 +222,40 @@ describe('pendingQuestions', () => {
     });
     const room = [reply, msg({ id: 'q', at: -1 })];
     expect(pendingQuestions(room, { roomId: 'trash-talk', dm: false }, SELF, T0)).toEqual([]);
+    // An unrelated line of its own in a DM (an outreach, a closing line elsewhere) answers nothing.
     const later = msg({ id: 'later', at: -0.5, kind: 'agent', author: { teamId: SELF, name: 'Me' } });
     const dm = [later, msg({ id: 'q', at: -1, mentionedTeamIds: [] })];
-    expect(pendingQuestions(dm, { roomId: 'dm-team-1-team-2', dm: true }, SELF, T0)).toEqual([]);
-    // In a DM every message is to it, mention or not; in a room, a later message is not an answer.
-    expect(pendingQuestions([dm[1]!], { roomId: 'dm-team-1-team-2', dm: true }, SELF, T0)).toHaveLength(1);
+    expect(pendingQuestions(dm, { roomId: 'dm-team-1-team-2', dm: true }, SELF, T0)).toHaveLength(1);
     expect(
       pendingQuestions([later, msg({ id: 'q', at: -1 })], { roomId: 'trash-talk', dm: false }, SELF, T0)
     ).toHaveLength(1);
   });
 
+  it('counts a request without a question mark, and not a plain statement', () => {
+    const asks = msg({ id: 'ask', at: -1, text: 'lmk what you want for your WR2' });
+    const says = msg({ id: 'says', at: -1, text: 'My RB went down.' });
+    expect(pendingQuestions([asks, says], { roomId: 'trash-talk', dm: false }, SELF, T0)).toMatchObject([
+      { messageId: 'ask' }
+    ]);
+  });
+
   it('counts a conversation continued without a mention, and one reply for a whole burst', () => {
     const continued = msg({ id: 'c', at: -1, mentionedTeamIds: [], addressedTeamIds: [SELF] });
     expect(pendingQuestions([continued], { roomId: 'trash-talk', dm: false }, SELF, T0)).toHaveLength(1);
-    // The reply to the burst's newest message answers the earlier ones too.
+    // The reply to the burst's newest message answers the earlier ones it names; one it left open
+    // is still pending.
+    const reply = { kind: 'agent' as const, author: { teamId: SELF, name: 'Me' }, replyToId: 'b3' };
     const burst = [
-      msg({ id: 'r', at: -0.3, kind: 'agent', author: { teamId: SELF, name: 'Me' }, replyToId: 'b3' }),
+      msg({ id: 'r', at: -0.3, ...reply, answersMessageIds: ['b1', 'b2'] }),
       msg({ id: 'b3', at: -0.4 }),
       msg({ id: 'b2', at: -0.45, mentionedTeamIds: [], addressedTeamIds: [SELF] }),
       msg({ id: 'b1', at: -0.5 })
     ];
     expect(pendingQuestions(burst, { roomId: 'trash-talk', dm: false }, SELF, T0)).toEqual([]);
+    const leftOpen = [msg({ id: 'r', at: -0.3, ...reply, answersMessageIds: ['b2'] }), ...burst.slice(1)];
+    expect(pendingQuestions(leftOpen, { roomId: 'trash-talk', dm: false }, SELF, T0)).toMatchObject([
+      { messageId: 'b1' }
+    ]);
   });
 });
 

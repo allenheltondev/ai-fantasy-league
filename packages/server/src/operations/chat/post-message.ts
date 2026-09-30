@@ -26,7 +26,13 @@ import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 import { leagueManagers } from '../../league/managers.js';
 import { chatAuthor, mentionTargets } from './shared.js';
-import { newId, type Ctx } from '../../context.js';
+import { newId } from '../../context.js';
+
+/** How far back `replyToId` and `answersMessageIds` may reach: the room's newest messages. */
+export const REPLY_WINDOW = 100;
+
+/** Earlier messages one reply may name as answered besides the one it replies to (#215). */
+export const ANSWERS_MAX = 10;
 
 export const postMessage = defineOperation({
   name: 'post_message',
@@ -59,7 +65,14 @@ export const postMessage = defineOperation({
       .min(1)
       .max(200)
       .optional()
-      .describe('The id of the message you are answering, in the same room (optional).')
+      .describe('The id of the message you are answering, in the same room (optional).'),
+    answersMessageIds: z
+      .array(z.string().min(1).max(200))
+      .max(ANSWERS_MAX)
+      .optional()
+      .describe(
+        `With \`replyToId\`: up to ${ANSWERS_MAX} earlier messages in the same room this message also answers (someone else's, among the room's last ${REPLY_WINDOW} messages), so one reply can answer several messages (optional).`
+      )
   }),
   output: z.object({ message: ChatMessageSchema }),
   handler: async (ctx, input) => {
@@ -81,10 +94,12 @@ export const postMessage = defineOperation({
       );
     }
     const text = moderated.text;
-    const replyTo =
+    const window =
       input.replyToId === undefined
-        ? null
-        : await findReply(ctx, access.league.id, room.roomId, input.replyToId);
+        ? []
+        : (await ctx.repos.chat.list(access.league.id, room.roomId, { limit: REPLY_WINDOW })).messages;
+    const replyTo = input.replyToId === undefined ? null : findReply(window, room.roomId, input.replyToId);
+    const answers = answered(window, replyTo, input.answersMessageIds ?? [], author.author.teamId);
     const depth = replyToAgentDepth(author.kind, replyTo);
 
     // Per author across every room: the league's activity index since the window started (the
@@ -158,6 +173,7 @@ export const postMessage = defineOperation({
       ...(continued === null ? {} : { addressedTeamIds: [continued] }),
       event: null,
       ...(replyTo === null ? {} : { replyToId: replyTo.id }),
+      ...(answers.length === 0 ? {} : { answersMessageIds: answers }),
       ...(depth > 0 ? { replyToAgentDepth: depth } : {}),
       createdAt: now.toISOString()
     };
@@ -203,18 +219,9 @@ export const postMessage = defineOperation({
   }
 });
 
-/** How far back `replyToId` may reach: the room's newest messages. */
-export const REPLY_WINDOW = 100;
-
 /** The message being answered, from the room's newest `REPLY_WINDOW` messages. */
-async function findReply(
-  ctx: Ctx,
-  leagueId: string,
-  roomId: string,
-  replyToId: string
-): Promise<ChatMessage> {
-  const { messages } = await ctx.repos.chat.list(leagueId, roomId, { limit: REPLY_WINDOW });
-  const found = messages.find((m) => m.id === replyToId);
+function findReply(window: readonly ChatMessage[], roomId: string, replyToId: string): ChatMessage {
+  const found = window.find((m) => m.id === replyToId);
   if (found === undefined) {
     throw new ApiError('INVALID_INPUT', `Message "${replyToId}" is not among this room's recent messages.`, {
       fix: `Pass the id of one of the room's last ${REPLY_WINDOW} messages (get_chat with the same roomId), or leave replyToId out.`,
@@ -222,4 +229,39 @@ async function findReply(
     });
   }
   return found;
+}
+
+/**
+ * The earlier messages a reply also answers (#215), checked: each is someone else's message (not
+ * the league's) among the room's newest `REPLY_WINDOW`, older than the one replied to.
+ */
+function answered(
+  window: readonly ChatMessage[],
+  replyTo: ChatMessage | null,
+  ids: readonly string[],
+  authorTeamId: string | null
+): string[] {
+  if (ids.length === 0) return [];
+  const invalid = (fix: string, details: Record<string, unknown>) =>
+    new ApiError('INVALID_INPUT', 'answersMessageIds names a message this reply cannot answer.', {
+      fix,
+      details
+    });
+  if (replyTo === null)
+    throw invalid('Pass replyToId too: answersMessageIds lists messages answered besides it.', {});
+  const unique = [...new Set(ids)].filter((id) => id !== replyTo.id);
+  for (const id of unique) {
+    const m = window.find((w) => w.id === id);
+    if (
+      m === undefined ||
+      m.kind === 'system' ||
+      m.author.teamId === authorTeamId ||
+      m.createdAt > replyTo.createdAt
+    )
+      throw invalid(
+        `Name only other people's messages among the room's last ${REPLY_WINDOW}, no newer than the one replied to.`,
+        { messageId: id }
+      );
+  }
+  return unique;
 }

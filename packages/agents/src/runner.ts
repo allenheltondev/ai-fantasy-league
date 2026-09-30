@@ -347,7 +347,10 @@ export async function runAgentAction(
         owner: request.taskId,
         now: clock.now(),
         windowMs
-      })
+      }),
+    releaseOnce: async (name) => {
+      await agents.releaseTrigger(leagueId, `${seat.agentId}#once#${name}`, request.taskId);
+    }
   };
 
   // One read of the stakes feeds both the deterministic levers and the prompt (#217).
