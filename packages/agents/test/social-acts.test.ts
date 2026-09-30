@@ -36,6 +36,9 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const ago = (hours: number) => new Date(Date.parse(START) - hours * HOUR).toISOString();
 const agentId = (teamId: string) => `${LEAGUE_ID}.${teamId}`;
+/** This week's matchup room (team-2 against team-3), where a callback about them goes. */
+const MATCHUP = matchupRoomId(2026, 5, 'W05-M3');
+const DM_3 = 'dm-team-2-team-3';
 let seq = 0;
 
 /** An event id whose check-in rolls for these teams come out as asked (board; never matchup or DM). */
@@ -193,40 +196,41 @@ async function spend(s: Setup, count: number, hoursAgo: number) {
 }
 
 describe('a callback grounded in shared history', () => {
-  it('recalls a real game with this week opponent, in place of a board post, from verified facts', async () => {
+  it('recalls a real game with this week opponent in their matchup room, in place of a board post', async () => {
     const s = await league();
     const model = new ScriptedModelClient();
     const record = await run(s, checkIn(rolled(LOUD, true)), model);
     const prompt = model.transcript[0]?.systemPrompt ?? '';
-    expect(prompt).toContain('A social moment worth a word in #trash-talk');
+    expect(prompt).toContain('A social moment worth a word in your matchup room');
     expect(prompt).toContain('[result:w2] Week 2: you beat Team 3 110-95.');
     expect(prompt).toContain('[matchup:w5] This week (week 5) you play Team 3.');
     // It takes the board post's place: no news post alongside it.
     expect(prompt).not.toContain('add one `post_chat` action');
-    expect(record.reasoningSummary).toContain('Posted a callback in #trash-talk.');
+    expect(record.reasoningSummary).toContain('Posted a callback in my matchup room.');
     expect(record.finalAction).toContain('social_act');
-    const posts = await agentPosts(s, 'trash-talk');
+    expect(await agentPosts(s, 'trash-talk')).toEqual([]);
+    const posts = await agentPosts(s, MATCHUP);
     expect(posts.map((m) => m.text)).toEqual(['Not forgetting this one. Week 2: you beat Team 3 110-95.']);
     expect(await acts(s)).toMatchObject([
       {
         act: 'callback',
         reason: 'rematch',
         topic: 'callback:team-3:result:w2',
-        roomId: 'trash-talk',
+        roomId: MATCHUP,
         counterpartTeamId: 'team-3',
         evidence: ['result:w2'],
         outcome: 'posted'
       }
     ]);
     // The same callback is not made twice: after someone speaks, the next board turn says something else.
-    await say(s, 'Enjoy it while it lasts.', { roomId: 'trash-talk', mentionedTeamIds: [] });
+    await say(s, 'Enjoy it while it lasts.', { roomId: MATCHUP, mentionedTeamIds: [] });
     s.clock.advance(HOUR);
     await run(s, checkIn(rolled(LOUD, true).replace('evt', 'again')));
-    const next = await agentPosts(s, 'trash-talk');
+    const next = await agentPosts(s, MATCHUP);
     expect(next.filter((m) => m.text.includes('110-95'))).toHaveLength(1);
   });
 
-  it('cannot call back a private offer or an event it never observed', async () => {
+  it('keeps a private offer to the two teams’ DM, and never calls back an event it never observed', async () => {
     const s = await league(LOUD, { week2: [] });
     // Its offer to team-3 was turned down (private to the two teams); team-1 and team-3 traded (not its business).
     for (const [id, type, from, to] of [
@@ -250,16 +254,19 @@ describe('a callback grounded in shared history', () => {
     const model = new ScriptedModelClient();
     await run(s, checkIn(rolled(LOUD, true)), model);
     const prompt = model.transcript[0]?.systemPrompt ?? '';
-    // It still has something true to say (its week 4 win), but no callback to team-3.
-    expect(prompt).toContain('[result:w4] Week 4 final: you beat Allen');
+    // The turned-down offer is theirs alone: a callback in the DM with team-3, without its terms;
+    // the others' trade is not its business at all.
+    expect(prompt).toContain('A social moment worth a word in your direct message with them');
+    expect(prompt).toContain('[talks:t-private] They passed on your offer');
     expect(prompt).not.toContain('[trade:');
     expect(prompt).not.toContain('Secret Guy');
     expect(prompt).not.toContain('Other Guy');
-    const posts = await agentPosts(s, 'trash-talk');
-    expect(posts.map((m) => m.text)).toEqual([
-      "Noted for the record. Week 4 final: you beat Allen's Team 120-105."
+    expect(await agentPosts(s, 'trash-talk')).toEqual([]);
+    expect(await agentPosts(s, MATCHUP)).toEqual([]);
+    expect((await agentPosts(s, DM_3)).map((m) => m.text)).toEqual([
+      expect.stringContaining('They passed on your offer')
     ]);
-    expect((await acts(s)).map((a) => a.act)).toEqual(['react_to_result']);
+    expect(await acts(s)).toMatchObject([{ act: 'callback', roomId: DM_3, evidence: ['talks:t-private'] }]);
   });
 });
 
@@ -294,7 +301,7 @@ describe('checking the worded act', () => {
     await s.repos.chat.put({
       id: 'mine',
       leagueId: LEAGUE_ID,
-      roomId: 'trash-talk',
+      roomId: MATCHUP,
       kind: 'agent',
       author: { teamId: AGENT_TEAM, teamName: 'Team 2', name: 'Hype' },
       text: 'Earlier.',
@@ -304,8 +311,8 @@ describe('checking the worded act', () => {
     } as ChatMessage);
     // Chosen at the look (the room's last word was not checked then: nothing new was said in a day).
     const quiet = await run(s, checkIn(rolled(LOUD, true)));
-    expect(quiet.reasoningSummary ?? '').not.toContain('Posted');
-    expect(await agentPosts(s, 'trash-talk')).toHaveLength(1);
+    expect(quiet.reasoningSummary ?? '').not.toContain('Posted a callback');
+    expect(await agentPosts(s, MATCHUP)).toHaveLength(1);
   });
 });
 
@@ -502,13 +509,18 @@ describe('a multi-day transcript', () => {
       });
       s.clock.advance(8 * HOUR);
     }
-    const rooms = ['trash-talk', 'league', 'trades', 'waivers-news', matchupRoomId(2026, 5, 'W05-M1'), DM];
+    const rooms = ['trash-talk', 'league', 'trades', 'waivers-news', MATCHUP, DM, DM_3];
     const mine = (await Promise.all(rooms.map((r) => agentPosts(s, r)))).flat();
     // No more posts than the personality's own rolls allowed: the act took a board post's place.
     expect(mine.length).toBeLessThanOrEqual(turns);
     const callbacks = mine.filter((m) => m.text.includes('Week 2: you beat Team 3 110-95.'));
     expect(callbacks).toHaveLength(1);
     expect(mine.some((m) => /t-private|rejected/i.test(m.text))).toBe(false);
-    expect((await acts(s)).filter((a) => a.act === 'callback')).toMatchObject([{ outcome: 'posted' }]);
+    // The rematch in their matchup room; the turned-down offer only in their DM, without terms.
+    const callbackActs = (await acts(s)).filter((a) => a.act === 'callback');
+    expect(callbackActs.map((a) => [a.roomId, a.outcome])).toEqual([
+      [MATCHUP, 'posted'],
+      [DM_3, 'posted']
+    ]);
   });
 });

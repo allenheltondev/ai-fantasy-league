@@ -301,7 +301,12 @@ export async function lookSocial(
   const opportunity =
     ctx.ablations?.has('no_social_acts') === true
       ? NO_OPPORTUNITY
-      : await lookOpportunities(ctx, { rooms: listed.rooms, postsLeft, seed: `${seed}:board` });
+      : await lookOpportunities(ctx, {
+          rooms: listed.rooms,
+          postsLeft,
+          seed: `${seed}:board`,
+          trade: look.trade.prep
+        });
   const answer = opportunity.answer;
   social.act = opportunity.act;
   social.followUps = opportunity.followUps;
