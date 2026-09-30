@@ -491,7 +491,7 @@ export function settleReply(
     key: string;
     owner: string;
     at: string;
-    state: 'sent' | 'withheld' | 'suppressed';
+    state: 'claimed' | 'sent' | 'withheld' | 'suppressed';
     failure?: string;
   }
 ): CommitmentBook {
@@ -505,7 +505,10 @@ export function settleReply(
       state: input.state,
       updatedAt: input.at,
       owner: null,
-      leaseUntil: null,
+      leaseUntil:
+        input.state === 'claimed'
+          ? new Date(Date.parse(input.at) + COMMITMENT_LIMITS.replyRetryMs).toISOString()
+          : null,
       nextAttemptAt:
         input.state === 'withheld'
           ? new Date(Date.parse(input.at) + COMMITMENT_LIMITS.replyRetryMs).toISOString()

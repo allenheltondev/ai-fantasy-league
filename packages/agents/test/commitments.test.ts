@@ -828,6 +828,88 @@ describe('commitments: the runtime edges (#215)', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it('does not post from a recovery claim discarded by a commitment CAS retry', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE, key: `trade_interest:${pitch.id}#0` };
+    const closing = { ...(await context(s, 'recovery-cas-close')), taskId: next.taskId };
+    vi.spyOn(closing.tools, 'call').mockResolvedValue({
+      error: { code: 'RATE_LIMITED', message: 'Later.', fix: 'Wait.' }
+    });
+    await closeLook(
+      closing,
+      ref,
+      { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' },
+      failureLines('autopilot')
+    );
+
+    s.clock.advance(6 * 60_000);
+    const recovery = await context(s, 'recovery-cas-loser');
+    const access = recovery.commitments!;
+    recovery.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        const initial = await access.read(tenure);
+        change(initial); // This candidate loses the conditional write.
+        const current = initial.commitments.find((c) => c.id === ref.id)!;
+        const winner = claimReply(initial, ref.id, {
+          at: s.clock.now().toISOString(),
+          owner: 'competing-recovery',
+          text: current.reply!.text,
+          expiresAt: current.reply!.expiresAt!
+        });
+        return change(winner.book); // Retry observes the competing lease.
+      }
+    };
+    const post = vi.spyOn(recovery.tools, 'call');
+    expect(await deliverReply(recovery, ref)).toBe('unavailable');
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('keeps the same delivery key while an idempotency operation is still in progress', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE, key: `trade_interest:${pitch.id}#0` };
+    const closing = { ...(await context(s, 'lock-close')), taskId: next.taskId };
+    vi.spyOn(closing.tools, 'call').mockResolvedValue({
+      error: { code: 'RATE_LIMITED', message: 'Later.', fix: 'Wait.' }
+    });
+    await closeLook(
+      closing,
+      ref,
+      { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' },
+      failureLines('autopilot')
+    );
+
+    s.clock.advance(6 * 60_000);
+    const locked = await context(s, 'lock-recovery');
+    const lockedPost = vi.spyOn(locked.tools, 'call').mockResolvedValue({
+      error: { code: 'IDEMPOTENCY_IN_PROGRESS', message: 'Running.', fix: 'Wait.' }
+    });
+    expect(await deliverReply(locked, ref)).toBe('deferred');
+    expect(await only(s)).toMatchObject({
+      reply: { state: 'claimed', attempts: 2, owner: null, failure: 'IDEMPOTENCY_IN_PROGRESS' }
+    });
+    const lockedKey = lockedPost.mock.calls[0]?.[2];
+
+    s.clock.advance(4 * 60_000);
+    expect(await reviewCommitments(await context(s, 'too-soon'))).toEqual([]);
+    s.clock.advance(2 * 60_000);
+    const retry = await context(s, 'lock-retry');
+    const retryPost = vi.spyOn(retry.tools, 'call').mockResolvedValue({
+      data: { messageId: 'already-persisted' },
+      league: null,
+      warnings: []
+    });
+    expect(await deliverReply(retry, ref)).toBe('sent');
+    expect(retryPost.mock.calls[0]?.[2]).toEqual(lockedKey);
+    expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 2, failure: null } });
+  });
+
   it('settles recovered replies when the seat changed or the room is permanently unavailable', async () => {
     const pending = async () => {
       const s = await interest(STUBBORN, 170);

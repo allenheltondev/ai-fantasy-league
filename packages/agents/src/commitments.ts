@@ -219,22 +219,20 @@ export async function deliverReply(
   const access = ctx.commitments;
   if (access === undefined) return 'unavailable';
   const at = ctx.clock.now().toISOString();
-  let claimed: Commitment | null = null;
-  await access.update(ref.tenure, (book) => {
+  const persisted = await access.update(ref.tenure, (book) => {
     const c = book.commitments.find((x) => x.id === ref.id && x.reply?.key === ref.key);
     if (c === undefined || c.reply === null) return book;
-    const result = claimReply(book, ref.id, {
+    return claimReply(book, ref.id, {
       at,
       owner: ctx.taskId,
       text: c.reply.text,
       ...(c.reply.expiresAt === null ? {} : { expiresAt: c.reply.expiresAt })
-    });
-    if (result.claimed) claimed = result.book.commitments.find((x) => x.id === ref.id) ?? null;
-    return result.book;
+    }).book;
   });
-  const c = claimed as Commitment | null;
-  if (c === null || c.reply === null) {
-    const current = (await access.read(ref.tenure)).commitments.find((x) => x.id === ref.id)?.reply;
+  const c = persisted.commitments.find((x) => x.id === ref.id) ?? null;
+  const claimed = c?.reply?.key === ref.key && c.reply.state === 'claimed' && c.reply.owner === ctx.taskId;
+  if (!claimed || c === null || c.reply === null) {
+    const current = c?.reply;
     const outcome =
       current?.state === 'expired'
         ? 'expired'
@@ -245,7 +243,7 @@ export async function deliverReply(
       ctx.log.info('commitment reply terminal', { commitmentId: ref.id, outcome, reason: current?.failure });
     return outcome;
   }
-  const settle = async (state: 'sent' | 'withheld' | 'suppressed', failure?: string) => {
+  const settle = async (state: 'claimed' | 'sent' | 'withheld' | 'suppressed', failure?: string) => {
     await access.update(ref.tenure, (book) =>
       settleReply(book, ref.id, {
         key: ref.key,
@@ -273,6 +271,15 @@ export async function deliverReply(
     { key: replyToolKey(ctx, c), global: true }
   );
   if ('error' in posted) {
+    if (posted.error.code === 'IDEMPOTENCY_IN_PROGRESS') {
+      await settle('claimed', posted.error.code);
+      ctx.log.info('commitment reply deferred', {
+        commitmentId: ref.id,
+        reason: posted.error.code,
+        attempts: c.reply.attempts
+      });
+      return 'deferred';
+    }
     const terminal = permanentReplyFailure(posted.error.code);
     await settle(terminal ? 'suppressed' : 'withheld', posted.error.code);
     ctx.log.info(terminal ? 'commitment reply suppressed' : 'commitment reply deferred', {
@@ -329,7 +336,14 @@ export async function closeLook(
       { key: replyToolKey(ctx, closed), global: true }
     );
     const failure = 'error' in posted ? posted.error.code : undefined;
-    const state = failure === undefined ? 'sent' : permanentReplyFailure(failure) ? 'suppressed' : 'withheld';
+    const state =
+      failure === undefined
+        ? 'sent'
+        : failure === 'IDEMPOTENCY_IN_PROGRESS'
+          ? 'claimed'
+          : permanentReplyFailure(failure)
+            ? 'suppressed'
+            : 'withheld';
     await access.update(ref.tenure, (book) =>
       settleReply(book, ref.id, {
         key: replyKey(closed),
