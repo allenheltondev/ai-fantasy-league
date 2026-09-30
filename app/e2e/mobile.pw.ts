@@ -511,8 +511,9 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByRole('region', { name: `${SEASON_WHO}'s Team` })).toBeVisible();
       await expectFits(page, 'matchup');
 
-      // The bell sits in the header bar under the top bar (#178), never folded into the menu, with
-      // its count in view, beside the league switcher.
+      // The bell sits in the top bar beside the menu button, never folded into the menu, with its
+      // count in view. There is no bar over the page: you switch leagues from My Leagues.
+      const menuButton = page.getByRole('button', { name: 'Toggle navigation' });
       const bell = page.getByRole('button', { name: /^Notifications/ });
       await expect(bell).toHaveAccessibleName('Notifications, 12 unread');
       await expect(bell).toBeInViewport();
@@ -520,14 +521,18 @@ for (const viewport of VIEWPORTS) {
       const bellBox = await bell.boundingBox();
       expect(bellBox?.height ?? 0).toBeGreaterThanOrEqual(44);
       expect(bellBox?.width ?? 0).toBeGreaterThanOrEqual(44);
-      await expect(page.getByLabel('League')).toBeInViewport();
+      const menuBox = await menuButton.boundingBox();
+      expect(Math.abs((bellBox?.y ?? 0) - (menuBox?.y ?? 100))).toBeLessThanOrEqual(2);
+      expect((bellBox?.x ?? 0) + (bellBox?.width ?? 0)).toBeLessThanOrEqual(menuBox?.x ?? 0);
+      await expect(page.getByRole('combobox', { name: 'League' })).toHaveCount(0);
       // On a phone the side nav folds into the top bar's menu. Its button carries a dot while
-      // something inside has a badge: My Team › Trades, with the offers waiting.
-      const menuButton = page.getByRole('button', { name: 'Toggle navigation' });
+      // something inside has a badge: Moves, with the trade offers waiting.
       await expect(menuButton).toHaveClass(/app-nav-menu-btn-badged/);
       await menuButton.tap();
       const sections = page.getByRole('navigation', { name: 'Primary navigation' });
-      await expect(sections.getByRole('link', { name: 'Trades 2 offers waiting' })).toBeVisible();
+      await expect(sections.getByRole('link', { name: 'Moves 2 trade offers waiting' })).toBeVisible();
+      // One item per job keeps the menu short: My Leagues and ten league items at most.
+      expect(await sections.getByRole('link').count()).toBeLessThanOrEqual(11);
       await expectFits(page, 'league menu');
       await menuButton.tap();
       await expect(sections).toBeHidden();

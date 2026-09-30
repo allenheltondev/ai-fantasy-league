@@ -9,7 +9,10 @@ import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
 import { CreateLeagueWizard } from '../features/create/CreateLeagueWizard';
 import { MyLeaguesPage } from '../features/leagues/MyLeaguesPage';
+import { PageTabs } from '../layout/PageTabs';
 import { pageName } from '../layout/pageTitle';
+import { countLabel } from '../notifications/types';
+import { useNotifications } from '../notifications/NotificationsContext';
 import { useLoad } from '../lib/useLoad';
 import { LoadingSkeleton } from '../motion/decor';
 import { supportsViewTransitions } from '../motion/pageTransition';
@@ -55,6 +58,7 @@ export function LeagueLayout() {
   const state = current?.state ?? null;
   const data = state?.data ?? null;
   const yourTeamId = data?.yourTeam?.id ?? null;
+  const offers = useNotifications().offersWaiting(leagueId);
   // Remember the league as soon as you open it (#212), not once it loads: leaving quickly still
   // counts. `/` checks you are still a member before going back in, and forgets it if not.
   useEffect(() => {
@@ -78,6 +82,19 @@ export function LeagueLayout() {
       <PlayerCardProvider leagueId={leagueId}>
         <h1 className="sr-only">{heading}</h1>
         <LeagueNotifications leagueId={leagueId} yourTeamId={yourTeamId} />
+        {/* A nav item's other pages (Matchup | Scoreboard), outside the cross-fade so they hold still. */}
+        <PageTabs
+          badges={
+            offers > 0
+              ? {
+                  'team/trades': {
+                    count: countLabel(offers),
+                    label: `${countLabel(offers)} ${offers === 1 ? 'offer' : 'offers'} waiting`
+                  }
+                }
+              : {}
+          }
+        />
         {/* The draft room sizes itself to this column, not the whole screen (#173). Browsers with
             view transitions cross-fade on section clicks; the rest get a quick rise-in. */}
         <div

@@ -166,11 +166,11 @@ describe('the notification bell', () => {
     expect(await screen.findByText('The inbox is unavailable.')).toBeInTheDocument();
   });
 
-  it('badges My Team › Trades in the league nav with the offers waiting on you', async () => {
+  it('badges Moves in the league nav with the offers waiting on you', async () => {
     signInAs(ALICE);
     renderApp('/leagues/L1/matchup', undefined, api());
     const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
-    const trades = await within(nav).findByRole('link', { name: 'Trades 1 offer waiting' });
+    const trades = await within(nav).findByRole('link', { name: 'Moves 1 trade offer waiting' });
     expect(trades.querySelector('.app-nav-link-badge-error')).toHaveTextContent('1');
   });
 
@@ -200,7 +200,9 @@ describe('the notification panel, one league', () => {
     const fake = api(ONE);
     renderApp('/leagues/L1/matchup', undefined, fake);
     const nav = await screen.findByRole('navigation', { name: 'Primary navigation' });
-    expect(await within(nav).findByRole('link', { name: 'Trades 2 offers waiting' })).toBeInTheDocument();
+    expect(
+      await within(nav).findByRole('link', { name: 'Moves 2 trade offers waiting' })
+    ).toBeInTheDocument();
     await waitFor(() => expect(bell()).toHaveAccessibleName('Notifications, 1 unread'));
     await user.click(bell());
     const panel = await screen.findByRole('dialog', { name: 'Notifications' });

@@ -4,7 +4,7 @@ import { handle, signInAs } from './support';
 /**
  * The league shell (#178) against the local API server: the side nav beside every league page, My
  * Team's profile (a new name and avatar that then show across the league), another team read-only
- * with "Propose trade" as its only action, and the quiet header bar with the league switcher.
+ * with "Propose trade" as its only action, and the side nav's items with their pages as tabs.
  */
 
 async function createLeague(context: BrowserContext, who: string): Promise<string> {
@@ -33,7 +33,7 @@ test('a manager renames the team and picks an avatar that shows across the leagu
   // Before the draft it has its own place in the nav.
   await expect(nav.getByRole('link', { name: 'Draft' })).toBeVisible();
 
-  await nav.getByRole('link', { name: 'Team profile' }).click();
+  await nav.getByRole('link', { name: 'Teams' }).click();
   await expect(page).toHaveURL(/\/team\/profile$/);
   await page.getByLabel('Team name').fill('Gridiron Gang');
   await page.getByRole('button', { name: 'New avatar' }).click();
@@ -77,26 +77,33 @@ test('another team is read-only, with Propose trade as its only action', async (
   await context.close();
 });
 
-test('the side nav groups the league under a quiet header bar', async ({ browser }) => {
+test('the side nav lists the league under its name, one item per job', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await signInAs(context, 'season-e2e');
   const page = await context.newPage();
   await page.goto('/leagues/demo-season/team/lineup');
   const nav = page.getByRole('navigation', { name: 'Primary navigation' });
   await expect(nav.getByRole('link', { name: 'Lineup' })).toHaveAttribute('aria-current', 'page');
-  await expect(nav.locator('.app-nav-section-title')).toHaveText(['League', 'My Team']);
+  await expect(nav.locator('.app-nav-section-title')).toHaveText(['Demo Season']);
   // After the draft, its results live with the league's other pages.
   await expect(nav.getByRole('link', { name: 'Draft', exact: true })).toHaveCount(0);
   // The rail sits beside the page and stays put while it scrolls.
   const rail = await page.locator('.app-nav-side').boundingBox();
   expect(rail?.x ?? -1).toBe(0);
   expect(rail?.height ?? 0).toBeGreaterThanOrEqual(900 - 1);
-  // The header bar holds the league switcher and the bell; the sections are only in the side nav.
-  await expect(page.getByLabel('League')).toHaveValue('demo-season');
+  // No bar over the page: the bell sits with the rail's actions, and you switch leagues from My Leagues.
+  await expect(page.getByRole('combobox', { name: 'League' })).toHaveCount(0);
+  await expect(nav.getByRole('link', { name: 'My Leagues' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Notifications/ })).toBeVisible();
-  await nav.getByRole('link', { name: 'Scoreboard' }).click();
+  // An item's other pages are tabs over the page.
+  await nav.getByRole('link', { name: 'Matchup' }).click();
+  await page
+    .getByRole('navigation', { name: 'Matchup pages' })
+    .getByRole('link', { name: 'Scoreboard' })
+    .click();
   await expect(page).toHaveURL(/\/league\/scoreboard$/);
-  for (const name of ['Standings', 'Playoffs', 'Transactions', 'Players']) {
+  await expect(nav.getByRole('link', { name: 'Matchup' })).toHaveAttribute('aria-current', 'page');
+  for (const name of ['Standings', 'Players', 'Teams']) {
     await expect(nav.getByRole('link', { name })).toBeVisible();
   }
   // The commissioner's last item is Settings, everyone else's League info.

@@ -69,8 +69,8 @@ describe('signed in', () => {
     renderApp('/leagues/L1');
     expect(await screen.findByTestId('league-section-home')).toBeInTheDocument();
     expect(await screen.findByRole('region', { name: 'Draft' })).toBeInTheDocument();
-    // The header bar names the league and the side nav the page, so the page's h1 is for screen
-    // readers only, named after the page (#212).
+    // The side nav names the league and the page, so the page's h1 is for screen readers only,
+    // named after the page (#212).
     expect(await screen.findByRole('heading', { level: 1, name: 'Home' })).toHaveClass('sr-only');
     expect(screen.queryByRole('heading', { name: 'Sunday Funday' })).not.toBeInTheDocument();
     await waitFor(() => expect(document.title).toBe('Home · Sunday Funday · AI Fantasy Football'));
@@ -80,32 +80,26 @@ describe('signed in', () => {
     expect(link('My Leagues')).toHaveAttribute('href', '/leagues');
     // In setup the Draft is its own section.
     expect(link('Draft')).toHaveAttribute('href', '/leagues/L1/draft');
+    // One item per job; the pages under it are tabs on the page.
     for (const [name, page] of [
-      ['Scoreboard', 'scoreboard'],
-      ['Standings', 'standings'],
-      ['Playoffs', 'playoffs'],
-      ['Transactions', 'transactions'],
-      ['Players', 'players']
+      ['Lineup', 'team/lineup'],
+      ['Matchup', 'team/matchup'],
+      ['Moves', 'team/moves'],
+      ['Standings', 'league/standings'],
+      ['Players', 'league/players'],
+      ['Chat', 'chat'],
+      ['Teams', 'team/profile'],
+      ['Settings', 'settings']
     ] as const) {
-      expect(link(name)).toHaveAttribute('href', `/leagues/L1/league/${page}`);
+      expect(link(name)).toHaveAttribute('href', `/leagues/L1/${page}`);
     }
-    expect(link('Chat')).toHaveAttribute('href', '/leagues/L1/chat');
-    expect(link('Settings')).toHaveAttribute('href', '/leagues/L1/settings');
-    for (const [name, page] of [
-      ['Lineup', 'lineup'],
-      ['Matchup', 'matchup'],
-      ['Roster & moves', 'moves'],
-      ['Trades', 'trades'],
-      ['Achievements', 'achievements'],
-      ['Team profile', 'profile'],
-      ['Other teams', 'teams']
-    ] as const) {
-      expect(link(name)).toHaveAttribute('href', `/leagues/L1/team/${page}`);
+    for (const name of ['Scoreboard', 'Playoffs', 'Transactions', 'Trades', 'Achievements', 'Other teams']) {
+      expect(within(nav).queryByRole('link', { name })).not.toBeInTheDocument();
     }
+    // The league's items sit under its name: there is no league switcher over the page.
     const headings = [...nav.querySelectorAll('.app-nav-section-title')].map((h) => h.textContent);
-    expect(headings).toEqual(['League', 'My Team']);
-    // The header bar switches leagues; the side nav carries the sections, so it has no links.
-    expect(screen.getByLabelText('League')).toHaveValue('L1');
+    expect(headings).toEqual(['Sunday Funday']);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
   it('lists My Leagues and Create League outside a league', async () => {
@@ -126,13 +120,28 @@ describe('signed in', () => {
     renderApp('/leagues/L1/draft');
     expect(await screen.findByTestId('league-section-draft')).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    await user.click(within(nav).getByRole('link', { name: 'Trades' }));
+    await user.click(within(nav).getByRole('link', { name: 'Moves' }));
+    expect(await screen.findByTestId('team-page-moves')).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'Moves' })).toHaveAttribute('aria-current', 'page');
+    // The item's other pages are tabs over the page, and the item stays current on them.
+    const tabs = screen.getByRole('navigation', { name: 'Moves pages' });
+    expect(within(tabs).getByRole('link', { name: 'Roster & moves' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
+    await user.click(within(tabs).getByRole('link', { name: 'Trades' }));
     expect(await screen.findByTestId('league-section-trades')).toBeInTheDocument();
-    expect(within(nav).getByRole('link', { name: 'Trades' })).toHaveAttribute('aria-current', 'page');
-    await user.click(within(nav).getByRole('link', { name: 'Scoreboard' }));
+    expect(within(nav).getByRole('link', { name: 'Moves' })).toHaveAttribute('aria-current', 'page');
+    await user.click(within(nav).getByRole('link', { name: 'Matchup' }));
+    const matchupTabs = await screen.findByRole('navigation', { name: 'Matchup pages' });
+    await user.click(within(matchupTabs).getByRole('link', { name: 'Scoreboard' }));
     expect(await screen.findByTestId('league-page-scoreboard')).toBeInTheDocument();
     await user.click(within(nav).getByRole('link', { name: 'Standings' }));
     expect(await screen.findByTestId('league-section-standings')).toBeInTheDocument();
+    // A page alone under its item has no tabs.
+    await user.click(within(nav).getByRole('link', { name: 'Chat' }));
+    expect(await screen.findByTestId('league-section-chat')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: /pages$/ })).not.toBeInTheDocument();
   });
 
   it.each([

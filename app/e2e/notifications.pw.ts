@@ -105,14 +105,17 @@ test('a trade offer that arrives while you are away is on the bell at sign-in; o
   await expect(page.locator('[aria-current="true"]').getByTestId(`trade-${tradeId}`)).toBeVisible();
   await expect(page.getByRole('region', { name: 'Inbox' })).toContainText('sends Lamar Jackson');
 
-  // The bell is clear; My Team › Trades in the side nav still shows the offer waiting on your answer.
+  // The bell is clear; Moves in the side nav and its Trades tab still show the offer waiting on your answer.
   await expect(bell).toHaveAccessibleName('Notifications');
   await expect(bell.getByTestId('notification-count')).toHaveCount(0);
   const tradesTab = page
     .getByRole('navigation', { name: 'Primary navigation' })
-    .getByRole('link', { name: /^Trades/ });
-  await expect(tradesTab).toHaveAccessibleName('Trades 1 offer waiting');
+    .getByRole('link', { name: /^Moves/ });
+  await expect(tradesTab).toHaveAccessibleName('Moves 1 trade offer waiting');
   await expect(tradesTab.locator('.app-nav-link-badge')).toContainText('1');
+  await expect(
+    page.getByRole('navigation', { name: 'Moves pages' }).getByRole('link', { name: /^Trades/ })
+  ).toHaveAccessibleName('Trades 1 offer waiting');
 
   // Answering it clears the Trades badge.
   await page.getByRole('region', { name: 'Inbox' }).getByRole('button', { name: 'Reject' }).first().click();
