@@ -1,6 +1,7 @@
 import {
   MANIPULATION_PROBES,
   advanceCommitment,
+  claimReply,
   recordAcquisition,
   resolveAgentConfig,
   type AgentSeatConfig,
@@ -730,6 +731,101 @@ describe('commitments: the runtime edges (#215)', () => {
     );
     expect((await answers(s, pitch)).filter((m) => m.includes('Nothing was sent.'))).toHaveLength(1);
     expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 1 } });
+  });
+
+  it('reuses a reconsidered look fresh reply key after its post acknowledgement is lost', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const first = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE };
+    const firstCtx = { ...(await context(s, 'first-look')), taskId: first.taskId };
+    await closeLook(
+      firstCtx,
+      ref,
+      { type: 'closed', taskId: first.taskId, status: 'declined', reason: 'value_below_floor' },
+      { dm: 'First pass.', room: 'First pass.' }
+    );
+    await firstCtx.commitments!.update(TENURE, (book) => ({
+      ...book,
+      commitments: book.commitments.map((c) =>
+        c.id === ref.id && c.reply !== null ? { ...c, reply: { ...c.reply, attempts: 3 } } : c
+      )
+    }));
+
+    s.clock.advance(DAY);
+    const secondTask = taskIdFor('reconsider-crash', AGENT_TEAM, 'trade_proposal');
+    await firstCtx.commitments!.update(
+      TENURE,
+      (book) =>
+        advanceCommitment(
+          book,
+          ref.id,
+          { type: 'redispatch', taskId: secondTask, mode: 'reconsider' },
+          s.clock.now().toISOString()
+        ).book
+    );
+    const secondCtx = { ...(await context(s, 'reconsider-crash')), taskId: secondTask };
+    const access = secondCtx.commitments!;
+    let writes = 0;
+    secondCtx.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        writes++;
+        if (writes === 2) throw new Error('crashed before acknowledging reconsidered reply');
+        return access.update(tenure, change);
+      }
+    };
+    const again = 'Looked again and still passed.';
+    await expect(
+      closeLook(
+        secondCtx,
+        ref,
+        { type: 'closed', taskId: secondTask, status: 'declined', reason: 'value_below_floor' },
+        { dm: again, room: again }
+      )
+    ).rejects.toThrow('crashed');
+    expect(await only(s)).toMatchObject({
+      reconsiderations: 1,
+      reply: { key: `${ref.id}#1`, state: 'claimed', attempts: 1 }
+    });
+    expect((await answers(s, pitch)).filter((line) => line === again)).toHaveLength(1);
+
+    s.clock.advance(3 * 60_000);
+    const recovery = await context(s, 'reconsider-recovery');
+    const follow = (await reviewCommitments(recovery))[0]!;
+    expect(follow).toMatchObject({ kind: 'commitment_reply', payload: { key: `${ref.id}#1` } });
+    expect(await deliverReply(recovery, { id: ref.id, tenure: TENURE, key: `${ref.id}#1` })).toBe('sent');
+    expect((await answers(s, pitch)).filter((line) => line === again)).toHaveLength(1);
+  });
+
+  it('does not post from a claim discarded by a commitment CAS retry', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE };
+    const ctx = { ...(await context(s, 'cas-loser')), taskId: next.taskId };
+    const access = ctx.commitments!;
+    const event = { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' } as const;
+    const lines = failureLines('autopilot');
+    ctx.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        const initial = await access.read(tenure);
+        change(initial); // The first CAS candidate loses after claiming locally.
+        const won = advanceCommitment(initial, ref.id, event, s.clock.now().toISOString());
+        const winner = claimReply(won.book, ref.id, {
+          at: s.clock.now().toISOString(),
+          owner: 'competing-task',
+          text: lines.dm
+        });
+        return change(winner.book); // Dynamo retries the callback against the winning book.
+      }
+    };
+    const post = vi.spyOn(ctx.tools, 'call');
+    expect(await closeLook(ctx, ref, event, lines)).toMatchObject({ applied: false });
+    expect(post).not.toHaveBeenCalled();
   });
 
   it('settles recovered replies when the seat changed or the room is permanently unavailable', async () => {

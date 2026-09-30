@@ -305,27 +305,25 @@ export async function closeLook(
 ): Promise<{ applied: boolean; commitment: Commitment | null }> {
   const access = ctx.commitments as CommitmentAccess;
   const at = ctx.clock.now().toISOString();
-  let applied = false;
-  let claimed = false;
-  let commitment: Commitment | null = null;
-  await access.update(ref.tenure, (book) => {
+  const persisted = await access.update(ref.tenure, (book) => {
     const result = advanceCommitment(book, ref.id, event, at);
-    applied = result.applied;
-    commitment = result.commitment;
-    if (!applied) return book;
+    if (!result.applied) return book;
     const closed = result.commitment as Commitment;
     const text = closed.source.visibility === 'dm' ? lines.dm : lines.room;
-    const reply = claimReply(result.book, ref.id, { at, owner: ctx.taskId, text });
-    claimed = reply.claimed;
-    return reply.book;
+    return claimReply(result.book, ref.id, { at, owner: ctx.taskId, text }).book;
   });
-  const closed = commitment as Commitment | null;
-  if (claimed && closed !== null) {
+  const closed = persisted.commitments.find((c) => c.id === ref.id) ?? null;
+  const claimed =
+    closed !== null &&
+    closed.reply?.key === replyKey(closed) &&
+    closed.reply.state === 'claimed' &&
+    closed.reply.owner === ctx.taskId;
+  if (claimed && closed !== null && closed.reply !== null) {
     const posted = await ctx.tools.call(
       'post_message',
       {
         roomId: closed.source.roomId,
-        text: closed.source.visibility === 'dm' ? lines.dm : lines.room,
+        text: closed.reply.text,
         replyToId: closed.source.messageId
       },
       { key: replyToolKey(ctx, closed), global: true }
@@ -342,7 +340,7 @@ export async function closeLook(
       })
     );
   }
-  return { applied, commitment: closed };
+  return { applied: claimed, commitment: closed };
 }
 
 /** Lines for a look that ended without an offer, the reason in the agent's words (no numbers). */
