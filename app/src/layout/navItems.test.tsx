@@ -153,20 +153,49 @@ describe('the shell', () => {
     expect(screen.getByTestId('notification-bell')).toBeInTheDocument();
   });
 
-  it('badges the Trades tab with the offers waiting on you', async () => {
+  it.each([
+    [1, 'Trades 1 offer waiting'],
+    [2, 'Trades 2 offers waiting']
+  ])('badges the Trades tab with the %i offer(s) waiting on you', async (offers, name) => {
     signInAs(ALICE);
     const api = fakeApi({
       getNotificationSummary: vi.fn(async () => ({
         unreadCount: 1,
-        leagues: [{ leagueId: 'L1', name: 'Sunday Funday', unreadCount: 1, tradeOffersWaiting: 2 }]
+        leagues: [{ leagueId: 'L1', name: 'Sunday Funday', unreadCount: 1, tradeOffersWaiting: offers }]
       })) as never
     });
     renderApp('/leagues/L1/team/moves', undefined, api);
     const tabs = await screen.findByRole('navigation', { name: 'Moves pages' });
-    expect(await within(tabs).findByRole('link', { name: 'Trades 2 offers waiting' })).toHaveAttribute(
+    expect(await within(tabs).findByRole('link', { name })).toHaveAttribute(
       'href',
       '/leagues/L1/team/trades'
     );
+  });
+
+  it('puts the bell in the top bar on a phone, outside the menu, and with the rail’s actions otherwise', async () => {
+    signInAs(ALICE);
+    const view = renderApp('/leagues/L1/home');
+    const wide = await screen.findByTestId('notification-bell');
+    expect(wide.closest('.app-nav-actions')).not.toBeNull();
+    view.unmount();
+
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(max-width: 640px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined
+    })) as unknown as typeof window.matchMedia;
+    try {
+      signInAs(ALICE);
+      renderApp('/leagues/L1/home');
+      const phone = await screen.findByTestId('notification-bell');
+      expect(phone.closest('.app-nav')).toBeNull();
+      expect(phone).toHaveClass('absolute');
+      expect(screen.getAllByTestId('notification-bell')).toHaveLength(1);
+    } finally {
+      window.matchMedia = original;
+    }
   });
 
   it('shares every team with the pages, for their avatars', async () => {

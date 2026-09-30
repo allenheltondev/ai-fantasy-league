@@ -84,6 +84,7 @@ export function LeagueLayout() {
         <LeagueNotifications leagueId={leagueId} yourTeamId={yourTeamId} />
         {/* A nav item's other pages (Matchup | Scoreboard), outside the cross-fade so they hold still. */}
         <PageTabs
+          leagueId={leagueId}
           badges={
             offers > 0
               ? {

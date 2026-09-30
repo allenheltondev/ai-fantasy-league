@@ -1,22 +1,22 @@
 import { Link, useLocation, useNavigate } from 'react-router';
 import { transitionClick } from '../motion/pageTransition';
 import { leaguePath, onPage, pageGroupOf } from '../routes/leagueRoutes';
-import { leagueIdIn, leagueSubpath } from './navItems';
+import { leagueSubpath } from './navItems';
 
 /**
  * The pages under the side-nav item you are on (Matchup: My matchup | Scoreboard), as tabs across
  * the top of the page. Nothing on a page that is the only one under its item.
  */
 export function PageTabs({
+  leagueId,
   badges = {}
 }: {
+  leagueId: string;
   /** A count on a page's tab, by its path, with what it counts for screen readers. */
   badges?: Record<string, { count: string; label: string }>;
 }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const leagueId = leagueIdIn(pathname);
-  if (leagueId === null) return null;
   const subpath = leagueSubpath(pathname, leagueId);
   const group = pageGroupOf(subpath);
   if (group === null) return null;
