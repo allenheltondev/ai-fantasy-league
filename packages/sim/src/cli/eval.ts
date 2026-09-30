@@ -5,13 +5,13 @@
  *
  *   FANTASY_LIVE_EVAL=1 npm run sim:eval -w @fantasy/sim -- --budget-usd 5 --model nova-lite \
  *     --seeds eval-1,eval-2 --conditions full,no_memory,persona_only,deterministic \
- *     --report eval.json --markdown eval.md
+ *     --report eval.json --markdown eval.md --transcripts transcripts.md
  */
 import { writeFile } from 'node:fs/promises';
 import { bedrockModel } from '@fantasy/agents';
 import { readSimArchive } from '../archive/io.js';
 import { liveEvalRefusal } from '../eval/budget.js';
-import { parseEvalArgs, renderEvalReport, runLiveEval } from '../eval/live-eval.js';
+import { parseEvalArgs, renderEvalReport, renderTranscripts, runLiveEval } from '../eval/live-eval.js';
 import { archiveDir } from './archive-dir.js';
 import { parseArgs, stringArg } from './args.js';
 
@@ -39,6 +39,8 @@ async function main(): Promise<void> {
   const markdown = renderEvalReport(report);
   const md = stringArg(args, 'markdown');
   if (md) await writeFile(md, markdown);
+  const transcripts = stringArg(args, 'transcripts');
+  if (transcripts) await writeFile(transcripts, renderTranscripts(report));
   console.log(markdown);
 }
 

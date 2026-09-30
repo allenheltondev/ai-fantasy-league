@@ -9,7 +9,8 @@ import {
   type ScenarioRun
 } from '../scenarios/season-scenarios.js';
 import { BudgetedModel, PinnedModel } from './budget.js';
-import { RUBRICS, scoreRubrics, type RubricName, type RubricScore } from './rubrics.js';
+import { CLAIM_KINDS, checkClaims, tallyClaims, type ClaimKind, type ClaimTally } from './claims.js';
+import { RUBRICS, ledgerOf, scoreRubrics, type RubricName, type RubricScore } from './rubrics.js';
 
 /**
  * The opt-in live-model evaluation (#211): the season scenario run with a real model under matched
@@ -96,6 +97,10 @@ export interface EvalRunResult {
   latency: Latency;
   usage: { inputTokens: number; outputTokens: number; estimated: boolean; costUsd: number };
   rubrics: RubricScore[];
+  /** Claim-level fidelity (#247, claims.ts): per kind, how many were judged, supported, and wrong. */
+  claims: Record<ClaimKind, ClaimTally>;
+  /** Every chat line of the run, oldest first, for human review (`[time] room author: text`). */
+  transcript: string[];
   /** The scenario's hard checks, as observed (a live model may fail them). */
   checks: ScenarioCheck[];
   /** The budget ran out during this run: its later tasks fell back. */
@@ -112,8 +117,20 @@ export interface EvalReport {
   runs: EvalRunResult[];
   /** Runs not started because the budget was already spent. */
   skipped: { condition: EvalCondition; seed: string }[];
-  /** Per condition: each rubric's mean over seeds (null when never judged), with its total n. */
-  summary: Record<string, Record<RubricName, { mean: number | null; n: number }> & { fallbackRate: number }>;
+  /**
+   * Per condition: each rubric's mean over the completed runs (null when never judged), with its
+   * total n; `samples` counts those runs, and `excluded` the runs the budget cut short (#247: a
+   * truncated run never counts as a live sample).
+   */
+  summary: Record<
+    string,
+    Record<RubricName, { mean: number | null; n: number }> & {
+      fallbackRate: number;
+      samples: number;
+      excluded: number;
+      claims: Record<ClaimKind, { n: number; supported: number }>;
+    }
+  >;
 }
 
 export function latencyOf(runs: readonly ModelRun[]): Latency {
@@ -159,6 +176,14 @@ function summarize(
       costUsd: totals.costUsd
     },
     rubrics: scoreRubrics(run),
+    claims: tallyClaims(checkClaims(ledgerOf(run))),
+    transcript: [...run.chat]
+      .map((c) => c.message)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map(
+        (m) =>
+          `[${m.createdAt.slice(5, 16)}] ${m.roomId} ${m.author.name} (${m.kind}${m.author.teamId === null ? '' : `, ${m.author.teamId}`}): ${m.text}`
+      ),
     checks: checkScenarios(run),
     budgetExhausted: exhausted
   };
@@ -167,7 +192,9 @@ function summarize(
 function summaryOf(runs: readonly EvalRunResult[]): EvalReport['summary'] {
   const out: EvalReport['summary'] = {};
   for (const condition of new Set(runs.map((r) => r.condition))) {
-    const mine = runs.filter((r) => r.condition === condition);
+    const all = runs.filter((r) => r.condition === condition);
+    // A run the budget cut short fell back part way: it is not a sample of the live model.
+    const mine = all.filter((r) => !r.budgetExhausted);
     const rubrics = Object.fromEntries(
       RUBRICS.map((name) => {
         const scored = mine.flatMap((r) => r.rubrics.filter((s) => s.rubric === name && s.score !== null));
@@ -180,8 +207,25 @@ function summaryOf(runs: readonly EvalRunResult[]): EvalReport['summary'] {
       })
     ) as Record<RubricName, { mean: number | null; n: number }>;
     const fallbackRate =
-      Math.round((mine.reduce((a, r) => a + r.fallbackRate, 0) / mine.length) * 1000) / 1000;
-    out[condition] = { ...rubrics, fallbackRate };
+      mine.length === 0
+        ? 0
+        : Math.round((mine.reduce((a, r) => a + r.fallbackRate, 0) / mine.length) * 1000) / 1000;
+    const claims = Object.fromEntries(
+      CLAIM_KINDS.map((k) => [
+        k,
+        {
+          n: mine.reduce((a, r) => a + r.claims[k].n, 0),
+          supported: mine.reduce((a, r) => a + r.claims[k].supported, 0)
+        }
+      ])
+    ) as Record<ClaimKind, { n: number; supported: number }>;
+    out[condition] = {
+      ...rubrics,
+      fallbackRate,
+      samples: mine.length,
+      excluded: all.length - mine.length,
+      claims
+    };
   }
   return out;
 }
@@ -240,6 +284,19 @@ export async function runLiveEval(options: LiveEvalOptions): Promise<EvalReport>
 
 const cell = (v: number | null) => (v === null ? '–' : v.toFixed(2));
 
+/** Every run's chat, for human review: one section per run. */
+export function renderTranscripts(report: EvalReport): string {
+  const lines = ['# Agent evaluation transcripts', ''];
+  for (const r of report.runs)
+    lines.push(
+      `## ${r.condition} / ${r.seed}${r.budgetExhausted ? ' (budget ran out: not a live sample)' : ''}`,
+      '',
+      ...r.transcript.map((t) => `- ${t.replace(/\n/g, ' ')}`),
+      ''
+    );
+  return `${lines.join('\n')}\n`;
+}
+
 /** The evaluation as markdown: the summary by condition, then each run. */
 export function renderEvalReport(report: EvalReport): string {
   const lines = [
@@ -247,16 +304,27 @@ export function renderEvalReport(report: EvalReport): string {
     '',
     `Seeds: ${report.seeds.join(', ')}. Weeks: ${report.weeks}. Model: ${report.modelKey ?? 'each seat’s own tier'}. Budget $${report.budgetUsd}, spent $${report.spentUsd.toFixed(4)} (estimated from the catalog).`,
     '',
-    'Scores are means over seeds (n = items judged). Heuristic rubrics; see docs/agent-eval.md for their limits.',
+    'Scores are means over the completed runs (n = items judged; a run the budget cut short is excluded and counted apart). Heuristic rubrics; see docs/agent-eval.md for their limits.',
     '',
-    `| Condition | ${RUBRICS.join(' | ')} | Fallback rate |`,
-    `|---|${RUBRICS.map(() => '---').join('|')}|---|`
+    `| Condition | Samples | ${RUBRICS.join(' | ')} | Fallback rate |`,
+    `|---|---|${RUBRICS.map(() => '---').join('|')}|---|`
   ];
   for (const [condition, s] of Object.entries(report.summary)) {
     lines.push(
-      `| ${condition} | ${RUBRICS.map((r) => `${cell(s[r].mean)} (n ${s[r].n})`).join(' | ')} | ${s.fallbackRate} |`
+      `| ${condition} | ${s.samples}${s.excluded > 0 ? ` (+${s.excluded} cut short)` : ''} | ${RUBRICS.map((r) => `${cell(s[r].mean)} (n ${s[r].n})`).join(' | ')} | ${s.fallbackRate} |`
     );
   }
+  lines.push(
+    '',
+    'Claims supported / judged, by kind (claims.ts; n = 0 means none was made, not that none would be wrong):',
+    '',
+    `| Condition | ${CLAIM_KINDS.join(' | ')} |`,
+    `|---|${CLAIM_KINDS.map(() => '---').join('|')}|`
+  );
+  for (const [condition, s] of Object.entries(report.summary))
+    lines.push(
+      `| ${condition} | ${CLAIM_KINDS.map((k) => `${s.claims[k].supported}/${s.claims[k].n}`).join(' | ')} |`
+    );
   if (report.skipped.length > 0)
     lines.push(
       '',

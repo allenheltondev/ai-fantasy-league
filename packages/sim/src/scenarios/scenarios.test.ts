@@ -16,6 +16,7 @@ import {
   latencyOf,
   parseEvalArgs,
   renderEvalReport,
+  renderTranscripts,
   runLiveEval
 } from '../eval/live-eval.js';
 import { RUBRICS, scoreRubrics, type RubricName } from '../eval/rubrics.js';
@@ -564,6 +565,12 @@ describe('live evaluation harness (no live model)', () => {
     expect(report.spentUsd).toBeGreaterThan(0);
     expect(report.summary.deterministic?.memory_accuracy).toEqual({ mean: 0, n: 2 });
     expect(report.summary.full?.fallbackRate).toBe(full?.fallbackRate);
+    // A run the budget cut short is no live sample (#247): out of the means, counted apart.
+    expect(report.summary.no_memory).toMatchObject({ samples: 0, excluded: 1 });
+    expect(report.summary.full).toMatchObject({ samples: 1, excluded: 0 });
+    expect(full?.claims.score.n).toBeGreaterThan(0);
+    expect(full?.transcript.length).toBe(run.chat.length);
+    expect(renderTranscripts(report)).toContain('## no_memory / s1 (budget ran out: not a live sample)');
     expect(lines.some((l) => l.startsWith('full / s1: persona_consistency'))).toBe(true);
 
     const markdown = renderEvalReport(report);
@@ -571,6 +578,8 @@ describe('live evaluation harness (no live model)', () => {
     expect(markdown).toContain('| deterministic | ');
     expect(markdown).toContain('Skipped (budget spent): full/s2, no_memory/s2.');
     expect(markdown).toContain('**Budget ran out during this run.**');
+    expect(markdown).toContain('| no_memory | 0 (+1 cut short) |');
+    expect(markdown).toContain('Claims supported / judged, by kind');
     expect(
       renderEvalReport({
         ...report,

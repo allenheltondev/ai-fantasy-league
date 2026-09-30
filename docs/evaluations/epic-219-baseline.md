@@ -36,9 +36,18 @@ Season-layer means over three seeds (change from `full` in brackets), and accept
 
 What the numbers say, and do not:
 
-- **The new state costs nothing measurable.** Model calls, tokens, and message volume stay within about 1% of every ablation, and no configuration came near a chat budget (at most 5 messages from one agent in a day against 25). The epic's aim, continuity without more volume or spend, holds on this baseline.
+- **The new state's cost is small, and within the spread between seeds.** Against `full`, per metric (corrected in #247; an earlier version of this page said "within about 1% of every ablation", which the tables do not support):
+
+  | Configuration | Agent messages | Model calls | Input tokens | Est. cost |
+  |---|---|---|---|---|
+  | `no_agenda_commitments` | −1.3% | +1.3% | +1.2% | +3.0% |
+  | `no_situation` | 0% | +0.1% | −2.4% | −2.2% |
+  | `no_attachments` | −4.8% | −0.8% | −0.8% | −1.0% |
+  | `no_social_acts` | +2.2% | +0.1% | +0.2% | +0.04% |
+
+  The largest differences are messages (−4.8% without attachments) and cost (+3.0% without agenda and commitments, since a pitch then takes #196's plain look with its own model call). Seeds alone move messages from 69 to 80 in `full`. No configuration came near a chat budget (at most 5 messages from one agent in a day against 25). On this baseline the epic's aim, continuity without more volume or spend, holds; cost is the scripted model's estimate (see Caveats).
 - **Agenda and commitments are what the acceptance scenario rests on.** Without them the same pitch gets #196's plain look: no goal, no commitment, no recorded reason, no closing line after a decline, and no reconsideration after the second injury. The manager never comes back to the person. Six of the seven checks fail for all three managers; only the audience check still holds.
-- **Social acts reduce repetition.** Without the selector, repeated agent lines rise from 24 to 31 per season (+29%) and messages rise slightly, because a board roll falls back to generic league news.
+- **Social acts reduce repetition, in scripted text.** With the selector there are 24 repeated agent lines per season against 31 without it: about 23% fewer with social acts, or about 29% more when they are switched off (not "29% fewer", as an earlier comment on #218 put it). Messages rise slightly without it, because a board roll falls back to generic league news. This is the scripted model's canned text, not a live-model repetition result.
 - **Situation is nearly inert over three weeks.** A heuristic label needs two consecutive finalized weeks and three final games (ADR 005), so on the fixture it barely engages; only prompt tokens change (−17k). A full-season archive is needed to measure it.
 - **Attachments move trades, and everything after them.** Without the premium one more trade was processed across three seeds, and the diverging rosters changed waiver churn (−6.3 adds). With three seeds this is within the variation between seeds (38 to 55 adds in `full`), so treat it as a direction to look at, not an effect.
 
@@ -166,6 +175,8 @@ Reported, not changed:
 - The trade-happy proposal floor (above).
 
 ## Caveats
+
+- **Prompt context is not generated recall.** The acceptance scenario's recall check reads the memory the prompt was given (what the agent could say), not what a model said. Whether a live model's reply recalls it correctly is judged separately, by the claim checks and transcript review in [agent-eval.md](../agent-eval.md) (#247).
 
 - **Scripted model.** Every task is decided by the fake model and the deterministic code around it. Prose, persona, and whether a live model uses the new prompt context are not measured; that is the opt-in live evaluation's job. Repeated lines are inflated by the fake model's canned text; compare configurations, not the absolute count.
 - **Cost is an estimate.** Tokens are the fake model's text-length estimate at the seats' catalog prices, from the runner's usage ledger. A live model writes more and loops through tools.
