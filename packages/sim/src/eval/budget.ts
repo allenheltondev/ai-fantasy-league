@@ -104,6 +104,8 @@ export class BudgetedModel implements ModelClient {
  */
 export class PinnedModel implements ModelClient {
   readonly bedrockId: string;
+  readonly #thinkingBudget: boolean;
+  readonly #adaptiveThinking: boolean;
 
   constructor(
     readonly inner: ModelClient,
@@ -115,13 +117,32 @@ export class PinnedModel implements ModelClient {
         `Unknown model ${modelKey}. Use one of: ${MODEL_CATALOG.map((m) => m.key).join(', ')}.`
       );
     this.bedrockId = model.bedrockId;
+    this.#thinkingBudget = model.thinkingBudget === true;
+    this.#adaptiveThinking = model.adaptiveThinking === true;
   }
 
   get name(): string {
     return this.inner.name;
   }
 
+  /**
+   * The request as the pinned model takes it: its id, and only the thinking options it accepts. A
+   * seat on a Claude tier asks for thinking the pinned model may reject (#247: Nova refused
+   * `output_config`, so half the calls of a pinned run fell back).
+   */
+  pin<T>(request: ModelRunRequest<T>): ModelRunRequest<T> {
+    const { thinkingBudgetTokens, thinkingEffort, ...rest } = request;
+    return {
+      ...rest,
+      modelId: this.bedrockId,
+      ...(this.#adaptiveThinking && thinkingEffort !== undefined ? { thinkingEffort } : {}),
+      ...(this.#thinkingBudget && !this.#adaptiveThinking && thinkingBudgetTokens !== undefined
+        ? { thinkingBudgetTokens }
+        : {})
+    };
+  }
+
   run<T>(request: ModelRunRequest<T>): Promise<ModelRunResult<T>> {
-    return this.inner.run({ ...request, modelId: this.bedrockId });
+    return this.inner.run(this.pin(request));
   }
 }

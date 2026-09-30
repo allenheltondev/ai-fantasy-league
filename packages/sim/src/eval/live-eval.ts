@@ -80,8 +80,10 @@ export interface Latency {
 export interface EvalRunResult {
   condition: EvalCondition;
   seed: string;
-  /** The model client and the Bedrock ids the runs used. */
-  model: { client: string; modelIds: string[] };
+  /** The model client, the Bedrock ids called, and the ids the seats' tiers asked for. */
+  model: { client: string; modelIds: string[]; seatModelIds?: string[] };
+  /** What this run's live calls cost at the price of the model that ran them (0 for `deterministic`). */
+  liveSpendUsd: number;
   /** Each agent seat's configuration (matched across conditions by the seed). */
   config: { teamId: string; personalityId: string; difficulty: string; archetype: string }[];
   outcomes: {
@@ -144,7 +146,9 @@ function summarize(
   condition: EvalCondition,
   seed: string,
   client: string,
-  exhausted: boolean
+  exhausted: boolean,
+  liveSpendUsd = 0,
+  pinnedId: string | null = null
 ): EvalRunResult {
   const { report } = run;
   const totals = report.agents.totals;
@@ -152,7 +156,13 @@ function summarize(
   return {
     condition,
     seed,
-    model: { client, modelIds: [...new Set(run.runs.map((r) => r.modelId))].sort() },
+    // A pinned run calls one model whatever the seats' tiers; `seatModelIds` are what the seats asked for.
+    model: {
+      client,
+      modelIds: pinnedId === null ? [...new Set(run.runs.map((r) => r.modelId))].sort() : [pinnedId],
+      seatModelIds: [...new Set(run.runs.map((r) => r.modelId))].sort()
+    },
+    liveSpendUsd: Math.round(liveSpendUsd * 1e6) / 1e6,
     config: report.teams.flatMap((t) => (t.agent === null ? [] : [{ teamId: t.id, ...t.agent }])),
     outcomes: {
       champion: report.champion,
@@ -234,9 +244,9 @@ function summaryOf(runs: readonly EvalRunResult[]): EvalReport['summary'] {
 export async function runLiveEval(options: LiveEvalOptions): Promise<EvalReport> {
   const runScenario = options.runScenario ?? runSeasonScenario;
   const weeks = options.weeks ?? 3;
-  const pinned =
-    options.modelKey === undefined ? options.model : new PinnedModel(options.model, options.modelKey);
-  const budget = new BudgetedModel(pinned, options.budgetUsd);
+  // The budget sits inside the pin, so it prices each call at the model that actually runs it.
+  const budget = new BudgetedModel(options.model, options.budgetUsd);
+  const pinned = options.modelKey === undefined ? budget : new PinnedModel(budget, options.modelKey);
   const runs: EvalRunResult[] = [];
   const skipped: EvalReport['skipped'] = [];
   for (const seed of options.seeds) {
@@ -247,12 +257,13 @@ export async function runLiveEval(options: LiveEvalOptions): Promise<EvalReport>
         continue;
       }
       const refusedBefore = budget.refused;
+      const spentBefore = budget.spentUsd;
       options.log?.(`${condition} / ${seed}: running`);
       const run = await runScenario({
         archive: options.archive,
         seed,
         weeks,
-        model: live ? budget : new ScriptedModelClient(),
+        model: live ? pinned : new ScriptedModelClient(),
         transform: CONDITION_PROMPTS[condition],
         ...(isStateCondition(condition) ? { ablations: [condition] } : {})
       });
@@ -261,7 +272,9 @@ export async function runLiveEval(options: LiveEvalOptions): Promise<EvalReport>
         condition,
         seed,
         live ? budget.name : 'fake',
-        budget.refused > refusedBefore
+        budget.refused > refusedBefore,
+        live ? budget.spentUsd - spentBefore : 0,
+        live && pinned instanceof PinnedModel ? pinned.bedrockId : null
       );
       runs.push(result);
       options.log?.(
@@ -334,7 +347,7 @@ export function renderEvalReport(report: EvalReport): string {
   for (const r of report.runs) {
     const failed = r.checks.filter((c) => !c.ok).map((c) => c.name);
     lines.push(
-      `- **${r.condition} / ${r.seed}** (${r.model.client}${r.model.modelIds.length > 0 ? `: ${r.model.modelIds.join(', ')}` : ''}): champion ${r.outcomes.champion ?? '–'}, fallback rate ${r.fallbackRate}, ${r.latency.calls} model calls (p50 ${r.latency.p50Ms} ms, p95 ${r.latency.p95Ms} ms), ${r.usage.inputTokens} in / ${r.usage.outputTokens} out tokens${r.usage.estimated ? ' (estimated)' : ''}, $${r.usage.costUsd}. Checks failed: ${failed.join(', ') || 'none'}.${r.budgetExhausted ? ' **Budget ran out during this run.**' : ''}`
+      `- **${r.condition} / ${r.seed}** (${r.model.client}${r.model.modelIds.length > 0 ? `: ${r.model.modelIds.join(', ')}` : ''}): champion ${r.outcomes.champion ?? '–'}, fallback rate ${r.fallbackRate}, ${r.latency.calls} model calls (p50 ${r.latency.p50Ms} ms, p95 ${r.latency.p95Ms} ms), ${r.usage.inputTokens} in / ${r.usage.outputTokens} out tokens${r.usage.estimated ? ' (estimated)' : ''}, ${r.modelErrors} model errors, live spend $${r.liveSpendUsd.toFixed(4)} (the task ledger prices it at the seats' own tiers: $${r.usage.costUsd}). Checks failed: ${failed.join(', ') || 'none'}.${r.budgetExhausted ? ' **Budget ran out during this run.**' : ''}`
     );
   }
   return `${lines.join('\n')}\n`;

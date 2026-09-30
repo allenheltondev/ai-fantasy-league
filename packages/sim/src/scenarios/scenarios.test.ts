@@ -464,6 +464,21 @@ describe('live evaluation safety', () => {
     expect(BudgetedModel.reserve(request({ maxIterations: 0 }))).toBeLessThan(reserve);
   });
 
+  it('sends a pinned model only the thinking options it takes (#247)', () => {
+    const asked = request({
+      modelId: 'us.anthropic.claude-opus-5',
+      thinkingEffort: 'high',
+      thinkingBudgetTokens: 2048
+    });
+    const nova = new PinnedModel(new ScriptedModelClient(), 'nova-lite').pin(asked);
+    expect(nova.modelId).toBe('us.amazon.nova-lite-v1:0');
+    expect(nova).not.toHaveProperty('thinkingEffort');
+    expect(nova).not.toHaveProperty('thinkingBudgetTokens');
+    const sonnet = new PinnedModel(new ScriptedModelClient(), 'claude-sonnet-5').pin(asked);
+    expect(sonnet).toMatchObject({ thinkingEffort: 'high' });
+    expect(sonnet).not.toHaveProperty('thinkingBudgetTokens');
+  });
+
   it('pins every seat to one catalog model', async () => {
     const seen: string[] = [];
     const inner: ModelClient = {
@@ -536,7 +551,7 @@ describe('live evaluation harness (no live model)', () => {
           transformed: options.transform!('# What you remember\n- x')
         });
         // A live run spends: the second live call cannot be covered.
-        if (model instanceof BudgetedModel) await model.run(request()).catch(() => undefined);
+        if (!(model instanceof ScriptedModelClient)) await model.run(request()).catch(() => undefined);
         return clone();
       }
     });
