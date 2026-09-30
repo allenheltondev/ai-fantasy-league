@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { routeEvent } from '../src/router.js';
-import { THINKING_BUDGET, runAgentAction } from '../src/runner.js';
+import { OUTPUT_REASONING_ROOM, THINKING_BUDGET, runAgentAction } from '../src/runner.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { RESEARCH_TOOLS, agentEligible } from '../src/tools.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup } from './support.js';
@@ -53,9 +53,11 @@ describe('difficulty levers reach the model run', () => {
       expect(run?.modelId).toBe(getModel(config.models.decision[0]!).bedrockId);
       expect(run?.maxIterations).toBe(levers.maxToolSteps);
       // Reasoning effort is a real thinking budget on models that take one, on top of the response limit.
-      const thinking = getModel(config.models.decision[0]!).thinkingBudget === true;
-      const budget = thinking ? THINKING_BUDGET[levers.reasoningEffort] : 0;
-      expect(run?.maxTokens).toBe(MAX_TOKENS[levers.reasoningEffort] + budget);
+      const first = getModel(config.models.decision[0]!);
+      const budget = first.thinkingBudget === true ? THINKING_BUDGET[levers.reasoningEffort] : 0;
+      // A model that reasons in its output gets room for that on top (Kimi K2 Thinking).
+      const room = first.reasoningInOutput === true ? OUTPUT_REASONING_ROOM[levers.reasoningEffort] : 0;
+      expect(run?.maxTokens).toBe(MAX_TOKENS[levers.reasoningEffort] + budget + room);
       // Adaptive-thinking models take the effort itself; the rest take the budget.
       const adaptive = getModel(config.models.decision[0]!).adaptiveThinking === true;
       expect(run?.thinkingBudgetTokens).toBe(budget > 0 && !adaptive ? budget : undefined);
