@@ -111,6 +111,8 @@ export function LineupBoard(props: {
    * and a starter who can still move starts selected, so one tap on a bench player replaces him.
    */
   highlight?: string | null;
+  /** Players a pending trade would send away: their rows say so. */
+  onTheBlock?: ReadonlySet<string>;
 }) {
   const { data } = props;
   const api = useLeagueApi();
@@ -251,7 +253,9 @@ export function LineupBoard(props: {
     selected,
     saving,
     now: props.now,
-    highlight: spotlightId
+    highlight: spotlightId,
+    onTheBlock: props.onTheBlock ?? NOBODY,
+    openCard
   };
   const spotlightRow = spotlightId === null ? undefined : byId.get(spotlightId);
   const spotlightStatus = spotlightRow === undefined ? null : statusLabel(spotlightRow);
@@ -319,9 +323,9 @@ export function LineupBoard(props: {
       <ApiErrorAlert error={problem} />
       <p className="text-sm text-muted-foreground">
         <span className="max-sm:hidden">
-          Drag a player onto a slot, or select him and then choose where he goes.
+          Drag a player onto a slot, or select him and then choose where he goes. Click a name for his stats.
         </span>
-        <span className="sm:hidden">Tap a player, then tap where he goes.</span>
+        <span className="sm:hidden">Tap a player, then tap where he goes. Tap a name for his stats.</span>
       </p>
       <p role="status" aria-live="polite" className="sr-only" data-testid="lineup-announcer">
         {announcement}
@@ -338,7 +342,7 @@ export function LineupBoard(props: {
             </span>
           </span>
           <span className="flex shrink-0 gap-1">
-            {/* The row itself selects and drags, so a selected player's card opens from here. */}
+            {/* While a player moves, a tap on any row is a move, so his card opens from here. */}
             {openCard !== null && (
               <Button variant="ghost" size="sm" onClick={() => openCard(mover.player)} className="min-h-11">
                 Stats
@@ -474,7 +478,11 @@ interface Board {
   now: number;
   /** The player a notification pointed at (#200). */
   highlight: string | null;
+  onTheBlock: ReadonlySet<string>;
+  openCard: ((player: RosterEntry['player']) => void) | null;
 }
+
+const NOBODY: ReadonlySet<string> = new Set();
 
 /** The players a PLAYER_LOCKED refusal names (`details.lockedPlayerIds`), by name. */
 export function lockedNames(details: unknown, players: readonly RosterEntry[]): string[] {
@@ -696,6 +704,11 @@ function EmptySeat(props: { slot: string; valid: boolean; onMove: () => void }) 
   );
 }
 
+/**
+ * A player's row. The row picks him up (drag) or selects him (click, tap, Enter); his name is its
+ * own button that opens his card, so checking a player's stats never moves him. While another
+ * player is moving the whole row, name included, is a place to put him.
+ */
 function PlayerCard(props: {
   entry: RosterEntry;
   slot: string;
@@ -726,25 +739,44 @@ function PlayerCard(props: {
       : `${entry.player.name}: ${moverName} cannot go here`
     : `${selectedHere ? 'Selected: ' : ''}${entry.player.name}, ${props.slot}${entry.locked ? ', locked' : ''}`;
   const status = statusLabel(entry);
+  const openCard = actsAsTarget ? null : board.openCard;
   return (
-    <button
+    <div
       ref={setNodeRef}
-      type="button"
-      {...attributes}
       {...listeners}
-      onClick={onClick}
-      aria-label={ariaLabel}
-      aria-pressed={selectedHere}
-      aria-disabled={entry.locked || (actsAsTarget && !props.valid) || board.saving}
-      className={`-mx-1 flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-2 text-left sm:-mx-2 sm:px-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 ${
+      className={`relative -mx-1 flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-2 sm:-mx-2 sm:px-2 ${
         entry.locked ? 'cursor-not-allowed' : actsAsTarget ? 'cursor-pointer' : 'cursor-grab'
       } ${selectedHere ? 'bg-primary-100 ring-2 ring-primary-500' : ''} ${isDragging ? 'opacity-30' : ''}`}
     >
+      {/* The row's button covers it; the name sits above it as a button of its own. */}
+      <button
+        type="button"
+        {...attributes}
+        onClick={onClick}
+        aria-label={ariaLabel}
+        aria-pressed={selectedHere}
+        aria-disabled={entry.locked || (actsAsTarget && !props.valid) || board.saving}
+        className={`absolute inset-0 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 ${
+          entry.locked ? 'cursor-not-allowed' : actsAsTarget ? 'cursor-pointer' : 'cursor-grab'
+        }`}
+      />
       {/* Rows are full on a phone: the headshot shows from `sm` up, and in the moving banner. */}
-      <PlayerHeadshot player={entry.player} size={36} className="max-sm:hidden" />
-      <span className="min-w-0 flex-1">
+      <PlayerHeadshot player={entry.player} size={36} className="pointer-events-none max-sm:hidden" />
+      <span className="pointer-events-none min-w-0 flex-1">
         <span className="block truncate font-medium">
-          {entry.player.name}{' '}
+          {openCard === null ? (
+            entry.player.name
+          ) : (
+            <button
+              type="button"
+              title={`${entry.player.name}: stats and projections`}
+              data-player-link=""
+              onClick={() => openCard(entry.player)}
+              className="pointer-events-auto relative z-10 -my-1 cursor-pointer rounded py-1 text-left decoration-primary-500 decoration-2 underline-offset-4 hover:text-primary-700 hover:underline focus-visible:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+            >
+              {entry.player.name}
+            </button>
+          )}{' '}
           <span className="text-xs font-normal text-muted-foreground">
             {entry.player.position} · {entry.player.team ?? 'FA'}
           </span>
@@ -761,10 +793,20 @@ function PlayerCard(props: {
               {status}
             </StatusBadge>
           )}
+          {board.onTheBlock.has(id) && (
+            <span
+              data-testid="in-trade"
+              className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2 py-0.5 font-medium text-primary-800"
+            >
+              <span aria-hidden="true">⇄</span> In a pending trade
+            </span>
+          )}
         </span>
       </span>
-      <ProjectionCell entry={entry} />
-    </button>
+      <span className="pointer-events-none">
+        <ProjectionCell entry={entry} />
+      </span>
+    </div>
   );
 }
 

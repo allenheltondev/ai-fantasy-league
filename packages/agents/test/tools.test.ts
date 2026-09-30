@@ -109,6 +109,29 @@ describe('ToolBox (tool binding)', () => {
     expect(keyPrefix('x'.repeat(150))).toHaveLength(100);
   });
 
+  it('lets deterministic recovery replay one persisted operation across task ids', async () => {
+    const { s, box } = await toolbox();
+    await box.call('set_lineup', { teamId: AGENT_TEAM, moves: SWAP }, { key: 'delivery-1', global: true });
+    const recovery = new ToolBox({
+      registry: s.registry,
+      services: s.services,
+      principal,
+      research: DIFFICULTY_TIERS.rookie.levers.research,
+      actionsPerTrigger: 1,
+      idempotencyPrefix: 'different-task'
+    });
+    await s.repos.lineups.put([]);
+    await recovery.call(
+      'set_lineup',
+      { teamId: AGENT_TEAM, moves: SWAP },
+      { key: 'delivery-1', global: true }
+    );
+    expect(await s.savedLineups()).toHaveLength(1);
+    const audit = s.repos.audit as unknown as { entries: AuditEntry[] };
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]?.idempotencyKey).toBe('delivery-1');
+  });
+
   it('has no backdoor: invokeTool enforces the same rules as HTTP for an agent principal', async () => {
     const { s } = await toolbox();
     const call = (name: string, args: Record<string, unknown>) =>

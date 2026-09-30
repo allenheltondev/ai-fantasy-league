@@ -215,7 +215,8 @@ test('a player locks at his kickoff without a reload, after a countdown; a lost 
   await expect(page.getByTestId('roster-row-fx-nacua').getByTestId('lock-status')).toHaveCount(0);
 
   // Swap Lamb in for Nacua; the save loses a race with a kickoff the page had not seen yet.
-  await page.getByRole('button', { name: 'CeeDee Lamb, BN' }).click();
+  // Off his name: the name opens his card, the rest of the row picks him up.
+  await page.getByRole('button', { name: 'CeeDee Lamb, BN' }).click({ position: { x: 6, y: 6 } });
   await page.getByRole('button', { name: /^Move CeeDee Lamb to WR, swapping with Puka Nacua/ }).click();
   const readsBefore = calls.roster;
   await page.getByRole('button', { name: 'Save lineup' }).click();
