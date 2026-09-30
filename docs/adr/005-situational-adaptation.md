@@ -50,6 +50,10 @@ An eliminated team keeps the unchanged baseline: it sets its best legal lineup a
 
 `situationPrompt` turns the same state into league-visible lines (record, rank, cushion, weeks left, a heuristic disclaimer, and injury shortages). The runner adds them to every model prompt, decision and chat alike, so an agent that says it needs points this week is also the one whose levers lean toward this week. The lines never mention bids, bars, or modifier values.
 
+## Shipped versus validated (#248)
+
+Shipped: the states, their hysteresis, and the bounded levers above. Validated on a full scripted season (five matched seeds, [season-calibration.md](../evaluations/season-calibration.md)): every state is reached in practice, no situation reads past the league's week, and switching situation off lowered the agents' points in 5 of 5 seeds (−25.9 ± 17.7 per agent, about 1.8%) without changing wins, volume, or cost. Not validated: how a live model uses the situation lines in its prompt. The constants are unchanged.
+
 ## Deferred
 
 Recent-decision confidence (sample size, shrinkage, look-ahead guards) waits for #211. Also deferred: short-lived social responses, player preferences (#216), flex-slot pressure, seeding races when every team qualifies, pending-move awareness, and the churn/quality/cost report against the unchanged baseline, which #211's harness should produce before broad rollout.

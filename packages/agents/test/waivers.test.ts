@@ -218,6 +218,22 @@ describe('waiver task', () => {
     });
   });
 
+  it('does not claim a player again when another task claimed him since it looked (#248)', async () => {
+    const s = await waiverLeague(HAWK);
+    const model = new ScriptedModelClient({
+      script: () => ({
+        steps: [],
+        decision: { summary: 'Going for rb3.', claims: [{ playerId: 'rb3', dropPlayerId: 'te2', bid: 5 }] }
+      })
+    });
+    // The first task claims him; a second, which looked before that claim landed, would duplicate it.
+    await runAgentAction(s.deps(model), request());
+    const again = await runAgentAction(s.deps(model), request({ taskId: 'waivers.evt2' }));
+    expect(again.reasoningSummary).toBe('Going for rb3. Already claimed: rb3.');
+    expect(again.toolsCalled.filter((c) => c.name === 'claim_waiver')).toEqual([]);
+    expect(await s.repos.waivers.listClaims(LEAGUE_ID, 'pending')).toHaveLength(1);
+  });
+
   it('does nothing while waivers are closed', async () => {
     const s = await waiverLeague(HAWK, 'drafting');
     const model = new ScriptedModelClient();

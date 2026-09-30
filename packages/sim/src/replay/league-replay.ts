@@ -26,6 +26,7 @@ import {
   createInMemoryReferenceStore,
   createInMemoryRepos,
   silentLogger,
+  createLogger,
   createServices,
   recurringJobs,
   serverSubscribers,
@@ -111,6 +112,11 @@ export interface LeagueReplayOptions {
   inspect?: (world: ReplayWorld) => Promise<void>;
   /** Progress lines (one per week). */
   log?: (line: string) => void;
+  /**
+   * Every structured log line the league and its agents write, with the replay's clock (#248:
+   * evaluations count situational states and attachment effects). Silent when omitted.
+   */
+  observe?: (line: string, at: Date) => void;
 }
 
 /** What a scenario sees of a replay: the league's services, the operations, and the human stand-in. */
@@ -204,7 +210,9 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
   const repos = createInMemoryRepos();
   const reference = createInMemoryReferenceStore(repos.players);
   const events = new InMemoryEventPublisher();
-  const log = silentLogger;
+  const observe = options.observe;
+  const log =
+    observe === undefined ? silentLogger : createLogger({ sink: (line) => observe(line, clock.now()) });
   const services: Services = createServices({
     clock,
     repos,

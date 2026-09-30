@@ -85,6 +85,7 @@ const PreviewSchema = z.object({
   currentRoster: z.array(PlayerRef)
 });
 const ClaimResultSchema = z.object({ claim: z.object({ id: z.string() }).nullable() });
+const PendingSchema = z.object({ claims: z.array(z.object({ player: z.object({ id: z.string() }) })) });
 const ProjectionsSchema = z.object({
   projections: z.array(z.object({ player: z.object({ id: z.string() }), points: z.number() }))
 });
@@ -445,7 +446,22 @@ export async function submitClaims(
   const made: string[] = [];
   const failed: string[] = [];
   const pending: string[] = [];
+  // A claim this team already has pending (another task made it since this one looked, #248) is not
+  // made again: the league would refuse it as a duplicate.
+  const held = new Set(
+    (
+      optional(
+        await ctx.tools.call('list_waiver_claims', { teamId: ctx.principal.teamId, status: 'pending' }),
+        PendingSchema
+      )?.claims ?? []
+    ).map((c) => c.player.id)
+  );
+  const already: string[] = [];
   for (const claim of claims) {
+    if (held.has(claim.playerId)) {
+      already.push(label(claim.playerId));
+      continue;
+    }
     const bid = isFaab(ctx) ? Math.min(Math.max(0, claim.bid), prep.faabRemaining) : 0;
     const result = await ctx.tools.call('claim_waiver', {
       playerId: claim.playerId,
@@ -466,6 +482,7 @@ export async function submitClaims(
       summary,
       made.length > 0 ? `Claimed: ${made.join(', ')}.` : '',
       failed.length > 0 ? `Refused: ${failed.join(', ')}.` : '',
+      already.length > 0 ? `Already claimed: ${already.join(', ')}.` : '',
       skipped > 0 ? `Ignored ${skipped} more claim(s) over the action limit.` : ''
     ]
       .filter((s) => s.length > 0)
