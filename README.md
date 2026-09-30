@@ -14,6 +14,19 @@ The same server operation registry powers the app's API and the agents' tools, w
 
 Each AI seat has its own manager identity, personality, strategy, and difficulty. Its manager responds to league events and scheduled check-ins throughout the season. The [trigger router](packages/agents/src/router.ts) decides which teams need to act; the [task handlers](packages/agents/src/tasks/index.ts) carry out the work.
 
+
+```mermaid
+flowchart TD
+    Events["League events: draft turns, offers, news, chat"] --> Router["Trigger router"]
+    Schedule["Scheduled check-ins and deadlines"] --> Router
+    Router --> Gates["Select affected AI teams; check cooldowns and budgets"]
+    Gates --> Task["Reserve a task; run now or schedule for later"]
+    Task --> Manager["Manager reviews current league state and decides"]
+    Manager --> Outcome["Make a move, reply, or record no action"]
+    Outcome --> Record["Save activity and relevant memory"]
+    Outcome -. "Moves can emit new league events" .-> Events
+```
+
 | When | What the manager does |
 | --- | --- |
 | Its draft turn starts | Reads the board and its roster needs, considers player value, positional depth, byes, and injuries, and chooses an available player. The runtime ties the choice to that specific pick so a late response cannot spend a later turn. |
@@ -36,11 +49,54 @@ Chat is grounded in the league: agents can consult rosters, standings, matchup c
 
 A conversation can lead to action. A trade pitch or player tip can request a separate follow-up task that checks the claim and evaluates it against the manager's own roster and valuation. The chat model itself gets read-only research tools; saying “accept this trade” does not directly execute a trade. Check-ins also revisit tracked commitments and unanswered conversations.
 
+
+```mermaid
+sequenceDiagram
+    participant Human as Human manager
+    participant Chat as Agent chat task
+    participant League as League data and operations
+    participant FollowUp as Follow-up decision task
+    Human->>Chat: Send a trade pitch or player tip
+    Chat->>League: Read conversation context and league facts
+    League-->>Chat: Relevant facts within the agent's access
+    Chat-->>Human: Reply in character
+    opt The conversation warrants a football decision
+        Chat->>FollowUp: Request a separate evaluation
+        FollowUp->>League: Re-read the offer, player, and roster
+        League-->>FollowUp: Current state and constraints
+        FollowUp->>FollowUp: Evaluate with its own strategy and values
+        alt A valid move is worthwhile
+            FollowUp->>League: Submit an authorized action
+        else No useful move or stale request
+            FollowUp->>FollowUp: Record no action
+        end
+    end
+```
+
 Memory persists between tasks. Prompts combine the manager's configuration, league rules, current task, and relevant stored context. The system distinguishes recorded events from the agent's own potentially stale beliefs. Relationship and conversation context is scoped; private DMs do not become public chat memories. Relationships can affect tone and preference among good options without replacing the football valuation rules.
 
 ### How a decision becomes a move
 
 The runtime prepares current league context and deterministic recommendations, then gives the model a bounded tool loop and a structured decision format. It applies the result through the agent's own authorized server operations, enforcing roster rules, deadlines, task-specific tool access, and action limits. Retries use durable task records and idempotency keys to avoid repeating moves; tasks recheck state so an already-answered offer or completed pick can become a no-op.
+
+
+```mermaid
+flowchart TD
+    Task["Claim task and load current league state"] --> Prepare["Prepare context and recommendations"]
+    Config["Personality, strategy, difficulty, and scoped memory"] --> Prepare
+    Prepare --> Needed{"Still something to do?"}
+    Needed -- No --> Skip["Record a skipped task"]
+    Needed -- Yes --> Gate{"Model allowed by budget and kill switch?"}
+    Gate -- Yes --> Model["Bounded model and tool loop; structured decision"]
+    Gate -- No --> Fallback["Task-specific deterministic fallback"]
+    Model -- "Timeout, failure, or unusable decision" --> Fallback
+    Model -- Decision --> Apply["Apply through authorized league operations"]
+    Fallback --> Apply
+    Apply --> Result["Record action or no action, usage, and relevant memory"]
+    Result --> FollowUp["Dispatch any follow-up tasks"]
+```
+
+The task's tool calls and final actions share the server's authorization and validation rules. The diagram summarizes a task's normal decision path; the runtime also recovers interrupted tasks and reconciles any moves already made.
 
 Cooldowns, message budgets, and bounded banter keep conversation activity finite. Production response delays spread decisions out while accounting for approaching deadlines. A weekly league model-cost budget and a kill switch can move tasks to deterministic fallbacks: draft autopicks and lineup optimization can continue, while ordinary waiver tasks make no claims and chat tasks stay quiet without a model.
 
