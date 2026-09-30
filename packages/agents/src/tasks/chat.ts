@@ -1,10 +1,14 @@
 import {
   DEFAULT_ROOM_ID,
   MEMORY_LIMITS,
+  answerAsk,
   answeredBefore,
   banterContinues,
   hashString,
-  type MemoryEvent
+  openAsk,
+  settleAsks,
+  type MemoryEvent,
+  type SocialActEntry
 } from '@fantasy/core';
 import {
   AGENT_CHAT_BUDGETS,
@@ -233,6 +237,11 @@ export interface ChatPrep {
   dossier: string[];
   /** The other teams in the conversation: authors, mentions, and the room's own teams. */
   teams: string[];
+  /**
+   * A question this agent asked the person here and is waiting on (#218): their message is read as
+   * its answer. `text` is the question as posted, when it is still among the recent messages.
+   */
+  ask?: { entry: SocialActEntry; text: string | null } | null;
 }
 
 /** Who wrote a message, quoted like the text itself: names are chosen by people too. */
@@ -600,6 +609,59 @@ function replyAbout(self: string) {
   };
 }
 
+/**
+ * The question this agent asked the person who wrote `target` in this room and still waits on
+ * (#218), settled first against the commitments as they stand (one that moved on is cancelled).
+ */
+async function askWaiting(ctx: TaskContext, prep: ChatPrep): Promise<ChatPrep['ask']> {
+  const from = prep.target?.kind === 'user' ? prep.target.author.teamId : null;
+  if (ctx.socialActs === undefined || from === null) return null;
+  try {
+    const tenure = await ctx.socialActs.tenure();
+    if (tenure === null) return null;
+    const commitmentTenure = ctx.commitments === undefined ? null : await ctx.commitments.tenure();
+    const commitments =
+      ctx.commitments === undefined || commitmentTenure === null
+        ? null
+        : await ctx.commitments.read(commitmentTenure);
+    const history = settleAsks(await ctx.socialActs.read(tenure), {
+      now: ctx.clock.now().toISOString(),
+      goals: null,
+      commitments
+    });
+    const entry = openAsk(history, prep.room.roomId, from, ctx.clock.now().toISOString());
+    if (entry === null) return null;
+    const asked = prep.recent.find((m) => m.id === entry.messageId);
+    return { entry, text: asked === undefined ? null : asked.text };
+  } catch (error) {
+    ctx.log.warn('social act history unavailable; no question to read the answer by', {
+      error: error instanceof Error ? error.name : 'unknown'
+    });
+    return null;
+  }
+}
+
+/** Marks the question answered once the reply is posted (#218); a failed write is logged. */
+async function settleAnswer(ctx: TaskContext, prep: ChatPrep): Promise<void> {
+  const ask = prep.ask;
+  if (ask === null || ask === undefined || prep.target === null || ctx.socialActs === undefined) return;
+  try {
+    const tenure = await ctx.socialActs.tenure();
+    const answerId = prep.target.id;
+    if (tenure !== null)
+      await ctx.socialActs.update(tenure, (book) => answerAsk(book, ask.entry.id, answerId));
+  } catch (error) {
+    ctx.log.warn('question not marked answered', { error: error instanceof Error ? error.name : 'unknown' });
+  }
+}
+
+const EXPECTS: Record<string, string> = {
+  trade_interest:
+    'whether they would trade: if they are open to it, name the players in `takeaway` (kind trade) so you look at it properly',
+  revised_offer:
+    'what they would add to the pitch you turned down: if they name a better package, put it in `takeaway` (kind trade) so you look at it again'
+};
+
 export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, ChatReplyDecision, ChatPrep>({
   kind: 'chat_reply',
   title: 'Answer a chat mention',
@@ -607,10 +669,12 @@ export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, 
   payload: ReplyPayloadSchema,
   decision: ChatReplyDecisionSchema,
   tools: CHAT_TOOLS,
-  prepare: (ctx, payload) =>
-    prepareChat(ctx, payload.roomId, payload.messageId, replyAbout(ctx.principal.teamId), {
+  prepare: async (ctx, payload) => {
+    const prep = await prepareChat(ctx, payload.roomId, payload.messageId, replyAbout(ctx.principal.teamId), {
       coalesce: payload.coalesce === true
-    }),
+    });
+    return { ...prep, ask: await askWaiting(ctx, prep) };
+  },
   instructions: (ctx, _payload, prep) => {
     const target = prep.target as ChatMessage;
     const who = quote(target.author.name, 60);
@@ -639,6 +703,11 @@ export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, 
             ...prep.burst.map((m, i) => `(${burstRef(i)}) ${line(m)}`),
             '>>>'
           ].join('\n'),
+      prep.ask === null || prep.ask === undefined
+        ? null
+        : [
+            `Earlier you asked them ${prep.ask.text === null ? 'a question here' : `here: <<<${quote(prep.ask.text)}>>>`}, to find out ${EXPECTS[prep.ask.entry.expects ?? 'trade_interest']}. Read their message as the answer to it and carry on from there; do not ask it again.`
+          ].join('\n'),
       `The message you are answering: <<<${quote(target.text)}>>>`,
       HOW_TO_TALK,
       ACTING_ON_CHAT
@@ -648,6 +717,8 @@ export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, 
   },
   async apply(ctx, _payload, prep, decision) {
     const outcome = await post(ctx, prep, decision, decision.leftOpen);
+    // Their message answered the agent's question (#218): the exchange moves on from it.
+    if (outcome.action === 'post_message') await settleAnswer(ctx, prep);
     // A takeaway comes from the message it names (a ref the prompt gave), or the one answered.
     const source = byRef(prep.burst, decision.takeaway?.ref) ?? prep.target;
     const followUps = await chatFollowUps(ctx, { room: prep.room, target: source }, decision.takeaway);

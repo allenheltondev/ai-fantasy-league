@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { SLOT_ELIGIBILITY } from '../rules/positions.js';
+import type { AgendaGoal } from './agenda.js';
 import { ATTACHMENT_POLICY, type PlayerAttachments } from './attachments.js';
 import { isOpenCommitment, type CommitmentBook } from './commitments.js';
 import {
@@ -19,7 +21,9 @@ import { checkInChatChance, socialRoll } from './social.js';
  *
  * - Candidates: `answer_question` (a person's question to it, still unanswered), `congratulate`,
  *   `acknowledge_mistake` (only from a stored record: a #216 attachment its results revised
- *   down), `callback` (a shared record with this week's opponent), `react_to_result`, and
+ *   down), `callback` (a shared record with this week's opponent, including a player it traded
+ *   them who starts against it), `react_to_result`, `ask_relevant_question` (a question in a
+ *   person's DM whose answer can move an active goal or a declined pitch: `askOpportunities`), and
  *   `stay_quiet`. Each carries a reason code, its counterpart, the evidence ids it rests on, the
  *   audience of the room it would go to, when it stops being fresh, and the commitment (#215) or
  *   agenda goal it relates to.
@@ -37,6 +41,14 @@ import { checkInChatChance, socialRoll } from './social.js';
  *   states a number the facts do not, or names something private.
  * - History (`SocialActBook`): a bounded, tenure-scoped record of the acts chosen, keyed by topic,
  *   event and room, so a callback is not repeated and one event draws one reaction per room.
+ * - Destinations: ambient acts go to the board room; a callback goes to this week's matchup room
+ *   when there is one, or, when its only record is private to the two teams, to their DM; a
+ *   question goes to the person's DM. Each destination's evidence is filtered for its readers.
+ * - Questions (`ask_relevant_question`): at most one open at a time, never while a question to that
+ *   person waits, linked to its agenda goal or commitment, what answer it expects, and when it
+ *   lapses. The person's next message in that DM is read as the answer (`openAsk`, used by the
+ *   reply task) and the question is marked `answered` there; a goal that completes, a commitment
+ *   that moves on, or a seat change cancels it (`settleAsks`), so no stale question is chased.
  */
 
 export const SOCIAL_ACTS = [
@@ -45,6 +57,7 @@ export const SOCIAL_ACTS = [
   'acknowledge_mistake',
   'callback',
   'react_to_result',
+  'ask_relevant_question',
   'stay_quiet'
 ] as const;
 export type SocialActKind = (typeof SOCIAL_ACTS)[number];
@@ -64,6 +77,12 @@ export const SOCIAL_ACT_LIMITS = {
   questionGraceMs: 10 * 60_000,
   /** An answer handed on and still unanswered may be handed on again after this. */
   answerRetryMs: 4 * HOUR_MS,
+  /** A question to a person waits this long for an answer, then lapses. */
+  askFreshMs: 2 * DAY_MS,
+  /** A declined pitch is worth a question this long after the decline. */
+  declinedAskWindowMs: 3 * DAY_MS,
+  /** Questions waiting on people at once (all counterparts). */
+  openAsks: 1,
   /** Ambient talk about a week's results stays fresh this long after the week's final. */
   resultFreshMs: 36 * HOUR_MS,
   /** An admission stays fresh this long after the record that prompted it. */
@@ -76,7 +95,8 @@ export const SOCIAL_ACT_LIMITS = {
     congratulate: 7 * DAY_MS,
     acknowledge_mistake: 21 * DAY_MS,
     callback: 21 * DAY_MS,
-    react_to_result: 7 * DAY_MS
+    react_to_result: 7 * DAY_MS,
+    ask_relevant_question: 3 * DAY_MS
   },
   /** How far back a similar act (same kind or counterpart) makes a new one less novel. */
   noveltyWindowMs: 3 * DAY_MS,
@@ -96,7 +116,11 @@ export const SOCIAL_ACT_OUTCOMES = [
   'withheld',
   'rejected',
   'passed',
-  'failed'
+  'failed',
+  // A question's life after it was posted (#218).
+  'answered',
+  'cancelled',
+  'expired'
 ] as const;
 export type SocialActOutcome = (typeof SOCIAL_ACT_OUTCOMES)[number];
 
@@ -117,7 +141,14 @@ export const SocialActEntrySchema = z.object({
   at: z.string(),
   outcome: z.enum(SOCIAL_ACT_OUTCOMES),
   /** Why it was withheld or rejected (`room_flooded`, `unsupported_number`, ...). */
-  detail: z.string().max(40).nullable()
+  detail: z.string().max(40).nullable(),
+  /** A question (#218): the message that asked it, and the one that answered it. */
+  messageId: z.string().max(200).optional(),
+  answerId: z.string().max(200).optional(),
+  /** A question: the agenda goal it serves, what it expects back, and when it lapses. */
+  agendaId: z.string().max(200).nullable().optional(),
+  expects: z.enum(['trade_interest', 'revised_offer']).optional(),
+  expiresAt: z.string().optional()
 });
 export type SocialActEntry = z.infer<typeof SocialActEntrySchema>;
 
@@ -157,7 +188,13 @@ export type SocialReason =
   | 'big_loss'
   | 'top_score'
   | 'win_streak'
-  | 'fell_short';
+  | 'fell_short'
+  | 'former_player'
+  | 'need_partner'
+  | 'declined_offer';
+
+/** What a question's answer can settle (#218). */
+export type AskExpectation = 'trade_interest' | 'revised_offer';
 
 export interface SocialCandidate {
   act: SpokenActKind;
@@ -184,6 +221,8 @@ export interface SocialCandidate {
   commitmentId: string | null;
   /** answer_question: the message answered. */
   replyToId: string | null;
+  /** ask_relevant_question: what the answer can settle. */
+  expects?: AskExpectation;
 }
 
 export interface SocialOpportunities {
@@ -308,6 +347,197 @@ export function questionOpportunities(
   return out;
 }
 
+/** A person the agent could ask something of in their DM (#218). */
+export interface AskPartner {
+  teamId: string;
+  teamName: string;
+  /** The DM between the two teams. */
+  roomId: string;
+  /** Players they roster that would fill one of the agent's needs (the trade look's candidates). */
+  players: readonly { id: string; name: string; position: string }[];
+}
+
+export interface AskInput {
+  self: string;
+  now: string;
+  /** The agent's active agenda goals (#214): what a question may serve. */
+  goals: readonly Pick<AgendaGoal, 'id' | 'slot' | 'status'>[];
+  commitments: CommitmentBook | null;
+  /** People the agent may ask (people only: an AI manager is pitched, not asked). */
+  partners: readonly AskPartner[];
+  history: SocialActBook;
+}
+
+/** The questions posted and still waiting for an answer, unexpired at `now`. */
+export function openAsks(history: SocialActBook, now: string): SocialActEntry[] {
+  return history.acts.filter(
+    (a) =>
+      a.act === 'ask_relevant_question' &&
+      a.outcome === 'posted' &&
+      a.messageId !== undefined &&
+      (a.expiresAt === undefined || Date.parse(a.expiresAt) > Date.parse(now))
+  );
+}
+
+/**
+ * Questions worth asking a person (#218), only where the answer can move something the agent is
+ * already pursuing: an active agenda goal a player of theirs would fill ("would you move him?"),
+ * or a pitch of theirs it declined as short on value, whose alternative could change the look
+ * ("what would you add?"). None while a question already waits (`SOCIAL_ACT_LIMITS.openAsks`),
+ * and none to a person the agent is already waiting on. The question's facts are public (who
+ * rosters whom) or already shared by the two teams (their own pitch); the agenda itself is never a
+ * fact the question states.
+ */
+export function askOpportunities(input: AskInput): SocialOpportunities {
+  const out: SocialOpportunities = { candidates: [], evidence: [] };
+  const waiting = openAsks(input.history, input.now);
+  if (waiting.length >= SOCIAL_ACT_LIMITS.openAsks) return out;
+  const book = input.commitments?.commitments ?? [];
+  const busy = new Set([
+    ...waiting.map((a) => a.counterpartTeamId),
+    ...book.filter(isOpenCommitment).map((c) => c.counterpartTeamId)
+  ]);
+  const t = Date.parse(input.now);
+  const ask = {
+    act: 'ask_relevant_question' as const,
+    human: false,
+    salience: 0,
+    commitmentId: null,
+    replyToId: null,
+    at: input.now,
+    expiresAt: plus(input.now, SOCIAL_ACT_LIMITS.askFreshMs)
+  };
+  const active = input.goals.filter((g) => g.status === 'active');
+  for (const p of input.partners) {
+    if (busy.has(p.teamId) || p.teamId === input.self) continue;
+    const audience: MemoryAudience = { teams: [p.teamId] };
+    const goal = active.find((g) => p.players.some((pl) => fills(g.slot, pl.position)));
+    const player = goal === undefined ? undefined : p.players.find((pl) => fills(goal.slot, pl.position));
+    if (goal !== undefined && player !== undefined) {
+      const id = `roster:${p.teamId}:${player.id}`;
+      out.evidence.push({
+        id,
+        line: `${p.teamName} rosters ${player.name} (${player.position}).`,
+        at: input.now,
+        visibility: 'public'
+      });
+      out.candidates.push({
+        ...ask,
+        reason: 'need_partner',
+        counterpartTeamId: p.teamId,
+        subject: `whether ${p.teamName} would move ${player.name}`,
+        topic: `ask:${goal.id}:${p.teamId}`,
+        eventKey: `ask:${p.teamId}`,
+        roomId: p.roomId,
+        audience,
+        evidence: [id],
+        relevance: 0.95,
+        agendaId: goal.id,
+        expects: 'trade_interest'
+      });
+    }
+  }
+  for (const c of book) {
+    const declinedAt = c.decision?.at;
+    if (
+      c.status !== 'declined' ||
+      c.decision?.reason !== 'value_below_floor' ||
+      declinedAt === undefined ||
+      t - Date.parse(declinedAt) > SOCIAL_ACT_LIMITS.declinedAskWindowMs ||
+      busy.has(c.counterpartTeamId) ||
+      c.source.visibility !== 'dm'
+    )
+      continue;
+    const partner = input.partners.find((p) => p.teamId === c.counterpartTeamId);
+    if (partner === undefined) continue;
+    const id = `declined:${c.id}`;
+    out.evidence.push({
+      id,
+      line: `On ${declinedAt.slice(0, 10)} you turned down ${partner.teamName}'s trade pitch: by your numbers it came up short.`,
+      at: declinedAt,
+      visibility: { teams: [c.counterpartTeamId], trades: [], waiverClaims: [] }
+    });
+    out.candidates.push({
+      ...ask,
+      reason: 'declined_offer',
+      counterpartTeamId: c.counterpartTeamId,
+      subject: `what ${partner.teamName} would add to the pitch you turned down`,
+      topic: `ask:${c.id}`,
+      eventKey: `ask:${c.counterpartTeamId}`,
+      roomId: partner.roomId,
+      audience: { teams: [c.counterpartTeamId] },
+      evidence: [id],
+      relevance: 0.9,
+      agendaId: c.agendaId,
+      commitmentId: c.id,
+      expects: 'revised_offer'
+    });
+  }
+  return out;
+}
+
+const fills = (slot: AgendaGoal['slot'], position: string) =>
+  (SLOT_ELIGIBILITY[slot] as readonly string[]).includes(position);
+
+/**
+ * The question waiting on `counterpart` in `roomId`, for the reply task to read the person's
+ * message as its answer (#218); null when there is none or it lapsed.
+ */
+export function openAsk(
+  history: SocialActBook,
+  roomId: string,
+  counterpart: string | null,
+  now: string
+): SocialActEntry | null {
+  return (
+    openAsks(history, now).find((a) => a.roomId === roomId && a.counterpartTeamId === counterpart) ?? null
+  );
+}
+
+/** Marks a question answered by `answerId` (idempotent: an answered question stays as it is). */
+export function answerAsk(book: SocialActBook, entryId: string, answerId: string): SocialActBook {
+  return {
+    schemaVersion: 1,
+    acts: book.acts.map((a) =>
+      a.id === entryId && a.outcome === 'posted' ? { ...a, outcome: 'answered' as const, answerId } : a
+    )
+  };
+}
+
+/**
+ * Closes questions that no longer serve anything (#218): one whose agenda goal is no longer
+ * active, or whose commitment moved on, is `cancelled` (`goal_closed`, `commitment_moved`); one
+ * past its time is `expired`. A cancelled question is never chased or read as answered.
+ */
+export function settleAsks(
+  book: SocialActBook,
+  input: {
+    now: string;
+    goals: readonly Pick<AgendaGoal, 'id' | 'status'>[] | null;
+    commitments: CommitmentBook | null;
+  }
+): SocialActBook {
+  const t = Date.parse(input.now);
+  const activeGoals =
+    input.goals === null ? null : new Set(input.goals.filter((g) => g.status === 'active').map((g) => g.id));
+  const settle = (a: SocialActEntry): SocialActEntry => {
+    if (a.act !== 'ask_relevant_question' || a.outcome !== 'posted') return a;
+    if (a.expiresAt !== undefined && Date.parse(a.expiresAt) <= t)
+      return { ...a, outcome: 'expired', detail: 'no_answer' };
+    const commitment =
+      a.commitmentId === null
+        ? undefined
+        : input.commitments?.commitments.find((c) => c.id === a.commitmentId);
+    if (a.commitmentId !== null && input.commitments !== null && commitment?.status !== 'declined')
+      return { ...a, outcome: 'cancelled', detail: 'commitment_moved' };
+    if (a.commitmentId === null && activeGoals !== null && a.agendaId != null && !activeGoals.has(a.agendaId))
+      return { ...a, outcome: 'cancelled', detail: 'goal_closed' };
+    return a;
+  };
+  const acts = book.acts.map(settle);
+  return acts.every((a, i) => a === book.acts[i]) ? book : { schemaVersion: 1, acts };
+}
+
 /** The league's own facts (the `league` chat context pack): public by construction. */
 export interface LeagueFacts {
   throughWeek: number | null;
@@ -329,6 +559,15 @@ export interface AmbientInput {
   /** The room ambient acts go to, and who reads it. */
   roomId: string;
   audience: MemoryAudience;
+  /** This week's matchup room, where a callback about the opponent goes (#218). */
+  matchupRoom?: { roomId: string; audience: MemoryAudience } | null | undefined;
+  /** The opponent's starters this week, by name (the matchup room's public pack). */
+  opponentStarters?: readonly string[] | undefined;
+  /**
+   * The memory as the two teams' DM may hear it, and that DM (#218): a shared record private to
+   * them (an offer between them that did not go through) is a callback there, never in public.
+   */
+  dm?: { roomId: string; memory: AgentLeagueMemory } | null | undefined;
 }
 
 function margin(pf: number, pa: number): SocialReason {
@@ -478,8 +717,11 @@ export function ambientOpportunities(input: AmbientInput): SocialOpportunities {
         at: now,
         visibility: 'public'
       });
+    // A callback is about the two of them: their matchup room when there is one (#218).
+    const place = input.matchupRoom ?? { roomId, audience };
     const callback = {
       ...base,
+      ...place,
       act: 'callback' as const,
       counterpartTeamId: opp,
       eventKey: `callback:w${current}:${pair(self, opp)}`,
@@ -522,6 +764,63 @@ export function ambientOpportunities(input: AmbientInput): SocialOpportunities {
         topic: `callback:${opp}:trade:${deal.tradeId}`,
         evidence: [id, tie()],
         at: deal.at
+      });
+    }
+    // A player-level callback: one it sent them in a trade that went through, starting against it.
+    const starters = new Map((input.opponentStarters ?? []).map((n) => [n.toLowerCase(), n]));
+    const former = [...memory.trades]
+      .filter((t) => t.teamId === opp && t.outcome === 'processed')
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .flatMap((t) => (t.sent ?? []).filter((n) => starters.has(n.toLowerCase())).map((n) => ({ t, n })))[0];
+    if (former !== undefined) {
+      const trade = evidence({
+        id: `trade:${former.t.tradeId}`,
+        line: `On ${former.t.at.slice(0, 10)} you traded ${former.n} to ${name(opp)}.`,
+        at: former.t.at,
+        visibility: tradeVisibility(former.t)
+      });
+      const start = evidence({
+        id: `starter:w${current}:${opp}:${former.n.toLowerCase()}`,
+        line: `${starters.get(former.n.toLowerCase())} is in ${name(opp)}'s starting lineup against you this week.`,
+        at: now,
+        visibility: 'public'
+      });
+      out.candidates.push({
+        ...callback,
+        reason: 'former_player',
+        subject: `${former.n}, whom you traded to ${name(opp)}, lining up against you`,
+        topic: `callback:${opp}:player:${former.n.toLowerCase()}`,
+        evidence: [trade, start],
+        at: former.t.at,
+        relevance: 0.9
+      });
+    }
+    // A shared record private to the two teams goes to their DM, never to a public room.
+    const talks =
+      input.dm === null || input.dm === undefined
+        ? undefined
+        : [...input.dm.memory.trades]
+            .filter((t) => t.teamId === opp && (t.outcome === 'rejected' || t.outcome === 'expired'))
+            .sort((a, b) => b.at.localeCompare(a.at))[0];
+    if (talks !== undefined && input.dm !== null && input.dm !== undefined) {
+      const turned =
+        talks.direction === 'incoming' ? 'You turned down their offer' : 'They passed on your offer';
+      const id = evidence({
+        id: `talks:${talks.tradeId}`,
+        line: `${turned} on ${talks.at.slice(0, 10)}; it ${talks.outcome === 'expired' ? 'expired' : 'was turned down'}.`,
+        at: talks.at,
+        visibility: tradeVisibility(talks)
+      });
+      out.candidates.push({
+        ...callback,
+        roomId: input.dm.roomId,
+        audience: { teams: [opp] },
+        reason: 'rematch',
+        subject: `your trade talks with ${name(opp)}, now that you meet`,
+        topic: `callback:${opp}:talks:${talks.tradeId}`,
+        evidence: [id, tie()],
+        at: talks.at,
+        relevance: 0.7
       });
     }
   }
@@ -714,7 +1013,8 @@ const PURPOSE: Record<SpokenActKind, string> = {
   congratulate: 'give credit where it is due',
   acknowledge_mistake: 'own up to a call of yours that has not worked out',
   callback: 'bring back a real moment you share with them, because it bears on this week',
-  react_to_result: 'react to your own result'
+  react_to_result: 'react to your own result',
+  ask_relevant_question: 'ask them one short, direct question whose answer you can act on'
 };
 
 /** What the check-in model is given for the chosen act: the purpose and only the facts it may use. */
@@ -794,7 +1094,8 @@ const ACT_WORDS: Record<SpokenActKind, string> = {
   congratulate: 'congratulations',
   acknowledge_mistake: 'an admission',
   callback: 'a callback',
-  react_to_result: 'a reaction to my result'
+  react_to_result: 'a reaction to my result',
+  ask_relevant_question: 'a question'
 };
 
 /** The act in the activity log's words (no evidence ids, no message text). */

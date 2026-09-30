@@ -18,16 +18,22 @@ import {
   SocialActBookSchema,
   ambientOpportunities,
   ambientTurn,
+  answerAsk,
+  askOpportunities,
   checkSocialAct,
   emptySocialActs,
+  openAsk,
+  openAsks,
   pendingQuestions,
   questionOpportunities,
   recordSocialAct,
   selectSocialAct,
+  settleAsks,
   socialActPack,
   socialActWords,
   socialScore,
   type AmbientInput,
+  type AskInput,
   type QuestionMessage,
   type SocialActBook,
   type SocialActEntry,
@@ -688,5 +694,232 @@ describe('the social act history', () => {
   it('words each act for the activity log', () => {
     expect(socialActWords('callback')).toBe('a callback');
     expect(socialActWords('acknowledge_mistake')).toBe('an admission');
+  });
+});
+
+describe('callbacks by destination (#218)', () => {
+  it('goes to the matchup room, and calls back a player it traded them who starts against it', () => {
+    const matchupRoom = { roomId: 'm-2026-W05-W05-M3', audience: 'public' as const };
+    const found = ambientOpportunities(ambient({ matchupRoom, opponentStarters: ['RB1', 'WR5'] }));
+    const callbacks = found.candidates.filter((c) => c.act === 'callback');
+    expect(callbacks.map((c) => [c.reason, c.roomId])).toEqual([
+      ['rematch', matchupRoom.roomId],
+      ['traded_with_opponent', matchupRoom.roomId],
+      ['former_player', matchupRoom.roomId]
+    ]);
+    const former = callbacks.find((c) => c.reason === 'former_player');
+    expect(former?.evidence).toEqual(['trade:t-fair', 'starter:w5:team-3:wr5']);
+    expect(found.evidence.find((e) => e.id === 'starter:w5:team-3:wr5')?.line).toBe(
+      "WR5 is in Zen Garden's starting lineup against you this week."
+    );
+    // Board acts stay on the board.
+    expect(found.candidates.find((c) => c.act === 'react_to_result')?.roomId).toBe('trash-talk');
+    // A player it traded who is not starting is no callback.
+    expect(
+      ambientOpportunities(ambient({ matchupRoom, opponentStarters: ['RB1'] })).candidates.some(
+        (c) => c.reason === 'former_player'
+      )
+    ).toBe(false);
+  });
+
+  it('keeps a record private to the two teams to their DM, heard by the opponent alone', () => {
+    const talks = remember(
+      [
+        {
+          type: 'trade',
+          teamId: 'team-3',
+          tradeId: 't-private',
+          outcome: 'rejected',
+          direction: 'outgoing',
+          summary: 'Your offer to team-3 was rejected.',
+          at: at(-48)
+        }
+      ],
+      emptyMemory()
+    );
+    const dm = {
+      roomId: 'dm-team-2-team-3',
+      memory: memoryForAudience(talks, { teams: ['team-3'] }, () => true).memory
+    };
+    const found = ambientOpportunities(ambient({ memory: emptyMemory(), dm }));
+    const callback = found.candidates.find((c) => c.act === 'callback');
+    expect(callback).toMatchObject({ roomId: dm.roomId, audience: { teams: ['team-3'] } });
+    // The selector lets it into the DM, never into a public room.
+    const inDm = select({
+      candidates: found.candidates.filter((c) => c.act === 'callback'),
+      evidence: found.evidence
+    });
+    expect(inDm.chosen?.roomId).toBe(dm.roomId);
+    const inPublic = select({
+      candidates: [{ ...(callback as SocialCandidate), roomId: 'trash-talk', audience: 'public' }],
+      evidence: found.evidence
+    });
+    expect(inPublic.dropped.map((d) => d.why)).toEqual(['private_evidence']);
+    // Filtered for a public room, the offer is not there to call back at all.
+    const heard = memoryForAudience(talks, 'public', () => true).memory;
+    expect(
+      ambientOpportunities(ambient({ memory: emptyMemory(), dm: { ...dm, memory: heard } })).candidates.some(
+        (c) => c.act === 'callback'
+      )
+    ).toBe(false);
+  });
+});
+
+describe('ask_relevant_question (#218)', () => {
+  const partner = {
+    teamId: 'team-1',
+    teamName: 'Big Tuna',
+    roomId: 'dm-team-1-team-2',
+    players: [{ id: 'p-rb', name: 'Tuna RB', position: 'RB' }]
+  };
+  const goal = { id: 'repair_position:W5:RB', slot: 'RB' as const, status: 'active' as const };
+  const asking = (over: Partial<AskInput> = {}): AskInput => ({
+    self: SELF,
+    now: T0,
+    goals: [goal],
+    commitments: null,
+    partners: [partner],
+    history: emptySocialActs(),
+    ...over
+  });
+  const pitched = (): CommitmentBook =>
+    openTradeInterest(emptyCommitments(), {
+      at: at(-24),
+      taskId: 'trade_proposal.x',
+      selfTeamId: SELF,
+      source: { roomId: 'dm-team-1-team-2', messageId: 'pitch-1', fromTeamId: 'team-1', visibility: 'dm' },
+      send: ['wr5'],
+      receive: ['p-rb'],
+      expiresAt: at(48),
+      agendaId: null
+    }).book;
+  const declined = (
+    reason: 'value_below_floor' | 'insufficient_depth' = 'value_below_floor'
+  ): CommitmentBook => {
+    const book = pitched();
+    return {
+      schemaVersion: 1,
+      commitments: book.commitments.map((c) => ({
+        ...c,
+        status: 'declined' as const,
+        decision: { reason, at: at(-20), taskId: 'trade_proposal.x', facts: null }
+      }))
+    };
+  };
+  const posted = (over: Partial<SocialActEntry> = {}): SocialActEntry =>
+    entry({
+      id: 'ask-1',
+      act: 'ask_relevant_question',
+      reason: 'need_partner',
+      topic: `ask:${goal.id}:team-1`,
+      eventKey: 'ask:team-1',
+      roomId: 'dm-team-1-team-2',
+      counterpartTeamId: 'team-1',
+      evidence: ['roster:team-1:p-rb'],
+      messageId: 'q-1',
+      agendaId: goal.id,
+      expects: 'trade_interest',
+      expiresAt: at(47),
+      ...over
+    });
+
+  it('asks a person whose player fills an active need, in their DM, from public facts only', () => {
+    const found = askOpportunities(asking());
+    expect(found.candidates).toMatchObject([
+      {
+        act: 'ask_relevant_question',
+        reason: 'need_partner',
+        counterpartTeamId: 'team-1',
+        roomId: 'dm-team-1-team-2',
+        audience: { teams: ['team-1'] },
+        agendaId: goal.id,
+        expects: 'trade_interest',
+        evidence: ['roster:team-1:p-rb'],
+        expiresAt: at(SOCIAL_ACT_LIMITS.askFreshMs / 3_600_000)
+      }
+    ]);
+    expect(found.evidence).toEqual([
+      { id: 'roster:team-1:p-rb', line: 'Big Tuna rosters Tuna RB (RB).', at: T0, visibility: 'public' }
+    ]);
+    const chosen = select({ candidates: found.candidates, evidence: found.evidence }).chosen;
+    expect(socialActPack(chosen as SocialCandidate, found.evidence).purpose).toContain(
+      'whether Big Tuna would move Tuna RB'
+    );
+  });
+
+  it('asks nothing without an active need it could fill, or while a question or a look is open', () => {
+    expect(askOpportunities(asking({ goals: [{ ...goal, status: 'completed' }] })).candidates).toEqual([]);
+    expect(askOpportunities(asking({ goals: [{ ...goal, slot: 'QB' }] })).candidates).toEqual([]);
+    // One question at a time, whoever it went to.
+    expect(
+      askOpportunities(asking({ history: history(posted({ counterpartTeamId: 'team-4' })) })).candidates
+    ).toEqual([]);
+    // A lapsed question no longer blocks.
+    expect(
+      askOpportunities(asking({ history: history(posted({ expiresAt: at(-1) })) })).candidates
+    ).toHaveLength(1);
+    // An open trade look with them is already the conversation.
+    expect(askOpportunities(asking({ commitments: pitched() })).candidates).toEqual([]);
+  });
+
+  it('asks what they would add to a pitch it declined on value, heard only in their DM', () => {
+    const found = askOpportunities(asking({ goals: [], commitments: declined() }));
+    expect(found.candidates).toMatchObject([
+      {
+        reason: 'declined_offer',
+        commitmentId: 'trade_interest:pitch-1',
+        roomId: 'dm-team-1-team-2',
+        expects: 'revised_offer'
+      }
+    ]);
+    expect(found.evidence[0]?.visibility).toEqual({ teams: ['team-1'], trades: [], waiverClaims: [] });
+    // Not for another reason, a pitch too old, or a person it cannot reach.
+    expect(
+      askOpportunities(asking({ goals: [], commitments: declined('insufficient_depth') })).candidates
+    ).toEqual([]);
+    expect(
+      askOpportunities(asking({ goals: [], now: at(24 * 4), commitments: declined() })).candidates
+    ).toEqual([]);
+    expect(askOpportunities(asking({ goals: [], partners: [], commitments: declined() })).candidates).toEqual(
+      []
+    );
+  });
+
+  it('reads the next message in that DM as the answer, once, and never a lapsed question', () => {
+    const book = history(posted());
+    expect(openAsk(book, 'dm-team-1-team-2', 'team-1', T0)?.id).toBe('ask-1');
+    expect(openAsk(book, 'dm-team-1-team-4', 'team-1', T0)).toBeNull();
+    expect(openAsk(book, 'dm-team-1-team-2', 'team-4', T0)).toBeNull();
+    expect(openAsk(book, 'dm-team-1-team-2', 'team-1', at(48))).toBeNull();
+    const answered = answerAsk(book, 'ask-1', 'a-1');
+    expect(answered.acts[0]).toMatchObject({ outcome: 'answered', answerId: 'a-1' });
+    expect(openAsks(answered, T0)).toEqual([]);
+    // Answered stays answered.
+    expect(answerAsk(answered, 'ask-1', 'a-2').acts[0]?.answerId).toBe('a-1');
+    expect(SocialActBookSchema.parse(answered)).toEqual(answered);
+  });
+
+  it('cancels a question whose goal closed or whose look moved on, and expires an unanswered one', () => {
+    const book = history(posted());
+    expect(settleAsks(book, { now: T0, goals: [goal], commitments: null })).toBe(book);
+    expect(settleAsks(book, { now: T0, goals: [], commitments: null }).acts[0]).toMatchObject({
+      outcome: 'cancelled',
+      detail: 'goal_closed'
+    });
+    // Without the agenda at hand, a goal is not second-guessed.
+    expect(settleAsks(book, { now: T0, goals: null, commitments: null })).toBe(book);
+    expect(settleAsks(book, { now: at(48), goals: [goal], commitments: null }).acts[0]).toMatchObject({
+      outcome: 'expired',
+      detail: 'no_answer'
+    });
+    const onPitch = history(posted({ commitmentId: 'trade_interest:pitch-1', agendaId: null }));
+    expect(settleAsks(onPitch, { now: T0, goals: null, commitments: declined() })).toBe(onPitch);
+    expect(settleAsks(onPitch, { now: T0, goals: null, commitments: pitched() }).acts[0]).toMatchObject({
+      outcome: 'cancelled',
+      detail: 'commitment_moved'
+    });
+    // Other acts are never touched.
+    const other = history(entry());
+    expect(settleAsks(other, { now: at(48), goals: [], commitments: null })).toBe(other);
   });
 });
