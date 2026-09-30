@@ -8,6 +8,7 @@ import {
   type Matchup,
   type Team
 } from '../repos/types.js';
+import { formatInviteCode } from './tokens.js';
 import { TeamManagerSchema, teamManager, type ManagerLookup } from './managers.js';
 import { isOpenSeat, renamedFrom, teamNameSetBy } from './seats.js';
 
@@ -198,6 +199,12 @@ export function inviteStatus(invite: Invite, now: Date): (typeof INVITE_STATUSES
 
 export const InviteViewSchema = z.object({
   id: z.string(),
+  code: z
+    .string()
+    .nullable()
+    .describe(
+      'The join code, e.g. K7M-Q2X: a short way to join without the link. Null on invites made before codes existed.'
+    ),
   status: z.enum(INVITE_STATUSES),
   email: z
     .string()
@@ -213,6 +220,7 @@ export const InviteViewSchema = z.object({
 export function inviteView(invite: Invite, now: Date): z.infer<typeof InviteViewSchema> {
   return {
     id: invite.id,
+    code: invite.code === null ? null : formatInviteCode(invite.code),
     status: inviteStatus(invite, now),
     email: invite.email,
     maxUses: invite.maxUses,

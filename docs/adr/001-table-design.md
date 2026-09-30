@@ -37,6 +37,8 @@ Why two GSIs and not more: every access pattern below is either a primary-key re
 | League (settings, phase, week, commissioner, deadlines, schedule seed, version) | `META` | GSI1 `CREATOR#<sub>` / `LEAGUE#<createdAt>#<leagueId>`; GSI2 `LEAGUEPHASE#<phase>` / `<createdAt>#<leagueId>` | `get_league_state` is this GetItem plus the team query. The phase and sub-phase flags drive `allowedActions` (`league/phase.ts`). The creator index counts a user's active leagues for the league quota. The phase index lets scheduled jobs (waiver processing) find the in-season leagues without a scan. |
 | Member (a human seat holder) | `MEMBER#<sub>` | GSI1 `USER#<sub>` / `LEAGUE#<leagueId>` | "My leagues" is a GSI1 query. The conditional put (`attribute_not_exists`) enforces one seat per person per league. Authorization reads the owner on the team items. |
 | Invite | `INVITE#<inviteId>` | GSI1 `INVITE#<sha256(token)>` / `INVITE` | Only the SHA-256 of the token is stored; the token is shown once. Accepting a link hashes the token and queries GSI1. Uses are counted with a `version` check. `ttl` is the expiry plus 30 days, so expired invites stay listable for a while. |
+| Invite join code | `INVITECODE#<code>` (own item) | `LOOKUP` | The six-character code (`K7MQ2X`) that aliases an invite: it holds the league and invite ids. The conditional put (`attribute_not_exists`) keeps codes unique, and a lookup is one GetItem plus the invite GetItem. Codes are stored as typed, since a code that short gains nothing from hashing. The item outlives a deleted league until its `ttl` (the invite's), and a lookup that finds no invite is a plain miss. |
+| Join-code attempts | `RATE#INVITECODE#<sub>` (own item) | `HOUR#<epoch hour>` | Counts the code lookups one person has reserved in a clock hour. Each lookup reserves an attempt with one conditional `ADD` (`attempts < 10`) before it runs, so parallel guesses cannot exceed the cap, and gives it back when the code matches an invite. Ten used in an hour stop further lookups (`RATE_LIMITED`); `ttl` is two hours. |
 | Team / seat | `TEAM#<teamId>` | none | Name, seat type (`human` or `agent`), owner `sub` (null for open and agent seats), agent config id, draft slot, FAAB left, waiver priority, roster (player ids, empty until the draft), `version`. Items carry `entity = team`, because `TEAM#<teamId>#AGENT` and `TEAM#<teamId>#MEMORY#...` share the prefix: the team list is one `begins_with(TEAM#)` query filtered on `entity`. |
 | Agent config (the seat card) | `TEAM#<teamId>#AGENT` | none | Personality, difficulty, archetype, model, levers. Stored as data, so tuning needs no redeploy. |
 | Agent memory | `TEAM#<teamId>#MEMORY#<ts>` | none | Per-agent league memory injected into prompts (SPEC §10). |
@@ -147,7 +149,7 @@ has a 90-day `ttl`.
 | `get_league_state` | GetItem `LEAGUE#id` / `META` |
 | My leagues | GSI1 query `USER#<sub>`, then GetItem each `META` |
 | League quota (active leagues a user created) | GSI1 query `CREATOR#<sub>` |
-| Accept or preview an invite | GSI1 query `INVITE#<sha256(token)>` |
+| Accept or preview an invite | GSI1 query `INVITE#<sha256(token)>`, or for a join code GetItem `INVITECODE#<code>` then the invite |
 | League membership check | GetItem `META` plus a `begins_with(TEAM#)` query (at most 12 teams) |
 | Delete a league (setup only) | Query the partition's keys, then batch delete, `META` last so an interrupted delete can be retried |
 | `get_roster` | GetItem `ROSTER#<teamId>` |

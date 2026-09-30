@@ -849,7 +849,7 @@
       "get": {
         "operationId": "get_invite",
         "summary": "Preview an invite link before joining",
-        "description": "Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, and whether the invite can still be used (`status`). Anyone with the token can call it, signed in or not. It shows nothing else about the league. To join, call join_league with the same token. An unknown token returns INVITE_NOT_FOUND.",
+        "description": "Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, and whether the invite can still be used (`status`). Anyone with the token can call it, signed in or not; a join code needs a signed-in person (UNAUTHENTICATED otherwise) and ten lookups in an hour that match nothing return RATE_LIMITED. It shows nothing else about the league. To join, call join_league with the same token or code. An unknown token or code returns INVITE_NOT_FOUND.",
         "tags": [
           "invites"
         ],
@@ -863,7 +863,7 @@
               "minLength": 1,
               "maxLength": 128
             },
-            "description": "The invite token from the invite link."
+            "description": "The invite token from the invite link, or the six-character join code (any case, dashes optional)."
           }
         ],
         "responses": {
@@ -1072,7 +1072,7 @@
       "post": {
         "operationId": "join_league",
         "summary": "Join a league with an invite token",
-        "description": "Takes an open seat in the league the invite belongs to: an open human seat if there is one, otherwise a seat an agent would have played. The seat becomes yours; name it with `teamName` (default \"<your name>'s Team\"). Fails with a fix when: the token is unknown (INVITE_NOT_FOUND), expired (INVITE_EXPIRED), revoked (INVITE_REVOKED), or used up (INVITE_USED_UP); the invite is for a different email (FORBIDDEN); you already have a seat (ALREADY_A_MEMBER); the draft has started (PHASE_NOT_ALLOWED); every seat is taken (NO_OPEN_SEATS); or your teamName is taken (CONFLICT). Preview first with get_invite. Only signed-in people can join.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Takes an open seat in the league the invite belongs to: an open human seat if there is one, otherwise a seat an agent would have played. The seat becomes yours; name it with `teamName` (default \"<your name>'s Team\"). Fails with a fix when: the token is unknown (INVITE_NOT_FOUND), expired (INVITE_EXPIRED), revoked (INVITE_REVOKED), or used up (INVITE_USED_UP); the invite is for a different email (FORBIDDEN); you already have a seat (ALREADY_A_MEMBER); the draft has started (PHASE_NOT_ALLOWED); every seat is taken (NO_OPEN_SEATS); or your teamName is taken (CONFLICT). `token` is the invite token or the six-character join code. Preview first with get_invite. Only signed-in people can join.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "invites",
           "leagues"
@@ -1087,7 +1087,7 @@
               "minLength": 1,
               "maxLength": 128
             },
-            "description": "The invite token from the invite link."
+            "description": "The invite token from the invite link, or the six-character join code (any case, dashes optional)."
           },
           {
             "name": "Idempotency-Key",
@@ -17089,7 +17089,7 @@
       "post": {
         "operationId": "create_invite",
         "summary": "Create an invite link for people to join (commissioner only)",
-        "description": "Creates an invite and returns its secret `token` exactly once; share `joinPath` (or the token) with the people you want in the league. They preview it with get_invite and join with join_league, taking an open seat. Defaults: one use, expires in 7 days (168 hours), anyone with the link. Set `email` to restrict it to one person, `maxUses` for a group link. Only the commissioner can create invites, and only while the league is in setup (before the draft). The token cannot be read again later: create a new invite if it is lost, and revoke_invite the old one.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Creates an invite and returns its secret `token` exactly once; share `joinPath` (or the token) with the people you want in the league. It also has a six-character join code (`invite.code`, shown again by list_invites) that works the same way for people who type it into Join a league. They preview it with get_invite and join with join_league, taking an open seat. Defaults: one use, expires in 7 days (168 hours), anyone with the link. Set `email` to restrict it to one person, `maxUses` for a group link. Only the commissioner can create invites, and only while the league is in setup (before the draft). The token cannot be read again later: create a new invite if it is lost, and revoke_invite the old one.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues",
           "invites"
@@ -17134,6 +17134,13 @@
                             "id": {
                               "type": "string"
                             },
+                            "code": {
+                              "description": "The join code, e.g. K7M-Q2X: a short way to join without the link. Null on invites made before codes existed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "status": {
                               "type": "string",
                               "enum": [
@@ -17175,6 +17182,7 @@
                           },
                           "required": [
                             "id",
+                            "code",
                             "status",
                             "email",
                             "maxUses",
@@ -17399,6 +17407,13 @@
                               "id": {
                                 "type": "string"
                               },
+                              "code": {
+                                "description": "The join code, e.g. K7M-Q2X: a short way to join without the link. Null on invites made before codes existed.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "status": {
                                 "type": "string",
                                 "enum": [
@@ -17440,6 +17455,7 @@
                             },
                             "required": [
                               "id",
+                              "code",
                               "status",
                               "email",
                               "maxUses",
@@ -17643,6 +17659,13 @@
                             "id": {
                               "type": "string"
                             },
+                            "code": {
+                              "description": "The join code, e.g. K7M-Q2X: a short way to join without the link. Null on invites made before codes existed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "status": {
                               "type": "string",
                               "enum": [
@@ -17684,6 +17707,7 @@
                           },
                           "required": [
                             "id",
+                            "code",
                             "status",
                             "email",
                             "maxUses",

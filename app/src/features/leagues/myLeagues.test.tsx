@@ -65,6 +65,38 @@ describe('My Leagues', () => {
     expect(screen.getByRole('link', { name: 'Create a league' })).toHaveAttribute('href', '/leagues/new');
   });
 
+  it('joins a league by code from the empty state', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    renderApp('/', undefined, api);
+    await user.click(await screen.findByRole('button', { name: 'Join a league' }));
+    // Typed any way: lowercase, with a dash and stray spaces.
+    await user.type(screen.getByLabelText('Join code'), ' k7m-q2x ');
+    await user.click(screen.getByRole('button', { name: 'Find league' }));
+    expect(await screen.findByRole('heading', { name: 'Sunday Funday' })).toBeInTheDocument();
+    expect(api.getInvite).toHaveBeenCalledWith('K7MQ2X');
+  });
+
+  it('offers Join a league next to Create when you already have leagues, and rejects a malformed code', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({ listMyLeagues: vi.fn(async () => [myLeague({})]) });
+    renderApp('/leagues', undefined, api);
+    await user.click(await screen.findByRole('button', { name: 'Join a league' }));
+    expect(screen.getByRole('link', { name: 'Create a league' })).toBeInTheDocument();
+    const input = screen.getByLabelText('Join code');
+    // 0, O, 1, I and L are never in a code, so these cannot be one.
+    await user.type(input, 'HELLO0');
+    await user.click(screen.getByRole('button', { name: 'Find league' }));
+    expect(
+      await screen.findByText('A join code is 6 letters and numbers, like K7M-Q2X.')
+    ).toBeInTheDocument();
+    expect(api.getInvite).not.toHaveBeenCalled();
+    await user.type(input, '{Backspace}');
+    expect(screen.queryByText(/A join code is 6/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Join a league' })).toBeInTheDocument();
+  });
+
   it('shows an error with a retry', async () => {
     const user = userEvent.setup();
     const listMyLeagues = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue([]);

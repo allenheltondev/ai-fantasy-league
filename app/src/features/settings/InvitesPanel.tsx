@@ -19,12 +19,12 @@ export interface InvitesPanelProps {
   canRevoke: boolean;
 }
 
-/** Invite links for the open human seats: create, copy, and revoke them. */
+/** Invite links and join codes for the open human seats: create, copy, and revoke them. */
 export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }: InvitesPanelProps) {
   const api = useLeagueApi();
   const { toast } = useToast();
   const invites = useLoad(() => api.listInvites(leagueId), leagueId);
-  const [link, setLink] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ link: string; code: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -41,12 +41,12 @@ export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }:
     }
   };
 
-  const copy = async (text: string) => {
+  const copy = async (text: string, what: 'link' | 'code') => {
     try {
       await navigator.clipboard.writeText(text);
-      toast('Invite link copied.', { variant: 'success' });
+      toast(`Invite ${what} copied.`, { variant: 'success' });
     } catch {
-      toast('Copy failed. Select the link and copy it yourself.', { variant: 'warning' });
+      toast(`Copy failed. Select the ${what} and copy it yourself.`, { variant: 'warning' });
     }
   };
 
@@ -56,7 +56,8 @@ export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }:
         {openHumanSeats === 0
           ? 'No seats are waiting for a person. People who join take an AI seat instead.'
           : `${openHumanSeats} human seat(s) waiting for someone to join.`}{' '}
-        Each link works once and expires in 7 days.
+        Each link and code works once and expires in 7 days. Friends can open the link, or enter the code
+        under Join a league.
       </p>
       <ApiErrorAlert error={error ?? invites.error} />
       {canCreate && (
@@ -65,22 +66,40 @@ export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }:
           loading={busy}
           onClick={() =>
             void act(async () => {
-              const created = await api.createInvite(leagueId);
-              setLink(`${window.location.origin}${created.joinPath}`);
+              const made = await api.createInvite(leagueId);
+              setCreated({ link: `${window.location.origin}${made.joinPath}`, code: made.invite.code });
             })
           }
         >
           Create invite link
         </Button>
       )}
-      {link !== null && (
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-64 flex-1">
-            <Input label="Invite link" readOnly value={link} onFocus={(e) => e.target.select()} />
+      {created !== null && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-64 flex-1">
+              <Input label="Invite link" readOnly value={created.link} onFocus={(e) => e.target.select()} />
+            </div>
+            <Button variant="secondary" onClick={() => void copy(created.link, 'link')}>
+              Copy link
+            </Button>
           </div>
-          <Button variant="secondary" onClick={() => void copy(link)}>
-            Copy link
-          </Button>
+          {created.code !== null && (
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="w-40">
+                <Input
+                  label="Join code"
+                  readOnly
+                  value={created.code}
+                  className="font-mono tracking-widest"
+                  onFocus={(e) => e.target.select()}
+                />
+              </div>
+              <Button variant="secondary" onClick={() => void copy(created.code!, 'code')}>
+                Copy code
+              </Button>
+            </div>
+          )}
         </div>
       )}
       {invites.data !== null && invites.data.length > 0 && (
@@ -88,10 +107,21 @@ export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }:
           {invites.data.map((invite) => (
             <li key={invite.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
               <StatusBadge tone={STATUS[invite.status].tone}>{STATUS[invite.status].label}</StatusBadge>
+              {invite.code !== null && (
+                <span className="font-mono tracking-widest">
+                  <span className="sr-only">Join code </span>
+                  {invite.code}
+                </span>
+              )}
               <span>
                 {invite.uses}/{invite.maxUses} used · expires{' '}
                 {new Date(invite.expiresAt).toLocaleDateString()}
               </span>
+              {invite.code !== null && invite.status === 'active' && (
+                <Button size="sm" variant="ghost" onClick={() => void copy(invite.code!, 'code')}>
+                  Copy code
+                </Button>
+              )}
               {canRevoke && invite.status === 'active' && (
                 <Button
                   size="sm"

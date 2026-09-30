@@ -273,6 +273,8 @@ export interface Invite {
   leagueId: string;
   /** SHA-256 of the invite token. The token itself is never stored. */
   tokenHash: string;
+  /** The six-character join code (`K7MQ2X`), an alias for the link; null on invites made before codes. */
+  code: string | null;
   /** When set, only a user signed in with this email can use the invite. */
   email: string | null;
   maxUses: number;
@@ -285,9 +287,19 @@ export interface Invite {
 }
 
 export interface InviteRepository {
-  create(invite: Invite): Promise<void>;
+  /** False, storing nothing, when the invite's join code already belongs to another invite. */
+  create(invite: Invite): Promise<boolean>;
   get(leagueId: string, inviteId: string): Promise<Invite | null>;
   getByTokenHash(tokenHash: string): Promise<Invite | null>;
+  getByCode(code: string): Promise<Invite | null>;
+  /**
+   * Reserves one join-code lookup for `userId` in the clock hour containing `now`, atomically:
+   * false, reserving nothing, once `limit` are already reserved that hour. Callers reserve before
+   * looking a code up, so a burst of parallel guesses cannot run more than `limit` lookups.
+   */
+  takeCodeAttempt(userId: string, now: Date, limit: number): Promise<boolean>;
+  /** Gives back an attempt reserved with `takeCodeAttempt` (a lookup that found its invite). */
+  refundCodeAttempt(userId: string, now: Date): Promise<void>;
   /** Newest first. */
   list(leagueId: string): Promise<Invite[]>;
   /** Version-checked write; CONFLICT when the invite changed. */

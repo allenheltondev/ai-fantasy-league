@@ -617,6 +617,124 @@ describe('invites and joining', () => {
     expect((await bob.post(`/invites/${token('race')}/join`, {})).status).toBe(200);
   });
 
+  it('gives every invite a join code that the commissioner can see again', async () => {
+    const created = data<{ invite: { code: string } }>(await alice.post('/leagues/lg-i/invites', {}));
+    expect(created.invite.code).toMatch(/^[2-9A-HJKMNP-Z]{3}-[2-9A-HJKMNP-Z]{3}$/);
+    const listed = data<{ invites: { code: string }[] }>(await alice.get('/leagues/lg-i/invites'));
+    expect(listed.invites[0]?.code).toBe(created.invite.code);
+    expect((await h.repos.invites.list('lg-i'))[0]?.code).toBe(created.invite.code.replace('-', ''));
+    // Invites made before codes existed have none.
+    await seedInvite(h.repos, 'lg-i', token('old'), { createdAt: '2026-08-01T00:00:00.000Z' });
+    const all = data<{ invites: { code: string | null }[] }>(await alice.get('/leagues/lg-i/invites'));
+    expect(all.invites.map((i) => i.code)).toEqual([created.invite.code, null]);
+  });
+
+  it('picks another code when a new one is already in use', async () => {
+    const create = vi.spyOn(h.repos.invites, 'create');
+    create.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
+    const res = await alice.post('/leagues/lg-i/invites', {});
+    expect(res.status).toBe(200);
+    expect(create).toHaveBeenCalledTimes(3);
+    const codes = create.mock.calls.map(([invite]) => invite.code);
+    expect(new Set(codes).size).toBe(3);
+
+    create.mockReset().mockResolvedValue(false);
+    const stuck = await alice.post('/leagues/lg-i/invites', {});
+    expect(stuck.body).toMatchObject({ error: { code: 'CONFLICT', fix: expect.any(String) } });
+    expect(create).toHaveBeenCalledTimes(5);
+  });
+
+  it('previews and joins with a join code typed any way', async () => {
+    await seedInvite(h.repos, 'lg-i', token('coded'), { code: 'K7MQ2X' });
+    for (const typed of ['K7MQ2X', 'k7m-q2x', ' k7m q2x ']) {
+      const preview = await bob.get(`/invites/${encodeURIComponent(typed)}`);
+      expect(data(preview), typed).toMatchObject({
+        leagueName: 'Test League',
+        status: 'active',
+        joinable: true
+      });
+    }
+    const joined = await bob.post('/invites/k7m-q2x/join', { teamName: 'Bobcats' });
+    expect(data(joined)).toMatchObject({
+      league: { id: 'lg-i' },
+      team: { name: 'Bobcats', ownerUserId: 'bob' }
+    });
+    expect((await h.repos.invites.list('lg-i'))[0]).toMatchObject({ uses: 1 });
+    // The one use is spent, and the code says so.
+    expect(errorCode(await carol.post('/invites/K7MQ2X/join', {}))).toBe('INVITE_USED_UP');
+  });
+
+  it('honors revoked, expired and email-locked invites through their code', async () => {
+    await seedInvite(h.repos, 'lg-i', token('c-revoked'), {
+      code: 'AAAAAA',
+      revokedAt: '2026-09-02T00:00:00.000Z'
+    });
+    await seedInvite(h.repos, 'lg-i', token('c-expired'), {
+      code: 'BBBBBB',
+      expiresAt: '2026-09-01T00:00:00.000Z'
+    });
+    await seedInvite(h.repos, 'lg-i', token('c-emailed'), { code: 'CCCCCC', email: 'someone@example.com' });
+    expect(errorCode(await bob.post('/invites/AAAAAA/join', {}))).toBe('INVITE_REVOKED');
+    expect(errorCode(await bob.post('/invites/BBBBBB/join', {}))).toBe('INVITE_EXPIRED');
+    expect(errorCode(await bob.post('/invites/CCCCCC/join', {}))).toBe('FORBIDDEN');
+    expect(data(await bob.get('/invites/CCCCCC'))).toMatchObject({ restrictedToEmail: true });
+  });
+
+  it('needs a signed-in person to use a join code, but not an invite link', async () => {
+    await seedInvite(h.repos, 'lg-i', token('anon'), { code: 'K7MQ2X' });
+    const byCode = await h.request('/api/v1/invites/K7MQ2X', { token: null });
+    expect(byCode.status).toBe(401);
+    expect(byCode.body).toMatchObject({
+      error: { code: 'UNAUTHENTICATED', fix: expect.stringContaining('Sign in') }
+    });
+    expect((await h.request(`/api/v1/invites/${token('anon')}`, { token: null })).status).toBe(200);
+  });
+
+  it('reports an unknown join code, then stops a person who keeps guessing', async () => {
+    await seedInvite(h.repos, 'lg-i', token('guessed'), { code: 'K7MQ2X' });
+    const miss = await bob.get('/invites/ZZZZZZ');
+    expect(miss.status).toBe(404);
+    expect(miss.body).toMatchObject({
+      error: { code: 'INVITE_NOT_FOUND', message: expect.stringContaining('join code') }
+    });
+    for (let i = 1; i < 10; i++)
+      expect(errorCode(await bob.post('/invites/ZZZZZZ/join', {}))).toBe('INVITE_NOT_FOUND');
+
+    // Ten misses in the hour: even the right code is refused for Bob, but not for anyone else.
+    const limited = await bob.get('/invites/K7MQ2X');
+    expect(limited.status).toBe(429);
+    expect(limited.body).toMatchObject({
+      error: { code: 'RATE_LIMITED', fix: expect.stringContaining('invite link') }
+    });
+    expect(errorCode(await bob.post('/invites/K7MQ2X/join', {}))).toBe('RATE_LIMITED');
+    expect((await carol.get('/invites/K7MQ2X')).status).toBe(200);
+    // Invite links are not limited: a link is unguessable.
+    expect((await bob.get(`/invites/${token('guessed')}`)).status).toBe(200);
+
+    h.clock.advance(60 * 60 * 1000);
+    expect((await bob.get('/invites/K7MQ2X')).status).toBe(200);
+  });
+
+  it('runs no more than ten lookups out of a burst of parallel guesses', async () => {
+    await seedInvite(h.repos, 'lg-i', token('burst'), { code: 'K7MQ2X' });
+    const lookup = vi.spyOn(h.repos.invites, 'getByCode');
+    const guesses = await Promise.all(Array.from({ length: 30 }, () => bob.get('/invites/ZZZZZZ')));
+    const codes = guesses.map((res) => errorCode(res));
+    expect(codes.filter((c) => c === 'INVITE_NOT_FOUND')).toHaveLength(10);
+    expect(codes.filter((c) => c === 'RATE_LIMITED')).toHaveLength(20);
+    // The other twenty were refused before touching the invites: they never got to guess.
+    expect(lookup).toHaveBeenCalledTimes(10);
+  });
+
+  it('does not count links, or codes that were found, against the limit', async () => {
+    await seedInvite(h.repos, 'lg-i', token('honest'), { code: 'K7MQ2X' });
+    for (let i = 0; i < 12; i++) {
+      expect((await bob.get('/invites/K7MQ2X')).status).toBe(200);
+      expect(errorCode(await bob.get(`/invites/${token('nope')}`))).toBe('INVITE_NOT_FOUND');
+    }
+    expect((await bob.get('/invites/K7MQ2X')).status).toBe(200);
+  });
+
   it('revokes invites idempotently', async () => {
     const created = data<{ token: string; invite: { id: string } }>(
       await alice.post('/leagues/lg-i/invites', {})
