@@ -270,8 +270,30 @@ describe('runAgentAction with the fake model', () => {
       expect(record).toMatchObject({
         status: 'fallback',
         fallbackReason: 'models_unavailable',
+        errorDetail: 'AccessDeniedException: no access',
         finalAction: 'set_lineup'
       });
+    });
+
+    it('records what the provider said when a model run fails', async () => {
+      const s = await setup();
+      await s.seat(AGENT_TEAM, PRO);
+      const refused = Object.assign(
+        new Error('The model returned the following errors: "thinking.type.enabled" is not supported.'),
+        { name: 'ModelError' }
+      );
+      const record = await runAgentAction(
+        s.deps(new ScriptedModelClient({ fail: () => refused })),
+        request()
+      );
+      expect(record).toMatchObject({
+        status: 'fallback',
+        fallbackReason: 'model_error',
+        errorDetail:
+          'ModelError: The model returned the following errors: "thinking.type.enabled" is not supported.'
+      });
+      const stored = await s.repos.agents.listTasks(LEAGUE_ID, { limit: 5 });
+      expect(stored[0]?.errorDetail).toBe(record.errorDetail);
     });
 
     it('falls back on a model error', async () => {

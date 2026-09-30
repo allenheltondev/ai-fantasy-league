@@ -751,6 +751,15 @@ export const ACTION_STEPS: readonly ActionStep[] = [
   ...SOCIAL_STEPS
 ];
 
+/** What the activity log says when a chat action asked for went nowhere (`act`). */
+const UNSENT_CHAT: Partial<Record<CheckInActionType, string>> = {
+  post_chat: 'Wanted to post on a league board, but no board post was on offer this time: nothing went out.',
+  matchup_post:
+    'Wanted to talk in my matchup room, but matchup talk was not on offer this time: nothing went out.',
+  send_dm: 'Wanted to send a direct message, but not for one of the listed goals: nothing went out.',
+  social_act: 'Wanted to word a social moment, but none was on offer this time: nothing went out.'
+};
+
 /** A `trade_response` follow-up for the oldest offer waiting on this team. */
 function offerFollowUps(look: CheckInLook): TaskFollowUp[] {
   const oldest = look.offers[0];
@@ -776,12 +785,14 @@ async function act(
     memory: []
   };
   for (const step of ACTION_STEPS) {
-    await step.run(
-      ctx,
-      prep,
-      actions.filter((a) => step.types.includes(a.type)),
-      run
-    );
+    const asked = actions.filter((a) => step.types.includes(a.type));
+    const before = run.done.length;
+    await step.run(ctx, prep, asked, run);
+    // A chat action the look did not offer (or left without words) goes nowhere: say so, or the
+    // decision's summary reads as if it went out.
+    const unsent = asked.find((a) => a.type in UNSENT_CHAT);
+    if (unsent !== undefined && run.done.length === before)
+      run.done.push({ action: 'chat_not_sent', line: UNSENT_CHAT[unsent.type] as string });
   }
   const lines = run.done.map((d) => d.line);
   const summary = [lead, lines.length === 0 ? 'Changed nothing.' : lines.join(' ')]

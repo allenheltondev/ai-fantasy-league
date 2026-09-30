@@ -36,7 +36,7 @@ import {
   type Services
 } from '@fantasy/server';
 import { ZodError } from 'zod';
-import { dispatchTask, errorName } from './dispatch.js';
+import { dispatchTask, errorName, providerErrorDetail } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
 import type { AgentAblation } from './ablations.js';
 import { refreshAgenda } from './agenda.js';
@@ -555,7 +555,8 @@ export async function runAgentAction(
     } catch (error) {
       lastError = error;
       const timedOut = controller.signal.aborted;
-      log.warn('agent model run failed', { model: modelKey, timedOut, error: errorName(error) });
+      const detail = providerErrorDetail(error);
+      log.warn('agent model run failed', { model: modelKey, timedOut, error: detail });
       // What the provider reported for the turns the run finished, if it reported anything.
       const spent = runUsageOf(error);
       if (!timedOut && isModelUnavailable(error) && modelTools.actionsTaken === 0) {
@@ -566,7 +567,7 @@ export async function runAgentAction(
       // The run got far enough to cost something: without a reported count, the estimate is
       // charged, so failures cannot slip past the weekly budget.
       usage.push(await attempt.settleCall(modelKey, call, spent ?? { ...estimate, estimated: true }));
-      return attempt.fallback(prepared, timedOut ? 'timeout' : 'model_error', usage);
+      return attempt.fallback(prepared, timedOut ? 'timeout' : 'model_error', usage, detail);
     } finally {
       clearTimeout(timer);
     }
@@ -603,8 +604,9 @@ export async function runAgentAction(
       decision.memoryNote
     );
   }
-  log.warn('every model in the chain was unavailable', { chain, error: errorName(lastError) });
-  return attempt.fallback(prepared, 'models_unavailable', usage);
+  const detail = lastError === null ? undefined : providerErrorDetail(lastError);
+  log.warn('every model in the chain was unavailable', { chain, error: detail ?? null });
+  return attempt.fallback(prepared, 'models_unavailable', usage, detail);
 }
 
 /** The fallback reason when the model may not run; otherwise the week's budget. */
@@ -648,7 +650,7 @@ async function announceBudget(deps: RunnerDeps, league: League, budget: LeagueBu
 
 type Result = Pick<
   AgentTaskRecord,
-  'status' | 'fallbackReason' | 'toolsCalled' | 'finalAction' | 'reasoningSummary' | 'usage'
+  'status' | 'fallbackReason' | 'errorDetail' | 'toolsCalled' | 'finalAction' | 'reasoningSummary' | 'usage'
 > & { sealed?: AgentTaskSeal };
 
 function skipped(reason: string): Result {
@@ -704,22 +706,28 @@ class TaskAttempt {
     return this.toolboxes.flatMap((t) => t.calls);
   }
 
-  /** Runs the kind's deterministic fallback and settles its outcome. */
+  /** Runs the kind's deterministic fallback and settles its outcome (`errorDetail`: why the model failed). */
   async fallback(
     prepared: PreparedTask,
     reason: string,
-    usage: AgentModelUsage[] = []
+    usage: AgentModelUsage[] = [],
+    errorDetail?: string
   ): Promise<AgentTaskRecord> {
+    const detail = errorDetail === undefined ? {} : { errorDetail };
     let outcome: TaskOutcome;
     try {
       outcome = await prepared.fallback();
     } catch (error) {
-      return this.failed('fallback', error, this.failedResult('fallback', error, reason, usage));
+      return this.failed('fallback', error, {
+        ...this.failedResult('fallback', error, reason, usage),
+        ...detail
+      });
     }
     return this.settle(
       {
         status: 'fallback',
         fallbackReason: reason,
+        ...detail,
         toolsCalled: this.calls(),
         finalAction: outcome.action,
         reasoningSummary: outcome.summary,

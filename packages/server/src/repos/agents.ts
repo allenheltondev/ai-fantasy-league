@@ -92,6 +92,16 @@ export const AgentTaskRecordSchema = z.object({
   status: z.enum(AGENT_TASK_STATUSES),
   /** Why the deterministic fallback ran (kill_switch, budget_exceeded, model_error, timeout, ...). */
   fallbackReason: z.string().nullable(),
+  /**
+   * What the model provider said when the run failed (`model_error`, `models_unavailable`): the
+   * error's name and message, cut short. Only provider errors are kept, never a league error, whose
+   * message may quote sealed details.
+   */
+  errorDetail: z
+    .string()
+    .max(400)
+    .optional()
+    .describe('When a model run failed: what the provider said (error name and message, shortened).'),
   toolsCalled: z.array(AgentToolCallSchema),
   finalAction: z.string(),
   reasoningSummary: z.string(),
@@ -152,6 +162,7 @@ export type AgentFollowUp = z.infer<typeof AgentFollowUpSchema>;
 export const AgentTaskPendingSchema = AgentTaskRecordSchema.pick({
   status: true,
   fallbackReason: true,
+  errorDetail: true,
   toolsCalled: true,
   finalAction: true,
   reasoningSummary: true,
