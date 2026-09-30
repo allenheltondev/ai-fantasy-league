@@ -17,8 +17,12 @@ export const commitmentReplyTask = defineTaskKind({
     const outcome = await deliverReply(ctx, payload);
     throw new TaskUnavailableError(`commitment_reply_${outcome}`);
   },
+  /* v8 ignore next -- prepare always throws after delivery; the runner cannot reach generation */
   instructions: () => '',
+  /* v8 ignore next -- prepare always throws after delivery */
   apply: async () => ({ action: 'none', summary: 'Closing reply delivery is handled before generation.' }),
+  /* v8 ignore next -- prepare always throws after delivery */
   fallback: async () => ({ action: 'none', summary: 'Closing reply delivery is handled before generation.' }),
+  /* v8 ignore next -- prepare always throws before the fake model */
   fakeScript: () => ({ steps: [], decision: { summary: 'No generation needed.' } })
 });

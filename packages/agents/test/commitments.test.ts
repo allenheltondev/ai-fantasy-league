@@ -18,6 +18,7 @@ import {
   beginLook,
   closeLook,
   commitmentAccess,
+  deliverReply,
   failureLines,
   openInterest,
   reviewCommitments
@@ -729,6 +730,72 @@ describe('commitments: the runtime edges (#215)', () => {
     );
     expect((await answers(s, pitch)).filter((m) => m.includes('Nothing was sent.'))).toHaveLength(1);
     expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 1 } });
+  });
+
+  it('settles recovered replies when the seat changed or the room is permanently unavailable', async () => {
+    const pending = async () => {
+      const s = await interest(STUBBORN, 170);
+      const pitch = await tell(s, PITCH);
+      await answer(s, pitch);
+      const next = proposals(s)[0]!;
+      const ctx = { ...(await context(s, 'edge')), taskId: next.taskId };
+      vi.spyOn(ctx.tools, 'call').mockResolvedValue({
+        error: { code: 'RATE_LIMITED', message: 'Later.', fix: 'Wait.' }
+      });
+      const id = `trade_interest:${pitch.id}`;
+      await closeLook(
+        ctx,
+        { id, tenure: TENURE },
+        { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' },
+        failureLines('autopilot')
+      );
+      s.clock.advance(6 * 60_000);
+      return { s, id };
+    };
+
+    const changed = await pending();
+    const changedCtx = await context(changed.s, 'seat-changed');
+    changedCtx.commitments = { ...changedCtx.commitments!, tenure: async () => null };
+    expect(await deliverReply(changedCtx, { id: changed.id, tenure: TENURE, key: `${changed.id}#0` })).toBe(
+      'suppressed'
+    );
+    expect(await only(changed.s)).toMatchObject({ reply: { state: 'suppressed', failure: 'seat_changed' } });
+
+    const missing = await pending();
+    const missingCtx = await context(missing.s, 'room-missing');
+    vi.spyOn(missingCtx.tools, 'call').mockResolvedValue({
+      error: { code: 'ROOM_NOT_FOUND', message: 'Gone.', fix: 'None.' }
+    });
+    expect(await deliverReply(missingCtx, { id: missing.id, tenure: TENURE, key: `${missing.id}#0` })).toBe(
+      'suppressed'
+    );
+    expect(await only(missing.s)).toMatchObject({
+      reply: { state: 'suppressed', failure: 'ROOM_NOT_FOUND' }
+    });
+
+    const completed = await pending();
+    const completedCtx = await context(completed.s, 'league-complete');
+    completedCtx.league = { ...completedCtx.league, phase: 'complete' };
+    expect(
+      await deliverReply(completedCtx, {
+        id: completed.id,
+        tenure: TENURE,
+        key: `${completed.id}#0`
+      })
+    ).toBe('suppressed');
+    expect(await only(completed.s)).toMatchObject({
+      reply: { state: 'suppressed', failure: 'league_complete' }
+    });
+
+    const unavailableCtx = await context(completed.s, 'no-store');
+    unavailableCtx.commitments = undefined;
+    expect(
+      await deliverReply(unavailableCtx, {
+        id: completed.id,
+        tenure: TENURE,
+        key: `${completed.id}#0`
+      })
+    ).toBe('unavailable');
   });
 
   it('keeps waiting on an offer the league has not answered or cannot show', async () => {
