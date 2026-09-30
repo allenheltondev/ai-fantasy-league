@@ -122,12 +122,13 @@ export class ToolBox {
   /**
    * Calls a tool by name with model-supplied arguments. Returns the response envelope. Deterministic
    * code may name a mutation's key (`key`, under this task's prefix) for a step that a retry may
-   * reach in a different order (a commitment's closing line, #215), so it never takes another step's.
+   * reach in a different order. Delivery recovery may additionally choose `global`: its key is
+   * derived from persisted state, never model input, and must replay across different task ids.
    */
   async call(
     name: string,
     rawArgs: Record<string, unknown>,
-    options: { key?: string } = {}
+    options: { key?: string; global?: boolean } = {}
   ): Promise<Envelope> {
     const { principal } = this.#options;
     const op = this.#byName.get(name);
@@ -161,7 +162,11 @@ export class ToolBox {
       }
       this.#mutations += 1;
     }
-    const key = op.mutation ? `${this.#options.idempotencyPrefix}:${options.key ?? ++this.#step}` : undefined;
+    const key = op.mutation
+      ? options.global === true && options.key !== undefined
+        ? options.key
+        : `${this.#options.idempotencyPrefix}:${options.key ?? ++this.#step}`
+      : undefined;
     const result = await invokeTool({
       registry: this.#options.registry,
       services: this.#options.services,
