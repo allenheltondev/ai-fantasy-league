@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import type { ApiFetch } from '../api';
 import { PlayerCardProvider } from '../players/PlayerLink';
@@ -242,11 +242,29 @@ describe('TradesPage', () => {
     expect(api.withdraw).toHaveBeenCalledWith('L1', 't3');
   });
 
+  it('puts pending trades above the builder, and the history below it', async () => {
+    renderPage(fakeApi([trade()]));
+    await screen.findByTestId('trade-t1');
+    const order = screen
+      .getAllByRole('region')
+      .map((r) => r.getAttribute('aria-label'))
+      .filter((l) => l !== 'Trade preview');
+    expect(order).toEqual(['Inbox', 'Sent offers', 'League review', 'Trade builder', 'History']);
+  });
+
   it('counters an offer from the builder, prefilled with the swapped sides', async () => {
     const user = userEvent.setup();
     const api = fakeApi([trade()]);
     renderPage(api);
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    onTestFinished(() => {
+      Element.prototype.scrollIntoView = original;
+    });
     await user.click(await screen.findByRole('button', { name: 'Counter' }));
+    // The builder sits below the offers, so it scrolls up into view.
+    expect(scroll).toHaveBeenCalled();
     expect(screen.getByText("Counter Robo Ballers's offer")).toBeInTheDocument();
     expect(await screen.findByLabelText('You send: Christian McCaffrey')).toBeChecked();
     await user.click(screen.getByLabelText("You send: Ja'Marr Chase"));

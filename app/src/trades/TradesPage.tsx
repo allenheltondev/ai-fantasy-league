@@ -214,9 +214,10 @@ function TradeList(props: {
 const EMPTY: Selection = { withTeamId: '', send: [], receive: [], drops: [] };
 
 /**
- * The trades section: a builder (pick a team and players on both sides, with a live preview_trade
- * readout of legality and fairness), the inbox and outbox with accept, reject, counter, and
- * withdraw, and the league's trades under review with veto votes.
+ * The trades section: first what is in play (the inbox and outbox with accept, reject, counter,
+ * and withdraw, and the league's trades under review with veto votes), then a builder (pick a team
+ * and players on both sides, with a live preview_trade readout of legality and fairness), then the
+ * history.
  */
 export function TradesPage({
   api = defaultApi,
@@ -257,6 +258,7 @@ export function TradesPage({
     receive: params.getAll('receive')
   }));
   const [countering, setCountering] = useState<TradeView | null>(null);
+  const builder = useRef<HTMLElement>(null);
   const [mine, setMine] = useState<PlayerRef[] | null>(null);
   const [theirs, setTheirs] = useState<PlayerRef[] | null>(null);
   const [preview, setPreview] = useState<TradePreview | null>(null);
@@ -309,6 +311,8 @@ export function TradesPage({
   const onAction = (t: TradeView, action: TradeAction) => {
     if (action === 'counter') {
       setCountering(t);
+      // The builder sits below the offers: bring it up to edit the counter.
+      builder.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
       setSelection({
         withTeamId: t.fromTeam.id,
         send: t.toSends.map((p) => p.id),
@@ -347,8 +351,26 @@ export function TradesPage({
       {notice && <Alert variant="success">{notice}</Alert>}
       <ApiErrorAlert error={error ?? setup.error ?? trades.error} />
 
+      <TradeList
+        title="Inbox"
+        empty="No offers waiting for you."
+        trades={all.filter((t) => t.direction === 'incoming' && t.status === 'proposed')}
+        {...listProps}
+      />
+      <TradeList
+        title="Sent offers"
+        empty="You have no open offers."
+        trades={all.filter((t) => t.direction === 'outgoing' && t.status === 'proposed')}
+        {...listProps}
+      />
+      <TradeList
+        title="League review"
+        empty="No trades are under review."
+        trades={all.filter((t) => t.status === 'in_review' || t.status === 'accepted')}
+        {...listProps}
+      />
       {myTeam !== null && (
-        <section aria-label="Trade builder" className="space-y-3">
+        <section ref={builder} aria-label="Trade builder" className="scroll-mt-4 space-y-3">
           <h3 className="text-lg font-semibold">
             {countering ? `Counter ${countering.fromTeam.name}'s offer` : 'Propose a trade'}
           </h3>
@@ -415,24 +437,6 @@ export function TradesPage({
         </section>
       )}
 
-      <TradeList
-        title="Inbox"
-        empty="No offers waiting for you."
-        trades={all.filter((t) => t.direction === 'incoming' && t.status === 'proposed')}
-        {...listProps}
-      />
-      <TradeList
-        title="Sent offers"
-        empty="You have no open offers."
-        trades={all.filter((t) => t.direction === 'outgoing' && t.status === 'proposed')}
-        {...listProps}
-      />
-      <TradeList
-        title="League review"
-        empty="No trades are under review."
-        trades={all.filter((t) => t.status === 'in_review' || t.status === 'accepted')}
-        {...listProps}
-      />
       <TradeList
         title="History"
         empty="No finished trades yet."

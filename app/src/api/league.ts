@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { RealtimeInfo } from '../chat/api';
+import type { TradeView } from '../trades/api';
 import type { ApiFetch, ApiRequest } from './client';
 import type { NotificationInbox, NotificationPreferences, NotificationSummary } from '../notifications/types';
 import type {
@@ -153,6 +154,8 @@ export function createLeagueApi(api: ApiFetch) {
       call<AgentActivity>(`${league(id)}/agent-activity`, { query }),
     /** get_data_status (#181): commissioner only. */
     getDataStatus: (id: string) => call<DataStatus>(`${league(id)}/data-status`),
+    /** list_trades, for the lineup's pending-trade callout (the trades page has its own client). */
+    listTrades: (id: string) => call<{ trades: TradeView[] }>(`${league(id)}/trades`).then((d) => d.trades),
     /** get_realtime_token: a subscribe-only token for live league events, or `enabled: false`. */
     getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`),
     /** list_chat_rooms, for the league nav's unread badge (the chat page has its own client). */
