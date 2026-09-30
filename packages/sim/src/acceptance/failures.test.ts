@@ -248,6 +248,48 @@ describe('a dispatch failure', () => {
   });
 });
 
+describe('closing-reply recovery', () => {
+  it('uses the task outbox to retry a rate-limited result without rerunning the trade look', async () => {
+    let lost = 0;
+    const w = await world({ lose: (r) => r.kind === 'trade_proposal' && lost++ === 0 });
+    const pitch = await w.say(pitchText(PITCH.send, PITCH.receive));
+    const look = w.requests().find((r) => r.kind === 'trade_proposal');
+    expect(look).toBeDefined();
+    // Fill the one-minute agent burst immediately before the delayed look reports its result.
+    const at = w.clock.now().toISOString();
+    for (let i = 0; i < 5; i++)
+      await w.repos.chat.put(
+        {
+          id: `reply-burst-${i}`,
+          leagueId: w.league.id,
+          roomId: pitch.roomId,
+          kind: 'agent',
+          author: { teamId: AGENT_TEAM, teamName: 'Agent Team', name: 'Agent' },
+          text: `Earlier line ${i}`,
+          mentionedTeamIds: [],
+          event: null,
+          createdAt: at
+        },
+        { dmTeamIds: [PERSON_TEAM, AGENT_TEAM] }
+      );
+    await w.rerun(look as NonNullable<typeof look>);
+    expect(await commitmentFor(w, pitch)).toMatchObject({
+      status: 'declined',
+      reply: { state: 'withheld', failure: 'RATE_LIMITED', attempts: 1 }
+    });
+
+    await w.advance(6 * 60_000);
+    await w.checkIn('afternoon');
+    expect(await commitmentFor(w, pitch)).toMatchObject({ reply: { state: 'sent', attempts: 2 } });
+    expect((await tasksOf(w, 'commitment_reply')).at(-1)).toMatchObject({
+      status: 'skipped',
+      fallbackReason: 'commitment_reply_sent'
+    });
+    expect((await answers(w, pitch)).filter((line) => line.startsWith('Took a proper look'))).toHaveLength(1);
+    expect(await tradeCount(w)).toBe(0);
+  });
+});
+
 describe('a seat change', () => {
   it('a person taking the seat cancels the look without a word; an agent coming back starts clean', async () => {
     const w = await world({ lose: (r) => r.kind === 'trade_proposal' });
