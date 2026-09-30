@@ -11,6 +11,7 @@ import type { TradeView } from '../../trades/api';
 import { fakeApi, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 import { dragAnnouncements, gameLine } from './LineupBoard';
+import { pendingTrades, TradeCallout } from './TradeCallout';
 import {
   applyMoves,
   changes,
@@ -716,6 +717,13 @@ describe('the lineup page on game day (#193)', () => {
     await waitFor(() => expect(api.getRealtime).toHaveBeenCalled());
     act(() => push({ detailType: 'NFL Games Updated', leagueId: null }));
     await waitFor(() => expect(api.getRoster).toHaveBeenCalledTimes(2));
+    // A trade event refreshes the callout; only a processed trade changes the roster.
+    act(() => push({ detailType: 'Trade Proposed', leagueId: 'L1' }));
+    await waitFor(() => expect(api.listTrades).toHaveBeenCalledTimes(2));
+    expect(api.getRoster).toHaveBeenCalledTimes(2);
+    act(() => push({ detailType: 'Trade Processed', leagueId: 'L1' }));
+    await waitFor(() => expect(api.listTrades).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(api.getRoster).toHaveBeenCalledTimes(3));
   });
 
   it('shows a player ruled out without a reload, and ignores other teams’ players (#200)', async () => {
@@ -882,6 +890,49 @@ describe('player names and pending trades on the lineup', () => {
     );
     expect(within(screen.getByTestId('roster-row-wr2')).getByTestId('in-trade')).toBeInTheDocument();
     expect(within(screen.getByTestId('roster-row-qb1')).queryByTestId('in-trade')).toBeNull();
+  });
+
+  it('says where each trade stands, and sends the rest to the trades page', () => {
+    const later = '2026-09-12T12:00:00Z';
+    const outgoing = { direction: 'outgoing' as const, fromTeam: trade().toTeam, toTeam: trade().fromTeam };
+    const trades = pendingTrades([
+      trade({ id: 'review', status: 'in_review', ...outgoing }),
+      trade({ id: 'late', expiresAt: later }),
+      trade({ id: 'counter', round: 1, expiresAt: '2026-09-10T11:00:00Z', toSends: [] }),
+      trade({ id: 'accepted', status: 'accepted' })
+    ]);
+    expect(trades.map((t) => t.id)).toEqual(['counter', 'late', 'review', 'accepted']);
+    render(
+      <MemoryRouter>
+        <TradeCallout leagueId="L1" trades={trades} now={BEFORE_KICKOFF.getTime()} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('trade-callout-counter')).toHaveTextContent(
+      'Robo Ballers countered · Expiring now'
+    );
+    expect(screen.getByTestId('trade-callout-counter')).toHaveTextContent('You givenobody');
+    expect(screen.getByRole('link', { name: 'and 2 more on the trades page' })).toHaveAttribute(
+      'href',
+      '/leagues/L1/team/trades'
+    );
+    render(
+      <MemoryRouter>
+        <TradeCallout leagueId="L1" trades={trades.slice(2)} now={BEFORE_KICKOFF.getTime()} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('trade-callout-review')).toHaveTextContent(
+      'Accepted with Robo Ballers · In league review'
+    );
+    expect(screen.getByTestId('trade-callout-accepted')).toHaveTextContent('Processing');
+    const calm = screen.getAllByRole('region', { name: 'Pending trades' })[1];
+    expect(calm).toHaveTextContent('2 trades pending');
+    expect(calm).not.toHaveTextContent('your move');
+    render(
+      <MemoryRouter>
+        <TradeCallout leagueId="L1" trades={trades.slice(3)} now={BEFORE_KICKOFF.getTime()} />
+      </MemoryRouter>
+    );
+    expect(screen.getAllByRole('region', { name: 'Pending trades' })[2]).toHaveTextContent(/^Trade pending/);
   });
 
   it('shows no callout without a pending trade', async () => {
