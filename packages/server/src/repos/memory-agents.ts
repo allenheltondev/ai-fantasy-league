@@ -364,6 +364,12 @@ export class InMemoryAgentRepository implements AgentRepository {
     return true;
   }
 
+  async releaseTrigger(leagueId: string, slot: string, owner: string): Promise<boolean> {
+    const key = `${leagueId}\u0000${slot}`;
+    if (this.#state.get(key)?.owner !== owner) return false;
+    return this.#state.delete(key);
+  }
+
   async reserveDispatch(dispatch: AgentDispatch, gate?: TriggerGate): Promise<AgentDispatchReservation> {
     const existing = this.#dispatches.get(dispatch.taskId);
     if (existing !== undefined) return { status: 'exists', dispatch: clone(existing) };

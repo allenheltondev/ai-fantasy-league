@@ -66,6 +66,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
         authorTeamId: 'team-2',
         authorType: 'user',
         mentionedTeamIds: ['team-3', 'team-1'],
+        addressedBy: 'mention',
         replyToAgentDepth: 0
       });
       await as(h, BOB).post(`${L}/chat/messages`, { text: 'no mentions here, alice@example.com' });
@@ -304,6 +305,67 @@ for (const backend of ['memory', 'dynamo'] as const) {
         args: { leagueId: 'lg-chat', text: 'hi', idempotencyKey: 'agent-chat-0002' }
       });
       expect(denied.status).toBe(403);
+    });
+
+    it('addresses an untagged follow-up to the AI manager a person is going back and forth with', async () => {
+      const agent = agentPrincipal({ agentId: 'lg-chat.team-3', teamId: 'team-3', leagueId: 'lg-chat' });
+      const post = async (text: string, replyToId?: string) => {
+        const result = await invokeTool({
+          registry,
+          services: h.services,
+          principal: agent,
+          name: 'post_message',
+          args: {
+            leagueId: 'lg-chat',
+            text,
+            idempotencyKey: `agent-${text.length}-${replyToId ?? ''}`,
+            replyToId
+          }
+        });
+        return (result.body as { data: { message: ChatMessage } }).data.message;
+      };
+      const say = async (who: typeof BOB, text: string) =>
+        data<{ message: ChatMessage }>(await as(h, who).post(`${L}/chat/messages`, { text })).message;
+      const mentions = () =>
+        h.events.events
+          .filter((e) => e.detailType === 'Chat Mention')
+          .map((e) => e.detail as Record<string, unknown>);
+
+      const asked = await say(BOB, '@team-3 who is your RB1 now?');
+      h.clock.advance(30_000);
+      await post('Still mine, and still better than yours.', asked.id);
+      h.clock.advance(30_000);
+      const followUp = await say(BOB, 'Prove it.');
+      // The message's mentions stay what was written; the addressee travels on its own.
+      expect(followUp.mentionedTeamIds).toEqual([]);
+      expect(followUp.addressedTeamIds).toEqual(['team-3']);
+      expect(mentions().at(-1)).toEqual({
+        leagueId: 'lg-chat',
+        roomId: 'trash-talk',
+        messageId: followUp.id,
+        authorTeamId: 'team-2',
+        authorType: 'user',
+        mentionedTeamIds: ['team-3'],
+        addressedBy: 'continuation',
+        replyToAgentDepth: 0
+      });
+      // It is not a notification: the person's toast still comes from mentions only.
+      const posted = h.events.events.filter((e) => e.detailType === 'Chat Message Posted').at(-1);
+      expect(posted?.detail).toMatchObject({
+        message: { mentionedTeamIds: [], addressedTeamIds: ['team-3'] }
+      });
+
+      // Another person stepping in to address the agent ends it for Bob.
+      await say(ALICE, '@team-3 leave him alone.');
+      const count = mentions().length;
+      const after = await say(BOB, 'Whatever.');
+      expect(after.addressedTeamIds).toBeUndefined();
+      expect(mentions()).toHaveLength(count);
+
+      // And the exchange lapses after the window.
+      await post('Anyway.', after.id);
+      h.clock.advance(11 * 60_000);
+      expect((await say(BOB, 'Hello?')).addressedTeamIds).toBeUndefined();
     });
 
     it('lists post_message in allowedActions for members', async () => {

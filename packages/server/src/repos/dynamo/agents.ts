@@ -1,4 +1,5 @@
 import {
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -694,6 +695,24 @@ export class DynamoAgentRepository implements AgentRepository {
   async admitTrigger(leagueId: string, gate: TriggerGate): Promise<boolean> {
     try {
       await this.table.doc.send(new UpdateCommand(this.#gateUpdate(leagueId, gate)));
+      return true;
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) return false;
+      throw error;
+    }
+  }
+
+  async releaseTrigger(leagueId: string, slot: string, owner: string): Promise<boolean> {
+    try {
+      await this.table.doc.send(
+        new DeleteCommand({
+          TableName: this.table.tableName,
+          Key: stateKey(leagueId, slot),
+          ConditionExpression: '#owner = :owner',
+          ExpressionAttributeNames: { '#owner': 'owner' },
+          ExpressionAttributeValues: { ':owner': owner }
+        })
+      );
       return true;
     } catch (error) {
       if (isConditionalCheckFailure(error)) return false;

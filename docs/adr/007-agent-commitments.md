@@ -32,7 +32,15 @@ Commitments never reach a prompt, natural-language memory, public APIs, or the a
 - Idempotency: the same message maps to one commitment; the same swap with the same partner to one open commitment; each follow-up has a task id from its trigger; the propose step replays by its idempotency key; the closing line is claimed once per look. Duplicate delivery or a crash cannot duplicate the offer or the closing line.
 - A seat that stops being an agent's (a person takes it over) makes the runner skip the follow-up before the task runs (`no_agent_seat`), so its commitment stays `queued` in the old tenure's row. That is harmless: nothing reads that row again (every read is keyed by the current occupant's tenure, and a later agent occupant starts empty), no offer or line can come from it, and the person now managing the team owes nothing. An agent replacing an agent cancels it (`seat_changed`) on the next look.
 - A closing line the chat budgets refuse is recorded as `withheld`, not deferred. Expiry and partner answers are observed at the next check-in, not the moment they happen.
-- Out of scope in this slice: lineup and waiver commitments, injury tips, the `trade_response` chat path (a push about an offer already made), human-message coalescing across bursts, and #211 evaluation. #218 can build conversational callbacks on the recorded reasons.
+- Out of scope in this slice: lineup and waiver commitments, injury tips, the `trade_response` chat path (a push about an offer already made), and #211 evaluation. #218 can build conversational callbacks on the recorded reasons.
+
+## Bursts of human messages
+
+Added after the first slice, closing #215's last acceptance item. A person's message to an agent that the reply cooldown turns away is no longer dropped: the router defers one reply per agent, room, and person to when the cooldown ends, through the outbox and holding the chat slot for that time, and the rest of the burst joins it. That reply answers the newest message with the earlier unanswered ones listed, asked to answer them all in one message. A reply covers everything its person said before it, and it claims each burst message's reply slot, so neither a redelivery nor a later check-in answers the burst again. A trade pitch inside a burst reaches this lifecycle through the one reply's takeaway, as before. A person may also keep talking to an agent without tagging it (conversation continuity); see the chat section of [ARCHITECTURE.md](../ARCHITECTURE.md).
+
+- A burst message a reply covers is answered by that reply's words. A question the model's single message leaves unaddressed is not handed on again.
+- A pointer held for a person always has a scheduled reply behind it. When every reservation attempt loses the agent's chat slot, the router releases its own pointer (owner-checked), so the next message from that person schedules a reply, which lists the one that could not be deferred. Without a next message, a question among them is still handed on at the next check-in.
+- The deferred reply is exactly one per burst while it waits. A redelivery that arrives after it ran may schedule another, which finds the burst answered and posts nothing (`already_answered`, no model call).
 
 ## Validation
 

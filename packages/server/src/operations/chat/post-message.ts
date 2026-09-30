@@ -1,5 +1,7 @@
 import {
+  CONTINUATION_LIMITS,
   DEFAULT_ROOM_ID,
+  continuationAddressee,
   dmPartner,
   mentionedTeamIds,
   moderateChatText,
@@ -35,6 +37,7 @@ export const postMessage = defineOperation({
     `Posts \`text\` to a chat room as you (a person, or an agent speaking for its team): \`roomId\`, default "${DEFAULT_ROOM_ID}". Everyone who can read the room sees it live.`,
     'Rooms: `league`, `trash-talk`, `draft`, `trades`, `waivers-news`, this week\'s matchup rooms (list_chat_rooms), and direct messages. To message one team privately, post to the DM room "dm-" plus your team id and theirs, sorted and joined with "-" (for example "dm-team-1-team-3"); only your two teams can read it, and the other team is notified of every message.',
     'Mention a team with `@` plus its team name, its manager\'s name, or its team id (for example "@Big Tuna" or "@team-3"); mentioned teams are notified, and AI managers may reply. In a DM only the other team can be mentioned.',
+    `Going back and forth with an AI manager, you need not tag it every time: a message with no mention, right after it answered or mentioned you (within ${CONTINUATION_LIMITS.windowMs / 60_000} minutes, with nobody else stepping in), is addressed to it (\`addressedTeamIds\`). Tag someone to talk to anyone else.`,
     `Messages are 1-${CHAT_LIMITS.maxLength} characters. Trash talk is welcome, no slurs or threats. Chat is for banter and negotiation only: nothing agreed in chat happens until someone uses the trade tools.`,
     'Answer a message with `replyToId` (its id, from get_chat; it must be one of the room’s last 100 messages). An AI manager’s answer to another AI manager’s message is a retort, one deeper than the message it answers (`replyToAgentDepth`): a retort that @mentions its target may draw another, up to a few rounds, and the league’s AI managers may post only so many retorts a day (`postingBudget.banterRemaining`).',
     'Every message, from a person or an AI manager, goes through the same moderation: control and invisible characters are removed, and harassment (telling someone to hurt themselves) is refused.',
@@ -129,6 +132,22 @@ export const postMessage = defineOperation({
       text,
       roomMentionTargets(parsed, mentionTargets(access.teams, managers), authorTeamId)
     );
+    // A person going back and forth with an AI manager need not tag it every time: an unmentioned
+    // message continues the conversation (core `continuationAddressee`). Mentions stay as written.
+    const continued =
+      parsed.kind === 'dm' || author.kind !== 'user' || mentioned.length > 0
+        ? null
+        : continuationAddressee({
+            author: { kind: author.kind, teamId: authorTeamId },
+            mentioned,
+            dm: false,
+            recent: (
+              await ctx.repos.chat.list(access.league.id, room.roomId, {
+                limit: CONTINUATION_LIMITS.lookback
+              })
+            ).messages,
+            now: now.toISOString()
+          });
     const message: ChatMessage = {
       id: newId(ctx),
       leagueId: access.league.id,
@@ -136,6 +155,7 @@ export const postMessage = defineOperation({
       ...author,
       text,
       mentionedTeamIds: mentioned,
+      ...(continued === null ? {} : { addressedTeamIds: [continued] }),
       event: null,
       ...(replyTo === null ? {} : { replyToId: replyTo.id }),
       ...(depth > 0 ? { replyToAgentDepth: depth } : {}),
@@ -156,11 +176,16 @@ export const postMessage = defineOperation({
       teamIds: dmTeamIds,
       message
     });
-    // Every DM message is addressed to the other team, mentioned or not.
+    // Every DM message is addressed to the other team, mentioned or not; an unmentioned message
+    // that continues a conversation, to the AI manager it continues with.
+    const addressedBy =
+      dmTeamIds !== null && authorTeamId !== null ? 'dm' : continued === null ? 'mention' : 'continuation';
     const addressed =
-      dmTeamIds === null || authorTeamId === null
-        ? mentioned
-        : [dmPartner({ teamIds: dmTeamIds }, authorTeamId)];
+      dmTeamIds !== null && authorTeamId !== null
+        ? [dmPartner({ teamIds: dmTeamIds }, authorTeamId)]
+        : continued === null
+          ? mentioned
+          : [continued];
     const notify = addressed.filter((teamId) => teamId !== authorTeamId);
     if (notify.length > 0) {
       await ctx.events.publish('Chat Mention', {
@@ -170,6 +195,7 @@ export const postMessage = defineOperation({
         authorTeamId: author.author.teamId,
         authorType: author.kind,
         mentionedTeamIds: notify,
+        addressedBy,
         replyToAgentDepth: depth
       });
     }

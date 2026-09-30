@@ -85,6 +85,12 @@ export const ChatMessageSchema = z.object({
   }),
   text: z.string(),
   mentionedTeamIds: z.array(z.string()).describe('Teams @mentioned in the text.'),
+  addressedTeamIds: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'The AI manager a person’s message is addressed to without an @mention: one it is going back and forth with in this room (conversation continuity). Absent otherwise; `mentionedTeamIds` never includes it.'
+    ),
   /** For system messages: the league event it announces. */
   event: z.object({ detailType: z.string(), eventId: z.string() }).nullable(),
   players: z

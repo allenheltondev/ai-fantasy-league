@@ -357,6 +357,11 @@ export interface AgentRepository {
   putTriggerState(state: AgentTriggerState): Promise<void>;
   /** Takes a trigger-state slot through its gate, atomically (see `TriggerGate`). */
   admitTrigger(leagueId: string, gate: TriggerGate): Promise<boolean>;
+  /**
+   * Frees a trigger-state slot `owner` took, atomically: false (nothing changed) when the slot is
+   * free or another owner holds it. For a gate taken ahead of work that then could not happen.
+   */
+  releaseTrigger(leagueId: string, slot: string, owner: string): Promise<boolean>;
 
   /**
    * Reserves a dispatch (`dispatch.state` is `reserved`), and with a gate takes the gate in the same
