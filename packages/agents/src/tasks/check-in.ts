@@ -520,6 +520,8 @@ export interface CheckInPrep {
 }
 
 async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep> {
+  // A check-in delayed past the league's end has nothing left to manage (#219): no lineup to set.
+  if (ctx.league.phase === 'complete') throw new TaskUnavailableError('league_complete');
   // Deterministic and first: it reads offers' answers and may hand one commitment on (#215).
   const followUps = await reviewCommitments(ctx);
   const lineup = await readLineupOrNull(ctx);

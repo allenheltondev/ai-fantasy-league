@@ -335,5 +335,8 @@ describe('closing lines and reconsideration', () => {
     // A lopsided swap is its own reason (#219), and facts cannot make it worth another look.
     expect(reasonLine('lopsided')).toBe('it was too one-sided to be fair');
     expect(RECONSIDERABLE.has('lopsided')).toBe(false);
+    // So is having no projections to weigh it by: not a verdict on the value.
+    expect(reasonLine('missing_data')).toBe('I had no projections to value it by yet');
+    expect(RECONSIDERABLE.has('missing_data')).toBe(false);
   });
 });

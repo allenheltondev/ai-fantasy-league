@@ -86,4 +86,4 @@ The `deterministic` condition is free. The budget is enforced per call: before e
 
 ## Known findings
 
-- A pitch in a DM that the agent declines after checking its numbers ends silently: the follow-up task decides, but only a changed mind is reported back in the conversation. The scenario reports this as a finding (`conversation_to_action.findings`), and `promise_fulfilment` counts how many commitments reported back.
+- Since #240 a pitch the agent takes on in chat becomes a commitment, and every look ends with one closing line in the conversation it came from: an offer sent, or a decline with its reason ("Took a proper look at that one: the value was not there for me. Pass for now."), or "Nothing was sent" when the look could not finish. A declined pitch no longer ends silently. The scenario still reports a follow-up without a word back as a finding (`conversation_to_action.findings`), and `promise_fulfilment` counts how many commitments reported back.

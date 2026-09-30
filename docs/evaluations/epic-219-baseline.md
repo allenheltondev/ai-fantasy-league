@@ -80,11 +80,11 @@ Season layer: #211's season scenario, 3 fixture weeks, seeds base-1, base-2, bas
 
 | Configuration | agentMessages | maxAgentPerDay | modelCalls | inputTokens | outputTokens | costUsd |
 |---|---|---|---|---|---|---|
-| full | 76.3 (—; 80 / 80 / 69) | 3.3 (—; 3 / 3 / 4) | 503.7 (—; 508 / 509 / 494) | 710141 (—; 713851 / 722411 / 694161) | 15677 (—; 15918 / 16145 / 14968) | 1.1 (—; 0.9864 / 1.0 / 1.3) |
-| no_agenda_commitments | 75.3 (-1; 80 / 80 / 66) | 3.7 (+0.3333; 3 / 4 / 4) | 510 (+6.3; 515 / 505 / 510) | 718731.7 (+8590.7; 724391 / 712200 / 719604) | 15817.7 (+140.7; 16155 / 15818 / 15480) | 1.1 (+0.0333; 1.0 / 0.9998 / 1.4) |
-| no_situation | 76.3 (+0; 80 / 80 / 69) | 3.3 (+0; 3 / 3 / 4) | 504 (+0.3333; 508 / 510 / 494) | 693187.7 (-16953.3; 696594 / 705673 / 677296) | 15700 (+23; 15906 / 16226 / 14968) | 1.1 (-0.0247; 0.9649 / 1.0 / 1.2) |
-| no_attachments | 72.7 (-3.7; 68 / 81 / 69) | 4 (+0.6667; 3 / 5 / 4) | 499.7 (-4; 489 / 516 / 494) | 704803.3 (-5337.7; 686202 / 734119 / 694089) | 15282.3 (-394.7; 14867 / 16012 / 14968) | 1.1 (-0.0103; 0.9319 / 1.1 / 1.3) |
-| no_social_acts | 78 (+1.7; 82 / 83 / 69) | 3.3 (+0; 3 / 3 / 4) | 504.3 (+0.6667; 506 / 513 / 494) | 711378.3 (+1237.3; 712822 / 727359 / 693954) | 15650.7 (-26.3; 15893 / 16145 / 14914) | 1.1 (+0.0004; 0.9904 / 1.0 / 1.3) |
+| full | 76.3 (—; 80 / 80 / 69) | 3.3 (—; 3 / 3 / 4) | 503.7 (—; 508 / 509 / 494) | 710151.3 (—; 713868 / 722411 / 694175) | 15677 (—; 15918 / 16145 / 14968) | 1.1 (—; 0.9864 / 1.0 / 1.3) |
+| no_agenda_commitments | 75.3 (-1; 80 / 80 / 66) | 3.7 (+0.3333; 3 / 4 / 4) | 510 (+6.3; 515 / 505 / 510) | 718749 (+8597.7; 724408 / 712212 / 719627) | 15817.7 (+140.7; 16155 / 15818 / 15480) | 1.1 (+0.0333; 1.0 / 0.9998 / 1.4) |
+| no_situation | 76.3 (+0; 80 / 80 / 69) | 3.3 (+0; 3 / 3 / 4) | 504 (+0.3333; 508 / 510 / 494) | 693199 (-16952.3; 696612 / 705673 / 677312) | 15700 (+23; 15906 / 16226 / 14968) | 1.1 (-0.0247; 0.9649 / 1.0 / 1.2) |
+| no_attachments | 72.7 (-3.7; 68 / 81 / 69) | 4 (+0.6667; 3 / 5 / 4) | 499.7 (-4; 489 / 516 / 494) | 704818 (-5333.3; 686209 / 734142 / 694103) | 15282.3 (-394.7; 14867 / 16012 / 14968) | 1.1 (-0.0103; 0.9319 / 1.1 / 1.3) |
+| no_social_acts | 78 (+1.7; 82 / 83 / 69) | 3.3 (+0; 3 / 3 / 4) | 504.3 (+0.6667; 506 / 513 / 494) | 711394.3 (+1243; 712839 / 727376 / 693968) | 15650.7 (-26.3; 15893 / 16145 / 14914) | 1.1 (+0.0004; 0.9904 / 1.0 / 1.3) |
 
 #### Unanswered human questions
 
@@ -155,14 +155,15 @@ Fixed in this change, each with a test:
 
 1. **A lopsided decline claimed the value was not there.** A pitch the trade value math calls lopsided was declined as `value_below_floor` even when it favoured the agent (score 33.8 against a bar of 1), and the closing line told the person "the value was not there for me". It is now its own reason, `lopsided` ("it was too one-sided to be fair"), and is not reconsidered.
 2. **A withdrawn offer was remembered as open.** `Trade Withdrawn` was not a memory event, so an offer the person took back stayed `proposed` in the agent's memory and was recalled as live. It now closes the trade in memory as `withdrawn` (private to the two teams); the router rule in `infra/template.yaml` lists the event.
+3. **No projections read as no value.** With no projections for the week, a pitch was declined as `value_below_floor` with a score of 0. It is now `missing_data` ("I had no projections to value it by yet"), not reconsidered, and only when neither the rosters nor the value math can weigh the swap.
+4. **A check-in ran after the league ended.** A check-in delayed past league completion still tried to set a lineup, and the league refused it. It now stands down as `league_complete` before reading anything, like other tasks that find the wrong phase.
+5. **"Reconsidered" on a first look.** A chat-driven offer's activity summary began "Reconsidered: ... pitch won me over" on every offer. It now says "Reconsidered" only on a second look after a recorded decline, and "the argument won me over" only when the argument's credit carried a score below the bar.
+6. **Trades that never happened were "won".** A remembered trade kept the offer's value and read "you sent ... (you won it)" after the offer expired. Memory now words a trade by its outcome: sent and won only once processed (agreed once accepted), "on the table" while open, and "it would have been ...; it never happened" once expired, withdrawn, rejected, or vetoed.
+7. **Stale docs.** `docs/agent-eval.md` and `docs/sim.md` said a declined pitch ends silently; since #240 every look ends with one closing line.
 
 Reported, not changed:
 
 - The trade-happy proposal floor (above).
-- With no projections for the week, a pitch is declined as `value_below_floor` with a score of 0. Nothing is sent, which is right, but "the value was not there" is weaker than "I could not value it".
-- A check-in delayed past league completion still tries to set a lineup and records the refusal. The job never publishes check-ins for complete leagues, so only a delayed one can hit this.
-- A chat-driven offer's activity summary starts "Reconsidered: ... pitch won me over" even on a first look whose numbers cleared the bar without the argument.
-- A trade memory line carries the offer's value ("you won it") after the offer expired unanswered.
 
 ## Caveats
 

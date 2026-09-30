@@ -99,6 +99,19 @@ describe('the epic #219 acceptance scenario', () => {
     );
   });
 
+  it('calls a look a reconsideration only when it is one, and credits the argument only when it carried the bar', () => {
+    const summary = (id: string | undefined) => balanced.tasks.find((t) => t.taskId === id)?.reasoningSummary;
+    const again = look(balanced, 'reconsider');
+    expect(summary(again?.childTaskIds[1])).toMatch(
+      /^Reconsidered Allen's pitch; offered Wr2 Agent \(WR\) for Rb3 Person \(RB\)\./
+    );
+    // The marginal pitch was a first look whose score cleared the bar on its own.
+    const marginal = look(balanced, 'marginal');
+    expect(summary(marginal?.childTaskIds[0])).toMatch(
+      /^Weighed Allen's pitch; offered Qb3 Agent \(QB\) for Qb2 Person \(QB\)\./
+    );
+  });
+
   it('answers the pitch once, closes each look with one line, and duplicates nothing on redelivery', () => {
     expect([...balanced.replies].sort()).toEqual(
       [

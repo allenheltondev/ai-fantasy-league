@@ -236,7 +236,7 @@ The full 2025 season replays in about 70 seconds with 8 teams (about 2,000 agent
 `RecordingModel` wraps the agents' model and records each run with its task, team, prompt, decision, usage, and latency. Relationship snapshots (core `relationshipsFrom`) are taken at every official final. `checkScenarios(run)` then checks, as hard assertions under the deterministic policy (`deterministicPolicy()`: the scripted model plus the takeaways a sensible chat model would mark, and a worst-case relay of the order):
 
 - **recall**: every agent's memory equals its final results, and the recall probe's prompt names last week's opponent and score;
-- **conversation_to_action**: the pitch got a reply and a chat-driven follow-up task that ran to an outcome. A follow-up that ends without a word back to the person is reported as a finding (today a declined pitch ends silently);
+- **conversation_to_action**: the pitch got a reply and a chat-driven follow-up task that ran to an outcome. A follow-up that ends without a word back to the person is reported as a finding (since #240 a decline gets its closing line too);
 - **privacy**: the canary reaches only the DM agent's chat prompts: no decision task, no other agent, no public room, no other agent's memory;
 - **delayed_replies**: offers to agents are answered after a human-like wait (some wait, none after `expiresAt`, none left to expire);
 - **relationship_evolution**: every game builds rivalry, which fades until the teams meet again; each processed or turned-down trade leaves warmth or a grudge;

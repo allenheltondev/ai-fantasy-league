@@ -400,9 +400,12 @@ async function assessPitch(
     return { ok: false, code: 'trades_closed', reason: 'trades_closed', facts: null };
   const team = state.teams.find((t) => t.id === withTeamId);
   // Only players the two teams really roster (the chat names them; the rosters decide).
+  let projected = false;
   const owned = async (teamId: string, ids: readonly string[]) => {
     const roster = data(await ctx.tools.call('get_roster', { teamId }), RosterSchema)?.players ?? [];
-    return ids.flatMap((id) => roster.filter((p) => p.player.id === id).map((p) => p.player));
+    const found = ids.flatMap((id) => roster.filter((p) => p.player.id === id));
+    if (found.some((p) => p.projectedPoints !== null)) projected = true;
+    return found.map((p) => p.player);
   };
   const sends = await owned(state.yourTeam.id, send);
   const receives = team === undefined ? [] : await owned(team.id, receive);
@@ -445,6 +448,11 @@ async function assessPitch(
   });
   if (preview === null || !preview.valid) return no('it would not be a legal trade.', 'not_legal', facts());
   const [mySide, theirSide] = preview.sides;
+  // No projection for any player in the swap, and the value math found nothing either (it falls back
+  // to last week's when it can): nothing to weigh it by, so say that, never "the value was not
+  // there" (#219).
+  if (!projected && mySide.lineupDelta === 0 && mySide.valueDelta === 0)
+    return no('no projections to value it by yet.', 'missing_data', facts());
   const recency = ctx.config.valuation.recencyBias ?? 0;
   // Keyed by what the swap is (noise.ts), so the same pitch reads the same whatever the message id.
   const noise = judgmentNoise(
@@ -783,10 +791,18 @@ export const tradeProposalTask = defineTaskKind<Payload, TradeProposalDecision, 
     if (prep.interest !== undefined) await concludeInterest(ctx, prep, outcome, decision.reply);
     else await replyInChat(ctx, payload.chat, decision.reply);
     const c = prep.candidates[0] as ProposalCandidate;
+    // Say what really happened (#219): "Reconsidered" only on a second look after a recorded
+    // decline, and "won me over" only when the argument's credit carried a score below the bar.
+    const who = prep.pitch.heard.who;
+    const looked =
+      prep.interest?.previous !== null && prep.interest?.previous !== undefined
+        ? `Reconsidered ${who}'s pitch`
+        : `Weighed ${who}'s pitch`;
+    const persuaded = c.score < prep.bar ? '; the argument won me over' : '';
     const note =
       outcome.action === 'propose_trade'
-        ? `Reconsidered: ${prep.pitch.heard.who}'s pitch won me over; offered ${sideNames(c.send, c.sends)} for ${sideNames(c.receive, c.receives)}.`
-        : `Weighed ${prep.pitch.heard.who}'s pitch; sent nothing.`;
+        ? `${looked}${persuaded}; offered ${sideNames(c.send, c.sends)} for ${sideNames(c.receive, c.receives)}.`
+        : `${looked}; sent nothing.`;
     return {
       ...outcome,
       summary: `${note} ${outcome.summary}`.trim(),

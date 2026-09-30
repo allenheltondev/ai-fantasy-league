@@ -388,15 +388,29 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
   }
 }
 
-/** What changed hands and who won it, for a remembered trade. */
+/**
+ * What changed hands and who won it, for a remembered trade, in the tense its outcome allows
+ * (#219): only a trade that went through was "sent" and "won"; an open offer is still on the table;
+ * one that expired, was withdrawn, rejected, or vetoed never happened.
+ */
 export function tradeDetail(t: TradeMemory): string {
   const parts: string[] = [];
-  if (t.sent !== undefined || t.received !== undefined)
-    parts.push(`you sent ${t.sent?.join(', ') || 'nothing'} for ${t.received?.join(', ') || 'nothing'}`);
-  if (t.value !== undefined)
-    parts.push(
-      `value for you ${t.value > 0 ? '+' : ''}${t.value} (${t.value > 0 ? 'you won it' : t.value < 0 ? 'they won it' : 'even'})`
-    );
+  const swap = `${t.sent?.join(', ') || 'nothing'} for ${t.received?.join(', ') || 'nothing'}`;
+  const value = t.value === undefined ? '' : `${t.value > 0 ? '+' : ''}${t.value}`;
+  const shown = t.sent !== undefined || t.received !== undefined;
+  if (t.outcome === 'processed' || t.outcome === 'accepted') {
+    if (shown) parts.push(t.outcome === 'processed' ? `you sent ${swap}` : `you agreed to send ${swap}`);
+    if (t.value !== undefined)
+      parts.push(
+        `value for you ${value} (${t.value > 0 ? 'you won it' : t.value < 0 ? 'they won it' : 'even'})`
+      );
+  } else if (t.outcome === 'proposed' || t.outcome === 'countered') {
+    if (shown) parts.push(`on the table: you would send ${swap}`);
+    if (t.value !== undefined) parts.push(`value for you ${value} if it goes through`);
+  } else {
+    if (shown) parts.push(`it would have been ${swap}; it never happened`);
+    if (t.value !== undefined) parts.push(`value for you would have been ${value}`);
+  }
   return parts.length === 0 ? '' : ` [${parts.join('; ')}]`;
 }
 

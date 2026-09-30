@@ -752,6 +752,40 @@ describe('commitments: the runtime edges (#215)', () => {
   });
 });
 
+describe("findings from #219's acceptance scenario", () => {
+  it('declines a pitch it has no projections for as missing data, not as no value', async () => {
+    const s = await interest();
+    // A newer, empty snapshot: the week's projections are not out.
+    await s.services.data.reference.projections.putSnapshot(
+      { season: 2026, week: 5, capturedAt: '2026-10-03T12:00:00.000Z', hash: 'empty', count: 0 },
+      []
+    );
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    await runAgentAction(s.deps(new ScriptedModelClient()), proposals(s)[0]!);
+    expect(await only(s)).toMatchObject({
+      status: 'declined',
+      decision: { reason: 'missing_data', facts: { score: null } },
+      nextReviewAt: null
+    });
+    expect(await answers(s, pitch)).toContain(
+      'Took a proper look at that one: I had no projections to value it by yet. Pass for now.'
+    );
+    expect(await trades(s)).toEqual([]);
+  });
+
+  it('a check-in that runs after the league is complete stands down without touching the lineup', async () => {
+    const s = await interest();
+    const league = (await s.repos.leagues.get(LEAGUE_ID))!;
+    await s.repos.leagues.update({ ...league, phase: 'complete' });
+    const model = said({ summary: 'Quiet day.', actions: [{ type: 'none' }] });
+    const record = await checkIn(s, 'ci-complete', model);
+    expect(record).toMatchObject({ status: 'skipped', fallbackReason: 'league_complete', toolsCalled: [] });
+    expect(model.transcript).toEqual([]);
+    expect(await s.savedLineups()).toEqual([]);
+  });
+});
+
 describe('evaluation ablations (#219, ablations.ts)', () => {
   const off = (s: Setup, model: ScriptedModelClient, ablations: AgentAblation[]) => ({
     ...s.deps(model),

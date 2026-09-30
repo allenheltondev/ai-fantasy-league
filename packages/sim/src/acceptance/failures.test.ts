@@ -133,10 +133,15 @@ describe('missing data', () => {
     );
     await injured(w);
     const pitch = await w.say(pitchText(PITCH.send, PITCH.receive));
+    // It says it had nothing to value the swap by, not that the value was not there (#219).
     expect(await commitmentFor(w, pitch)).toMatchObject({
       status: 'declined',
-      decision: { reason: 'value_below_floor', facts: { score: 0, lineupDelta: 0 } }
+      nextReviewAt: null,
+      decision: { reason: 'missing_data', facts: { score: null } }
     });
+    expect(await answers(w, pitch)).toContain(
+      'Took a proper look at that one: I had no projections to value it by yet. Pass for now.'
+    );
     expect(await tradeCount(w)).toBe(0);
     // The goal still stands: an unprojected week says nothing about who is healthy.
     expect((await goals(w)).map((g) => [g.slot, g.status])).toEqual([['RB', 'active']]);
@@ -299,6 +304,9 @@ describe('league completion', () => {
     await w.checkIn('evening');
     expect((await goals(w)).map((g) => g.status)).toEqual(['cancelled']);
     expect(await commitmentFor(w, pitch)).toMatchObject({ status: 'declined', reconsiderations: 0 });
+    // The check-in stands down cleanly: no lineup attempt the league must refuse (#219).
+    const late = (await tasksOf(w, 'check_in')).at(0);
+    expect(late).toMatchObject({ status: 'skipped', fallbackReason: 'league_complete', toolsCalled: [] });
     expect(await tradeCount(w)).toBe(0);
     expect(await answers(w, pitch)).toHaveLength(2);
   });
