@@ -6,6 +6,7 @@ import {
   advanceCommitment,
   claimReply,
   dueCommitments,
+  dueReplies,
   emptyCommitments,
   expireCommitments,
   materialChange,
@@ -272,16 +273,36 @@ describe('the commitment lifecycle', () => {
 });
 
 describe('closing lines and reconsideration', () => {
-  it('claims one closing line per look, and settles it', () => {
+  const delivery = (when: string, owner = 'reply-task') => ({ at: when, owner, text: 'Safe closing line.' });
+
+  it('leases one recoverable closing line per look, and settles it with fencing', () => {
     const { book, id } = declined();
-    const first = claimReply(book, id, at(2));
+    const first = claimReply(book, id, delivery(at(2)));
     expect(first.claimed).toBe(true);
-    expect(first.book.commitments[0]?.reply).toEqual({ key: `${id}#0`, state: 'claimed', at: at(2) });
-    expect(claimReply(first.book, id, at(3))).toMatchObject({ claimed: false, book: first.book });
-    expect(claimReply(first.book, 'nope', at(3)).claimed).toBe(false);
-    expect(settleReply(first.book, id, 'sent').commitments[0]?.reply?.state).toBe('sent');
-    expect(settleReply(book, id, 'sent')).toBe(book);
-    expect(settleReply(book, 'nope', 'sent')).toBe(book);
+    expect(first.book.commitments[0]?.reply).toMatchObject({
+      version: 1,
+      key: `${id}#0`,
+      state: 'claimed',
+      at: at(2),
+      text: 'Safe closing line.',
+      owner: 'reply-task',
+      attempts: 1
+    });
+    expect(claimReply(first.book, id, delivery(at(2.01), 'racer'))).toMatchObject({ claimed: false });
+    // The same owner may retry safely: post_message uses the stable delivery key.
+    expect(claimReply(first.book, id, delivery(at(2.01))).claimed).toBe(true);
+    expect(claimReply(first.book, 'nope', delivery(at(3))).claimed).toBe(false);
+    const sent = settleReply(first.book, id, {
+      key: `${id}#0`,
+      owner: 'reply-task',
+      at: at(2.02),
+      state: 'sent'
+    });
+    expect(sent.commitments[0]?.reply?.state).toBe('sent');
+    expect(settleReply(first.book, id, { key: `${id}#0`, owner: 'racer', at: at(3), state: 'sent' })).toBe(
+      first.book
+    );
+    expect(settleReply(book, 'nope', { key: 'x', owner: 'x', at: at(3), state: 'sent' })).toBe(book);
     // A reconsideration is a new look with its own line.
     const again = advanceCommitment(
       first.book,
@@ -289,7 +310,32 @@ describe('closing lines and reconsideration', () => {
       { type: 'redispatch', taskId: 'look-2', mode: 'reconsider' },
       at(14)
     ).book;
-    expect(claimReply(again, id, at(15)).claimed).toBe(true);
+    expect(claimReply(again, id, delivery(at(15))).claimed).toBe(true);
+  });
+
+  it('makes failed sends and abandoned leases due without regenerating their text', () => {
+    const { book, id } = declined();
+    const first = claimReply(book, id, delivery(at(2)));
+    expect(dueReplies(first.book, at(2.01))).toEqual([]);
+    expect(dueReplies(first.book, at(2.04)).map((c) => c.id)).toEqual([id]);
+    const failed = settleReply(first.book, id, {
+      key: `${id}#0`,
+      owner: 'reply-task',
+      at: at(2),
+      state: 'withheld',
+      failure: 'RATE_LIMITED'
+    });
+    expect(dueReplies(failed, at(2.05))).toEqual([]);
+    expect(dueReplies(failed, at(2.1))[0]?.reply).toMatchObject({
+      text: 'Safe closing line.',
+      failure: 'RATE_LIMITED'
+    });
+    const expired = claimReply(first.book, id, delivery(at(27), 'late'));
+    expect(expired.claimed).toBe(false);
+    expect(expired.book.commitments[0]?.reply).toMatchObject({
+      state: 'expired',
+      text: 'Safe closing line.'
+    });
   });
 
   it('finds a material change only in a new need the pitched players could fill', () => {

@@ -25,7 +25,12 @@ export const COMMITMENT_LIMITS = {
   reconsiderCooldownMs: 12 * 60 * 60_000,
   maxReconsiderations: 1,
   /** A queued commitment whose task never started is resumed after this (a lost publication). */
-  staleQueueMs: 60 * 60_000
+  staleQueueMs: 60 * 60_000,
+  /** Closing-message delivery: short leases, bounded retry backoff, and a one-day delivery window. */
+  replyLeaseMs: 2 * 60_000,
+  replyRetryMs: 5 * 60_000,
+  replyTtlMs: 24 * 60 * 60_000,
+  replyAttempts: 8
 } as const;
 
 export const COMMITMENT_STATUSES = [
@@ -132,9 +137,23 @@ export const CommitmentSchema = z.object({
     })
     .nullable(),
   reconsiderations: z.number().int().min(0),
-  /** The one closing line for the current look (`key`), claimed before it is posted. */
+  /** The one closing line for the current look (`key`), with recoverable delivery state (#246). */
   reply: z
-    .object({ key: z.string(), state: z.enum(['claimed', 'sent', 'withheld']), at: z.string() })
+    .object({
+      version: z.literal(1).default(1),
+      key: z.string(),
+      state: z.enum(['claimed', 'sent', 'withheld', 'expired', 'suppressed']),
+      at: z.string(),
+      updatedAt: z.string().optional(),
+      /** Safe audience-specific text, persisted so recovery never regenerates it. */
+      text: z.string().max(600).default(''),
+      owner: z.string().nullable().default(null),
+      leaseUntil: z.string().nullable().default(null),
+      attempts: z.number().int().min(0).default(0),
+      nextAttemptAt: z.string().nullable().default(null),
+      expiresAt: z.string().nullable().default(null),
+      failure: z.string().nullable().default(null)
+    })
     .nullable()
 });
 export type Commitment = z.infer<typeof CommitmentSchema>;
@@ -397,20 +416,124 @@ export function expireCommitments(
 export function claimReply(
   book: CommitmentBook,
   id: string,
-  at: string
+  input: { at: string; owner: string; text: string; expiresAt?: string }
 ): { book: CommitmentBook; claimed: boolean } {
   const c = book.commitments.find((x) => x.id === id);
-  if (c === undefined || c.reply?.key === replyKey(c)) return { book, claimed: false };
+  if (c === undefined) return { book, claimed: false };
+  const key = replyKey(c);
+  const now = Date.parse(input.at);
+  const old = c.reply?.key === key ? c.reply : null;
+  const expiresAt =
+    old?.expiresAt ?? input.expiresAt ?? new Date(now + COMMITMENT_LIMITS.replyTtlMs).toISOString();
+  if (now >= Date.parse(expiresAt)) {
+    if (old === null || old.state === 'sent' || old.state === 'expired' || old.state === 'suppressed')
+      return { book, claimed: false };
+    return {
+      book: withCommitment(book, {
+        ...c,
+        reply: { ...old, state: 'expired', updatedAt: input.at, owner: null, leaseUntil: null }
+      }),
+      claimed: false
+    };
+  }
+  if (old?.state === 'sent' || old?.state === 'expired' || old?.state === 'suppressed')
+    return { book, claimed: false };
+  if (old?.state === 'claimed' && old.owner !== input.owner && Date.parse(old.leaseUntil ?? old.at) > now)
+    return { book, claimed: false };
+  if (old?.state === 'withheld' && Date.parse(old.nextAttemptAt ?? old.at) > now)
+    return { book, claimed: false };
+  // An abandoned/owner retry of an in-flight attempt reuses the same operation key: its post may
+  // already have succeeded. An explicit refusal (`withheld`) starts a new operation attempt.
+  const attempts = old?.state === 'claimed' ? old.attempts : (old?.attempts ?? 0) + 1;
+  if (attempts > COMMITMENT_LIMITS.replyAttempts) {
+    return {
+      book: withCommitment(book, {
+        ...c,
+        reply: {
+          ...(old ?? { version: 1, key, at: input.at, text: input.text, attempts: 0, expiresAt }),
+          state: 'suppressed',
+          updatedAt: input.at,
+          owner: null,
+          leaseUntil: null,
+          nextAttemptAt: null,
+          failure: 'attempts_exhausted'
+        }
+      }),
+      claimed: false
+    };
+  }
   return {
-    book: withCommitment(book, { ...c, reply: { key: replyKey(c), state: 'claimed', at } }),
+    book: withCommitment(book, {
+      ...c,
+      reply: {
+        version: 1,
+        key,
+        state: 'claimed',
+        at: old?.at ?? input.at,
+        updatedAt: input.at,
+        text: old?.text || input.text,
+        owner: input.owner,
+        leaseUntil: new Date(now + COMMITMENT_LIMITS.replyLeaseMs).toISOString(),
+        attempts,
+        nextAttemptAt: null,
+        expiresAt,
+        failure: null
+      }
+    }),
     claimed: true
   };
 }
 
-export function settleReply(book: CommitmentBook, id: string, state: 'sent' | 'withheld'): CommitmentBook {
+export function settleReply(
+  book: CommitmentBook,
+  id: string,
+  input: {
+    key: string;
+    owner: string;
+    at: string;
+    state: 'sent' | 'withheld' | 'suppressed';
+    failure?: string;
+  }
+): CommitmentBook {
   const c = book.commitments.find((x) => x.id === id);
-  if (c?.reply === null || c === undefined) return book;
-  return withCommitment(book, { ...c, reply: { ...c.reply, state } });
+  if (c?.reply === null || c === undefined || c.reply.key !== input.key || c.reply.owner !== input.owner)
+    return book;
+  return withCommitment(book, {
+    ...c,
+    reply: {
+      ...c.reply,
+      state: input.state,
+      updatedAt: input.at,
+      owner: null,
+      leaseUntil: null,
+      nextAttemptAt:
+        input.state === 'withheld'
+          ? new Date(Date.parse(input.at) + COMMITMENT_LIMITS.replyRetryMs).toISOString()
+          : null,
+      failure: input.failure ?? null
+    }
+  });
+}
+
+/** Closing replies that may be delivered now, including abandoned leases and failed sends. */
+export function dueReplies(book: CommitmentBook, at: string): Commitment[] {
+  const now = Date.parse(at);
+  return book.commitments
+    .filter((c) => {
+      const r = c.reply;
+      if (
+        r === null ||
+        r.text === '' ||
+        r.state === 'sent' ||
+        r.state === 'expired' ||
+        r.state === 'suppressed'
+      )
+        return false;
+      if (r.expiresAt !== null && now >= Date.parse(r.expiresAt)) return true;
+      if (r.state === 'claimed') return Date.parse(r.leaseUntil ?? r.at) <= now;
+      return Date.parse(r.nextAttemptAt ?? r.at) <= now;
+    })
+    .sort((a, b) => (a.reply?.at ?? '').localeCompare(b.reply?.at ?? '') || a.id.localeCompare(b.id));
 }
 
 /** The need that makes a decline worth another look: a new open slot a pitched player could fill. */

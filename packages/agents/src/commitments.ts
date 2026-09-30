@@ -8,10 +8,12 @@ import {
   claimReply,
   currentTask,
   dueCommitments,
+  dueReplies,
   expireCommitments,
   materialChange,
   openTradeInterest,
   reasonLine,
+  replyKey,
   settleReply,
   type Commitment,
   type CommitmentBook,
@@ -38,9 +40,9 @@ import type { TaskContext, TaskFollowUp } from './tasks/kinds.js';
  * 2. The follow-up (`beginLook`) checks it still owns the commitment and the seat has the same
  *    occupant, re-checks every fact itself (the pitch's weighing in trade-proposal.ts), and
  *    records the actual result before it says anything (`closeLook`).
- * 3. At most one closing line per look, in the conversation it came from, claimed in the same
- *    write as the result: a crash or a duplicate delivery can lose the line, never post it twice.
- *    In a league room the line never names players or terms.
+ * 3. At most one closing line per look, in the conversation it came from, is persisted in the same
+ *    write as the result. Its leased delivery retries through #207's outbox under one operation key:
+ *    a crash cannot lose or duplicate it. In a league room the stored line never names terms.
  * 4. A check-in (`reviewCommitments`) reads what became of offers, expires looks never taken,
  *    resumes one whose task was lost, or reconsiders a decline when a new roster need (#214's
  *    agenda) makes the pitched players worth more. At most one follow-up per check-in, and a
@@ -57,6 +59,14 @@ export const CommitmentRefSchema = z.object({
   change: RosterSlotSchema.optional()
 });
 export type CommitmentRef = z.infer<typeof CommitmentRefSchema>;
+
+/** A durable closing-message delivery handed through #207's task outbox. */
+export const CommitmentReplyRefSchema = z.object({
+  id: z.string().min(1),
+  tenure: z.string().min(1),
+  key: z.string().min(1)
+});
+export type CommitmentReplyRef = z.infer<typeof CommitmentReplyRefSchema>;
 
 /** The agent's commitment store, bound to its league, agent, and team by the runner. */
 export interface CommitmentAccess {
@@ -184,9 +194,108 @@ export interface ClosingLines {
   room: string;
 }
 
+const permanentReplyFailure = (code: string) =>
+  new Set([
+    'FORBIDDEN',
+    'NOT_FOUND',
+    'ROOM_NOT_FOUND',
+    'ROOM_ARCHIVED',
+    'MESSAGE_BLOCKED',
+    'LEAGUE_NOT_FOUND',
+    'TEAM_NOT_FOUND'
+  ]).has(code);
+
+const replyToolKey = (ctx: TaskContext, c: Commitment, attempt = c.reply?.attempts ?? 1) =>
+  `agent-commitment-reply.${hashString(`${ctx.league.id}:${ctx.principal.teamId}:${c.id}`).toString(36)}.${c.reconsiderations}.${attempt}`;
+
 /**
- * Records a look's result and, only if this call recorded it, claims and posts its one closing
- * line in the conversation it came from. A line the chat budgets refuse is `withheld`, not retried.
+ * Delivers a persisted closing line. The claim is an expiring lease; the post's stable idempotency
+ * key makes recovery safe even when the earlier post succeeded but its acknowledgement was lost.
+ */
+export async function deliverReply(
+  ctx: TaskContext,
+  ref: CommitmentReplyRef
+): Promise<'sent' | 'deferred' | 'expired' | 'suppressed' | 'unavailable'> {
+  const access = ctx.commitments;
+  if (access === undefined) return 'unavailable';
+  const at = ctx.clock.now().toISOString();
+  let claimed: Commitment | null = null;
+  await access.update(ref.tenure, (book) => {
+    const c = book.commitments.find((x) => x.id === ref.id && x.reply?.key === ref.key);
+    if (c === undefined || c.reply === null) return book;
+    const result = claimReply(book, ref.id, {
+      at,
+      owner: ctx.taskId,
+      text: c.reply.text,
+      ...(c.reply.expiresAt === null ? {} : { expiresAt: c.reply.expiresAt })
+    });
+    if (result.claimed) claimed = result.book.commitments.find((x) => x.id === ref.id) ?? null;
+    return result.book;
+  });
+  const c = claimed as Commitment | null;
+  if (c === null || c.reply === null) {
+    const current = (await access.read(ref.tenure)).commitments.find((x) => x.id === ref.id)?.reply;
+    const outcome =
+      current?.state === 'expired'
+        ? 'expired'
+        : current?.state === 'suppressed'
+          ? 'suppressed'
+          : 'unavailable';
+    if (outcome !== 'unavailable')
+      ctx.log.info('commitment reply terminal', { commitmentId: ref.id, outcome, reason: current?.failure });
+    return outcome;
+  }
+  const settle = async (state: 'sent' | 'withheld' | 'suppressed', failure?: string) => {
+    await access.update(ref.tenure, (book) =>
+      settleReply(book, ref.id, {
+        key: ref.key,
+        owner: ctx.taskId,
+        at,
+        state,
+        ...(failure === undefined ? {} : { failure })
+      })
+    );
+  };
+  const tenure = await access.tenure();
+  if (tenure !== ref.tenure) {
+    await settle('suppressed', 'seat_changed');
+    ctx.log.info('commitment reply suppressed', { commitmentId: ref.id, reason: 'seat_changed' });
+    return 'suppressed';
+  }
+  if (ctx.league.phase === 'complete') {
+    await settle('suppressed', 'league_complete');
+    ctx.log.info('commitment reply suppressed', { commitmentId: ref.id, reason: 'league_complete' });
+    return 'suppressed';
+  }
+  const posted = await ctx.tools.call(
+    'post_message',
+    { roomId: c.source.roomId, text: c.reply.text, replyToId: c.source.messageId },
+    { key: replyToolKey(ctx, c), global: true }
+  );
+  if ('error' in posted) {
+    const terminal = permanentReplyFailure(posted.error.code);
+    await settle(terminal ? 'suppressed' : 'withheld', posted.error.code);
+    ctx.log.info(terminal ? 'commitment reply suppressed' : 'commitment reply deferred', {
+      commitmentId: ref.id,
+      reason: posted.error.code,
+      attempts: c.reply.attempts
+    });
+    return terminal ? 'suppressed' : 'deferred';
+  }
+  await settle('sent');
+  ctx.log.info('commitment reply delivered', { commitmentId: ref.id, attempts: c.reply.attempts });
+  return 'sent';
+}
+
+export function replyFollowUp(c: Commitment, tenure: string): TaskFollowUp | null {
+  return c.reply === null
+    ? null
+    : { kind: 'commitment_reply', payload: { id: c.id, tenure, key: c.reply.key } };
+}
+
+/**
+ * Records a look's result and recoverable closing-line delivery together, then attempts the post.
+ * A crash or transient refusal leaves enough state for a later check-in to dispatch recovery.
  */
 export async function closeLook(
   ctx: TaskContext,
@@ -204,20 +313,34 @@ export async function closeLook(
     applied = result.applied;
     commitment = result.commitment;
     if (!applied) return book;
-    const reply = claimReply(result.book, ref.id, at);
+    const closed = result.commitment as Commitment;
+    const text = closed.source.visibility === 'dm' ? lines.dm : lines.room;
+    const reply = claimReply(result.book, ref.id, { at, owner: ctx.taskId, text });
     claimed = reply.claimed;
     return reply.book;
   });
   const closed = commitment as Commitment | null;
   if (claimed && closed !== null) {
-    const text = closed.source.visibility === 'dm' ? lines.dm : lines.room;
     const posted = await ctx.tools.call(
       'post_message',
-      { roomId: closed.source.roomId, text, replyToId: closed.source.messageId },
-      { key: `reply.${hashString(closed.id).toString(36)}.${closed.reconsiderations}` }
+      {
+        roomId: closed.source.roomId,
+        text: closed.source.visibility === 'dm' ? lines.dm : lines.room,
+        replyToId: closed.source.messageId
+      },
+      { key: replyToolKey(ctx, closed), global: true }
     );
-    const state = 'error' in posted ? 'withheld' : 'sent';
-    await access.update(ref.tenure, (book) => settleReply(book, ref.id, state));
+    const failure = 'error' in posted ? posted.error.code : undefined;
+    const state = failure === undefined ? 'sent' : permanentReplyFailure(failure) ? 'suppressed' : 'withheld';
+    await access.update(ref.tenure, (book) =>
+      settleReply(book, ref.id, {
+        key: replyKey(closed),
+        owner: ctx.taskId,
+        at,
+        state,
+        ...(failure === undefined ? {} : { failure })
+      })
+    );
   }
   return { applied, commitment: closed };
 }
@@ -309,6 +432,20 @@ export async function reviewCommitments(ctx: TaskContext): Promise<TaskFollowUp[
     const at = ctx.clock.now().toISOString();
     const book = await access.read(tenure);
     if (book.commitments.length === 0) return [];
+    // A result already exists, so recovery only delivers its persisted safe line. The outbox gives
+    // this its own idempotent task; it never reruns the trade look.
+    const dueReply = dueReplies(book, at)[0];
+    if (dueReply !== undefined) {
+      const follow = replyFollowUp(dueReply, tenure);
+      if (follow !== null) {
+        ctx.log.info('commitment reply recovery due', {
+          commitmentId: dueReply.id,
+          state: dueReply.reply?.state,
+          attempts: dueReply.reply?.attempts
+        });
+        return [follow];
+      }
+    }
     // What became of each offer: the league's answer, never a model's summary.
     for (const c of book.commitments.filter(
       (x) => x.status === 'waiting_for_partner' && x.tradeId !== null

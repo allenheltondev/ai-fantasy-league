@@ -658,7 +658,7 @@ describe('commitments: the runtime edges (#215)', () => {
     expect(await beginLook(ctx, { id: 'missing', tenure: TENURE })).toEqual({ skip: 'commitment_missing' });
   });
 
-  it('records a result once, withholds a line the budgets refuse, and skips a settled look', async () => {
+  it('records a result once, then recovers a line the budgets temporarily refuse', async () => {
     const s = await interest(STUBBORN, 170);
     const pitch = await tell(s, PITCH);
     await answer(s, pitch);
@@ -674,6 +674,61 @@ describe('commitments: the runtime edges (#215)', () => {
     expect((await closeLook(ctx, ref, event, failureLines('autopilot'))).applied).toBe(false);
     expect(post).toHaveBeenCalledTimes(1);
     expect(await beginLook(ctx, ref)).toEqual({ skip: 'commitment_settled' });
+    post.mockRestore();
+
+    s.clock.advance(6 * 60_000);
+    const recovery = await context(s, 'reply-recovery');
+    const followUps = await reviewCommitments(recovery);
+    expect(followUps).toEqual([
+      {
+        kind: 'commitment_reply',
+        payload: { id: ref.id, tenure: TENURE, key: `${ref.id}#0` }
+      }
+    ]);
+    expect(
+      await runAgentAction(
+        s.deps(new ScriptedModelClient()),
+        request('commitment_reply', followUps[0]!.payload, 'reply-recovery')
+      )
+    ).toMatchObject({ status: 'skipped', fallbackReason: 'commitment_reply_sent' });
+    expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 2, failure: null } });
+    expect((await answers(s, pitch)).at(-1)).toMatch(
+      /^Couldn't finish that trade look .* Nothing was sent\.$/
+    );
+  });
+
+  it('recovers an acknowledgement-lost post without duplicating the closing line', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ctx = { ...(await context(s, 'ack-lost')), taskId: next.taskId };
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE };
+    const access = ctx.commitments!;
+    let writes = 0;
+    ctx.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        writes++;
+        if (writes === 2) throw new Error('crashed before acknowledging post');
+        return access.update(tenure, change);
+      }
+    };
+    const event = { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' } as const;
+    await expect(closeLook(ctx, ref, event, failureLines('autopilot'))).rejects.toThrow('crashed');
+    expect((await answers(s, pitch)).filter((m) => m.includes('Nothing was sent.'))).toHaveLength(1);
+    expect(await only(s)).toMatchObject({ reply: { state: 'claimed', attempts: 1 } });
+
+    s.clock.advance(3 * 60_000);
+    const recovery = await context(s, 'ack-recovery');
+    const follow = (await reviewCommitments(recovery))[0]!;
+    expect(follow.kind).toBe('commitment_reply');
+    await runAgentAction(
+      s.deps(new ScriptedModelClient()),
+      request('commitment_reply', follow.payload, 'ack-recovery')
+    );
+    expect((await answers(s, pitch)).filter((m) => m.includes('Nothing was sent.'))).toHaveLength(1);
+    expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 1 } });
   });
 
   it('keeps waiting on an offer the league has not answered or cannot show', async () => {
