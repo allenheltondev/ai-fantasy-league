@@ -6,52 +6,53 @@ import type { Invite, League } from '../../repos/types.js';
 
 /** Shared by get_invite and join_league: find an invite by its token or join code and check it can be used. */
 
-/** Join-code lookups a person can miss in one clock hour before they are told to wait. */
-export const MAX_CODE_MISSES_PER_HOUR = 10;
+/** Join-code lookups a person can make in one clock hour (a lookup that finds its invite is free). */
+export const MAX_CODE_ATTEMPTS_PER_HOUR = 10;
 
 /**
  * The invite and its league; INVITE_NOT_FOUND when either is gone (a deleted league takes its
  * invites). `tokenOrCode` is the secret from an invite link or a join code typed by hand. Codes are
- * short enough to guess, so looking one up needs a signed-in person, and each person's misses are
- * counted: after `MAX_CODE_MISSES_PER_HOUR` in an hour, further lookups get RATE_LIMITED.
+ * short enough to guess, so looking one up needs a signed-in person, and each lookup is reserved
+ * (atomically, before it runs) against `MAX_CODE_ATTEMPTS_PER_HOUR`: once they are used up, further
+ * lookups get RATE_LIMITED. A lookup that finds its invite gives its attempt back, so only misses
+ * stay counted.
  */
 export async function findInvite(
   ctx: Pick<Ctx, 'repos' | 'principal' | 'clock'>,
   tokenOrCode: string
 ): Promise<{ invite: Invite; league: League }> {
   const code = parseInviteCode(tokenOrCode);
+  const attempt = code === null ? null : await reserveCodeAttempt(ctx);
   const invite =
-    code !== null ? await findByCode(ctx, code) : await findByToken(ctx.repos.invites, tokenOrCode);
+    code !== null
+      ? await ctx.repos.invites.getByCode(code)
+      : await findByToken(ctx.repos.invites, tokenOrCode);
   const league = invite === null ? null : await ctx.repos.leagues.get(invite.leagueId);
-  if (invite === null || league === null) {
-    if (code !== null && ctx.principal.type === 'user') {
-      await ctx.repos.invites.recordCodeMiss(ctx.principal.sub, ctx.clock.now());
-    }
-    throw code !== null ? notFoundCode() : notFoundLink();
-  }
+  if (invite === null || league === null) throw code !== null ? notFoundCode() : notFoundLink();
+  if (attempt !== null) await ctx.repos.invites.refundCodeAttempt(attempt.userId, attempt.at);
   return { invite, league };
 }
 
 const findByToken = async (invites: Ctx['repos']['invites'], token: string) =>
   isWellFormedInviteToken(token) ? invites.getByTokenHash(hashInviteToken(token)) : null;
 
-async function findByCode(
-  ctx: Pick<Ctx, 'repos' | 'principal' | 'clock'>,
-  code: string
-): Promise<Invite | null> {
+/** Reserves the lookup, or throws: UNAUTHENTICATED without a signed-in person, RATE_LIMITED past the cap. */
+async function reserveCodeAttempt(
+  ctx: Pick<Ctx, 'repos' | 'principal' | 'clock'>
+): Promise<{ userId: string; at: Date }> {
   const { principal } = ctx;
   if (principal.type !== 'user') {
     throw new ApiError('UNAUTHENTICATED', 'Sign in to use a join code.', {
       fix: 'Sign in (or create an account), then enter the code again. Invite links work without signing in first.'
     });
   }
-  const misses = await ctx.repos.invites.codeMisses(principal.sub, ctx.clock.now());
-  if (misses >= MAX_CODE_MISSES_PER_HOUR) {
-    throw new ApiError('RATE_LIMITED', 'Too many join codes that did not match.', {
+  const at = ctx.clock.now();
+  if (!(await ctx.repos.invites.takeCodeAttempt(principal.sub, at, MAX_CODE_ATTEMPTS_PER_HOUR))) {
+    throw new ApiError('RATE_LIMITED', 'Too many join code attempts.', {
       fix: 'Check the code with the commissioner and try again in an hour, or use the invite link instead.'
     });
   }
-  return ctx.repos.invites.getByCode(code);
+  return { userId: principal.sub, at };
 }
 
 const notFoundLink = () =>

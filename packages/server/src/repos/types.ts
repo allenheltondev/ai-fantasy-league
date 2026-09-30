@@ -292,10 +292,14 @@ export interface InviteRepository {
   get(leagueId: string, inviteId: string): Promise<Invite | null>;
   getByTokenHash(tokenHash: string): Promise<Invite | null>;
   getByCode(code: string): Promise<Invite | null>;
-  /** Join-code lookups by `userId` that found nothing during the hour containing `now`. */
-  codeMisses(userId: string, now: Date): Promise<number>;
-  /** Counts one more missed join-code lookup for `userId` and returns the hour's total. */
-  recordCodeMiss(userId: string, now: Date): Promise<number>;
+  /**
+   * Reserves one join-code lookup for `userId` in the clock hour containing `now`, atomically:
+   * false, reserving nothing, once `limit` are already reserved that hour. Callers reserve before
+   * looking a code up, so a burst of parallel guesses cannot run more than `limit` lookups.
+   */
+  takeCodeAttempt(userId: string, now: Date, limit: number): Promise<boolean>;
+  /** Gives back an attempt reserved with `takeCodeAttempt` (a lookup that found its invite). */
+  refundCodeAttempt(userId: string, now: Date): Promise<void>;
   /** Newest first. */
   list(leagueId: string): Promise<Invite[]>;
   /** Version-checked write; CONFLICT when the invite changed. */

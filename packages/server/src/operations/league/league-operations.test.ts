@@ -715,7 +715,18 @@ describe('invites and joining', () => {
     expect((await bob.get('/invites/K7MQ2X')).status).toBe(200);
   });
 
-  it('does not count links, or codes that were found, as misses', async () => {
+  it('runs no more than ten lookups out of a burst of parallel guesses', async () => {
+    await seedInvite(h.repos, 'lg-i', token('burst'), { code: 'K7MQ2X' });
+    const lookup = vi.spyOn(h.repos.invites, 'getByCode');
+    const guesses = await Promise.all(Array.from({ length: 30 }, () => bob.get('/invites/ZZZZZZ')));
+    const codes = guesses.map((res) => errorCode(res));
+    expect(codes.filter((c) => c === 'INVITE_NOT_FOUND')).toHaveLength(10);
+    expect(codes.filter((c) => c === 'RATE_LIMITED')).toHaveLength(20);
+    // The other twenty were refused before touching the invites: they never got to guess.
+    expect(lookup).toHaveBeenCalledTimes(10);
+  });
+
+  it('does not count links, or codes that were found, against the limit', async () => {
     await seedInvite(h.repos, 'lg-i', token('honest'), { code: 'K7MQ2X' });
     for (let i = 0; i < 12; i++) {
       expect((await bob.get('/invites/K7MQ2X')).status).toBe(200);

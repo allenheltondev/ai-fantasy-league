@@ -58,7 +58,7 @@ export const ENTITY = {
   member: 'member',
   invite: 'invite',
   inviteCode: 'invite-code',
-  codeMisses: 'invite-code-misses',
+  codeAttempts: 'invite-code-attempts',
   matchup: 'matchup',
   standings: 'standings',
   lineup: 'lineup',

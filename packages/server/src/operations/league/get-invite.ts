@@ -19,7 +19,7 @@ export const getInvite = defineOperation({
   summary: 'Preview an invite link before joining',
   description: [
     'Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, and whether the invite can still be used (`status`).',
-    'Anyone with the token can call it, signed in or not; a join code needs a signed-in person (UNAUTHENTICATED otherwise) and ten misses in an hour return RATE_LIMITED. It shows nothing else about the league. To join, call join_league with the same token or code. An unknown token or code returns INVITE_NOT_FOUND.'
+    'Anyone with the token can call it, signed in or not; a join code needs a signed-in person (UNAUTHENTICATED otherwise) and ten lookups in an hour that match nothing return RATE_LIMITED. It shows nothing else about the league. To join, call join_league with the same token or code. An unknown token or code returns INVITE_NOT_FOUND.'
   ].join(' '),
   tags: ['invites'],
   mutation: false,

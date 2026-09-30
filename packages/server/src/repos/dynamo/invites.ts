@@ -25,8 +25,8 @@ export const inviteItem = (invite: Invite) => ({
  */
 export const inviteCodeKey = (code: string) => ({ pk: `INVITECODE#${code}`, sk: 'LOOKUP' });
 
-/** Counts a user's missed join-code lookups per clock hour; the item expires two hours later. */
-export const codeMissKey = (userId: string, now: Date) => ({
+/** Counts a user's reserved join-code lookups per clock hour; the item expires two hours later. */
+export const codeAttemptKey = (userId: string, now: Date) => ({
   pk: `RATE#INVITECODE#${userId}`,
   sk: `HOUR#${Math.floor(now.getTime() / HOUR_MS)}`
 });
@@ -105,29 +105,45 @@ export class DynamoInviteRepository implements InviteRepository {
     return this.get(leagueId, inviteId);
   }
 
-  async codeMisses(userId: string, now: Date): Promise<number> {
-    const found = await this.table.doc.send(
-      new GetCommand({ TableName: this.table.tableName, Key: codeMissKey(userId, now), ConsistentRead: true })
-    );
-    return typeof found.Item?.misses === 'number' ? found.Item.misses : 0;
+  async takeCodeAttempt(userId: string, now: Date, limit: number): Promise<boolean> {
+    try {
+      await this.table.doc.send(
+        new UpdateCommand({
+          TableName: this.table.tableName,
+          Key: codeAttemptKey(userId, now),
+          UpdateExpression: 'ADD attempts :one SET #ttl = :ttl, entity = :entity',
+          // One conditional write, so parallel callers cannot all read "under the limit".
+          ConditionExpression: 'attribute_not_exists(attempts) OR attempts < :limit',
+          ExpressionAttributeNames: { '#ttl': 'ttl' },
+          ExpressionAttributeValues: {
+            ':one': 1,
+            ':limit': limit,
+            ':ttl': epochSeconds(new Date(now.getTime() + 2 * HOUR_MS)),
+            ':entity': ENTITY.codeAttempts
+          }
+        })
+      );
+      return true;
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) return false;
+      throw error;
+    }
   }
 
-  async recordCodeMiss(userId: string, now: Date): Promise<number> {
-    const result = await this.table.doc.send(
-      new UpdateCommand({
-        TableName: this.table.tableName,
-        Key: codeMissKey(userId, now),
-        UpdateExpression: 'ADD misses :one SET #ttl = :ttl, entity = :entity',
-        ExpressionAttributeNames: { '#ttl': 'ttl' },
-        ExpressionAttributeValues: {
-          ':one': 1,
-          ':ttl': epochSeconds(new Date(now.getTime() + 2 * HOUR_MS)),
-          ':entity': ENTITY.codeMisses
-        },
-        ReturnValues: 'UPDATED_NEW'
-      })
-    );
-    return Number(result.Attributes?.misses ?? 1);
+  async refundCodeAttempt(userId: string, now: Date): Promise<void> {
+    try {
+      await this.table.doc.send(
+        new UpdateCommand({
+          TableName: this.table.tableName,
+          Key: codeAttemptKey(userId, now),
+          UpdateExpression: 'ADD attempts :minusOne',
+          ConditionExpression: 'attempts > :zero',
+          ExpressionAttributeValues: { ':minusOne': -1, ':zero': 0 }
+        })
+      );
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) throw error;
+    }
   }
 
   async list(leagueId: string): Promise<Invite[]> {

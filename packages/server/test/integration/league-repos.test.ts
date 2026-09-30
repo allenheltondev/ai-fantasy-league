@@ -149,7 +149,7 @@ describe.each(backends)('%s league repositories', (_name, make) => {
     await expect(invites.update(invite(leagueId))).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 
-  it('finds invites by join code, keeps codes unique, and counts missed lookups per hour', async () => {
+  it('finds invites by join code, keeps codes unique, and limits lookups per hour', async () => {
     const { invites } = make();
     const leagueId = unique('lg');
     const code = 'K7MQ2X';
@@ -167,13 +167,30 @@ describe.each(backends)('%s league repositories', (_name, make) => {
 
     const user = unique('user');
     const noon = new Date('2026-09-10T12:10:00.000Z');
-    expect(await invites.codeMisses(user, noon)).toBe(0);
-    expect(await invites.recordCodeMiss(user, noon)).toBe(1);
-    expect(await invites.recordCodeMiss(user, new Date('2026-09-10T12:50:00.000Z'))).toBe(2);
-    expect(await invites.codeMisses(user, noon)).toBe(2);
-    // A new clock hour starts from zero, and another person's misses are their own.
-    expect(await invites.codeMisses(user, new Date('2026-09-10T13:00:00.000Z'))).toBe(0);
-    expect(await invites.codeMisses(unique('user'), noon)).toBe(0);
+    for (let i = 0; i < 3; i++) expect(await invites.takeCodeAttempt(user, noon, 3)).toBe(true);
+    expect(await invites.takeCodeAttempt(user, noon, 3)).toBe(false);
+    expect(await invites.takeCodeAttempt(user, new Date('2026-09-10T12:50:00.000Z'), 3)).toBe(false);
+    // A refunded attempt can be taken again, and refunding never goes below zero.
+    await invites.refundCodeAttempt(user, noon);
+    expect(await invites.takeCodeAttempt(user, noon, 3)).toBe(true);
+    expect(await invites.takeCodeAttempt(user, noon, 3)).toBe(false);
+    const idle = unique('user');
+    await invites.refundCodeAttempt(idle, noon);
+    for (let i = 0; i < 2; i++) expect(await invites.takeCodeAttempt(idle, noon, 2)).toBe(true);
+    expect(await invites.takeCodeAttempt(idle, noon, 2)).toBe(false);
+    // A new clock hour starts from zero, and another person's attempts are their own.
+    expect(await invites.takeCodeAttempt(user, new Date('2026-09-10T13:00:00.000Z'), 3)).toBe(true);
+    expect(await invites.takeCodeAttempt(unique('user'), noon, 3)).toBe(true);
+  });
+
+  it('lets only `limit` of many parallel attempts through', async () => {
+    const { invites } = make();
+    const user = unique('user');
+    const now = new Date('2026-09-10T12:10:00.000Z');
+    const results = await Promise.all(
+      Array.from({ length: 25 }, () => invites.takeCodeAttempt(user, now, 10))
+    );
+    expect(results.filter(Boolean)).toHaveLength(10);
   });
 
   it('stores matchups by week and the latest standings', async () => {
@@ -360,13 +377,13 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
     );
     expect(TABLE_KEYS.gsi1).toEqual({ name: 'GSI1', pk: 'GSI1PK', sk: 'GSI1SK' });
 
-    // A join code is its own item pointing at the invite; misses are counted per person and hour.
+    // A join code is its own item pointing at the invite; lookups are counted per person and hour.
     const lookup = await table.doc.send(
       new GetCommand({ TableName: table.tableName, Key: { pk: 'INVITECODE#KEYS22', sk: 'LOOKUP' } })
     );
     expect(lookup.Item).toMatchObject({ leagueId: l.id, inviteId: 'inv-keys', entity: 'invite-code' });
     expect(typeof lookup.Item?.ttl).toBe('number');
-    await repos.invites.recordCodeMiss('keys-user', new Date(START));
+    await repos.invites.takeCodeAttempt('keys-user', new Date(START), 10);
     const misses = await table.doc.send(
       new GetCommand({
         TableName: table.tableName,
@@ -376,7 +393,7 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
         }
       })
     );
-    expect(misses.Item).toMatchObject({ misses: 1, entity: 'invite-code-misses' });
+    expect(misses.Item).toMatchObject({ attempts: 1, entity: 'invite-code-attempts' });
     expect(misses.Item?.ttl).toBe(Math.floor(new Date(START).getTime() / 1000) + 2 * 3600);
   });
 

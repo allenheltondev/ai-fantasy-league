@@ -199,12 +199,12 @@ export class InMemoryMemberRepository implements MemberRepository {
   }
 }
 
-const missKey = (userId: string, now: Date) => `${userId}#${Math.floor(now.getTime() / 3_600_000)}`;
+const attemptKey = (userId: string, now: Date) => `${userId}#${Math.floor(now.getTime() / 3_600_000)}`;
 
 export class InMemoryInviteRepository implements InviteRepository {
   constructor(private readonly store: InMemoryLeagueStore) {}
 
-  private readonly codeMissCounts = new Map<string, number>();
+  private readonly codeAttempts = new Map<string, number>();
 
   async create(invite: Invite): Promise<boolean> {
     if (invite.code !== null && (await this.getByCode(invite.code)) !== null) return false;
@@ -221,17 +221,6 @@ export class InMemoryInviteRepository implements InviteRepository {
     return null;
   }
 
-  async codeMisses(userId: string, now: Date): Promise<number> {
-    return this.codeMissCounts.get(missKey(userId, now)) ?? 0;
-  }
-
-  async recordCodeMiss(userId: string, now: Date): Promise<number> {
-    const key = missKey(userId, now);
-    const total = (this.codeMissCounts.get(key) ?? 0) + 1;
-    this.codeMissCounts.set(key, total);
-    return total;
-  }
-
   async get(leagueId: string, inviteId: string): Promise<Invite | null> {
     const invite = this.store.partition(leagueId).invites.get(inviteId);
     return invite === undefined ? null : clone(invite);
@@ -244,6 +233,21 @@ export class InMemoryInviteRepository implements InviteRepository {
       }
     }
     return null;
+  }
+
+  async takeCodeAttempt(userId: string, now: Date, limit: number): Promise<boolean> {
+    // No await between the read and the write, so concurrent callers cannot interleave.
+    const key = attemptKey(userId, now);
+    const taken = this.codeAttempts.get(key) ?? 0;
+    if (taken >= limit) return false;
+    this.codeAttempts.set(key, taken + 1);
+    return true;
+  }
+
+  async refundCodeAttempt(userId: string, now: Date): Promise<void> {
+    const key = attemptKey(userId, now);
+    const taken = this.codeAttempts.get(key) ?? 0;
+    if (taken > 0) this.codeAttempts.set(key, taken - 1);
   }
 
   async list(leagueId: string): Promise<Invite[]> {
