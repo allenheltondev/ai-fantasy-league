@@ -308,6 +308,7 @@ const newRun = (): Run => ({
   lineupNeeded: false,
   added: false,
   waiverClaims: [],
+  released: [],
   trades: [],
   memory: []
 });

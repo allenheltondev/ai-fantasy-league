@@ -660,6 +660,8 @@ export interface Run {
   /** A free agent joined the roster, so the lineup is set again. */
   added: boolean;
   waiverClaims: string[];
+  /** Players this check-in dropped or put up to drop in a claim: no trade may send them (#248). */
+  released: string[];
   trades: AgentTaskSeal['trades'];
   memory: MemoryEvent[];
 }
@@ -704,6 +706,8 @@ async function pickups(ctx: TaskContext, prep: CheckInPrep, actions: readonly Ch
   );
   run.done.push({ action: outcome.action, line: outcome.summary });
   run.waiverClaims.push(...(outcome.sealed?.waiverClaims ?? []));
+  if (outcome.action === 'claim_waiver')
+    run.released.push(...chosen.flatMap(({ p }) => (p.drop === null ? [] : [p.drop.id])));
   run.added = chosen.some((c) => c.p.kind === 'add_now') && outcome.action === 'claim_waiver';
 }
 
@@ -732,7 +736,16 @@ async function offers(ctx: TaskContext, prep: CheckInPrep, actions: readonly Che
       : [{ candidate: a.candidate, ...(a.message === undefined ? {} : { message: a.message }) }]
   );
   if (trade === null || picks.length === 0 || run.actionsLeft === 0) return;
-  const outcome = await propose(ctx, { ...trade, limit: Math.min(trade.limit, run.actionsLeft) }, picks, '');
+  // An idea that sends a player this check-in just released would be refused (#248): drop it.
+  const released = new Set(run.released);
+  const usable = picks.filter((p) => {
+    const c = trade.candidates[p.candidate - 1];
+    return c === undefined || ![c.send, ...(c.sends ?? [])].some((s) => released.has(s.id));
+  });
+  if (usable.length < picks.length)
+    run.done.push({ action: 'trade_skipped', line: 'Dropped a trade idea: it sent a player I just let go.' });
+  if (usable.length === 0) return;
+  const outcome = await propose(ctx, { ...trade, limit: Math.min(trade.limit, run.actionsLeft) }, usable, '');
   const sent = outcome.sealed?.trades ?? [];
   run.actionsLeft -= sent.length;
   run.trades.push(...sent);
@@ -781,6 +794,7 @@ async function act(
     lineupNeeded: look.unavailable.length > 0 || look.payload.firstLook,
     added: false,
     waiverClaims: [],
+    released: [],
     trades: [],
     memory: []
   };

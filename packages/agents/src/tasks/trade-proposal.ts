@@ -1,3 +1,4 @@
+import { noteAttachment } from '../attachments.js';
 import {
   agendaPriority,
   attachmentAdjustment,
@@ -220,15 +221,24 @@ export function swapIdeas(
 }
 
 /** The attachment premium on one swap (#216), from the task's attachments and agenda. */
-function attachmentFor(ctx: TaskContext, sends: readonly PlayerRef[], receives: readonly PlayerRef[]) {
-  return attachmentAdjustment({
-    attachments: ctx.attachments,
-    at: ctx.clock.now().toISOString(),
-    sends,
-    receives,
-    agenda: ctx.agenda,
-    tradeFrequency: ctx.config.tradeFrequency
-  });
+function attachmentFor(
+  ctx: TaskContext,
+  sends: readonly PlayerRef[],
+  receives: readonly PlayerRef[],
+  use: 'scout' | 'proposal'
+) {
+  return noteAttachment(
+    ctx,
+    use,
+    attachmentAdjustment({
+      attachments: ctx.attachments,
+      at: ctx.clock.now().toISOString(),
+      sends,
+      receives,
+      agenda: ctx.agenda,
+      tradeFrequency: ctx.config.tradeFrequency
+    })
+  );
 }
 
 /** Prompt lines for the attached players an offer would send (public evidence, no numbers). */
@@ -323,7 +333,7 @@ export async function scoutProposals(ctx: TaskContext, limit: number): Promise<P
     const noise = judgmentNoise(ctx, 'proposal', idea.team.id, idea.send.player.id, idea.receive.player.id);
     const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
     const partnerScore = round1(theirSide.lineupDelta + theirSide.valueDelta);
-    const attachment = attachmentFor(ctx, [idea.send.player], [idea.receive.player]);
+    const attachment = attachmentFor(ctx, [idea.send.player], [idea.receive.player], 'scout');
     if (score < bar + attachment.adjustment || partnerScore < PARTNER_FLOOR) continue;
     candidates.push({
       team: idea.team,
@@ -467,7 +477,7 @@ async function assessPitch(
   );
   const score = round1((mySide.lineupDelta + mySide.valueDelta * (1 - recency)) * noise);
   // A player I'm attached to raises the bar for this pitch (#216); the argument never lowers that.
-  const attachment = attachmentFor(ctx, sends, receives);
+  const attachment = attachmentFor(ctx, sends, receives, 'proposal');
   const bar =
     Math.round(
       (Math.max(tradeAppetite(ctx.config).acceptEdge, MIN_PROPOSAL_GAIN) + attachment.adjustment) * 10

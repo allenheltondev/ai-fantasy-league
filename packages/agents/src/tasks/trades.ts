@@ -1,3 +1,4 @@
+import { noteAttachment } from '../attachments.js';
 import {
   attachmentAdjustment,
   attachmentPrompt,
@@ -197,14 +198,18 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<TradePrep> {
   });
   // The archetype's trade appetite (core behavior.ts) sets the bar and the counter budget.
   const appetite = tradeAppetite(ctx.config);
-  const attachment = attachmentAdjustment({
-    attachments: ctx.attachments,
-    at: ctx.clock.now().toISOString(),
-    sends: trade.toSends,
-    receives: trade.fromSends,
-    agenda: ctx.agenda,
-    tradeFrequency: ctx.config.tradeFrequency
-  });
+  const attachment = noteAttachment(
+    ctx,
+    'answer',
+    attachmentAdjustment({
+      attachments: ctx.attachments,
+      at: ctx.clock.now().toISOString(),
+      sends: trade.toSends,
+      receives: trade.fromSends,
+      agenda: ctx.agenda,
+      tradeFrequency: ctx.config.tradeFrequency
+    })
+  );
   const baseBar = appetite.acceptEdge;
   const bar = Math.round((baseBar + attachment.adjustment) * 10) / 10;
   const roundsLeft = Math.max(0, appetite.maxCounters - countersUsed(trade.round));
@@ -527,14 +532,18 @@ async function vetCounter(
   const [me, them] = read.sides;
   // The counter's own attachment premium replaces the one for the offer it answers (#216): keeping
   // a favorite out of the deal takes his premium off the floor, sending him puts it on.
-  const own = attachmentAdjustment({
-    attachments: ctx.attachments,
-    at: ctx.clock.now().toISOString(),
-    sends: me.sends,
-    receives: me.receives,
-    agenda: ctx.agenda,
-    tradeFrequency: ctx.config.tradeFrequency
-  });
+  const own = noteAttachment(
+    ctx,
+    'counter',
+    attachmentAdjustment({
+      attachments: ctx.attachments,
+      at: ctx.clock.now().toISOString(),
+      sends: me.sends,
+      receives: me.receives,
+      agenda: ctx.agenda,
+      tradeFrequency: ctx.config.tradeFrequency
+    })
+  );
   const counterFloor =
     Math.round((floor - (prep.suggestion.attachment?.adjustment ?? 0) + own.adjustment) * 10) / 10;
   const score = tradeScore(ctx, me, {

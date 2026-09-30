@@ -5,6 +5,7 @@ import {
   observeRoster,
   recordAcquisition,
   recordDeparture,
+  type AttachmentAdjustment,
   type PlayerAttachments
 } from '@fantasy/core';
 import {
@@ -17,6 +18,28 @@ import {
 import { z } from 'zod';
 import type { BusEvent } from './events.js';
 import type { TaskContext } from './tasks/kinds.js';
+
+/**
+ * Logs an attachment premium a trade decision applied (#248: evaluations count how often it
+ * mattered and how often a need overrode it), and hands it back. Nothing when no attached player
+ * is involved. Operators only: the log carries no player names.
+ */
+export function noteAttachment(
+  ctx: Partial<Pick<TaskContext, 'log'>>,
+  use: 'scout' | 'proposal' | 'answer' | 'counter',
+  adjustment: AttachmentAdjustment
+): AttachmentAdjustment {
+  if (adjustment.players.length > 0)
+    ctx.log?.info('agent attachment adjustment', {
+      use,
+      players: adjustment.players.length,
+      premium: adjustment.premium,
+      waived: adjustment.waived,
+      adjustment: adjustment.adjustment,
+      override: adjustment.override !== null
+    });
+  return adjustment;
+}
 
 /**
  * Player attachments in the runtime (#216). Core (`attachments.ts`) owns the state and the policy;
