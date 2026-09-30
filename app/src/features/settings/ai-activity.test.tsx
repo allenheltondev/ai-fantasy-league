@@ -126,6 +126,33 @@ describe('settings: AI activity', () => {
     expect(log).toHaveTextContent('Skipped');
   });
 
+  it('shows what the model provider said and which tool calls failed', async () => {
+    const api = fakeApi({
+      getAgentActivity: vi.fn(async () =>
+        activity({
+          tasks: [
+            task({
+              status: 'fallback',
+              fallbackReason: 'model_error',
+              errorDetail: 'ModelError: "thinking.type.enabled" is not supported for this model.',
+              toolsCalled: [
+                { name: 'get_roster', mutation: false, ok: true, errorCode: null },
+                { name: 'post_message', mutation: true, ok: false, errorCode: 'RATE_LIMITED' },
+                { name: 'set_lineup', mutation: true, ok: false, errorCode: null }
+              ]
+            })
+          ]
+        })
+      )
+    });
+    await openAi(api);
+    const log = screen.getByRole('list', { name: 'Agent decisions' });
+    expect(log).toHaveTextContent(
+      'Model error: ModelError: "thinking.type.enabled" is not supported for this model.'
+    );
+    expect(log).toHaveTextContent('Failed tool call(s): post_message (RATE_LIMITED), set_lineup (error)');
+  });
+
   it('filters the log by team and handles an empty log with the kill switch off', async () => {
     const api = fakeApi({
       getAgentActivity: vi.fn(async () =>
