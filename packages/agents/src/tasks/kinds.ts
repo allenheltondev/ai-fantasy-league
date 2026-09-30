@@ -75,6 +75,12 @@ export interface TaskContext {
    * about one event in one room). False when used up.
    */
   claimShared?(name: string, cap: number, windowMs: number): Promise<boolean>;
+  /**
+   * Takes this agent's once-only slot `name` for this task, atomically: true for the first task
+   * that asks and for any retry of that same task (the owner), false for every other task until
+   * `windowMs` has passed (#218: one reply per message, whichever path triggered it).
+   */
+  claimOnce?(name: string, windowMs: number): Promise<boolean>;
   taskId: string;
   principal: AgentPrincipal;
   league: League;

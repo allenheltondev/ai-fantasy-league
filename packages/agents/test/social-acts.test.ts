@@ -12,6 +12,7 @@ import type { ChatMessage, Matchup } from '@fantasy/server';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentActionRequestedSchema, type AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient, type FakeScript } from '../src/fake-model.js';
+import type { ModelClient } from '../src/model.js';
 import { recordLeagueMemory } from '../src/memory.js';
 import { taskIdFor } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
@@ -32,6 +33,7 @@ const QUIET: AgentSeatConfig = {
 };
 const DM = 'dm-team-1-team-2';
 const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
 const ago = (hours: number) => new Date(Date.parse(START) - hours * HOUR).toISOString();
 const agentId = (teamId: string) => `${LEAGUE_ID}.${teamId}`;
 let seq = 0;
@@ -372,6 +374,66 @@ describe("a person's question first", () => {
     s.clock.advance(5 * HOUR);
     const later = await run(s, checkIn(rolled(QUIET, false).replace('evt', 'later')));
     expect(later.reasoningSummary ?? '').not.toContain('A question waiting on me');
+  });
+
+  it('posts one reply when two tasks answer the same question at once', async () => {
+    const s = await league(QUIET);
+    const question = await say(s, 'Are you selling your RBs this week?');
+    // Both runs are past their `already_answered` check before either posts: a model call that
+    // waits for the other one to arrive holds them there.
+    const scripted = new ScriptedModelClient();
+    let arrived = 0;
+    let release: () => void = () => undefined;
+    const both = new Promise<void>((resolve) => (release = resolve));
+    const barrier: ModelClient = {
+      name: 'barrier',
+      async run(request) {
+        if (++arrived === 2) release();
+        await both;
+        return scripted.run(request);
+      }
+    };
+    const reply = (eventId: string, detailType: string): AgentActionRequested => ({
+      ...checkIn(eventId),
+      taskId: taskIdFor(eventId, AGENT_TEAM, 'chat_reply'),
+      kind: 'chat_reply',
+      trigger: { detailType, eventId, urgent: false },
+      payload: { messageId: question.id, roomId: DM }
+    });
+    // The router's own reply to the mention, and a check-in's hand-off (#218).
+    const records = await Promise.all([
+      runAgentAction(s.deps(barrier), reply('mention-1', 'Chat Mention')),
+      runAgentAction(s.deps(barrier), reply('checkin-1', 'Manager Check-In'))
+    ]);
+    expect(arrived).toBe(2);
+    expect(await agentPosts(s, DM)).toHaveLength(1);
+    expect(records.map((r) => r.status).sort()).toEqual(['completed', 'skipped']);
+    expect(records.find((r) => r.status === 'skipped')?.fallbackReason).toBe('already_answered');
+  });
+
+  it('lets a retry of the task that claimed the reply still post it', async () => {
+    const s = await league(QUIET);
+    const question = await say(s, 'Are you selling your RBs this week?');
+    const request: AgentActionRequested = {
+      ...checkIn('mention-9'),
+      taskId: taskIdFor('mention-9', AGENT_TEAM, 'chat_reply'),
+      kind: 'chat_reply',
+      trigger: { detailType: 'Chat Mention', eventId: 'mention-9', urgent: false },
+      payload: { messageId: question.id, roomId: DM }
+    };
+    // An earlier attempt of this task claimed the reply and crashed before posting.
+    const slot = {
+      slot: `${agentId(AGENT_TEAM)}#once#reply#${question.id}`,
+      now: s.clock.now(),
+      windowMs: 1
+    };
+    expect(await s.repos.agents.admitTrigger(LEAGUE_ID, { ...slot, owner: request.taskId })).toBe(true);
+    expect(
+      await s.repos.agents.admitTrigger(LEAGUE_ID, { ...slot, owner: 'someone-else', windowMs: DAY })
+    ).toBe(false);
+    const record = await run(s, request);
+    expect(record.status).toBe('completed');
+    expect(await agentPosts(s, DM)).toHaveLength(1);
   });
 
   it('answers a mention in a league room before any talk of its own', async () => {

@@ -320,7 +320,14 @@ export async function runAgentAction(
       return memoryForAudience(memoryForPrompt(memory, 'decision'), audience, sealed).memory;
     },
     claimLimit: (name, cap, windowMs) => claimUse(`${seat.agentId}#${name}`, name, cap, windowMs),
-    claimShared: (name, cap, windowMs) => claimUse(`league#${name}`, name, cap, windowMs)
+    claimShared: (name, cap, windowMs) => claimUse(`league#${name}`, name, cap, windowMs),
+    claimOnce: (name, windowMs) =>
+      agents.admitTrigger(leagueId, {
+        slot: `${seat.agentId}#once#${name}`,
+        owner: request.taskId,
+        now: clock.now(),
+        windowMs
+      })
   };
 
   // One read of the stakes feeds both the deterministic levers and the prompt (#217).
@@ -562,6 +569,9 @@ export async function runAgentAction(
       outcome = sealHeard(await prepared.apply(decision));
     } catch (error) {
       if (attempt.fenced) return attempt.discard(attempt.failedResult('apply', error, null, usage));
+      // A no-op found only at apply time (another task answered first): skipped, nothing acted.
+      if (error instanceof TaskUnavailableError && attempt.actionsTaken === 0)
+        return attempt.finish({ ...skipped(error.message), toolsCalled: attempt.calls(), usage });
       // After an action, or on a failure that may pass: retry, and reconcile then. Otherwise the
       // decision itself is unusable, and the deterministic fallback decides instead.
       if (attempt.actionsTaken > 0 || failureClass(error) === 'retryable') {

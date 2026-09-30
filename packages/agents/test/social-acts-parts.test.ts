@@ -11,6 +11,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import type { CheckInLook, Run } from '../src/tasks/check-in.js';
 import { NO_SOCIAL, lookSocial } from '../src/tasks/check-in-social.js';
+import { chatReplyTask } from '../src/tasks/chat.js';
 import type { TaskContext } from '../src/tasks/kinds.js';
 import {
   actInstructions,
@@ -425,5 +426,29 @@ describe('the act in the prompt and in the scripted model', () => {
         message: `${lead} Week 2: you beat Team 3 110-95.`,
         evidence: ['result:w2']
       });
+  });
+});
+
+describe('a reply to a league announcement', () => {
+  it('talks about the other team it names, and goes on without a readable league list', async () => {
+    const { ctx } = scripted({
+      tools: {
+        list_chat_rooms: { rooms: [room('league', 'fixed', ago(1))], postingBudget: null },
+        get_chat: {
+          messages: [
+            message('sys', {
+              kind: 'system',
+              author: { teamId: null, teamName: null, name: 'League' },
+              text: 'Team 2 and Team 3 meet again?',
+              mentionedTeamIds: [AGENT_TEAM, 'team-3']
+            })
+          ]
+        },
+        get_league: { teams: 'garbled' }
+      }
+    });
+    const prepared = await chatReplyTask.prepare(ctx, { messageId: 'sys', roomId: 'league' });
+    expect(prepared.memoryScope?.teamIds).toContain('team-3');
+    expect(prepared.instructions).not.toContain("Who's who");
   });
 });
