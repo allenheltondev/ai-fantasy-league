@@ -156,6 +156,18 @@ export function AiActivityPanel({ leagueId, teams }: { leagueId: string; teams: 
                       )}
                     </div>
                     <p className="text-sm">{task.reasoningSummary}</p>
+                    {task.errorDetail !== undefined && (
+                      <p className="text-xs text-error-700 break-words">Model error: {task.errorDetail}</p>
+                    )}
+                    {task.toolsCalled.some((c) => !c.ok) && (
+                      <p className="text-xs text-error-700">
+                        Failed tool call(s):{' '}
+                        {task.toolsCalled
+                          .filter((c) => !c.ok)
+                          .map((c) => `${c.name} (${c.errorCode ?? 'error'})`)
+                          .join(', ')}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {task.finalAction} · {task.toolsCalled.length} tool call(s)
                       {task.toolsCalled.length > 0 &&

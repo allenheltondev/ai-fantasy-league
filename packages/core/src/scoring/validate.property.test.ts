@@ -4,6 +4,7 @@ import { scorePlayer, type StatLine } from './engine.js';
 import { scoringPreset, type ScoringSettings } from './settings.js';
 import {
   SCORING_FORMATS,
+  SCORING_TOLERANCE,
   SLEEPER_DEFAULT_IDP,
   sleeperDefaultDifference,
   sleeperReferenceScoring,
@@ -78,6 +79,9 @@ describe('Sleeper difference classes (property)', () => {
     fc.assert(
       fc.property(statLine, fc.integer({ min: 2, max: 50 }), (stats: StatLine, cents) => {
         const off = scorePlayer(sleeperDefaultScoring('ppr'), stats).points + cents / 100 + 0.001;
+        // An offset that lands on our own score is a match, not a mismatch to explain.
+        const ours = scorePlayer(sleeperReferenceScoring('ppr'), stats).points;
+        fc.pre(Math.abs(off - ours) > SCORING_TOLERANCE + 1e-9);
         const report = validateScoring(
           [{ key: 'p', stats, expected: { ppr: off } }],
           sleeperReferenceScoring,

@@ -3672,6 +3672,11 @@
                                   "null"
                                 ]
                               },
+                              "errorDetail": {
+                                "description": "When a model run failed: what the provider said (error name and message, shortened).",
+                                "type": "string",
+                                "maxLength": 400
+                              },
                               "toolsCalled": {
                                 "type": "array",
                                 "items": {

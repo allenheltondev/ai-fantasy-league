@@ -412,7 +412,49 @@ describe('check-in: a direct message with a goal', () => {
         { type: 'send_dm', message: 'just saying hi' }
       ])
     );
-    expect(record.finalAction).toBe('none');
+    // Nothing went out, and the record says so rather than leaving the summary to imply it did.
+    expect(record.finalAction).toBe('chat_not_sent');
+    expect(record.reasoningSummary).toContain(
+      'Wanted to send a direct message, but not for one of the listed goals'
+    );
     expect(await posted(s, DM)).toEqual([]);
+  });
+});
+
+describe('check-in: chat actions that were not on offer', () => {
+  it('says which chat actions it has, and records a post it asked for that went nowhere', async () => {
+    const s = await league(QUIET);
+    const model = new ScriptedModelClient({
+      script: () =>
+        ({
+          steps: [],
+          decision: {
+            summary: 'Fired one shot at Team 3.',
+            actions: [
+              { type: 'post_chat', message: 'Team 3 cannot score.' },
+              { type: 'matchup_post', message: 'See you Sunday.' }
+            ]
+          }
+        }) as FakeScript
+    });
+    // Something to think about (a placeholder name), but no roll passed: no chat is on offer.
+    const record = await run(s, checkIn(rolled(QUIET, []), { naming: 'placeholder' }), model);
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    expect(prompt).toContain('No chat actions are on offer this check-in');
+    expect(record.finalAction).toBe('chat_not_sent');
+    expect(record.reasoningSummary).toContain('Fired one shot at Team 3.');
+    expect(record.reasoningSummary).toContain('no board post was on offer this time: nothing went out.');
+    expect(record.reasoningSummary).toContain('matchup talk was not on offer this time: nothing went out.');
+    expect(await posted(s, 'trash-talk')).toEqual([]);
+    expect(await posted(s, ROOM)).toEqual([]);
+  });
+
+  it('lists the chat actions a roll offered', async () => {
+    const s = await league(LOUD);
+    const model = new ScriptedModelClient();
+    await run(s, checkIn(rolled(LOUD, ['board'])), model);
+    expect(model.transcript[0]?.systemPrompt ?? '').toContain(
+      'Chat actions on offer this check-in: post_chat.'
+    );
   });
 });

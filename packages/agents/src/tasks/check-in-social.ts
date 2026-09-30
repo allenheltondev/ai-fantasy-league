@@ -412,7 +412,24 @@ export function socialInstructions(ctx: TaskContext, prep: CheckInPrep): string[
         'To send one, add `{ "type": "send_dm", "goal": <number>, "message": "..." }` with a message that serves that goal, in your own voice. Never put trade terms you have not offered in a DM.'
       ].join('\n')
     );
+  parts.push(chatOnOffer(social));
   return parts;
+}
+
+/**
+ * Which chat actions this check-in may take. Any other is dropped, so the model is told plainly:
+ * otherwise it may "post" a jab no step carries out and say so in its summary.
+ */
+export function chatOnOffer(social: SocialLook): string {
+  const offered = [
+    ...(social.board === null ? [] : ['post_chat']),
+    ...(social.act === null ? [] : ['social_act']),
+    ...(social.matchup === null ? [] : ['matchup_post']),
+    ...(social.dms.length === 0 ? [] : ['send_dm'])
+  ];
+  return offered.length === 0
+    ? 'No chat actions are on offer this check-in: leave out post_chat, matchup_post, send_dm, and social_act, and do not say in your summary that you posted or messaged anyone.'
+    : `Chat actions on offer this check-in: ${offered.join(', ')}. Any other chat action is dropped; your summary must not claim a post or message beyond these.`;
 }
 
 const chatText = (a: CheckInAction | undefined) => (a?.message ?? '').trim().slice(0, 280);

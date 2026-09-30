@@ -498,6 +498,8 @@ export interface AgentTaskRecord {
   trigger: { detailType: string; eventId: string };
   status: 'completed' | 'fallback' | 'failed' | 'skipped';
   fallbackReason: string | null;
+  /** When a model run failed: what the provider said (error name and message, shortened). */
+  errorDetail?: string;
   toolsCalled: { name: string; mutation: boolean; ok: boolean; errorCode: string | null }[];
   finalAction: string;
   reasoningSummary: string;

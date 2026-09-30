@@ -173,7 +173,7 @@ describe.each(backends)('agent spend accounting (%s)', (_name, makeRepos) => {
     // One task alone, to learn what a call holds.
     expect(await runAgentAction(deps, task('team-2', 'evt-0'))).toMatchObject({ status: 'completed' });
     const hold = watch.holds[0] as BudgetHold;
-    expect(hold).toMatchObject({ modelKey: 'kimi-k2-thinking', key: usageKey(1, 1), outputTokens: 2048 });
+    expect(hold).toMatchObject({ modelKey: 'kimi-k2-thinking', key: usageKey(1, 1), outputTokens: 6144 });
     expect(hold.costUsd).toBeGreaterThan(0);
 
     // Room for one and a half calls, and three tasks asking at the same moment.

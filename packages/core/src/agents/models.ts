@@ -60,6 +60,12 @@ export interface CatalogModel {
    * together with `thinkingBudget`; the runtime then sends the reasoning effort, not a budget.
    */
   adaptiveThinking?: true;
+  /**
+   * True when the model reasons in its visible output rather than in a separate thinking budget
+   * (Kimi K2 Thinking), so its reasoning counts against the response limit. The runtime gives it
+   * more room there, by reasoning effort.
+   */
+  reasoningInOutput?: true;
 }
 
 export const MODEL_REGION = 'us-east-1';
@@ -106,6 +112,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'kimi-k2-thinking',
+    reasoningInOutput: true,
     displayName: 'Moonshot Kimi K2 Thinking',
     provider: 'moonshot',
     bedrockId: 'moonshot.kimi-k2-thinking',

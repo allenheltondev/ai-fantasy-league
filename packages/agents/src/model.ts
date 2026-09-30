@@ -104,6 +104,14 @@ const UNAVAILABLE = [
   'ModelTimeoutException'
 ];
 
+/**
+ * Whether the run stopped at the response limit (the agent SDK's `MaxTokensError`): the model spent
+ * its output before it answered, which the next model in the chain may not.
+ */
+export function isOutputLimit(error: unknown): boolean {
+  return error instanceof Error && error.name === 'MaxTokensError';
+}
+
 /** Whether a Bedrock error means "try the next model" rather than "this task failed". */
 export function isModelUnavailable(error: unknown): boolean {
   if (error instanceof ModelUnavailableError) return true;
