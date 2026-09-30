@@ -104,6 +104,8 @@ export const TRADE_MEMORY_OUTCOMES = [
   'accepted',
   'rejected',
   'expired',
+  // The proposer took the offer back (#219): no longer open, and as private as a rejection.
+  'withdrawn',
   'processed',
   'vetoed'
 ] as const;

@@ -472,8 +472,10 @@ async function assessPitch(
     lineupDelta: round1(mySide.lineupDelta),
     attachmentPremium: attachment.adjustment
   });
+  // Lopsided either way is a no (#208's guard), and says so: a swap that favours me is not one where
+  // "the value was not there" (#219's acceptance scenario found that claim on a score over the bar).
   if (preview.fairness.lopsided)
-    return no('the trade value math calls it lopsided. No.', 'value_below_floor', weighed);
+    return no('the trade value math calls it lopsided. No.', 'lopsided', weighed);
   if (score < bar - credit)
     // A premium for a player I'm attached to is part of the bar: a decline it tips is still one on value.
     return no(

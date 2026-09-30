@@ -523,6 +523,8 @@ describe('memory visibility (#206)', () => {
     // A private offer stays with the other team until the trade is public; a rejection, for good.
     expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'processed' })).toBe('public');
     expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'rejected' })).toEqual(withTeam1);
+    // A withdrawn offer (#219) was only ever the two teams' business.
+    expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'withdrawn' })).toEqual(withTeam1);
     const rival = { teamId: 'team-3', grudge: 1, at: AT };
     expect(rivalVisibility({ ...rival, reason: 'Trade expired: An offer from team-3 was expired.' })).toEqual(
       {

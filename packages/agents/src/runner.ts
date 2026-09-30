@@ -38,6 +38,7 @@ import {
 import { ZodError } from 'zod';
 import { dispatchTask, errorName } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
+import type { AgentAblation } from './ablations.js';
 import { refreshAgenda } from './agenda.js';
 import { effectiveBehavior, readSituation } from './situation.js';
 import { ATTACHMENT_KINDS, refreshAttachments } from './attachments.js';
@@ -144,6 +145,8 @@ export interface RunnerDeps {
   modelTimeoutMs?: number;
   /** Where agent memory lives; defaults to the league table. */
   memory?: AgentMemoryStore;
+  /** State switched off for an evaluation (ablations.ts); production passes none. */
+  ablations?: readonly AgentAblation[];
 }
 
 /** How long a crashed run blocks a retry of the same task (its lease). */
@@ -302,6 +305,7 @@ export async function runAgentAction(
     if (result === 'contended') log.warn('agent limit contended; treated as used up', { limit: name });
     return result === 'claimed';
   };
+  const off = new Set(deps.ablations ?? []);
   const ctx: TaskContext = {
     taskId: request.taskId,
     principal,
@@ -312,8 +316,13 @@ export async function runAgentAction(
     clock,
     log,
     trigger: { detailType: request.trigger.detailType, eventId: request.trigger.eventId },
-    commitments: commitmentAccess(services, league.id, seat.agentId, seat.teamId),
-    socialActs: socialActAccess(services, league.id, seat.agentId, seat.teamId),
+    ...(off.has('no_agenda_commitments')
+      ? {}
+      : { commitments: commitmentAccess(services, league.id, seat.agentId, seat.teamId) }),
+    ...(off.has('no_social_acts')
+      ? {}
+      : { socialActs: socialActAccess(services, league.id, seat.agentId, seat.teamId) }),
+    ...(off.size === 0 ? {} : { ablations: off }),
     recall: async (audience) => {
       const memory = await memoryStore.load(league.id, seat.agentId);
       const sealed = await sealChecker(services, league.id, memory);
@@ -331,7 +340,7 @@ export async function runAgentAction(
   };
 
   // One read of the stakes feeds both the deterministic levers and the prompt (#217).
-  ctx.situation = await readSituation(services, ctx);
+  if (!off.has('no_situation')) ctx.situation = await readSituation(services, ctx);
   if (ctx.situation !== undefined) {
     const { urgency, basis, reasons, sinceWeek, previous, pending } = ctx.situation;
     log.info('agent situation', {
@@ -349,13 +358,13 @@ export async function runAgentAction(
   let agendaMode: AgendaMode = 'none';
   let prepared: PreparedTask;
   try {
-    agendaMode = kind.agendaMode(ctx, request.payload);
+    agendaMode = off.has('no_agenda_commitments') ? 'none' : kind.agendaMode(ctx, request.payload);
     if (agendaMode !== 'none') {
       const agenda = await refreshAgenda(services, ctx);
       if ((agendaMode === 'private' || agendaMode === 'guide_only') && agenda !== undefined)
         ctx.agenda = agenda;
     }
-    if (ATTACHMENT_KINDS.has(kind.kind)) {
+    if (ATTACHMENT_KINDS.has(kind.kind) && !off.has('no_attachments')) {
       const attachments = await refreshAttachments(services, ctx);
       if (attachments !== undefined) ctx.attachments = attachments;
     }

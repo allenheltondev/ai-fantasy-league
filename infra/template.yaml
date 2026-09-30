@@ -900,11 +900,13 @@ Resources:
                 # Agent memory (#44): results and trade steps the agents remember;
                 # Trade Accepted also sends agents to vote in league-vote review (#122).
                 # Week Official Final corrects a result stat corrections changed (#210).
+                # Trade Withdrawn closes an offer in memory, so it is not recalled as open (#219).
                 - Week Provisionally Final
                 - Week Official Final
                 - Trade Accepted
                 - Trade Rejected
                 - Trade Expired
+                - Trade Withdrawn
                 - Trade Processed
                 - Trade Vetoed
             RetryPolicy:

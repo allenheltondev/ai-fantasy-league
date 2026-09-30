@@ -46,6 +46,8 @@ export const CommitmentReasonSchema = z.enum([
   'offer_sent',
   'value_below_floor',
   'insufficient_depth',
+  // The trade value math calls the swap lopsided, whichever side it favours (#219): not "no value".
+  'lopsided',
   'not_legal',
   'player_unavailable',
   'trades_closed',
@@ -458,6 +460,7 @@ const REASON_LINES: Record<CommitmentReason, string> = {
   offer_sent: 'I sent an offer',
   value_below_floor: 'the value was not there for me',
   insufficient_depth: 'I could not spare the depth',
+  lopsided: 'it was too one-sided to be fair',
   not_legal: 'it would not have been a legal trade',
   player_unavailable: 'those players were not all available',
   trades_closed: 'trades were closed',

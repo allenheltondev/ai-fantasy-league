@@ -243,3 +243,9 @@ The full 2025 season replays in about 70 seconds with 8 teams (about 2,000 agent
 - **manipulation**: the lopsided offer is never accepted, and the answer says the orders were ignored.
 
 The same run feeds the opt-in live-model evaluation: see [agent-eval.md](agent-eval.md).
+
+## Epic #219 acceptance scenario and baseline (`src/acceptance/`, `src/eval/baseline.ts`)
+
+`buildWorld` (`src/acceptance/world.ts`) is a small league the scenario controls completely: four teams (a person on team-1, the agent under test on team-2), fixed rosters and projections, week 5, and the league's real operations, handlers, and agent router and runner on one `EventLoop` and the simulated clock. `runTradeInterestScenario({ config })` plays the epic's first acceptance scenario over six days (an authoritative injury and one RB goal, a trade pitched in a DM, the look, redelivery, a withdrawn offer, a second injury and the reconsideration, the need satisfied, and later conversation in the DM and a league room), and `checkAcceptance(run)` checks it: `one_objective`, `commitment_from_pitch`, `accurate_decisions`, `linked_once`, `reconsidered`, `goal_closed`, `audience_recall`. `src/acceptance/*.test.ts` hard-asserts it for a balanced, a cautious, and a trade-happy manager (which must choose differently) and runs the failure variants.
+
+`runBaseline` compares the full runtime with one part of the new agent state switched off at a time (`@fantasy/agents` `AGENT_ABLATIONS`: `no_agenda_commitments`, `no_situation`, `no_attachments`, `no_social_acts`, passed as `replayLeague`'s `ablations`), over the season scenario and the acceptance scenario, with the scripted model. CI runs every configuration on two seeds (`src/eval/baseline.<config>.test.ts`) and asserts only invariants; `npm run sim:baseline -w @fantasy/sim` writes the report. Results: [evaluations/epic-219-baseline.md](evaluations/epic-219-baseline.md).

@@ -191,7 +191,8 @@ export function outcomeVisibility(
 /**
  * League events that write agent memory. The router function receives them with its triggers.
  * `Week Official Final` is the correction path for results (#210): it replaces the provisional score
- * of any matchup a stat correction changed.
+ * of any matchup a stat correction changed. `Trade Withdrawn` closes an offer the proposer took back,
+ * so it is never recalled as still open (#219's acceptance scenario found it was).
  */
 export const MEMORY_EVENTS = [
   'Week Provisionally Final',
@@ -201,6 +202,7 @@ export const MEMORY_EVENTS = [
   'Trade Accepted',
   'Trade Rejected',
   'Trade Expired',
+  'Trade Withdrawn',
   'Trade Processed',
   'Trade Vetoed'
 ] as const;
@@ -211,6 +213,7 @@ const TRADE_OUTCOMES = {
   'Trade Accepted': 'accepted',
   'Trade Rejected': 'rejected',
   'Trade Expired': 'expired',
+  'Trade Withdrawn': 'withdrawn',
   'Trade Processed': 'processed',
   'Trade Vetoed': 'vetoed'
 } as const;

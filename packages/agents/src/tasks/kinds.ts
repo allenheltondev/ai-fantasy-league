@@ -10,6 +10,7 @@ import type {
 } from '@fantasy/core';
 import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } from '@fantasy/server';
 import { z } from 'zod';
+import type { AgentAblation } from '../ablations.js';
 import type { CommitmentAccess } from '../commitments.js';
 import type { FakeScript } from '../fake-model.js';
 import type { SocialActAccess } from '../social-acts.js';
@@ -65,6 +66,8 @@ export interface TaskContext {
   commitments?: CommitmentAccess;
   /** The social acts it chose (#218): operational state, never shown to a model. */
   socialActs?: SocialActAccess;
+  /** State an evaluation switched off (ablations.ts); unset in production. */
+  ablations?: ReadonlySet<AgentAblation>;
   /**
    * The agent's league memory as `audience` may hear it (#206), records only: no chat snapshots or
    * relationship notes (#218's grounded acts rest on what it can prove).

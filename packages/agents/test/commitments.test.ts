@@ -22,6 +22,7 @@ import {
   openInterest,
   reviewCommitments
 } from '../src/commitments.js';
+import type { AgentAblation } from '../src/ablations.js';
 import { AgentActionRequestedSchema, type AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient, type FakeScript } from '../src/fake-model.js';
 import { taskIdFor } from '../src/router.js';
@@ -732,6 +733,90 @@ describe('commitments: the runtime edges (#215)', () => {
     await answer(s, await tell(s, 'Give me WR5.'), { kind: 'trade', players: ['WR5', 'Nobody'] });
     expect(proposals(s)).toEqual([]);
     expect(await book(s)).toEqual([]);
+  });
+
+  it('declines a lopsided swap as lopsided, even one that favours the agent (#219)', async () => {
+    // H RB projects far above WR5: by its own numbers the agent would win big, but the value math
+    // calls the swap lopsided. "The value was not there for me" would be false.
+    const s = await interest(STUBBORN, 2_000);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    await runAgentAction(s.deps(new ScriptedModelClient()), proposals(s)[0]!);
+    const c = await only(s);
+    expect(c).toMatchObject({ status: 'declined', decision: { reason: 'lopsided' }, nextReviewAt: null });
+    expect(c.decision!.facts!.score!).toBeGreaterThan(c.decision!.facts!.bar!);
+    expect(await answers(s, pitch)).toContain(
+      'Took a proper look at that one: it was too one-sided to be fair. Pass for now.'
+    );
+    expect(await trades(s)).toEqual([]);
+  });
+});
+
+describe('evaluation ablations (#219, ablations.ts)', () => {
+  const off = (s: Setup, model: ScriptedModelClient, ablations: AgentAblation[]) => ({
+    ...s.deps(model),
+    ablations
+  });
+
+  it('without agenda and commitments, a pitch takes the plain #196 follow-up and no state is written', async () => {
+    const s = await interest();
+    const pitch = await tell(s, PITCH);
+    await runAgentAction(
+      off(s, said({ summary: 'Answered.', message: 'Let me look at it.', takeaway: TRADE_TALK }), [
+        'no_agenda_commitments'
+      ]),
+      request('chat_reply', { messageId: pitch.id, roomId: pitch.roomId })
+    );
+    expect(proposals(s)).toHaveLength(1);
+    expect(proposals(s)[0]!.payload).not.toHaveProperty('commitment');
+    await hurt(s, ['rb1', 'rb2']);
+    await runAgentAction(
+      off(s, said({ summary: 'Quiet day.', actions: [{ type: 'none' }] }), ['no_agenda_commitments']),
+      request('check_in', { slot: 'afternoon' }, 'ci-off', 'Manager Check-In')
+    );
+    expect(await book(s)).toEqual([]);
+    expect((await s.repos.agents.getAgenda(LEAGUE_ID, AGENT_ID, TENURE)).goals).toEqual([]);
+  });
+
+  it('without attachments, a drafted favourite adds no premium to the bar', async () => {
+    const s = await interest(STUBBORN, 155);
+    await s.repos.agents.updateAttachments(LEAGUE_ID, AGENT_ID, TENURE, (a) =>
+      recordAcquisition(a, {
+        sourceId: `draft:${LEAGUE_ID}:wr5`,
+        kind: 'drafted',
+        playerId: 'wr5',
+        name: 'WR5',
+        position: 'WR',
+        at: START,
+        round: 1
+      })
+    );
+    await answer(s, await tell(s, PITCH));
+    await runAgentAction(off(s, new ScriptedModelClient(), ['no_attachments']), proposals(s)[0]!);
+    // The same pitch the premium tips into a decline (above) clears without it.
+    expect(await only(s)).toMatchObject({
+      status: 'waiting_for_partner',
+      decision: { reason: 'offer_sent', facts: { attachmentPremium: 0 } }
+    });
+  });
+
+  it('without situation or social acts, a check-in reads neither', async () => {
+    const s = await interest();
+    await runAgentAction(
+      off(s, said({ summary: 'Quiet day.', actions: [{ type: 'none' }] }), [
+        'no_situation',
+        'no_social_acts'
+      ]),
+      request('check_in', { slot: 'afternoon' }, 'ci-bare', 'Manager Check-In')
+    );
+    expect(s.logs.some((l) => l.includes('"agent situation"'))).toBe(false);
+    expect(s.logs.some((l) => l.includes('"agent social selection"'))).toBe(false);
+    await runAgentAction(
+      s.deps(said({ summary: 'Quiet day.', actions: [{ type: 'none' }] })),
+      request('check_in', { slot: 'evening' }, 'ci-full', 'Manager Check-In')
+    );
+    expect(s.logs.some((l) => l.includes('"agent situation"'))).toBe(true);
+    expect(s.logs.some((l) => l.includes('"agent social selection"'))).toBe(true);
   });
 });
 

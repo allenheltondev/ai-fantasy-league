@@ -44,6 +44,8 @@ Conditions run seed by seed, so if the budget runs out the runs that finished st
 
 The ablations change the prompt at the model boundary (`CONDITION_PROMPTS`), after the runtime assembled it, so the league, the tools, and the deterministic guards are identical across conditions.
 
+Epic #219's state ablations run only when named in `--conditions`: `no_agenda_commitments`, `no_situation`, `no_attachments`, and `no_social_acts` play the live model with that part of the managers' state switched off in the runtime (`@fantasy/agents` `AGENT_ABLATIONS`), not in the prompt. The same comparison with the scripted model runs offline and in CI: `npm run sim:baseline -w @fantasy/sim`, results in [evaluations/epic-219-baseline.md](evaluations/epic-219-baseline.md).
+
 ### What gets recorded
 
 Per run (`EvalRunResult`): the condition and seed; the model client and every Bedrock id used; each agent seat's personality, difficulty, and archetype; outcomes (champion, standings, tasks by status, processed trades, invariant violations); the fallback rate (tasks the deterministic fallback decided, over tasks that ran) and model errors; model-call latency (count, p50, p95, max, wall time); usage (input and output tokens, whether they were estimated, estimated cost from the catalog); every rubric score with its `n` and reasons; the scenario's hard checks as observed; and whether the budget ran out during the run. The report adds the mean of each rubric per condition, the total spent, and any runs skipped because the budget was gone.
