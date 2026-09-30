@@ -158,6 +158,7 @@ function MessageItem({ message, teams }: { message: ChatMessage; teams: readonly
         {message.kind === 'agent' ? (
           <span className="rounded bg-primary-100 px-1 text-xs font-medium text-primary-800">AI</span>
         ) : null}
+        <AddressedTo message={message} teams={teams} />
         <time dateTime={message.createdAt} className="text-xs text-muted-foreground">
           {time(message.createdAt)}
         </time>
@@ -165,6 +166,19 @@ function MessageItem({ message, teams }: { message: ChatMessage; teams: readonly
       <p className="whitespace-pre-wrap break-words">{highlightMentions(message.text, teams)}</p>
     </li>
   );
+}
+
+/**
+ * A subtle "to <team>" on a message that continues a conversation with an AI manager without
+ * tagging it, so the room can see who it was meant for.
+ */
+function AddressedTo({ message, teams }: { message: ChatMessage; teams: readonly ChatTeam[] }) {
+  const names = (message.addressedTeamIds ?? []).flatMap((id) => {
+    const team = teams.find((t) => t.id === id);
+    return team === undefined ? [] : [team.name];
+  });
+  if (names.length === 0) return null;
+  return <span className="text-xs text-muted-foreground">to {names.join(', ')}</span>;
 }
 
 /** A league announcement as a card: what happened, the line, and the players it names. */

@@ -73,8 +73,9 @@ async function taskView(ctx: Ctx, task: AgentTaskRecord): Promise<z.infer<typeof
   }
   // Everything else that could give the move away is masked too: the action, the tools called,
   // and whether a model ran (a veto costs a model call; letting a trade pass does not).
+  const { errorDetail: _errorDetail, ...unsealed } = rest;
   return {
-    ...rest,
+    ...unsealed,
     status: 'completed',
     fallbackReason: null,
     finalAction: 'sealed',

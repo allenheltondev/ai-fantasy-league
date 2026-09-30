@@ -113,3 +113,15 @@ export function errorName(error: unknown): string {
   }
   return typeof error;
 }
+
+/**
+ * A model provider's error for the log and the task record: its name and message, cut to `max`
+ * characters. Only for what the model client threw (Bedrock, the agent SDK), whose messages carry
+ * no league details; a league error's message may quote sealed details, so it gets `errorName`.
+ */
+export function providerErrorDetail(error: unknown, max = 300): string {
+  const name = errorName(error);
+  const message = error instanceof Error ? error.message.replace(/\s+/g, ' ').trim() : '';
+  const detail = message === '' || message === name ? name : `${name}: ${message}`;
+  return detail.length > max ? `${detail.slice(0, max - 1)}…` : detail;
+}

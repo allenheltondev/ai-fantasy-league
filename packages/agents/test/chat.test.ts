@@ -370,12 +370,14 @@ describe('routing chat triggers', () => {
     const again = await s.route(
       event('Chat Mention', { messageId: 'm2', authorType: 'user', mentionedTeamIds: ['team-2'] }, 'e2')
     );
-    expect(again.map((d) => d.decision)).toEqual(['cooldown']);
-    s.clock.advance(CHAT_COOLDOWNS.reply.agentMinutes * 60_000);
+    // A person's second mention inside the cooldown waits it out (#215) rather than being dropped.
+    const cooldownMs = CHAT_COOLDOWNS.reply.agentMinutes * 60_000;
+    expect(again).toMatchObject([{ decision: 'requested', delayMs: cooldownMs }]);
+    s.clock.advance(2 * cooldownMs);
     const later = await s.route(
       event('Chat Mention', { messageId: 'm3', authorType: 'user', mentionedTeamIds: ['team-2'] }, 'e3')
     );
-    expect(later.map((d) => d.decision)).toEqual(['requested']);
+    expect(later).toMatchObject([{ decision: 'requested', delayMs: 0 }]);
     // A lineup news trigger for the same agent is not blocked by the chat.
     const news = await s.route({
       id: 'e4',

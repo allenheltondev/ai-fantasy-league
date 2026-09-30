@@ -92,6 +92,16 @@ export const AgentTaskRecordSchema = z.object({
   status: z.enum(AGENT_TASK_STATUSES),
   /** Why the deterministic fallback ran (kill_switch, budget_exceeded, model_error, timeout, ...). */
   fallbackReason: z.string().nullable(),
+  /**
+   * What the model provider said when the run failed (`model_error`, `models_unavailable`): the
+   * error's name and message, cut short. Only provider errors are kept, never a league error, whose
+   * message may quote sealed details.
+   */
+  errorDetail: z
+    .string()
+    .max(400)
+    .optional()
+    .describe('When a model run failed: what the provider said (error name and message, shortened).'),
   toolsCalled: z.array(AgentToolCallSchema),
   finalAction: z.string(),
   reasoningSummary: z.string(),
@@ -152,6 +162,7 @@ export type AgentFollowUp = z.infer<typeof AgentFollowUpSchema>;
 export const AgentTaskPendingSchema = AgentTaskRecordSchema.pick({
   status: true,
   fallbackReason: true,
+  errorDetail: true,
   toolsCalled: true,
   finalAction: true,
   reasoningSummary: true,
@@ -346,6 +357,11 @@ export interface AgentRepository {
   putTriggerState(state: AgentTriggerState): Promise<void>;
   /** Takes a trigger-state slot through its gate, atomically (see `TriggerGate`). */
   admitTrigger(leagueId: string, gate: TriggerGate): Promise<boolean>;
+  /**
+   * Frees a trigger-state slot `owner` took, atomically: false (nothing changed) when the slot is
+   * free or another owner holds it. For a gate taken ahead of work that then could not happen.
+   */
+  releaseTrigger(leagueId: string, slot: string, owner: string): Promise<boolean>;
 
   /**
    * Reserves a dispatch (`dispatch.state` is `reserved`), and with a gate takes the gate in the same

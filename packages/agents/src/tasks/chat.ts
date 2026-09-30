@@ -1,4 +1,11 @@
-import { DEFAULT_ROOM_ID, MEMORY_LIMITS, banterContinues, hashString, type MemoryEvent } from '@fantasy/core';
+import {
+  DEFAULT_ROOM_ID,
+  MEMORY_LIMITS,
+  answeredBefore,
+  banterContinues,
+  hashString,
+  type MemoryEvent
+} from '@fantasy/core';
 import {
   AGENT_CHAT_BUDGETS,
   ChatContextPackSchema,
@@ -57,6 +64,14 @@ export { quote };
  * - A reply may run a while after the mention (a human-like response delay, #189), so it re-reads
  *   the room first: a message this agent already answered (its reply to it, or in a DM any
  *   message it wrote since) is skipped (`already_answered`), so it is never answered twice.
+ * - Bursts (#215): a reply the router deferred past its cooldown (`coalesce`) answers the person's
+ *   newest message to the agent in the room, with every earlier one still unanswered listed as the
+ *   burst, and tells the model to answer them all in one message. A reply covers everything its
+ *   person said before it (core `answeredBefore`), and the reply claims each burst message's
+ *   once-only slot too, so neither a second reply nor a check-in's hand-off answers them again.
+ * - Conversation continuity: a person may keep talking to the agent without tagging it; the server
+ *   marks such a message `addressedTeamIds` (core `continuationAddressee`), and it reads here as
+ *   addressed to the agent like a mention.
  * - Memory: chat decisions carry no `memoryNote`, so chat text can never become a note that a
  *   tool-using task later trusts. After posting in a league room, the task leaves a snapshot of the
  *   exchange keyed by the room, and may leave a one-line relationship note about one other team in
@@ -77,7 +92,9 @@ export const CHAT_BUDGETS = {
   /** Recent messages of the room read to find the message answered. */
   window: 50,
   /** Of those, how many the model sees. */
-  context: 15
+  context: 15,
+  /** Earlier messages of a burst listed with the one answered (the newest). */
+  burst: 5
 } as const;
 
 /**
@@ -159,7 +176,9 @@ export const ACTING_ON_CHAT = [
 
 const ReplyPayloadSchema = z.object({
   messageId: z.string().min(1),
-  roomId: z.string().min(1).default(DEFAULT_ROOM_ID)
+  roomId: z.string().min(1).default(DEFAULT_ROOM_ID),
+  /** A reply deferred past the cooldown (#215): answer the person's newest message, burst and all. */
+  coalesce: z.boolean().optional()
 });
 const MomentPayloadSchema = z.object({
   moment: z.string().min(1).max(1000),
@@ -175,6 +194,11 @@ export interface ChatPrep {
   recent: ChatMessage[];
   /** The message being answered (replies only). */
   target: ChatMessage | null;
+  /**
+   * A deferred reply's burst (#215): the person's earlier messages to the agent it has not answered,
+   * oldest first, answered together with `target`. Empty otherwise.
+   */
+  burst: ChatMessage[];
   /** The room's league facts, rendered (`get_chat_context`); empty when they could not be read. */
   facts: string[];
   /** Who's who: each team, its manager, and whether an AI plays it; empty when unreadable. */
@@ -293,8 +317,9 @@ export function conversationTeams(
 }
 
 /**
- * True when `self` already answered `target`: one of its messages replies to it, or, in a DM,
- * it wrote after it. `messages` is the room's recent messages, newest first (get_chat).
+ * True when `self` already answered `target` (core `answeredBefore`): one of its messages replies
+ * to it or to a later message from the same person, or, in a DM, it wrote after it. `messages` is
+ * the room's recent messages, newest first (get_chat).
  */
 export function alreadyAnswered(
   messages: readonly Pick<ChatMessage, 'id' | 'kind' | 'author' | 'replyToId'>[],
@@ -303,16 +328,46 @@ export function alreadyAnswered(
   dm: boolean
 ): boolean {
   const at = messages.findIndex((m) => m.id === target.id);
-  return messages.some(
-    (m, i) => m.kind === 'agent' && m.author.teamId === self && (m.replyToId === target.id || (dm && i < at))
-  );
+  return at >= 0 && answeredBefore(messages, at, self, dm);
+}
+
+/** True when a person's `message` is to `self`: in its DM, @mentioning it, or continuing a talk with it. */
+export function addressedTo(
+  message: Pick<ChatMessage, 'kind' | 'author' | 'mentionedTeamIds' | 'addressedTeamIds'>,
+  self: string,
+  dm: boolean
+): boolean {
+  if (message.kind !== 'user' || message.author.teamId === self) return false;
+  return dm || message.mentionedTeamIds.includes(self) || (message.addressedTeamIds ?? []).includes(self);
+}
+
+/**
+ * A deferred reply's target and burst (#215): the newest message the person who wrote `from` has
+ * since addressed to `self` in the room, and their earlier ones still unanswered, oldest first.
+ * `messages` is newest first.
+ */
+export function burstOf(
+  messages: readonly ChatMessage[],
+  from: ChatMessage,
+  self: string,
+  dm: boolean
+): { target: ChatMessage; burst: ChatMessage[] } {
+  const person = from.author.teamId;
+  const theirs = messages.filter((m) => m.author.teamId === person && addressedTo(m, self, dm));
+  const target = theirs.find((m) => m.createdAt >= from.createdAt) ?? from;
+  const burst = theirs
+    .filter((m) => m.createdAt < target.createdAt && !answeredBefore(messages, messages.indexOf(m), self, dm))
+    .slice(0, CHAT_BUDGETS.burst)
+    .reverse();
+  return { target, burst };
 }
 
 export async function prepareChat(
   ctx: TaskContext,
   roomId: string,
   targetId: string | null,
-  about: (target: ChatMessage | null) => string | null
+  about: (target: ChatMessage | null) => string | null,
+  options: { coalesce?: boolean } = {}
 ): Promise<ChatPrep> {
   const listed = await call(ctx, 'list_chat_rooms', {}, RoomsSchema);
   checkBudget(listed.postingBudget);
@@ -325,10 +380,16 @@ export async function prepareChat(
     { roomId, limit: CHAT_BUDGETS.window },
     z.object({ messages: z.array(ChatMessageSchema) })
   );
-  const target = targetId === null ? null : (messages.find((m) => m.id === targetId) ?? null);
-  if (targetId !== null && target === null) throw new TaskUnavailableError('message_not_found');
+  const found = targetId === null ? null : (messages.find((m) => m.id === targetId) ?? null);
+  if (targetId !== null && found === null) throw new TaskUnavailableError('message_not_found');
   const self = ctx.principal.teamId;
-  if (target !== null && alreadyAnswered(messages, target, self, room.kind === 'dm'))
+  const dm = room.kind === 'dm';
+  // A deferred reply answers the newest message of the person's burst, with the rest in view.
+  const { target, burst } =
+    found !== null && options.coalesce === true
+      ? burstOf(messages, found, self, dm)
+      : { target: found, burst: [] };
+  if (target !== null && alreadyAnswered(messages, target, self, dm))
     throw new TaskUnavailableError('already_answered');
   // Answering another agent is a retort: it spends the league's banter budget too.
   if (target?.kind === 'agent') checkBudget(listed.postingBudget, true);
@@ -342,6 +403,7 @@ export async function prepareChat(
     room,
     recent,
     target,
+    burst,
     facts,
     roster,
     dossier,
@@ -429,6 +491,9 @@ export async function post(ctx: TaskContext, prep: ChatPrep, decision: ChatDecis
     !(await ctx.claimOnce(`reply#${prep.target.id}`, REPLY_CLAIM_MS))
   )
     throw new TaskUnavailableError('already_answered');
+  // One reply covers a burst (#215): its earlier messages are claimed too, so a later hand-off of
+  // one of them finds it answered. One that another task claimed first stays that task's.
+  for (const m of prep.burst) await ctx.claimOnce?.(`reply#${m.id}`, REPLY_CLAIM_MS);
   const result = await ctx.tools.call('post_message', {
     roomId: prep.room.roomId,
     text,
@@ -500,22 +565,37 @@ export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, 
   decision: ChatReplyDecisionSchema,
   tools: CHAT_TOOLS,
   prepare: (ctx, payload) =>
-    prepareChat(ctx, payload.roomId, payload.messageId, replyAbout(ctx.principal.teamId)),
-  instructions: (_ctx, _payload, prep) => {
+    prepareChat(ctx, payload.roomId, payload.messageId, replyAbout(ctx.principal.teamId), {
+      coalesce: payload.coalesce === true
+    }),
+  instructions: (ctx, _payload, prep) => {
     const target = prep.target as ChatMessage;
     const who = quote(target.author.name, 60);
+    const continued = (target.addressedTeamIds ?? []).includes(ctx.principal.teamId);
     const opening =
-      prep.room.kind === 'dm'
-        ? `${who} sent you ${roomPlace(prep.room)}. Reply to them there.`
-        : target.kind === 'agent'
-          ? banterContinues((target.replyToAgentDepth ?? 0) + 1)
-            ? `${who}, another AI manager, took a jab at you in ${roomPlace(prep.room)}. Fire back harder, with facts, and tag them with @ to keep the fight going.`
-            : `${who}, another AI manager, took a jab at you in ${roomPlace(prep.room)}. You get the last word: make it count.`
-          : `${who} mentioned you in ${roomPlace(prep.room)}. Reply to them there.`;
+      prep.burst.length > 0
+        ? `${who} sent you several messages in ${roomPlace(prep.room)} while you were busy. Answer everything still pending in one message there.`
+        : prep.room.kind === 'dm'
+          ? `${who} sent you ${roomPlace(prep.room)}. Reply to them there.`
+          : target.kind === 'agent'
+            ? banterContinues((target.replyToAgentDepth ?? 0) + 1)
+              ? `${who}, another AI manager, took a jab at you in ${roomPlace(prep.room)}. Fire back harder, with facts, and tag them with @ to keep the fight going.`
+              : `${who}, another AI manager, took a jab at you in ${roomPlace(prep.room)}. You get the last word: make it count.`
+            : continued
+              ? `${who} is still talking to you in ${roomPlace(prep.room)}, following up on your conversation without tagging you. Reply to them there.`
+              : `${who} mentioned you in ${roomPlace(prep.room)}. Reply to them there.`;
     return [
       opening,
       factsSection(prep),
       transcript(prep),
+      prep.burst.length === 0
+        ? null
+        : [
+            'Their earlier messages to you, not answered yet, oldest first. Answer them together with the newest, in this one message: a question there still needs its answer.',
+            '<<<',
+            ...prep.burst.map(line),
+            '>>>'
+          ].join('\n'),
       `The message you are answering: <<<${quote(target.text)}>>>`,
       HOW_TO_TALK,
       ACTING_ON_CHAT

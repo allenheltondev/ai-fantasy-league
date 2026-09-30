@@ -260,6 +260,41 @@ describe('runAgentAction with the fake model', () => {
       expect(record.usage[0]?.modelKey).toBe('nova-pro');
     });
 
+    it('moves to the next model when one runs out of response room before acting, and charges the run', async () => {
+      const s = await setup();
+      await s.seat(AGENT_TEAM, PRO);
+      const outOfRoom = Object.assign(new Error('Model reached maximum token limit.'), {
+        name: 'MaxTokensError'
+      });
+      const model = new ScriptedModelClient({
+        fail: (id) => (id === 'moonshot.kimi-k2-thinking' ? outOfRoom : undefined)
+      });
+      const record = await runAgentAction(s.deps(model), request());
+      expect(record.status).toBe('completed');
+      expect(record.usage.map((u) => u.modelKey)).toEqual(['kimi-k2-thinking', 'nova-pro']);
+      expect(record.usage[0]).toMatchObject({ outputTokens: 6144, estimatedTokens: true });
+    });
+
+    it('says so when every model runs out of response room', async () => {
+      const s = await setup();
+      await s.seat(AGENT_TEAM, PRO);
+      const model = new ScriptedModelClient({
+        fail: () => Object.assign(new Error('Model reached maximum token limit.'), { name: 'MaxTokensError' })
+      });
+      const record = await runAgentAction(s.deps(model), request());
+      expect(record).toMatchObject({
+        status: 'fallback',
+        fallbackReason: 'max_tokens',
+        errorDetail: 'MaxTokensError: Model reached maximum token limit.',
+        finalAction: 'set_lineup'
+      });
+      expect(record.usage.map((u) => u.modelKey)).toEqual([
+        'kimi-k2-thinking',
+        'nova-pro',
+        'claude-haiku-4-5'
+      ]);
+    });
+
     it('falls back when every model is unavailable', async () => {
       const s = await setup();
       await s.seat(AGENT_TEAM, PRO);
@@ -270,8 +305,30 @@ describe('runAgentAction with the fake model', () => {
       expect(record).toMatchObject({
         status: 'fallback',
         fallbackReason: 'models_unavailable',
+        errorDetail: 'AccessDeniedException: no access',
         finalAction: 'set_lineup'
       });
+    });
+
+    it('records what the provider said when a model run fails', async () => {
+      const s = await setup();
+      await s.seat(AGENT_TEAM, PRO);
+      const refused = Object.assign(
+        new Error('The model returned the following errors: "thinking.type.enabled" is not supported.'),
+        { name: 'ModelError' }
+      );
+      const record = await runAgentAction(
+        s.deps(new ScriptedModelClient({ fail: () => refused })),
+        request()
+      );
+      expect(record).toMatchObject({
+        status: 'fallback',
+        fallbackReason: 'model_error',
+        errorDetail:
+          'ModelError: The model returned the following errors: "thinking.type.enabled" is not supported.'
+      });
+      const stored = await s.repos.agents.listTasks(LEAGUE_ID, { limit: 5 });
+      expect(stored[0]?.errorDetail).toBe(record.errorDetail);
     });
 
     it('falls back on a model error', async () => {
@@ -286,7 +343,7 @@ describe('runAgentAction with the fake model', () => {
       });
       // The failed run still counts against the budget, as an estimate.
       expect(record.usage).toEqual([
-        expect.objectContaining({ modelKey: 'kimi-k2-thinking', outputTokens: 2048, estimatedTokens: true })
+        expect.objectContaining({ modelKey: 'kimi-k2-thinking', outputTokens: 6144, estimatedTokens: true })
       ]);
       expect(record.costUsd).toBeGreaterThan(0);
       expect((await s.repos.agents.weekUsage(LEAGUE_ID, 5)).map((r) => r.modelKey)).toEqual([
@@ -306,7 +363,7 @@ describe('runAgentAction with the fake model', () => {
       };
       const record = await runAgentAction(s.deps(hanging, { modelTimeoutMs: 10 }), request());
       expect(record).toMatchObject({ status: 'fallback', fallbackReason: 'timeout' });
-      expect(record.usage[0]).toMatchObject({ inputTokens: expect.any(Number), outputTokens: 2048 });
+      expect(record.usage[0]).toMatchObject({ inputTokens: expect.any(Number), outputTokens: 6144 });
       expect(record.usage[0]?.inputTokens).toBeGreaterThan(100);
     });
 

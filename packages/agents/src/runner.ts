@@ -36,7 +36,7 @@ import {
   type Services
 } from '@fantasy/server';
 import { ZodError } from 'zod';
-import { dispatchTask, errorName } from './dispatch.js';
+import { dispatchTask, errorName, providerErrorDetail } from './dispatch.js';
 import type { AgentActionRequested } from './events.js';
 import type { AgentAblation } from './ablations.js';
 import { refreshAgenda } from './agenda.js';
@@ -60,6 +60,7 @@ import {
 import {
   estimateTokens,
   isModelUnavailable,
+  isOutputLimit,
   runUsageOf,
   type ModelClient,
   type ModelRunResult,
@@ -164,6 +165,16 @@ export function taskRetryDelayMs(attempt: number): number {
 }
 
 const MAX_TOKENS: Record<ReasoningEffort, number> = { low: 1024, medium: 2048, high: 4096 };
+
+/**
+ * Extra response room by reasoning effort for catalog models that reason in their visible output
+ * (`reasoningInOutput`), whose reasoning would otherwise use up `MAX_TOKENS` before they answer.
+ */
+export const OUTPUT_REASONING_ROOM: Readonly<Record<ReasoningEffort, number>> = {
+  low: 2048,
+  medium: 4096,
+  high: 6144
+};
 
 /**
  * Extended-thinking budget by reasoning effort, for catalog models that take one
@@ -514,7 +525,8 @@ export async function runAgentAction(
   for (const modelKey of chain) {
     const model = getModel(modelKey);
     const thinking = model.thinkingBudget === true ? THINKING_BUDGET[effort] : 0;
-    const maxTokens = MAX_TOKENS[effort] + thinking;
+    const room = model.reasoningInOutput === true ? OUTPUT_REASONING_ROOM[effort] : 0;
+    const maxTokens = MAX_TOKENS[effort] + thinking + room;
     // One turn at the response limit: held while the call runs, and charged for a failed run the
     // provider reported nothing for.
     const estimate = { inputTokens: estimateTokens(systemPrompt + input), outputTokens: maxTokens };
@@ -555,7 +567,8 @@ export async function runAgentAction(
     } catch (error) {
       lastError = error;
       const timedOut = controller.signal.aborted;
-      log.warn('agent model run failed', { model: modelKey, timedOut, error: errorName(error) });
+      const detail = providerErrorDetail(error);
+      log.warn('agent model run failed', { model: modelKey, timedOut, error: detail });
       // What the provider reported for the turns the run finished, if it reported anything.
       const spent = runUsageOf(error);
       if (!timedOut && isModelUnavailable(error) && modelTools.actionsTaken === 0) {
@@ -563,10 +576,16 @@ export async function runAgentAction(
         else usage.push(await attempt.settleCall(modelKey, call, spent));
         continue;
       }
+      // Out of response room before it acted: the next model may answer in less. What this run
+      // spent is charged, the estimate when the provider reported nothing.
+      if (!timedOut && isOutputLimit(error) && modelTools.actionsTaken === 0) {
+        usage.push(await attempt.settleCall(modelKey, call, spent ?? { ...estimate, estimated: true }));
+        continue;
+      }
       // The run got far enough to cost something: without a reported count, the estimate is
       // charged, so failures cannot slip past the weekly budget.
       usage.push(await attempt.settleCall(modelKey, call, spent ?? { ...estimate, estimated: true }));
-      return attempt.fallback(prepared, timedOut ? 'timeout' : 'model_error', usage);
+      return attempt.fallback(prepared, timedOut ? 'timeout' : 'model_error', usage, detail);
     } finally {
       clearTimeout(timer);
     }
@@ -603,8 +622,11 @@ export async function runAgentAction(
       decision.memoryNote
     );
   }
-  log.warn('every model in the chain was unavailable', { chain, error: errorName(lastError) });
-  return attempt.fallback(prepared, 'models_unavailable', usage);
+  const detail = lastError === null ? undefined : providerErrorDetail(lastError);
+  // The last model ran out of response room rather than being unavailable: say which.
+  const reason = isOutputLimit(lastError) ? 'max_tokens' : 'models_unavailable';
+  log.warn('no model in the chain answered', { chain, reason, error: detail ?? null });
+  return attempt.fallback(prepared, reason, usage, detail);
 }
 
 /** The fallback reason when the model may not run; otherwise the week's budget. */
@@ -648,7 +670,7 @@ async function announceBudget(deps: RunnerDeps, league: League, budget: LeagueBu
 
 type Result = Pick<
   AgentTaskRecord,
-  'status' | 'fallbackReason' | 'toolsCalled' | 'finalAction' | 'reasoningSummary' | 'usage'
+  'status' | 'fallbackReason' | 'errorDetail' | 'toolsCalled' | 'finalAction' | 'reasoningSummary' | 'usage'
 > & { sealed?: AgentTaskSeal };
 
 function skipped(reason: string): Result {
@@ -704,22 +726,28 @@ class TaskAttempt {
     return this.toolboxes.flatMap((t) => t.calls);
   }
 
-  /** Runs the kind's deterministic fallback and settles its outcome. */
+  /** Runs the kind's deterministic fallback and settles its outcome (`errorDetail`: why the model failed). */
   async fallback(
     prepared: PreparedTask,
     reason: string,
-    usage: AgentModelUsage[] = []
+    usage: AgentModelUsage[] = [],
+    errorDetail?: string
   ): Promise<AgentTaskRecord> {
+    const detail = errorDetail === undefined ? {} : { errorDetail };
     let outcome: TaskOutcome;
     try {
       outcome = await prepared.fallback();
     } catch (error) {
-      return this.failed('fallback', error, this.failedResult('fallback', error, reason, usage));
+      return this.failed('fallback', error, {
+        ...this.failedResult('fallback', error, reason, usage),
+        ...detail
+      });
     }
     return this.settle(
       {
         status: 'fallback',
         fallbackReason: reason,
+        ...detail,
         toolsCalled: this.calls(),
         finalAction: outcome.action,
         reasoningSummary: outcome.summary,

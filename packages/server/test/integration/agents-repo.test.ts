@@ -495,6 +495,21 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     expect(await gate('c', new Date(T0.getTime() + 60_000), 60_000, 'old')).toBe(true);
   });
 
+  it('releases a trigger slot only for its owner, so a gate taken ahead of failed work reopens', async () => {
+    const { agents } = make();
+    const leagueId = unique('lg');
+    const slot = 'agent#chat-burst#league#team-1';
+    const take = (owner: string) => agents.admitTrigger(leagueId, { slot, owner, now: T0, windowMs: 60_000 });
+    expect(await take('a')).toBe(true);
+    expect(await take('b')).toBe(false);
+    // Nobody else may free it, and a free slot has nothing to release.
+    expect(await agents.releaseTrigger(leagueId, slot, 'b')).toBe(false);
+    expect(await agents.releaseTrigger(leagueId, slot, 'a')).toBe(true);
+    expect(await agents.getTriggerState(leagueId, slot)).toBeNull();
+    expect(await agents.releaseTrigger(leagueId, slot, 'a')).toBe(false);
+    expect(await take('b')).toBe(true);
+  });
+
   it('keeps a dispatch outbox: reserve once (with its gate), relay what is due, settle (#207)', async () => {
     const { agents } = make();
     const leagueId = unique('lg');

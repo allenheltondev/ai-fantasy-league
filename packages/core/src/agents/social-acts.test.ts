@@ -231,6 +231,19 @@ describe('pendingQuestions', () => {
       pendingQuestions([later, msg({ id: 'q', at: -1 })], { roomId: 'trash-talk', dm: false }, SELF, T0)
     ).toHaveLength(1);
   });
+
+  it('counts a conversation continued without a mention, and one reply for a whole burst', () => {
+    const continued = msg({ id: 'c', at: -1, mentionedTeamIds: [], addressedTeamIds: [SELF] });
+    expect(pendingQuestions([continued], { roomId: 'trash-talk', dm: false }, SELF, T0)).toHaveLength(1);
+    // The reply to the burst's newest message answers the earlier ones too.
+    const burst = [
+      msg({ id: 'r', at: -0.3, kind: 'agent', author: { teamId: SELF, name: 'Me' }, replyToId: 'b3' }),
+      msg({ id: 'b3', at: -0.4 }),
+      msg({ id: 'b2', at: -0.45, mentionedTeamIds: [], addressedTeamIds: [SELF] }),
+      msg({ id: 'b1', at: -0.5 })
+    ];
+    expect(pendingQuestions(burst, { roomId: 'trash-talk', dm: false }, SELF, T0)).toEqual([]);
+  });
 });
 
 describe('questionOpportunities', () => {

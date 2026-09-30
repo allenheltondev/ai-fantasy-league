@@ -122,6 +122,23 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Updates every 0.05s')).toBeInTheDocument();
   });
 
+  it('marks an untagged message that continues a talk with an AI manager', async () => {
+    const { api } = fakeApi({
+      messages: [
+        msg({ text: 'any advice?', addressedTeamIds: ['team-2'] }),
+        msg({ text: 'hmm', addressedTeamIds: ['team-9'] })
+      ]
+    });
+    renderChat(api);
+    expect(await within(list()).findByText('any advice?')).toBeInTheDocument();
+    const [continued, unknown] = within(list()).getAllByRole('listitem');
+    await waitFor(() =>
+      expect(within(continued as HTMLElement).getByText('to Robo Ballers')).toBeInTheDocument()
+    );
+    // A team the list does not know shows nothing.
+    expect(within(unknown as HTMLElement).queryByText(/^to /)).toBeNull();
+  });
+
   it("shows an AI manager's name and avatar, falling back to its team's for older messages (#159)", async () => {
     const { api } = fakeApi({
       messages: [
