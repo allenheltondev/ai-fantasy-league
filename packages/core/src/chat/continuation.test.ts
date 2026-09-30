@@ -4,6 +4,7 @@ import {
   CONTINUATION_LIMITS,
   aimedAt,
   answeredBefore,
+  asksSomething,
   continuationAddressee,
   type ContinuationInput,
   type ContinuationMessage
@@ -205,34 +206,43 @@ describe('aimedAt', () => {
 });
 
 describe('answeredBefore', () => {
-  it('counts a reply to the message, to a later one from the same person, or anything since in a DM', () => {
+  it('counts only a reply to the message or one naming it (#215)', () => {
     const first = msg('user', PERSON, 5);
     const second = msg('user', PERSON, 4);
     const third = msg('user', PERSON, 3);
-    const reply = msg('agent', AGENT, 1, { replyToId: third.id });
+    const reply = msg('agent', AGENT, 1, { replyToId: third.id, answersMessageIds: [first.id] });
     const newestFirst = [reply, third, second, first];
-    // The reply to the newest covers the whole burst.
-    expect([1, 2, 3].map((i) => answeredBefore(newestFirst, i, AGENT, false))).toEqual([true, true, true]);
+    // The reply covers what it replies to and what it names; the message it left out stays open.
+    expect([1, 2, 3].map((i) => answeredBefore(newestFirst, i, AGENT))).toEqual([true, false, true]);
     // Another agent's reply answers nothing for this one; a reply to someone else covers nothing.
-    expect(answeredBefore(newestFirst, 2, OTHER_AGENT, false)).toBe(false);
+    expect(answeredBefore(newestFirst, 1, OTHER_AGENT)).toBe(false);
     const theirs = msg('user', OTHER_PERSON, 2);
     const elsewhere = [msg('agent', AGENT, 1, { replyToId: theirs.id }), theirs, second];
-    expect(answeredBefore(elsewhere, 2, AGENT, false)).toBe(false);
-    // A later message answered does not cover an earlier reply target's successor.
-    const early = [third, msg('agent', AGENT, 3.5, { replyToId: second.id }), second, first];
-    expect(answeredBefore(early, 0, AGENT, false)).toBe(false);
-    expect(answeredBefore(early, 3, AGENT, false)).toBe(true);
-    // In a DM anything the agent wrote since counts.
-    const dm = [msg('agent', AGENT, 1), first];
-    expect(answeredBefore(dm, 1, AGENT, true)).toBe(true);
-    expect(answeredBefore(dm, 1, AGENT, false)).toBe(false);
-    // An agent's message is covered only by a reply to it, and a missing index by nothing.
-    const jab = msg('agent', OTHER_AGENT, 3);
-    const later = msg('agent', OTHER_AGENT, 2);
-    expect(
-      answeredBefore([msg('agent', AGENT, 1, { replyToId: later.id }), later, jab], 2, AGENT, false)
-    ).toBe(false);
-    expect(answeredBefore([msg('agent', AGENT, 1, { replyToId: null }), first], 1, AGENT, false)).toBe(false);
-    expect(answeredBefore([], 0, AGENT, false)).toBe(false);
+    expect(answeredBefore(elsewhere, 2, AGENT)).toBe(false);
+    // A newer message from the same person, answered, does not cover the earlier one.
+    expect(answeredBefore([msg('agent', AGENT, 1, { replyToId: third.id }), third, second], 2, AGENT)).toBe(
+      false
+    );
+    // An unrelated line of the agent's, in a DM or anywhere, answers nothing.
+    expect(answeredBefore([msg('agent', AGENT, 1), first], 1, AGENT)).toBe(false);
+    expect(answeredBefore([msg('agent', AGENT, 1, { replyToId: null }), first], 1, AGENT)).toBe(false);
+    expect(answeredBefore([], 0, AGENT)).toBe(false);
+  });
+});
+
+describe('asksSomething', () => {
+  it('reads a question mark, or a sentence opening like a question or a request', () => {
+    for (const text of [
+      'You up?',
+      'what do you want for Kelce',
+      'Nice win. Would you move your RB2',
+      'lmk if you are in',
+      'Let me know what you think',
+      'thoughts on my offer',
+      'Tell me your price'
+    ])
+      expect(asksSomething(text), text).toBe(true);
+    for (const text of ['gg', 'My RB went down', 'Kelce is washed. Lol.', 'Whatever, I am winning this week'])
+      expect(asksSomething(text), text).toBe(false);
   });
 });

@@ -108,6 +108,12 @@ export const ChatMessageSchema = z.object({
     .string()
     .optional()
     .describe('The message this one answers, in the same room. Absent when it is not a reply.'),
+  answersMessageIds: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Earlier messages in the same room this one also answers, besides `replyToId`: an AI manager answering several of a person’s messages in one reply. Absent otherwise.'
+    ),
   replyToAgentDepth: z
     .number()
     .int()

@@ -368,6 +368,49 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect((await say(BOB, 'Hello?')).addressedTeamIds).toBeUndefined();
     });
 
+    it('records the earlier messages a reply also answers, checked against the room (#215)', async () => {
+      const agent = agentPrincipal({ agentId: 'lg-chat.team-3', teamId: 'team-3', leagueId: 'lg-chat' });
+      let key = 0;
+      const post = (args: Record<string, unknown>) =>
+        invokeTool({
+          registry,
+          services: h.services,
+          principal: agent,
+          name: 'post_message',
+          args: { leagueId: 'lg-chat', idempotencyKey: `agent-answers-${++key}`, ...args }
+        });
+      const say = async (who: typeof BOB, text: string) =>
+        data<{ message: ChatMessage }>(await as(h, who).post(`${L}/chat/messages`, { text })).message;
+      const first = await say(BOB, '@team-3 you up?');
+      h.clock.advance(1_000);
+      const second = await say(BOB, '@team-3 who is your RB1?');
+      h.clock.advance(1_000);
+      const answered = await post({
+        text: 'Up, and he is still mine.',
+        replyToId: second.id,
+        answersMessageIds: [first.id, first.id, second.id]
+      });
+      expect(answered.status).toBe(200);
+      expect((answered.body as { data: { message: ChatMessage } }).data.message).toMatchObject({
+        replyToId: second.id,
+        answersMessageIds: [first.id]
+      });
+      // Only with a reply, only other people's messages, never a newer one or an unknown one.
+      const mine = (answered.body as { data: { message: ChatMessage } }).data.message;
+      h.clock.advance(1_000);
+      const third = await say(BOB, '@team-3 and?');
+      for (const args of [
+        { text: 'No reply.', answersMessageIds: [first.id] },
+        { text: 'My own.', replyToId: third.id, answersMessageIds: [mine.id] },
+        { text: 'Newer.', replyToId: second.id, answersMessageIds: [third.id] },
+        { text: 'Unknown.', replyToId: third.id, answersMessageIds: ['nope'] }
+      ]) {
+        const refused = await post(args);
+        expect(refused.status, args.text).toBe(400);
+        expect(refused.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
+      }
+    });
+
     it('lists post_message in allowedActions for members', async () => {
       const res = await as(h, BOB).get(`${L}/chat/messages`);
       expect((res.body as { league: { allowedActions: string[] } }).league.allowedActions).toContain(

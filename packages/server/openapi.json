@@ -6501,6 +6501,13 @@
                                     "description": "The message this one answers, in the same room. Absent when it is not a reply.",
                                     "type": "string"
                                   },
+                                  "answersMessageIds": {
+                                    "description": "Earlier messages in the same room this one also answers, besides `replyToId`: an AI manager answering several of a person’s messages in one reply. Absent otherwise.",
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
                                   "replyToAgentDepth": {
                                     "description": "Agent-to-agent thread depth: 1 when an AI manager answers another AI manager’s message. Absent (0) otherwise.",
                                     "type": "integer",
@@ -6892,6 +6899,13 @@
                               "description": "The message this one answers, in the same room. Absent when it is not a reply.",
                               "type": "string"
                             },
+                            "answersMessageIds": {
+                              "description": "Earlier messages in the same room this one also answers, besides `replyToId`: an AI manager answering several of a person’s messages in one reply. Absent otherwise.",
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
                             "replyToAgentDepth": {
                               "description": "Agent-to-agent thread depth: 1 when an AI manager answers another AI manager’s message. Absent (0) otherwise.",
                               "type": "integer",
@@ -7071,6 +7085,16 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 200
+                  },
+                  "answersMessageIds": {
+                    "description": "With `replyToId`: up to 10 earlier messages in the same room this message also answers (someone else's, among the room's last 100 messages), so one reply can answer several messages (optional).",
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
                   }
                 },
                 "required": [

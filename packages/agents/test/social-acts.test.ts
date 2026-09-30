@@ -363,7 +363,7 @@ describe("a person's question first", () => {
     expect(record.status).toBe('skipped');
     expect(record.reasoningSummary).toContain('A question waiting on me gets its own reply.');
     const reply = requested(s).find((r) => r.kind === 'chat_reply');
-    expect(reply?.payload).toEqual({ messageId: question.id, roomId: DM });
+    expect(reply?.payload).toEqual({ messageId: question.id, roomId: DM, coalesce: true });
     expect(await acts(s)).toMatchObject([{ act: 'answer_question', outcome: 'handed_on', roomId: DM }]);
     // The reply answers it in the conversation it came from, as a reply to it.
     await run(s, reply!);
