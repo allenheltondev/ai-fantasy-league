@@ -14,6 +14,7 @@ import type { MyLeague, Phase } from '../../api/types';
 import { errorText } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { HomeDashboard } from '../home/HomeDashboard';
+import { JoinByCode } from '../join/JoinByCode';
 
 export const PHASE_LABELS: Record<Phase, { label: string; tone: StatusBadgeTone }> = {
   setup: { label: 'Setup', tone: 'primary' },
@@ -48,7 +49,12 @@ export function MyLeaguesPage() {
         <h1 id="home-title" className="text-2xl font-semibold">
           My Leagues
         </h1>
-        {leagues.data !== null && leagues.data.length > 0 && <CreateButton />}
+        {leagues.data !== null && leagues.data.length > 0 && (
+          <div className="flex flex-wrap items-start gap-3">
+            <JoinByCode />
+            <CreateButton />
+          </div>
+        )}
       </div>
       {leagues.error !== null ? (
         <ErrorState
@@ -61,8 +67,13 @@ export function MyLeaguesPage() {
       ) : leagues.data.length === 0 ? (
         <EmptyState
           title="No leagues yet"
-          description="Create a league, invite friends, and fill the other seats with AI managers."
-          action={<CreateButton />}
+          description="Create a league, invite friends, and fill the other seats with AI managers. Got a join code from a friend? Enter it to join their league."
+          action={
+            <div className="flex flex-wrap items-start justify-center gap-3">
+              <CreateButton />
+              <JoinByCode />
+            </div>
+          }
         />
       ) : (
         <>

@@ -112,6 +112,8 @@ export type InviteStatus = 'active' | 'expired' | 'used_up' | 'revoked';
 
 export interface Invite {
   id: string;
+  /** The join code (`K7M-Q2X`); null on invites made before codes existed. */
+  code: string | null;
   status: InviteStatus;
   email: string | null;
   maxUses: number;

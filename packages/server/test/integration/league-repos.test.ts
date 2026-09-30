@@ -1,4 +1,4 @@
-import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { yahooDefaultSettings } from '@fantasy/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startLocalTable, type LocalTable } from '../../src/dev/local-table.js';
@@ -41,6 +41,7 @@ function invite(leagueId: string, overrides: Partial<Invite> = {}): Invite {
     id: unique('inv'),
     leagueId,
     tokenHash: unique('hash'),
+    code: null,
     email: null,
     maxUses: 1,
     uses: 0,
@@ -146,6 +147,33 @@ describe.each(backends)('%s league repositories', (_name, make) => {
     expect(used).toMatchObject({ uses: 1, version: 2 });
     await expect(invites.update(older)).rejects.toMatchObject({ code: 'CONFLICT' });
     await expect(invites.update(invite(leagueId))).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('finds invites by join code, keeps codes unique, and counts missed lookups per hour', async () => {
+    const { invites } = make();
+    const leagueId = unique('lg');
+    const code = 'K7MQ2X';
+    const coded = invite(leagueId, { code });
+    expect(await invites.create(coded)).toBe(true);
+    expect(await invites.getByCode(code)).toEqual(coded);
+    expect(await invites.getByCode('ZZZZZZ')).toBeNull();
+    // A second invite cannot take a code that is already in use, and nothing of it is stored.
+    const rival = invite(leagueId, { code });
+    expect(await invites.create(rival)).toBe(false);
+    expect(await invites.get(leagueId, rival.id)).toBeNull();
+    // Invites without a code never collide.
+    expect(await invites.create(invite(leagueId))).toBe(true);
+    expect(await invites.create(invite(leagueId))).toBe(true);
+
+    const user = unique('user');
+    const noon = new Date('2026-09-10T12:10:00.000Z');
+    expect(await invites.codeMisses(user, noon)).toBe(0);
+    expect(await invites.recordCodeMiss(user, noon)).toBe(1);
+    expect(await invites.recordCodeMiss(user, new Date('2026-09-10T12:50:00.000Z'))).toBe(2);
+    expect(await invites.codeMisses(user, noon)).toBe(2);
+    // A new clock hour starts from zero, and another person's misses are their own.
+    expect(await invites.codeMisses(user, new Date('2026-09-10T13:00:00.000Z'))).toBe(0);
+    expect(await invites.codeMisses(unique('user'), noon)).toBe(0);
   });
 
   it('stores matchups by week and the latest standings', async () => {
@@ -311,7 +339,7 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
     await repos.leagues.create(l);
     await repos.teams.create([team(l.id, 'team-1', 1, 'keys-user')]);
     await repos.members.add({ leagueId: l.id, userId: 'keys-user', teamId: 'team-1', joinedAt: START });
-    await repos.invites.create(invite(l.id, { id: 'inv-keys', tokenHash: 'keys-hash' }));
+    await repos.invites.create(invite(l.id, { id: 'inv-keys', tokenHash: 'keys-hash', code: 'KEYS22' }));
     await repos.schedule.putMatchups([matchup(l.id, 3, 1)]);
     const items = await table.doc.send(
       new QueryCommand({
@@ -331,6 +359,25 @@ describe('DynamoDB league keys (docs/adr/001-table-design.md)', () => {
       ])
     );
     expect(TABLE_KEYS.gsi1).toEqual({ name: 'GSI1', pk: 'GSI1PK', sk: 'GSI1SK' });
+
+    // A join code is its own item pointing at the invite; misses are counted per person and hour.
+    const lookup = await table.doc.send(
+      new GetCommand({ TableName: table.tableName, Key: { pk: 'INVITECODE#KEYS22', sk: 'LOOKUP' } })
+    );
+    expect(lookup.Item).toMatchObject({ leagueId: l.id, inviteId: 'inv-keys', entity: 'invite-code' });
+    expect(typeof lookup.Item?.ttl).toBe('number');
+    await repos.invites.recordCodeMiss('keys-user', new Date(START));
+    const misses = await table.doc.send(
+      new GetCommand({
+        TableName: table.tableName,
+        Key: {
+          pk: 'RATE#INVITECODE#keys-user',
+          sk: `HOUR#${Math.floor(new Date(START).getTime() / 3_600_000)}`
+        }
+      })
+    );
+    expect(misses.Item).toMatchObject({ misses: 1, entity: 'invite-code-misses' });
+    expect(misses.Item?.ttl).toBe(Math.floor(new Date(START).getTime() / 1000) + 2 * 3600);
   });
 
   it('keys lineups by week and team, and indexes leagues by phase on GSI2', async () => {

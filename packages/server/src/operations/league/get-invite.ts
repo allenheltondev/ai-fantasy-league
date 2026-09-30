@@ -8,7 +8,9 @@ export const InviteTokenSchema = z
   .string()
   .min(1)
   .max(128)
-  .describe('The invite token from the invite link.');
+  .describe(
+    'The invite token from the invite link, or the six-character join code (any case, dashes optional).'
+  );
 
 export const getInvite = defineOperation({
   name: 'get_invite',
@@ -17,7 +19,7 @@ export const getInvite = defineOperation({
   summary: 'Preview an invite link before joining',
   description: [
     'Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, and whether the invite can still be used (`status`).',
-    'Anyone with the token can call it, signed in or not. It shows nothing else about the league. To join, call join_league with the same token. An unknown token returns INVITE_NOT_FOUND.'
+    'Anyone with the token can call it, signed in or not; a join code needs a signed-in person (UNAUTHENTICATED otherwise) and ten misses in an hour return RATE_LIMITED. It shows nothing else about the league. To join, call join_league with the same token or code. An unknown token or code returns INVITE_NOT_FOUND.'
   ].join(' '),
   tags: ['invites'],
   mutation: false,
@@ -36,7 +38,7 @@ export const getInvite = defineOperation({
     joinable: z.boolean().describe('True when join_league would accept this invite right now.')
   }),
   handler: async (ctx, input) => {
-    const { invite, league } = await findInvite(ctx.repos, input.token);
+    const { invite, league } = await findInvite(ctx, input.token);
     const teams = await ctx.repos.teams.list(league.id);
     const now = ctx.clock.now();
     const status = inviteStatus(invite, now);

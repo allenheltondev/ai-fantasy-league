@@ -199,11 +199,37 @@ export class InMemoryMemberRepository implements MemberRepository {
   }
 }
 
+const missKey = (userId: string, now: Date) => `${userId}#${Math.floor(now.getTime() / 3_600_000)}`;
+
 export class InMemoryInviteRepository implements InviteRepository {
   constructor(private readonly store: InMemoryLeagueStore) {}
 
-  async create(invite: Invite): Promise<void> {
+  private readonly codeMissCounts = new Map<string, number>();
+
+  async create(invite: Invite): Promise<boolean> {
+    if (invite.code !== null && (await this.getByCode(invite.code)) !== null) return false;
     this.store.partition(invite.leagueId).invites.set(invite.id, clone(invite));
+    return true;
+  }
+
+  async getByCode(code: string): Promise<Invite | null> {
+    for (const partition of this.store.partitions()) {
+      for (const invite of partition.invites.values()) {
+        if (invite.code === code) return clone(invite);
+      }
+    }
+    return null;
+  }
+
+  async codeMisses(userId: string, now: Date): Promise<number> {
+    return this.codeMissCounts.get(missKey(userId, now)) ?? 0;
+  }
+
+  async recordCodeMiss(userId: string, now: Date): Promise<number> {
+    const key = missKey(userId, now);
+    const total = (this.codeMissCounts.get(key) ?? 0) + 1;
+    this.codeMissCounts.set(key, total);
+    return total;
   }
 
   async get(leagueId: string, inviteId: string): Promise<Invite | null> {

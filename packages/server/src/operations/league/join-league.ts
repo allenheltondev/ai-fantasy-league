@@ -28,7 +28,7 @@ export const joinLeague = defineOperation({
   description: [
     'Takes an open seat in the league the invite belongs to: an open human seat if there is one, otherwise a seat an agent would have played. The seat becomes yours; name it with `teamName` (default "<your name>\'s Team").',
     'Fails with a fix when: the token is unknown (INVITE_NOT_FOUND), expired (INVITE_EXPIRED), revoked (INVITE_REVOKED), or used up (INVITE_USED_UP); the invite is for a different email (FORBIDDEN); you already have a seat (ALREADY_A_MEMBER); the draft has started (PHASE_NOT_ALLOWED); every seat is taken (NO_OPEN_SEATS); or your teamName is taken (CONFLICT).',
-    'Preview first with get_invite. Only signed-in people can join.'
+    '`token` is the invite token or the six-character join code. Preview first with get_invite. Only signed-in people can join.'
   ].join(' '),
   tags: ['invites', 'leagues'],
   mutation: true,
@@ -40,7 +40,7 @@ export const joinLeague = defineOperation({
     /* v8 ignore next -- auth: 'user' guarantees a user principal */
     if (principal.type !== 'user') throw new Error('join_league needs a user principal');
     const now = ctx.clock.now();
-    const { invite, league } = await findInvite(ctx.repos, input.token);
+    const { invite, league } = await findInvite(ctx, input.token);
     assertUsable(invite, now);
     if (invite.email !== null && invite.email !== principal.email?.toLowerCase()) {
       throw new ApiError('FORBIDDEN', 'This invite is for a different email address.', {

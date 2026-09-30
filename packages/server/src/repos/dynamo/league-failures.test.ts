@@ -27,6 +27,7 @@ const invite = {
   id: 'i',
   leagueId: 'lg',
   tokenHash: 'h',
+  code: null,
   email: null,
   maxUses: 1,
   uses: 0,

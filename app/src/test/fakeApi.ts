@@ -227,6 +227,7 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     createInvite: vi.fn(async () => ({
       invite: {
         id: 'i-new',
+        code: 'K7M-Q2X',
         status: 'active' as const,
         email: null,
         maxUses: 1,
@@ -240,6 +241,7 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     revokeInvite: vi.fn(async () => ({
       invite: {
         id: 'i1',
+        code: 'K7M-Q2X',
         status: 'revoked' as const,
         email: null,
         maxUses: 1,

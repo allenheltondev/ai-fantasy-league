@@ -22,11 +22,47 @@ import {
   vacateSeat
 } from './seats.js';
 import { buildLeagueSettings, settingsError, settingsPhase, settingsWarnings } from './settings.js';
-import { hashInviteToken, INVITE_TOKEN_BYTES, isWellFormedInviteToken, newInviteToken } from './tokens.js';
+import {
+  formatInviteCode,
+  hashInviteToken,
+  INVITE_CODE_ALPHABET,
+  INVITE_CODE_LENGTH,
+  INVITE_TOKEN_BYTES,
+  isWellFormedInviteToken,
+  newInviteCode,
+  newInviteToken,
+  parseInviteCode
+} from './tokens.js';
 import { inviteStatus, leagueWeeksView, matchupView } from './views.js';
 
 const NOW = new Date(START);
 const settings = yahooDefaultSettings(8);
+
+describe('invite join codes', () => {
+  it('are six characters with nothing that can be misread', () => {
+    expect(INVITE_CODE_ALPHABET).toHaveLength(31);
+    for (const bad of '01ILO') expect(INVITE_CODE_ALPHABET).not.toContain(bad);
+    const codes = new Set(Array.from({ length: 200 }, newInviteCode));
+    expect(codes.size).toBeGreaterThan(195);
+    for (const code of codes) {
+      expect(code).toHaveLength(INVITE_CODE_LENGTH);
+      expect(parseInviteCode(code)).toBe(code);
+    }
+  });
+
+  it('are read from what a person typed', () => {
+    expect(parseInviteCode('k7m-q2x')).toBe('K7MQ2X');
+    expect(parseInviteCode(' K7M Q2X ')).toBe('K7MQ2X');
+    expect(formatInviteCode('K7MQ2X')).toBe('K7M-Q2X');
+    for (const bad of ['', 'K7MQ2', 'K7MQ2XX', 'K7MQ20', 'K7MQ2O', 'K7MQ2!'])
+      expect(parseInviteCode(bad)).toBeNull();
+  });
+
+  it('never mistake an invite token for a code, or a code for a token', () => {
+    expect(parseInviteCode(newInviteToken())).toBeNull();
+    expect(isWellFormedInviteToken('K7MQ2X')).toBe(false);
+  });
+});
 
 describe('invite tokens', () => {
   it('are random, URL-safe, and carry at least 128 bits', () => {
@@ -272,6 +308,7 @@ describe('views', () => {
     id: 'i',
     leagueId: 'lg',
     tokenHash: 'h',
+    code: null,
     email: null,
     maxUses: 2,
     uses: 0,

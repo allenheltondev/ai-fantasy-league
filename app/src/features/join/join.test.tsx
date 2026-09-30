@@ -8,6 +8,8 @@ import { renderApp, signInAs } from '../../test/render';
 import { RETURN_KEY } from '../../auth/AuthScreens';
 import { notJoinableReason } from './JoinPage';
 
+const CODE = 'K7MQ2X';
+
 const PREVIEW: InvitePreview = {
   leagueName: 'Sunday Funday',
   season: 2026,
@@ -81,6 +83,50 @@ describe('join page', () => {
     );
     expect(await screen.findByText(/revoked this invite/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Sign in to join' })).not.toBeInTheDocument();
+  });
+
+  it('sends a signed-out visitor with a join code to sign in first, then back to it', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    renderApp(`/join/${CODE}`, undefined, api);
+    expect(
+      await screen.findByRole('heading', { name: 'Sign in to join with your code' })
+    ).toBeInTheDocument();
+    // A code needs a signed-in person, so nothing is looked up yet.
+    expect(api.getInvite).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('link', { name: 'Create an account' }));
+    expect(await screen.findByRole('link', { name: 'Sign in' })).toBeInTheDocument();
+    expect(sessionStorage.getItem(RETURN_KEY)).toBe(`/join/${CODE}`);
+  });
+
+  it('previews and joins with a join code once signed in', async () => {
+    const user = userEvent.setup();
+    signInAs({ sub: 'bob', given_name: 'Bob' });
+    const api = fakeApi();
+    renderApp(`/join/${CODE}`, undefined, api);
+    expect(await screen.findByRole('heading', { name: 'Sunday Funday' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Join league' }));
+    expect(await screen.findByTestId('league-section-settings')).toBeInTheDocument();
+    expect(api.getInvite).toHaveBeenCalledWith(CODE);
+    expect(api.joinLeague).toHaveBeenCalledWith(CODE, undefined);
+  });
+
+  it('shows an unknown or rate-limited join code as an error with its fix', async () => {
+    signInAs({ sub: 'bob' });
+    renderApp(
+      '/join/ZZZZZZ',
+      undefined,
+      fakeApi({
+        getInvite: vi.fn(async () => {
+          throw new ApiError(429, {
+            code: 'RATE_LIMITED',
+            message: 'Too many join codes that did not match.',
+            fix: 'Try again in an hour, or use the invite link instead.'
+          });
+        })
+      })
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Try again in an hour');
   });
 
   it('shows an unknown invite as an error', async () => {

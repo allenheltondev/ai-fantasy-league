@@ -80,6 +80,7 @@ export async function seedInvite(
     id: `inv-${hashInviteToken(token).slice(0, 12)}`,
     leagueId,
     tokenHash: hashInviteToken(token),
+    code: null,
     email: null,
     maxUses: 1,
     uses: 0,

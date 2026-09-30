@@ -290,8 +290,24 @@ describe('settings: invites', () => {
         .fn()
         .mockResolvedValueOnce([])
         .mockResolvedValue([
-          { id: 'i1', status: 'active', email: null, maxUses: 1, uses: 0, expiresAt: '2026-10-01T00:00:00Z' },
-          { id: 'i0', status: 'revoked', email: null, maxUses: 1, uses: 0, expiresAt: '2026-10-01T00:00:00Z' }
+          {
+            id: 'i1',
+            code: 'K7M-Q2X',
+            status: 'active',
+            email: null,
+            maxUses: 1,
+            uses: 0,
+            expiresAt: '2026-10-01T00:00:00Z'
+          },
+          {
+            id: 'i0',
+            code: null,
+            status: 'revoked',
+            email: null,
+            maxUses: 1,
+            uses: 0,
+            expiresAt: '2026-10-01T00:00:00Z'
+          }
         ])
     });
     await open(api);
@@ -303,6 +319,7 @@ describe('settings: invites', () => {
     await user.click(screen.getByRole('button', { name: 'Copy link' }));
     expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/join/tok`);
     expect(await screen.findByText('Invite link copied.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Join code')).toHaveValue('K7M-Q2X');
     const list = await screen.findByRole('list', { name: 'Invites' });
     expect(within(list).getByText('Revoked')).toBeInTheDocument();
     await user.click(within(list).getByRole('button', { name: 'Revoke' }));
@@ -311,6 +328,51 @@ describe('settings: invites', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
     await user.click(screen.getByRole('button', { name: 'Copy link' }));
     expect(await screen.findByText(/Copy failed/)).toBeInTheDocument();
+  });
+
+  it('shows the join code next to the link, and again in the invite list', async () => {
+    vi.restoreAllMocks(); // the test above leaves a failing clipboard behind
+    const user = userEvent.setup();
+    const api = fakeApi({
+      listInvites: vi.fn(async () => [
+        {
+          id: 'i1',
+          code: 'K7M-Q2X',
+          status: 'active' as const,
+          email: null,
+          maxUses: 1,
+          uses: 0,
+          expiresAt: '2026-10-01T00:00:00Z'
+        },
+        {
+          id: 'i0',
+          code: null,
+          status: 'active' as const,
+          email: null,
+          maxUses: 1,
+          uses: 0,
+          expiresAt: '2026-10-01T00:00:00Z'
+        }
+      ])
+    });
+    await open(api);
+    // Codes stay visible in the list, so a lost link is not a lost invite.
+    const list = await screen.findByRole('list', { name: 'Invites' });
+    const [coded, old] = within(list).getAllByRole('listitem') as [HTMLElement, HTMLElement];
+    expect(within(coded).getByText('K7M-Q2X')).toBeInTheDocument();
+    expect(within(old).queryByText('Join code')).not.toBeInTheDocument();
+    expect(within(old).queryByText(/[2-9A-Z]{3}-[2-9A-Z]{3}/)).not.toBeInTheDocument();
+    expect(within(old).queryByRole('button', { name: 'Copy code' })).not.toBeInTheDocument();
+    await user.click(within(coded).getByRole('button', { name: 'Copy code' }));
+    expect(await navigator.clipboard.readText()).toBe('K7M-Q2X');
+    expect(await screen.findByText('Invite code copied.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Create invite link' }));
+    expect(await screen.findByLabelText('Invite link')).toBeInTheDocument();
+    expect(screen.getByLabelText('Join code')).toHaveValue('K7M-Q2X');
+    // The new invite's Copy code button comes before the list's.
+    await user.click(screen.getAllByRole('button', { name: 'Copy code' })[0]!);
+    expect(await navigator.clipboard.readText()).toBe('K7M-Q2X');
   });
 
   it('explains when no seat waits for a person, and shows invite errors', async () => {
