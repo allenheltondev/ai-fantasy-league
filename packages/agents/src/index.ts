@@ -1,4 +1,5 @@
 // Public surface of @fantasy/agents: the agent runtime.
+export * from './ablations.js';
 export * from './dispatch.js';
 export * from './draft-report.js';
 export * from './events.js';

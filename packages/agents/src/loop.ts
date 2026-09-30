@@ -1,6 +1,7 @@
 import { EVENT_DETAIL_SCHEMAS, registry, type EventSubscriber, type Services } from '@fantasy/server';
 
 const DraftCompletedSchema = EVENT_DETAIL_SCHEMAS['Draft Completed'];
+import type { AgentAblation } from './ablations.js';
 import { gradeDraft } from './draft-report.js';
 import { AgentActionRequestedSchema } from './events.js';
 import { OFF_SWITCH, type KillSwitch } from './kill-switch.js';
@@ -40,7 +41,13 @@ export function agentSubscribers(deps: { router: RouterDeps; runner: RunnerDeps 
 export function inProcessAgentDeps(
   services: Services,
   model: ModelClient,
-  options: { killSwitch?: KillSwitch; modelTimeoutMs?: number; responseDelays?: boolean } = {}
+  options: {
+    killSwitch?: KillSwitch;
+    modelTimeoutMs?: number;
+    responseDelays?: boolean;
+    /** State switched off for an evaluation (ablations.ts); the dev server and e2e pass none. */
+    ablations?: readonly AgentAblation[];
+  } = {}
 ): { router: RouterDeps; runner: RunnerDeps } {
   return {
     // Response delays stay off in process (dev server, e2e, the simulator) unless asked for.
@@ -56,7 +63,10 @@ export function inProcessAgentDeps(
       kinds: defaultTaskKinds,
       model,
       killSwitch: options.killSwitch ?? OFF_SWITCH,
-      ...(options.modelTimeoutMs === undefined ? {} : { modelTimeoutMs: options.modelTimeoutMs })
+      ...(options.modelTimeoutMs === undefined ? {} : { modelTimeoutMs: options.modelTimeoutMs }),
+      ...(options.ablations === undefined || options.ablations.length === 0
+        ? {}
+        : { ablations: options.ablations })
     }
   };
 }

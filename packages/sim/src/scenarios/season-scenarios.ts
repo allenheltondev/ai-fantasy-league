@@ -21,7 +21,7 @@ import type {
   TradeRecord
 } from '@fantasy/server';
 import type { SimArchive } from '../archive/format.js';
-import { replayLeague, HUMAN, type ReplayWorld } from '../replay/league-replay.js';
+import { replayLeague, HUMAN, type LeagueReplayOptions, type ReplayWorld } from '../replay/league-replay.js';
 import { leagueChat, type LeagueReplayReport } from '../replay/report.js';
 import { RecordingModel, memorySection, type ModelRun, type PromptTransform } from './recording-model.js';
 
@@ -87,6 +87,10 @@ export interface ScenarioOptions {
   transform?: PromptTransform;
   /** Response delays (#189), on by default as in production. */
   responseDelays?: boolean;
+  /** Replace job cadences (`replayLeague`'s `jobCadences`), for faster matched runs. */
+  jobCadences?: LeagueReplayOptions['jobCadences'];
+  /** Agent state switched off (the baseline's ablations); none by default. */
+  ablations?: LeagueReplayOptions['ablations'];
   log?: (line: string) => void;
 }
 
@@ -290,6 +294,8 @@ export async function runSeasonScenario(options: ScenarioOptions): Promise<Scena
     weeks: options.weeks ?? 3,
     model,
     responseDelays: options.responseDelays ?? true,
+    ...(options.jobCadences === undefined ? {} : { jobCadences: options.jobCadences }),
+    ...(options.ablations === undefined ? {} : { ablations: options.ablations }),
     subscribers: (world) => {
       model.clock = world.services.clock;
       return scenarioHuman(world, options.seed, probes, snapshots);

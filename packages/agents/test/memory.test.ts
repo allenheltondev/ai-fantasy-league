@@ -185,6 +185,19 @@ describe('league memory writes', () => {
     expect(leagueMemoryWrites({ ...event('Trade Rejected', {}), source: 'other' }, START)).toEqual([]);
   });
 
+  it('closes a withdrawn offer, so it is never recalled as open (#219)', () => {
+    const [, incoming] = leagueMemoryWrites(
+      event('Trade Withdrawn', { leagueId: LEAGUE_ID, tradeId: 't', fromTeamId: 'a', toTeamId: 'b' }),
+      START
+    );
+    expect(incoming?.event).toMatchObject({
+      type: 'trade',
+      outcome: 'withdrawn',
+      summary: 'An offer from a was withdrawn.'
+    });
+    expect(MEMORY_EVENTS).toContain('Trade Withdrawn');
+  });
+
   it('keeps each agent to its own memory', async () => {
     const s = await setup();
     const store = tableMemoryStore(s.repos.agents);

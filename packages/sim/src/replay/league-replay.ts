@@ -12,7 +12,13 @@ import {
   type StandingsRow
 } from '@fantasy/core';
 import { HistoricalDataProvider, InMemoryArchiveStore } from '@fantasy/data';
-import { ScriptedModelClient, agentSubscribers, inProcessAgentDeps, type ModelClient } from '@fantasy/agents';
+import {
+  ScriptedModelClient,
+  agentSubscribers,
+  inProcessAgentDeps,
+  type AgentAblation,
+  type ModelClient
+} from '@fantasy/agents';
 import {
   EventLoop,
   InMemoryEventPublisher,
@@ -97,6 +103,8 @@ export interface LeagueReplayOptions {
    * default, like the dev server; season scenarios turn them on.
    */
   responseDelays?: boolean;
+  /** Agent state switched off for a matched evaluation (`@fantasy/agents` ablations); none by default. */
+  ablations?: readonly AgentAblation[];
   /** More event-loop subscribers (season scenarios, evaluations), delivered after the league's and the agents'. */
   subscribers?: (world: ReplayWorld) => EventSubscriber[];
   /** Called once the season has run, before the report is built: scenario checks read the league here. */
@@ -252,7 +260,10 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
     subscribers: [
       ...serverSubscribers(services),
       ...agentSubscribers(
-        inProcessAgentDeps(services, model, { responseDelays: options.responseDelays ?? false })
+        inProcessAgentDeps(services, model, {
+          responseDelays: options.responseDelays ?? false,
+          ...(options.ablations === undefined ? {} : { ablations: options.ablations })
+        })
       ),
       human.subscriber(),
       { name: 'replay-audit', detailTypes: ['Week Provisionally Final'], handle: weekFinal },

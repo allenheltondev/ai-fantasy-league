@@ -12,9 +12,11 @@ import {
   memorySeals,
   rememberEvent,
   rivalVisibility,
+  tradeDetail,
   tradeDirection,
   tradeVisibility,
   type MemorySeal,
+  type TradeMemory,
   type MemoryEvent
 } from './memory.js';
 import { summarizeMemory } from './recall.js';
@@ -483,6 +485,36 @@ describe('agent league memory', () => {
       'Trade with team-4 (accepted; record): Even. [value for you 0 (even)]'
     );
   });
+
+  it('words a trade by its outcome: only one that went through was sent or won (#219)', () => {
+    const detail = (outcome: TradeMemory['outcome']) =>
+      tradeDetail({
+        teamId: 'team-4',
+        tradeId: 't',
+        outcome,
+        summary: 'x',
+        at: AT,
+        sent: ['Bench Guy'],
+        received: ['Star Back'],
+        value: 12.3
+      });
+    expect(detail('accepted')).toBe(
+      ' [you agreed to send Bench Guy for Star Back; value for you +12.3 (you won it)]'
+    );
+    expect(detail('proposed')).toBe(
+      ' [on the table: you would send Bench Guy for Star Back; value for you +12.3 if it goes through]'
+    );
+    expect(detail('countered')).toContain('on the table');
+    for (const closed of ['expired', 'withdrawn', 'rejected', 'vetoed'] as const) {
+      expect(detail(closed)).toBe(
+        ' [it would have been Bench Guy for Star Back; it never happened; value for you would have been +12.3]'
+      );
+      expect(detail(closed)).not.toMatch(/won it|you sent/);
+    }
+    expect(tradeDetail({ teamId: 'team-4', tradeId: 't', outcome: 'expired', summary: 'x', at: AT })).toBe(
+      ''
+    );
+  });
 });
 
 describe('memory visibility (#206)', () => {
@@ -523,6 +555,8 @@ describe('memory visibility (#206)', () => {
     // A private offer stays with the other team until the trade is public; a rejection, for good.
     expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'processed' })).toBe('public');
     expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'rejected' })).toEqual(withTeam1);
+    // A withdrawn offer (#219) was only ever the two teams' business.
+    expect(tradeVisibility({ teamId: 'team-1', tradeId: 't', outcome: 'withdrawn' })).toEqual(withTeam1);
     const rival = { teamId: 'team-3', grudge: 1, at: AT };
     expect(rivalVisibility({ ...rival, reason: 'Trade expired: An offer from team-3 was expired.' })).toEqual(
       {

@@ -581,6 +581,30 @@ describe('live evaluation harness (no live model)', () => {
     ).toContain('each seat’s own tier');
   });
 
+  it("runs epic #219's state ablations with the live model when they are asked for by name", async () => {
+    const seen: unknown[] = [];
+    const report = await runLiveEval({
+      archive: await fixtureArchive(),
+      seeds: ['s1'],
+      conditions: ['no_situation', 'no_social_acts'],
+      model: new ScriptedModelClient(),
+      budgetUsd: 1,
+      runScenario: async (options) => {
+        seen.push([options.ablations, options.transform!('# What you remember\n- x')]);
+        return clone();
+      }
+    });
+    expect(seen).toEqual([
+      [['no_situation'], '# What you remember\n- x'],
+      [['no_social_acts'], '# What you remember\n- x']
+    ]);
+    expect(report.runs.map((r) => r.condition)).toEqual(['no_situation', 'no_social_acts']);
+    const args = new Map<string, string | true>([['conditions', 'full,no_agenda_commitments']]);
+    expect(parseEvalArgs(args).conditions).toEqual(['full', 'no_agenda_commitments']);
+    // The default conditions stay the four #211 ones.
+    expect(parseEvalArgs(new Map()).conditions).toEqual([...EVAL_CONDITIONS]);
+  });
+
   it('uses the deterministic policy by default', () => {
     expect(deterministicPolicy()).toBeInstanceOf(ScriptedModelClient);
   });

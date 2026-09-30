@@ -15,14 +15,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      // The CLIs are thin argument parsers over tested functions; `src/cli/args.ts` and `parseEvalArgs` are tested.
+      // The CLIs are thin argument parsers over tested functions; `src/cli/args.ts`, `parseEvalArgs`, and `runBaseline` are tested.
       exclude: [
         'src/**/*.test.ts',
         'src/index.ts',
         'src/cli/archive.ts',
         'src/cli/run.ts',
         'src/cli/replay.ts',
-        'src/cli/eval.ts'
+        'src/cli/eval.ts',
+        'src/cli/baseline.ts'
       ],
       // Ratchet: set at the achieved level; never lower (docs/ARCHITECTURE.md).
       thresholds: { lines: 99, branches: 90, functions: 97, statements: 98 }

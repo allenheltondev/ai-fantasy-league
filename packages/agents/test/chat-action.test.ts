@@ -337,9 +337,8 @@ describe('chat → trade offer: a pitch without an offer', () => {
       payload: { reason: 'chat', withTeamId: 'team-1', send: ['wr4'], receive: ['h-wr'] }
     });
     expect(record.finalAction).toBe('propose_trade');
-    expect(record.reasoningSummary).toMatch(
-      /^Reconsidered: Allen's pitch won me over; offered WR4 \(WR\) for H WR \(WR\)\./
-    );
+    // A first look whose numbers cleared the bar on their own: no "reconsidered", no persuasion (#219).
+    expect(record.reasoningSummary).toMatch(/^Weighed Allen's pitch; offered WR4 \(WR\) for H WR \(WR\)\./);
     const offers = await s.repos.trades.list(LEAGUE_ID);
     expect(offers.map((t) => [t.trade.sides[0].sends, t.trade.sides[1].sends])).toEqual([
       [['wr4'], ['h-wr']]
@@ -350,7 +349,10 @@ describe('chat → trade offer: a pitch without an offer', () => {
   it('an eager personality sends a borderline swap a stubborn one refuses', async () => {
     const eager = await borderline('startup-founder');
     await answer(eager, await tell(eager, PITCH), TRADE_TALK);
-    expect((await followUp(eager)).record.finalAction).toBe('propose_trade');
+    const sent = (await followUp(eager)).record;
+    expect(sent.finalAction).toBe('propose_trade');
+    // Here the argument's credit carried a score below the bar, and the summary says so (#219).
+    expect(sent.reasoningSummary).toMatch(/^Weighed Allen's pitch; the argument won me over; offered WR4/);
     expect((await agentLines(eager)).at(0)?.text).toBe("Fine, you've convinced me. Sending it over.");
 
     const stubborn = await borderline('smug-veteran');

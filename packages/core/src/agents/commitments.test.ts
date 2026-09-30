@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COMMITMENT_LIMITS,
   CommitmentBookSchema,
+  RECONSIDERABLE,
   advanceCommitment,
   claimReply,
   dueCommitments,
@@ -331,5 +332,11 @@ describe('closing lines and reconsideration', () => {
     expect(reasonLine('value_below_floor')).toBe('the value was not there for me');
     expect(reasonLine('insufficient_depth')).toBe('I could not spare the depth');
     expect(reasonLine('partner_declined')).toBe('you turned it down');
+    // A lopsided swap is its own reason (#219), and facts cannot make it worth another look.
+    expect(reasonLine('lopsided')).toBe('it was too one-sided to be fair');
+    expect(RECONSIDERABLE.has('lopsided')).toBe(false);
+    // So is having no projections to weigh it by: not a verdict on the value.
+    expect(reasonLine('missing_data')).toBe('I had no projections to value it by yet');
+    expect(RECONSIDERABLE.has('missing_data')).toBe(false);
   });
 });

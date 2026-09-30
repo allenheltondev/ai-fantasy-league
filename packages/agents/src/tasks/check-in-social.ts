@@ -21,6 +21,7 @@ import {
   ListedRoomsSchema,
   actInstructions,
   fakeActAction,
+  NO_OPPORTUNITY,
   lookOpportunities,
   socialActStep,
   type ChosenAct
@@ -296,7 +297,11 @@ export async function lookSocial(
   if (listed === null) return social;
   const budget = listed.postingBudget;
   const postsLeft = budget === null ? null : Math.min(budget.agentRemaining, budget.leagueRemaining);
-  const opportunity = await lookOpportunities(ctx, { rooms: listed.rooms, postsLeft, seed: `${seed}:board` });
+  // An evaluation can switch the selection off (ablations.ts): the board roll is league news again.
+  const opportunity =
+    ctx.ablations?.has('no_social_acts') === true
+      ? NO_OPPORTUNITY
+      : await lookOpportunities(ctx, { rooms: listed.rooms, postsLeft, seed: `${seed}:board` });
   const answer = opportunity.answer;
   social.act = opportunity.act;
   social.followUps = opportunity.followUps;

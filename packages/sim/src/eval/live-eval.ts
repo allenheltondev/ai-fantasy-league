@@ -1,4 +1,4 @@
-import { ScriptedModelClient, type ModelClient } from '@fantasy/agents';
+import { AGENT_ABLATIONS, ScriptedModelClient, type AgentAblation, type ModelClient } from '@fantasy/agents';
 import type { SimArchive } from '../archive/format.js';
 import { withoutSections, type ModelRun, type PromptTransform } from '../scenarios/recording-model.js';
 import {
@@ -28,17 +28,30 @@ import { RUBRICS, scoreRubrics, type RubricName, type RubricScore } from './rubr
  */
 
 export const EVAL_CONDITIONS = ['full', 'no_memory', 'persona_only', 'deterministic'] as const;
-export type EvalCondition = (typeof EVAL_CONDITIONS)[number];
+/**
+ * Epic #219's runtime ablations (`@fantasy/agents` ablations.ts): the live model with one part of
+ * the managers' new state switched off. Opt-in by name (`--conditions no_situation,...`); the
+ * default conditions are still the four above. Their offline twin is `eval/baseline.ts`.
+ */
+export const STATE_CONDITIONS = AGENT_ABLATIONS;
+export type EvalCondition = (typeof EVAL_CONDITIONS)[number] | AgentAblation;
 
 const identity: PromptTransform = (p) => p;
 
-/** How each condition changes the prompt. */
+/** How each condition changes the prompt (a state ablation changes the runtime instead). */
 export const CONDITION_PROMPTS: Readonly<Record<EvalCondition, PromptTransform>> = {
   full: identity,
   no_memory: withoutSections('What you remember'),
   persona_only: withoutSections('What you remember', 'How you play'),
-  deterministic: identity
+  deterministic: identity,
+  ...(Object.fromEntries(STATE_CONDITIONS.map((c) => [c, identity])) as Record<
+    AgentAblation,
+    PromptTransform
+  >)
 };
+
+const isStateCondition = (c: EvalCondition): c is AgentAblation =>
+  (STATE_CONDITIONS as readonly string[]).includes(c);
 
 export interface LiveEvalOptions {
   archive: SimArchive;
@@ -196,7 +209,8 @@ export async function runLiveEval(options: LiveEvalOptions): Promise<EvalReport>
         seed,
         weeks,
         model: live ? budget : new ScriptedModelClient(),
-        transform: CONDITION_PROMPTS[condition]
+        transform: CONDITION_PROMPTS[condition],
+        ...(isStateCondition(condition) ? { ablations: [condition] } : {})
       });
       const result = summarize(
         run,
@@ -278,9 +292,10 @@ export function parseEvalArgs(args: Map<string, string | true>): EvalArgs {
       : [...fallback];
   };
   const conditions = list('conditions', EVAL_CONDITIONS);
-  const unknown = conditions.filter((c) => !(EVAL_CONDITIONS as readonly string[]).includes(c));
+  const known: readonly string[] = [...EVAL_CONDITIONS, ...STATE_CONDITIONS];
+  const unknown = conditions.filter((c) => !known.includes(c));
   if (unknown.length > 0)
-    throw new Error(`Unknown condition(s) ${unknown.join(', ')}. Use: ${EVAL_CONDITIONS.join(', ')}.`);
+    throw new Error(`Unknown condition(s) ${unknown.join(', ')}. Use: ${known.join(', ')}.`);
   const budget = args.get('budget-usd');
   const model = args.get('model');
   const weeks = Number(args.get('weeks') ?? 3);

@@ -44,6 +44,8 @@ Conditions run seed by seed, so if the budget runs out the runs that finished st
 
 The ablations change the prompt at the model boundary (`CONDITION_PROMPTS`), after the runtime assembled it, so the league, the tools, and the deterministic guards are identical across conditions.
 
+Epic #219's state ablations run only when named in `--conditions`: `no_agenda_commitments`, `no_situation`, `no_attachments`, and `no_social_acts` play the live model with that part of the managers' state switched off in the runtime (`@fantasy/agents` `AGENT_ABLATIONS`), not in the prompt. The same comparison with the scripted model runs offline and in CI: `npm run sim:baseline -w @fantasy/sim`, results in [evaluations/epic-219-baseline.md](evaluations/epic-219-baseline.md).
+
 ### What gets recorded
 
 Per run (`EvalRunResult`): the condition and seed; the model client and every Bedrock id used; each agent seat's personality, difficulty, and archetype; outcomes (champion, standings, tasks by status, processed trades, invariant violations); the fallback rate (tasks the deterministic fallback decided, over tasks that ran) and model errors; model-call latency (count, p50, p95, max, wall time); usage (input and output tokens, whether they were estimated, estimated cost from the catalog); every rubric score with its `n` and reasons; the scenario's hard checks as observed; and whether the budget ran out during the run. The report adds the mean of each rubric per condition, the total spent, and any runs skipped because the budget was gone.
@@ -84,4 +86,4 @@ The `deterministic` condition is free. The budget is enforced per call: before e
 
 ## Known findings
 
-- A pitch in a DM that the agent declines after checking its numbers ends silently: the follow-up task decides, but only a changed mind is reported back in the conversation. The scenario reports this as a finding (`conversation_to_action.findings`), and `promise_fulfilment` counts how many commitments reported back.
+- Since #240 a pitch the agent takes on in chat becomes a commitment, and every look ends with one closing line in the conversation it came from: an offer sent, or a decline with its reason ("Took a proper look at that one: the value was not there for me. Pass for now."), or "Nothing was sent" when the look could not finish. A declined pitch no longer ends silently. The scenario still reports a follow-up without a word back as a finding (`conversation_to_action.findings`), and `promise_fulfilment` counts how many commitments reported back.
