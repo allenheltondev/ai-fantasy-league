@@ -1,6 +1,7 @@
 import {
   MANIPULATION_PROBES,
   advanceCommitment,
+  claimReply,
   recordAcquisition,
   resolveAgentConfig,
   type AgentSeatConfig,
@@ -18,6 +19,7 @@ import {
   beginLook,
   closeLook,
   commitmentAccess,
+  deliverReply,
   failureLines,
   openInterest,
   reviewCommitments
@@ -658,7 +660,7 @@ describe('commitments: the runtime edges (#215)', () => {
     expect(await beginLook(ctx, { id: 'missing', tenure: TENURE })).toEqual({ skip: 'commitment_missing' });
   });
 
-  it('records a result once, withholds a line the budgets refuse, and skips a settled look', async () => {
+  it('records a result once, then recovers a line the budgets temporarily refuse', async () => {
     const s = await interest(STUBBORN, 170);
     const pitch = await tell(s, PITCH);
     await answer(s, pitch);
@@ -674,6 +676,304 @@ describe('commitments: the runtime edges (#215)', () => {
     expect((await closeLook(ctx, ref, event, failureLines('autopilot'))).applied).toBe(false);
     expect(post).toHaveBeenCalledTimes(1);
     expect(await beginLook(ctx, ref)).toEqual({ skip: 'commitment_settled' });
+    post.mockRestore();
+
+    s.clock.advance(6 * 60_000);
+    const recovery = await context(s, 'reply-recovery');
+    const followUps = await reviewCommitments(recovery);
+    expect(followUps).toEqual([
+      {
+        kind: 'commitment_reply',
+        payload: { id: ref.id, tenure: TENURE, key: `${ref.id}#0` }
+      }
+    ]);
+    expect(
+      await runAgentAction(
+        s.deps(new ScriptedModelClient()),
+        request('commitment_reply', followUps[0]!.payload, 'reply-recovery')
+      )
+    ).toMatchObject({ status: 'skipped', fallbackReason: 'commitment_reply_sent' });
+    expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 2, failure: null } });
+    expect((await answers(s, pitch)).at(-1)).toMatch(
+      /^Couldn't finish that trade look .* Nothing was sent\.$/
+    );
+  });
+
+  it('recovers an acknowledgement-lost post without duplicating the closing line', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ctx = { ...(await context(s, 'ack-lost')), taskId: next.taskId };
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE };
+    const access = ctx.commitments!;
+    let writes = 0;
+    ctx.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        writes++;
+        if (writes === 2) throw new Error('crashed before acknowledging post');
+        return access.update(tenure, change);
+      }
+    };
+    const event = { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' } as const;
+    await expect(closeLook(ctx, ref, event, failureLines('autopilot'))).rejects.toThrow('crashed');
+    expect((await answers(s, pitch)).filter((m) => m.includes('Nothing was sent.'))).toHaveLength(1);
+    expect(await only(s)).toMatchObject({ reply: { state: 'claimed', attempts: 1 } });
+
+    s.clock.advance(3 * 60_000);
+    const recovery = await context(s, 'ack-recovery');
+    const follow = (await reviewCommitments(recovery))[0]!;
+    expect(follow.kind).toBe('commitment_reply');
+    await runAgentAction(
+      s.deps(new ScriptedModelClient()),
+      request('commitment_reply', follow.payload, 'ack-recovery')
+    );
+    expect((await answers(s, pitch)).filter((m) => m.includes('Nothing was sent.'))).toHaveLength(1);
+    expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 1 } });
+  });
+
+  it('reuses a reconsidered look fresh reply key after its post acknowledgement is lost', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const first = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE };
+    const firstCtx = { ...(await context(s, 'first-look')), taskId: first.taskId };
+    await closeLook(
+      firstCtx,
+      ref,
+      { type: 'closed', taskId: first.taskId, status: 'declined', reason: 'value_below_floor' },
+      { dm: 'First pass.', room: 'First pass.' }
+    );
+    await firstCtx.commitments!.update(TENURE, (book) => ({
+      ...book,
+      commitments: book.commitments.map((c) =>
+        c.id === ref.id && c.reply !== null ? { ...c, reply: { ...c.reply, attempts: 3 } } : c
+      )
+    }));
+
+    s.clock.advance(DAY);
+    const secondTask = taskIdFor('reconsider-crash', AGENT_TEAM, 'trade_proposal');
+    await firstCtx.commitments!.update(
+      TENURE,
+      (book) =>
+        advanceCommitment(
+          book,
+          ref.id,
+          { type: 'redispatch', taskId: secondTask, mode: 'reconsider' },
+          s.clock.now().toISOString()
+        ).book
+    );
+    const secondCtx = { ...(await context(s, 'reconsider-crash')), taskId: secondTask };
+    const access = secondCtx.commitments!;
+    let writes = 0;
+    secondCtx.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        writes++;
+        if (writes === 2) throw new Error('crashed before acknowledging reconsidered reply');
+        return access.update(tenure, change);
+      }
+    };
+    const again = 'Looked again and still passed.';
+    await expect(
+      closeLook(
+        secondCtx,
+        ref,
+        { type: 'closed', taskId: secondTask, status: 'declined', reason: 'value_below_floor' },
+        { dm: again, room: again }
+      )
+    ).rejects.toThrow('crashed');
+    expect(await only(s)).toMatchObject({
+      reconsiderations: 1,
+      reply: { key: `${ref.id}#1`, state: 'claimed', attempts: 1 }
+    });
+    expect((await answers(s, pitch)).filter((line) => line === again)).toHaveLength(1);
+
+    s.clock.advance(3 * 60_000);
+    const recovery = await context(s, 'reconsider-recovery');
+    const follow = (await reviewCommitments(recovery))[0]!;
+    expect(follow).toMatchObject({ kind: 'commitment_reply', payload: { key: `${ref.id}#1` } });
+    expect(await deliverReply(recovery, { id: ref.id, tenure: TENURE, key: `${ref.id}#1` })).toBe('sent');
+    expect((await answers(s, pitch)).filter((line) => line === again)).toHaveLength(1);
+  });
+
+  it('does not post from a claim discarded by a commitment CAS retry', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE };
+    const ctx = { ...(await context(s, 'cas-loser')), taskId: next.taskId };
+    const access = ctx.commitments!;
+    const event = { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' } as const;
+    const lines = failureLines('autopilot');
+    ctx.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        const initial = await access.read(tenure);
+        change(initial); // The first CAS candidate loses after claiming locally.
+        const won = advanceCommitment(initial, ref.id, event, s.clock.now().toISOString());
+        const winner = claimReply(won.book, ref.id, {
+          at: s.clock.now().toISOString(),
+          owner: 'competing-task',
+          text: lines.dm
+        });
+        return change(winner.book); // Dynamo retries the callback against the winning book.
+      }
+    };
+    const post = vi.spyOn(ctx.tools, 'call');
+    expect(await closeLook(ctx, ref, event, lines)).toMatchObject({ applied: false });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('does not post from a recovery claim discarded by a commitment CAS retry', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE, key: `trade_interest:${pitch.id}#0` };
+    const closing = { ...(await context(s, 'recovery-cas-close')), taskId: next.taskId };
+    vi.spyOn(closing.tools, 'call').mockResolvedValue({
+      error: { code: 'RATE_LIMITED', message: 'Later.', fix: 'Wait.' }
+    });
+    await closeLook(
+      closing,
+      ref,
+      { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' },
+      failureLines('autopilot')
+    );
+
+    s.clock.advance(6 * 60_000);
+    const recovery = await context(s, 'recovery-cas-loser');
+    const access = recovery.commitments!;
+    recovery.commitments = {
+      ...access,
+      update: async (tenure, change) => {
+        const initial = await access.read(tenure);
+        change(initial); // This candidate loses the conditional write.
+        const current = initial.commitments.find((c) => c.id === ref.id)!;
+        const winner = claimReply(initial, ref.id, {
+          at: s.clock.now().toISOString(),
+          owner: 'competing-recovery',
+          text: current.reply!.text,
+          expiresAt: current.reply!.expiresAt!
+        });
+        return change(winner.book); // Retry observes the competing lease.
+      }
+    };
+    const post = vi.spyOn(recovery.tools, 'call');
+    expect(await deliverReply(recovery, ref)).toBe('unavailable');
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('keeps the same delivery key while an idempotency operation is still in progress', async () => {
+    const s = await interest(STUBBORN, 170);
+    const pitch = await tell(s, PITCH);
+    await answer(s, pitch);
+    const next = proposals(s)[0]!;
+    const ref = { id: `trade_interest:${pitch.id}`, tenure: TENURE, key: `trade_interest:${pitch.id}#0` };
+    const closing = { ...(await context(s, 'lock-close')), taskId: next.taskId };
+    vi.spyOn(closing.tools, 'call').mockResolvedValue({
+      error: { code: 'RATE_LIMITED', message: 'Later.', fix: 'Wait.' }
+    });
+    await closeLook(
+      closing,
+      ref,
+      { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' },
+      failureLines('autopilot')
+    );
+
+    s.clock.advance(6 * 60_000);
+    const locked = await context(s, 'lock-recovery');
+    const lockedPost = vi.spyOn(locked.tools, 'call').mockResolvedValue({
+      error: { code: 'IDEMPOTENCY_IN_PROGRESS', message: 'Running.', fix: 'Wait.' }
+    });
+    expect(await deliverReply(locked, ref)).toBe('deferred');
+    expect(await only(s)).toMatchObject({
+      reply: { state: 'claimed', attempts: 2, owner: null, failure: 'IDEMPOTENCY_IN_PROGRESS' }
+    });
+    const lockedKey = lockedPost.mock.calls[0]?.[2];
+
+    s.clock.advance(4 * 60_000);
+    expect(await reviewCommitments(await context(s, 'too-soon'))).toEqual([]);
+    s.clock.advance(2 * 60_000);
+    const retry = await context(s, 'lock-retry');
+    const retryPost = vi.spyOn(retry.tools, 'call').mockResolvedValue({
+      data: { messageId: 'already-persisted' },
+      league: null,
+      warnings: []
+    });
+    expect(await deliverReply(retry, ref)).toBe('sent');
+    expect(retryPost.mock.calls[0]?.[2]).toEqual(lockedKey);
+    expect(await only(s)).toMatchObject({ reply: { state: 'sent', attempts: 2, failure: null } });
+  });
+
+  it('settles recovered replies when the seat changed or the room is permanently unavailable', async () => {
+    const pending = async () => {
+      const s = await interest(STUBBORN, 170);
+      const pitch = await tell(s, PITCH);
+      await answer(s, pitch);
+      const next = proposals(s)[0]!;
+      const ctx = { ...(await context(s, 'edge')), taskId: next.taskId };
+      vi.spyOn(ctx.tools, 'call').mockResolvedValue({
+        error: { code: 'RATE_LIMITED', message: 'Later.', fix: 'Wait.' }
+      });
+      const id = `trade_interest:${pitch.id}`;
+      await closeLook(
+        ctx,
+        { id, tenure: TENURE },
+        { type: 'closed', taskId: next.taskId, status: 'cancelled', reason: 'autopilot' },
+        failureLines('autopilot')
+      );
+      s.clock.advance(6 * 60_000);
+      return { s, id };
+    };
+
+    const changed = await pending();
+    const changedCtx = await context(changed.s, 'seat-changed');
+    changedCtx.commitments = { ...changedCtx.commitments!, tenure: async () => null };
+    expect(await deliverReply(changedCtx, { id: changed.id, tenure: TENURE, key: `${changed.id}#0` })).toBe(
+      'suppressed'
+    );
+    expect(await only(changed.s)).toMatchObject({ reply: { state: 'suppressed', failure: 'seat_changed' } });
+
+    const missing = await pending();
+    const missingCtx = await context(missing.s, 'room-missing');
+    vi.spyOn(missingCtx.tools, 'call').mockResolvedValue({
+      error: { code: 'ROOM_NOT_FOUND', message: 'Gone.', fix: 'None.' }
+    });
+    expect(await deliverReply(missingCtx, { id: missing.id, tenure: TENURE, key: `${missing.id}#0` })).toBe(
+      'suppressed'
+    );
+    expect(await only(missing.s)).toMatchObject({
+      reply: { state: 'suppressed', failure: 'ROOM_NOT_FOUND' }
+    });
+
+    const completed = await pending();
+    const completedCtx = await context(completed.s, 'league-complete');
+    completedCtx.league = { ...completedCtx.league, phase: 'complete' };
+    expect(
+      await deliverReply(completedCtx, {
+        id: completed.id,
+        tenure: TENURE,
+        key: `${completed.id}#0`
+      })
+    ).toBe('suppressed');
+    expect(await only(completed.s)).toMatchObject({
+      reply: { state: 'suppressed', failure: 'league_complete' }
+    });
+
+    const unavailableCtx = await context(completed.s, 'no-store');
+    unavailableCtx.commitments = undefined;
+    expect(
+      await deliverReply(unavailableCtx, {
+        id: completed.id,
+        tenure: TENURE,
+        key: `${completed.id}#0`
+      })
+    ).toBe('unavailable');
   });
 
   it('keeps waiting on an offer the league has not answered or cannot show', async () => {

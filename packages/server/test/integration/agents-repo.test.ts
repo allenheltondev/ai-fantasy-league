@@ -304,11 +304,15 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     );
     const claims: boolean[] = [];
     await Promise.all(
-      [0, 1].map(() => {
+      [0, 1].map((worker) => {
         let claimed = false;
         return agents
           .updateCommitments(leagueId, 'a', tenure, (book) => {
-            const result = claimReply(book, id, tenure);
+            const result = claimReply(book, id, {
+              at: tenure,
+              owner: `worker-${worker}`,
+              text: 'Safe closing line.'
+            });
             claimed = result.claimed;
             return result.book;
           })
