@@ -380,7 +380,8 @@ export const SETTINGS_EDITABILITY: Readonly<Record<string, SettingEditability>> 
   'waivers.maxAcquisitionsPerWeek': 'any_time',
   trades: 'any_time',
   playoffs: 'pre_draft',
-  draft: 'pre_draft'
+  draft: 'pre_draft',
+  ai: 'any_time'
 };
 
 export function settingEditability(path: string): SettingEditability {

@@ -184,7 +184,8 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
       "The commissioner changed {team:teamId}'s AI manager."
     ]
   },
-  // The first time in a week the league's AI spend passes its ceiling (#93): agents play on with
+  // The first time in a week the league's AI spend passes its limit, the ceiling plus any overage
+  // (#93): agents play on with
   // their deterministic fallbacks until the next week.
   'Agent Budget Exceeded': {
     text: [

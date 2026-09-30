@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AiSettingsSchema, defaultAiSettings } from '../agents/ai-settings.js';
 import { ScoringSettingsSchema, scoringPreset, type ScoringPreset } from '../scoring/settings.js';
 import {
   DEFAULT_IR_ELIGIBLE_STATUSES,
@@ -129,7 +130,9 @@ export const LeagueSettingsSchema = z.strictObject({
   trades: TradeSettingsSchema,
   playoffs: PlayoffSettingsSchema,
   /** Leagues stored before the pick clock was a setting read as the default. */
-  draft: DraftSettingsSchema.default(defaultDraftSettings)
+  draft: DraftSettingsSchema.default(defaultDraftSettings),
+  /** The commissioner's AI budget, overage, and models by difficulty; older leagues read the default. */
+  ai: AiSettingsSchema.default(defaultAiSettings)
 });
 export type LeagueSettings = z.infer<typeof LeagueSettingsSchema>;
 
@@ -197,7 +200,8 @@ export function yahooDefaultSettings(teamCount = 8, options: DefaultSettingsOpti
       expireAtNextLineupLock: true
     },
     playoffs,
-    draft: defaultDraftSettings()
+    draft: defaultDraftSettings(),
+    ai: defaultAiSettings()
   };
 }
 

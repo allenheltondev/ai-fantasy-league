@@ -4,7 +4,7 @@ import { AgentTaskRecordSchema, type AgentTaskRecord, type AgentTaskSeal } from 
 import { defineOperation } from '../../registry/operation.js';
 import type { Repos } from '../../repos/types.js';
 import { PUBLIC_STATUSES } from '../trades/shared.js';
-import { LeagueBudgetSchema, leagueBudget } from './budget.js';
+import { LeagueBudgetSchema, SeasonSpendSchema, leagueBudget, seasonSpend } from './budget.js';
 import { TeamIdSchema, requireCommissioner } from './shared.js';
 
 /** Trade statuses after which nothing about the trade is secret any more. */
@@ -26,7 +26,7 @@ export const getAgentActivity = defineOperation({
   description: [
     'Commissioner only. Lists recent agent tasks, newest first: what triggered each one, the tools it called, its final action, a short reasoning summary, latency, and tokens and estimated cost per model.',
     'Summaries that would reveal sealed information (pending waiver bids, private trade offers, veto votes while the review is open) are withheld (`redacted: true`) until it resolves, so a commissioner who also plays learns nothing the other managers cannot see.',
-    "Also returns the week's estimated spend against the league's weekly ceiling (per agent, with each agent's allowance from its difficulty) and whether the global kill switch is engaged; when the ceiling is exceeded or the kill switch is on, agents use deterministic fallbacks instead of models.",
+    "Also returns the week's estimated spend against the league's weekly ceiling (the commissioner's `settings.ai.weeklyBudgetUsd`, or automatic from the seats' difficulties) and any overage allowed past it, per agent with each agent's allowance; the spend of every budget week so far (`season`); and whether the global kill switch is engaged. When spend reaches the ceiling plus the overage, or the kill switch is on, agents use deterministic fallbacks instead of models.",
     'Filter to one team with `teamId`; pick a past week with `week`. Costs are estimates from the model catalog, not billing data.',
     'Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.'
   ].join(' '),
@@ -42,6 +42,7 @@ export const getAgentActivity = defineOperation({
   output: z.object({
     tasks: z.array(AgentTaskViewSchema),
     budget: LeagueBudgetSchema,
+    season: SeasonSpendSchema,
     killSwitch: z
       .object({
         configured: z.boolean().describe('False when this deployment has no kill switch parameter.'),
@@ -55,14 +56,20 @@ export const getAgentActivity = defineOperation({
   }),
   handler: async (ctx, input) => {
     const { league } = await requireCommissioner(ctx, input.leagueId);
-    const [tasks, budget, engaged] = await Promise.all([
+    const [tasks, budget, season, engaged] = await Promise.all([
       ctx.repos.agents.listTasks(league.id, { teamId: input.teamId, limit: input.limit }),
       leagueBudget(ctx.repos.agents, league, input.week),
+      seasonSpend(ctx.repos.agents, league),
       ctx.agentKillSwitch?.engaged() ?? Promise.resolve(false)
     ]);
     const views = [];
     for (const task of tasks) views.push(await taskView(ctx, task));
-    return { tasks: views, budget, killSwitch: { configured: ctx.agentKillSwitch !== undefined, engaged } };
+    return {
+      tasks: views,
+      budget,
+      season,
+      killSwitch: { configured: ctx.agentKillSwitch !== undefined, engaged }
+    };
   }
 });
 

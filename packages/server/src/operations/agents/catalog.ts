@@ -5,6 +5,7 @@ import {
   DIFFICULTIES,
   DIFFICULTY_TIERS,
   MAX_RANDOM_SEATS,
+  billedPrice,
   getModel,
   MANAGER_FIRST_NAMES,
   MANAGER_LAST_NAMES,
@@ -21,12 +22,31 @@ import {
 import { z } from 'zod';
 import { defineOperation } from '../../registry/operation.js';
 
-/** Every model a tier lists, once, with the weakest tier that lists it. */
-function tieredModels(): { key: string; displayName: string; tier: ModelTier }[] {
-  const seen = new Map<string, { key: string; displayName: string; tier: ModelTier }>();
+interface CatalogModelView {
+  key: string;
+  displayName: string;
+  provider: string;
+  tier: ModelTier;
+  price: { inputPerMTok: number; outputPerMTok: number };
+}
+
+const perMTok = (n: number) => Math.round(n * 10_000) / 10_000;
+
+/** Every model a tier lists, once, with the weakest tier that lists it and its billed price. */
+function tieredModels(): CatalogModelView[] {
+  const seen = new Map<string, CatalogModelView>();
   for (const tier of MODEL_TIERS) {
     for (const key of MODEL_TIER_MODELS[tier]) {
-      if (!seen.has(key)) seen.set(key, { key, displayName: getModel(key).displayName, tier });
+      if (seen.has(key)) continue;
+      const model = getModel(key);
+      const price = billedPrice(model);
+      seen.set(key, {
+        key,
+        displayName: model.displayName,
+        provider: model.provider,
+        tier,
+        price: { inputPerMTok: perMTok(price.inputPerMTok), outputPerMTok: perMTok(price.outputPerMTok) }
+      });
     }
   }
   return [...seen.values()];
@@ -90,9 +110,17 @@ export const getAgentCatalog = defineOperation({
     modelTiers: z.array(z.enum(MODEL_TIERS)).describe('Weakest to strongest.'),
     models: z.array(
       z.object({
-        key: z.string().describe('Use as advanced.modelOverride.'),
+        key: z
+          .string()
+          .describe("Use as advanced.modelOverride, or in the league's settings.ai.models by difficulty."),
         displayName: z.string(),
-        tier: z.enum(MODEL_TIERS).describe('The weakest tier that lists this model.')
+        provider: z.string().describe('Who makes the model: amazon (Nova), moonshot, or anthropic.'),
+        tier: z.enum(MODEL_TIERS).describe('The weakest tier that lists this model.'),
+        price: z
+          .object({ inputPerMTok: z.number(), outputPerMTok: z.number() })
+          .describe(
+            'Estimated USD per million tokens as Bedrock bills the id the agents call (regional premium included). Not billing data.'
+          )
       })
     ),
     suggestion: z

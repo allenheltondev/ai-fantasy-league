@@ -73,6 +73,19 @@ export interface LeagueSettings {
   playoffs: Record<string, unknown>;
   /** The draft: its pick clock, and when (and in which order) it starts by itself. */
   draft?: DraftSettings;
+  /** The commissioner's AI controls: weekly budget, overage, and models by difficulty. */
+  ai?: AiSettings;
+}
+
+export type Difficulty = 'rookie' | 'amateur' | 'pro' | 'all_pro' | 'hall_of_famer';
+
+export interface AiSettings {
+  /** Weekly model spend ceiling in USD; null for the automatic one from the seats' difficulties. */
+  weeklyBudgetUsd: number | null;
+  /** Extra spend allowed past the ceiling; 0 when overage is off. */
+  overageUsd: number;
+  /** Per difficulty, the model tried first for decisions and for chat (null: the tier default). */
+  models: Record<Difficulty, { decision: string | null; chat: string | null }>;
 }
 
 export type DraftOrderMode = 'slots' | 'random';
@@ -179,10 +192,20 @@ export interface AgentCatalog {
   difficulties: { id: string; displayName: string; description: string; decisionModelTier: string }[];
   archetypes: { id: string; displayName: string; description: string }[];
   modelTiers: string[];
-  models: { key: string; displayName: string; tier: string }[];
+  models: CatalogModel[];
   suggestion: { seed: string; seats: AgentSeatConfig[] } | null;
   /** The pool manager names are drawn from. */
   managerNames?: { first: string[]; last: string[] };
+}
+
+export interface CatalogModel {
+  key: string;
+  displayName: string;
+  /** amazon (Nova), moonshot, or anthropic; absent on older responses. */
+  provider?: string;
+  tier: string;
+  /** Estimated USD per million tokens as Bedrock bills it; absent on older responses. */
+  price?: { inputPerMTok: number; outputPerMTok: number };
 }
 
 export interface AgentSeatView {
@@ -524,12 +547,21 @@ export interface AgentActivity {
   budget: {
     week: number;
     ceilingUsd: number;
+    /** True when the ceiling comes from the seats' difficulties rather than the commissioner. */
+    automatic?: boolean;
+    overageUsd?: number;
+    /** Where agents stop using models: the ceiling plus the overage. */
+    limitUsd?: number;
     spentUsd: number;
     remainingUsd: number;
+    /** Past the ceiling but still under the limit: agents run on overage. */
+    overage?: boolean;
     exceeded: boolean;
     byAgent: (AgentSpend & { agentId: string; teamId: string | null; allowanceUsd: number | null })[];
     byModel: (AgentSpend & { modelKey: string })[];
   };
+  /** Spend in every budget week so far (week 0 is setup and the draft); absent on older responses. */
+  season?: { spentUsd: number; weeks: { week: number; spentUsd: number; tasks: number }[] };
   killSwitch: { configured: boolean; engaged: boolean };
 }
 

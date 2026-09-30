@@ -16,7 +16,7 @@ import {
 import { z } from 'zod';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
-import { estimateTokens, isModelUnavailable, type ModelClient } from './model.js';
+import { estimateTokens, isModelUnavailable, runUsageOf, type ModelClient } from './model.js';
 
 /**
  * The draft report card grader (`Draft Completed`): one model call judges every team's draft (a
@@ -239,12 +239,18 @@ async function writeReport(
       clearTimeout(timer);
       const timedOut = controller.signal.aborted;
       log.warn('draft report model run failed', { model: modelKey, timedOut, error });
-      if (!timedOut && isModelUnavailable(error)) continue;
-      // The attempt cost something: count the prompt and the whole response limit against the budget.
-      await recordUsage(modelKey, {
-        inputTokens: estimateTokens(SYSTEM_PROMPT + input),
-        outputTokens: MAX_TOKENS
-      });
+      // What the provider reported for the run before it failed, if anything (#209).
+      const spent = runUsageOf(error);
+      if (!timedOut && isModelUnavailable(error)) {
+        if (spent !== null) await recordUsage(modelKey, spent);
+        continue;
+      }
+      // The attempt cost something: without a reported count, the prompt and the whole response
+      // limit count against the budget.
+      await recordUsage(
+        modelKey,
+        spent ?? { inputTokens: estimateTokens(SYSTEM_PROMPT + input), outputTokens: MAX_TOKENS }
+      );
       return fallback(timedOut ? 'timeout' : 'model_error');
     }
   }

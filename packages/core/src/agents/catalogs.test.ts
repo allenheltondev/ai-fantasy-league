@@ -78,8 +78,10 @@ describe('model catalog', () => {
     expect(isModelKey('gpt')).toBe(false);
   });
 
-  it('estimates cost from the price table', () => {
-    expect(estimateCostUsd('claude-opus-5', { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBe(30);
+  it('estimates cost from the price table, with the regional premium Bedrock bills on `us.` profiles', () => {
+    // Opus 5 lists at $5/$25; its `us.` profile bills 10% more.
+    expect(estimateCostUsd('claude-opus-5', { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBe(33);
+    // Nova (1) profiles bill at list price.
     expect(estimateCostUsd('us.amazon.nova-micro-v1:0', { inputTokens: 1000, outputTokens: 1000 })).toBe(
       0.000175
     );

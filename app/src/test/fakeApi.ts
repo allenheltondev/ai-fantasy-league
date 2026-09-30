@@ -44,8 +44,20 @@ export function catalog(suggest: number | null = 7): AgentCatalog {
     ],
     modelTiers: ['micro', 'lite', 'standard', 'advanced', 'frontier'],
     models: [
-      { key: 'nova-micro', displayName: 'Amazon Nova Micro', tier: 'micro' },
-      { key: 'claude-opus-5', displayName: 'Claude Opus 5', tier: 'frontier' }
+      {
+        key: 'nova-micro',
+        displayName: 'Amazon Nova Micro',
+        provider: 'amazon',
+        tier: 'micro',
+        price: { inputPerMTok: 0.035, outputPerMTok: 0.14 }
+      },
+      {
+        key: 'claude-opus-5',
+        displayName: 'Claude Opus 5',
+        provider: 'anthropic',
+        tier: 'frontier',
+        price: { inputPerMTok: 5.5, outputPerMTok: 27.5 }
+      }
     ],
     suggestion: suggest === null ? null : { seed: 's', seats: seatConfigs(suggest) }
   };

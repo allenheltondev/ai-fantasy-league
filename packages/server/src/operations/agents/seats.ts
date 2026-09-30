@@ -168,7 +168,7 @@ export const configureAgentSeat = defineOperation({
       },
       expectedVersion
     );
-    return { seat: commissionerSeat(record) };
+    return { seat: commissionerSeat(record, access.league.settings.ai) };
   }
 });
 
@@ -214,7 +214,7 @@ export const randomizeAgentSeatsOperation = defineOperation({
     const seats = [];
     for (const [i, teamId] of input.teamIds.entries()) {
       const record = await writeSeat(ctx, league, teamId, configs[i] as AgentSeatConfig, undefined);
-      seats.push(commissionerSeat(record));
+      seats.push(commissionerSeat(record, league.settings.ai));
     }
     return { seed, seats };
   }
@@ -254,7 +254,7 @@ export const getAgentSeat = defineOperation({
     return {
       seat: publicSeat(record),
       commissioner: {
-        current: commissionerSeat(record),
+        current: commissionerSeat(record, league.settings.ai),
         history: history.map((h) => ({
           version: h.version,
           updatedAt: h.updatedAt,

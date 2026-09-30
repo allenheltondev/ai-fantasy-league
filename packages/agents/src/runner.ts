@@ -132,8 +132,11 @@ import { ToolBox, keyPrefix } from './tools.js';
  * estimate by the recovery sweep once the attempt's lease has run out. See docs/ARCHITECTURE.md
  * (Spend guard) for the overshoot bound.
  *
- * The first task that finds the league's weekly budget spent announces it in the league chat
- * (`Agent Budget Exceeded`, once per league and budget week).
+ * The ceiling is the commissioner's weekly budget (`settings.ai.weeklyBudgetUsd`) or the automatic
+ * one from the seats' difficulties; agents keep using models past it while the commissioner allows
+ * overage (`settings.ai.overageUsd`), and admission is against that limit, the ceiling plus the
+ * overage. The first task that finds the limit spent announces it in the league chat (`Agent Budget
+ * Exceeded`, once per league and budget week).
  */
 
 export interface RunnerDeps {
@@ -296,7 +299,7 @@ export async function runAgentAction(
   }
 
   const principal = agentPrincipal({ agentId: seat.agentId, teamId: seat.teamId, leagueId: league.id });
-  const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
+  const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId, ai: league.settings.ai });
   const memoryStore = deps.memory ?? tableMemoryStore(agents);
   const prefix = keyPrefix(request.taskId);
   const beforeMutation = () => agents.recordTaskEffect(fence);
@@ -531,7 +534,7 @@ export async function runAgentAction(
     // provider reported nothing for.
     const estimate = { inputTokens: estimateTokens(systemPrompt + input), outputTokens: maxTokens };
     call++;
-    const refused = await attempt.reserve(modelKey, call, estimate, gate.ceilingUsd);
+    const refused = await attempt.reserve(modelKey, call, estimate, gate.limitUsd);
     if (refused !== null) return attempt.fallback(prepared, refused, usage);
     const controller = new AbortController();
     const timer = setTimeout(
@@ -638,7 +641,8 @@ async function modeGate(deps: RunnerDeps, league: League): Promise<string | Leag
       leagueId: league.id,
       week: budget.week,
       spentUsd: budget.spentUsd,
-      ceilingUsd: budget.ceilingUsd
+      ceilingUsd: budget.ceilingUsd,
+      overageUsd: budget.overageUsd
     });
     await announceBudget(deps, league, budget);
     return 'budget_exceeded';
@@ -659,7 +663,8 @@ async function announceBudget(deps: RunnerDeps, league: League, budget: LeagueBu
     leagueId: league.id,
     week: budget.week,
     spentUsd: budget.spentUsd,
-    ceilingUsd: budget.ceilingUsd
+    // Where the agents stopped: the ceiling plus any overage the commissioner allows.
+    ceilingUsd: budget.limitUsd
   });
   await agents.putTriggerState({
     leagueId: league.id,
@@ -904,7 +909,8 @@ class TaskAttempt {
   }
 
   /**
-   * Holds model call `call`'s estimate against the week's ceiling before it runs (#209). Null when
+   * Holds model call `call`'s estimate against the week's limit (the ceiling plus any overage the
+   * commissioner allows) before it runs (#209). Null when
    * admitted; otherwise the fallback reason: `budget_exceeded` when recorded spend alone leaves no
    * room for it, `budget_reserved` when calls in flight hold the rest (or the admission stayed
    * contended).
@@ -913,7 +919,7 @@ class TaskAttempt {
     modelKey: ModelKey,
     call: number,
     estimate: { inputTokens: number; outputTokens: number },
-    ceilingUsd: number
+    limitUsd: number
   ): Promise<string | null> {
     const { request } = this;
     const fence = this.fence as AgentTaskFence;
@@ -929,20 +935,20 @@ class TaskAttempt {
       // The attempt's lease: past it the worker is gone, and the recovery sweep settles the hold.
       expiresAt: new Date(this.started.getTime() + TASK_LOCK_MS).toISOString()
     };
-    const admission = await this.services.repos.agents.reserveBudget(hold, ceilingUsd);
+    const admission = await this.services.repos.agents.reserveBudget(hold, limitUsd);
     if (admission.status === 'reserved') {
       this.#holds.set(hold.key, hold);
       return null;
     }
     const reason =
-      admission.status === 'refused' && roundUsd(admission.spentUsd + hold.costUsd) > ceilingUsd
+      admission.status === 'refused' && roundUsd(admission.spentUsd + hold.costUsd) > limitUsd
         ? 'budget_exceeded'
         : 'budget_reserved';
     this.log.warn('agent model call not admitted: no room left in the weekly budget', {
       model: modelKey,
       reason,
       holdUsd: hold.costUsd,
-      ceilingUsd,
+      limitUsd,
       ...(admission.status === 'refused'
         ? { spentUsd: admission.spentUsd, reservedUsd: admission.reservedUsd }
         : { contended: true })
