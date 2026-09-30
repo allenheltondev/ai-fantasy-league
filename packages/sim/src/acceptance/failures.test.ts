@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MANIPULATION_PROBES, type AgentSeatConfig } from '@fantasy/core';
+import { CHAT_COOLDOWNS } from '@fantasy/agents';
+import { MANIPULATION_PROBES, SOCIAL_ACT_LIMITS, type AgentSeatConfig } from '@fantasy/core';
 import type { ChatMessage } from '@fantasy/server';
 import {
   PITCH,
@@ -287,6 +288,67 @@ describe('closing-reply recovery', () => {
     });
     expect((await answers(w, pitch)).filter((line) => line.startsWith('Took a proper look'))).toHaveLength(1);
     expect(await tradeCount(w)).toBe(0);
+  });
+});
+
+describe('a burst, a hand-off, and a lost closing reply together (#215 with #246)', () => {
+  it('answers every message once, closes the look once, and duplicates nothing', async () => {
+    let lost = 0;
+    const w = await world({ lose: (r) => r.kind === 'trade_proposal' && lost++ === 0 });
+    // The person opens, then asks and pitches inside the agent's reply cooldown.
+    const opening = await w.say('you around?');
+    await w.advance(15_000);
+    const flex = await w.say('who are you starting at flex this week');
+    await w.advance(15_000);
+    const pitch = await w.say(pitchText(PITCH.send, PITCH.receive));
+    await w.advance(CHAT_COOLDOWNS.reply.agentMinutes * 60_000);
+
+    // The look's dispatch was lost; it runs late, and its closing line meets a spent chat burst.
+    const look = w.requests().find((r) => r.kind === 'trade_proposal');
+    expect(look).toBeDefined();
+    const at = w.clock.now().toISOString();
+    for (let i = 0; i < 5; i++)
+      await w.repos.chat.put(
+        {
+          id: `burst-line-${i}`,
+          leagueId: w.league.id,
+          roomId: pitch.roomId,
+          kind: 'agent',
+          author: { teamId: AGENT_TEAM, teamName: 'Agent Team', name: 'Agent' },
+          text: `Earlier line ${i}`,
+          mentionedTeamIds: [],
+          event: null,
+          createdAt: at
+        },
+        { dmTeamIds: [PERSON_TEAM, AGENT_TEAM] }
+      );
+    await w.rerun(look as NonNullable<typeof look>);
+    expect(await commitmentFor(w, pitch)).toMatchObject({
+      reply: { state: 'withheld', failure: 'RATE_LIMITED' }
+    });
+
+    // Every chat task and mention again, then a check-in past the questions' grace: its hand-off
+    // and the recovery of the closing line run together.
+    for (const r of w.requests().filter((q) => q.kind === 'chat_reply')) await w.rerun(r);
+    await w.advance(SOCIAL_ACT_LIMITS.questionGraceMs);
+    await w.checkIn('afternoon');
+    await w.advance(HOUR);
+
+    const room = (await w.repos.chat.list(w.league.id, pitch.roomId, { limit: 200 })).messages;
+    const replies = room.filter((m) => m.kind === 'agent' && !m.id.startsWith('burst-line-'));
+    const covering = (id: string) =>
+      replies.filter((m) => m.replyToId === id || (m.answersMessageIds ?? []).includes(id));
+    const closing = (m: ChatMessage) => m.text.startsWith('Took a proper look');
+    // The opening got its own reply; one coalesced reply answered the pitch and named the question.
+    expect(covering(opening.id)).toHaveLength(1);
+    expect(covering(flex.id)).toHaveLength(1);
+    expect(covering(pitch.id).filter((m) => !closing(m))).toHaveLength(1);
+    expect(covering(pitch.id).filter((m) => !closing(m))[0]?.answersMessageIds).toEqual([flex.id]);
+    // The closing line went out once, on the retry, and no trade was duplicated or made.
+    expect(covering(pitch.id).filter(closing)).toHaveLength(1);
+    expect(await commitmentFor(w, pitch)).toMatchObject({ status: 'declined', reply: { state: 'sent' } });
+    expect(await tradeCount(w)).toBe(0);
+    expect(replies.filter(closing)).toHaveLength(1);
   });
 });
 
