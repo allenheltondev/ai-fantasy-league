@@ -9,7 +9,7 @@ import {
   type MemoryVisibility,
   type SealCheck
 } from './memory.js';
-import { answeredBefore } from '../chat/continuation.js';
+import { answeredBefore, asksSomething } from '../chat/continuation.js';
 import { relationshipWith } from './relationships.js';
 import { checkInChatChance, socialRoll } from './social.js';
 
@@ -206,6 +206,8 @@ export interface QuestionMessage {
   /** The agent a person was going back and forth with, when the message named nobody. */
   addressedTeamIds?: readonly string[] | undefined;
   replyToId?: string | null | undefined;
+  /** An agent's reply: the earlier messages it answers besides the one it replies to (#215). */
+  answersMessageIds?: readonly string[] | undefined;
   createdAt: string;
 }
 
@@ -221,10 +223,11 @@ export interface PendingQuestion {
 /**
  * A person's questions to this agent in one room that it has not answered: a message from a person
  * (not an agent, not the league) in its DM, or one that @mentions its team or continues a
- * conversation with it (`addressedTeamIds`), with a question mark, asked within `questionWindowMs`
+ * conversation with it (`addressedTeamIds`), that asks something (core `asksSomething`: a question
+ * mark, or a sentence that opens like a question or a request), asked within `questionWindowMs`
  * and at least `questionGraceMs` ago (the router's own reply goes first). Answered is core
- * `answeredBefore`: a reply of its own to that message or to a later one from the same person (one
- * reply covers a burst), or, in a DM, any message of its own since.
+ * `answeredBefore`, explicit (#215): a reply of its own to that message, or one that names it among
+ * the messages it answered. An unrelated message of its own, in a DM or anywhere, answers nothing.
  */
 export function pendingQuestions(
   newestFirst: readonly QuestionMessage[],
@@ -238,13 +241,13 @@ export function pendingQuestions(
     if (
       m.kind !== 'user' ||
       m.author.teamId === self ||
-      !m.text.includes('?') ||
+      !asksSomething(m.text) ||
       !(room.dm || m.mentionedTeamIds.includes(self) || (m.addressedTeamIds ?? []).includes(self)) ||
       age < SOCIAL_ACT_LIMITS.questionGraceMs ||
       age > SOCIAL_ACT_LIMITS.questionWindowMs
     )
       return [];
-    return answeredBefore(newestFirst, i, self, room.dm)
+    return answeredBefore(newestFirst, i, self)
       ? []
       : [
           {

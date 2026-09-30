@@ -127,8 +127,9 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * dropped. One reply is deferred to when the cooldown ends (`deferReply`): scheduled through the
  * outbox, it takes the agent's chat slot at that time, so replies stay paced and never run side by
  * side, and a pointer per agent, room, and person (`CHAT_BURST`) holds until it runs, so the rest of
- * the burst joins it (`coalesced`) instead of scheduling more. It answers the person's newest
- * message with the burst in view (tasks/chat.ts, `coalesce`). Another room or person gets a reply of
+ * the burst joins it (`coalesced`) instead of scheduling more. Every reply to a person, at once or
+ * deferred, answers their newest message still open with the burst in view (tasks/chat.ts,
+ * `coalesce`), so a message that lands before the first reply is written joins it. Another room or person gets a reply of
  * its own, one cooldown later, so a DM is never lost to a public room or the other way round.
  *
  * Durable dispatch (#207): every gate is an atomic conditional write owned by what passed it
@@ -554,7 +555,12 @@ export const TRIGGER_RULES: RuleMap = {
     admit: admitBanter,
     // A person's message waits out the reply cooldown instead of being dropped; banter does not.
     coalesce: (d) => !agentMention(d),
-    payload: (d) => ({ messageId: d.messageId, roomId: d.roomId })
+    // Its reply, at once or deferred, answers the person's newest open message with the rest (#215).
+    payload: (d) => ({
+      messageId: d.messageId,
+      roomId: d.roomId,
+      ...(agentMention(d) ? {} : { coalesce: true })
+    })
   },
   'Chat Moment': {
     kind: 'chat_moment',

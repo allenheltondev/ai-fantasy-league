@@ -134,7 +134,10 @@ describe('a burst of messages inside the reply cooldown', () => {
     expect(prompt).toContain('The message you are answering: <<<So what do you want for your WR2?>>>');
     const replies = await s.replies();
     expect(replies).toHaveLength(2);
-    expect(replies[0]?.replyToId).toBe(burst[2]?.message.id);
+    expect(replies[0]).toMatchObject({
+      replyToId: burst[2]?.message.id,
+      answersMessageIds: [burst[0]?.message.id, burst[1]?.message.id]
+    });
 
     // A duplicate delivery of the deferred task, or a late one for the same burst, adds nothing.
     expect(await s.run(deferred)).toMatchObject({ status: 'completed' });

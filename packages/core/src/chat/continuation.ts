@@ -14,9 +14,10 @@
  * mention-only), and a DM already addresses the other team. The inferred addressee is carried apart
  * from the message's mentions, which stay the @mentions actually written.
  *
- * A reply covers everything its person said before it (`answeredBefore`): when an agent answers
- * the newest of a burst of messages, the earlier ones are answered too, so neither a reply nor a
- * check-in's hand-off answers them again.
+ * Answered is explicit (#215, `answeredBefore`): an agent's message answers the message it replies
+ * to and the earlier ones it names (`answersMessageIds`, recorded by the server with the reply), and
+ * nothing else. A newer message, an agent's unrelated line in a DM, or its answer to someone else
+ * never marks a person's question answered.
  */
 
 export const CONTINUATION_LIMITS = {
@@ -35,6 +36,8 @@ export interface ContinuationMessage {
   /** The addressee inferred for a message with no mention (this rule, applied when it was posted). */
   addressedTeamIds?: readonly string[] | undefined;
   replyToId?: string | null | undefined;
+  /** An agent's reply: the earlier messages it also answers (`answeredBefore`). */
+  answersMessageIds?: readonly string[] | undefined;
   createdAt: string;
 }
 
@@ -100,28 +103,42 @@ export interface AnswerableMessage {
   kind: string;
   author: { teamId: string | null };
   replyToId?: string | null | undefined;
+  /** An agent's reply: the earlier messages it answers besides the one it replies to. */
+  answersMessageIds?: readonly string[] | undefined;
 }
 
 /**
  * True when `self` already answered the message at `index` of `newestFirst`: one of its messages
- * replies to it, or to a later message by the same person (a reply covers everything its person
- * said before it, so a burst gets one answer), or, in a DM, it wrote anything since.
+ * replies to it, or names it among the messages it answers (`answersMessageIds`). Nothing else
+ * counts: not a later message from the same person, and not anything else the agent wrote since,
+ * in a DM or anywhere.
  */
 export function answeredBefore(
   newestFirst: readonly AnswerableMessage[],
   index: number,
-  self: string,
-  dm: boolean
+  self: string
 ): boolean {
   const target = newestFirst[index];
   if (target === undefined) return false;
-  const person = target.kind === 'user' ? target.author.teamId : null;
-  const place = new Map(newestFirst.map((m, i) => [m.id, i]));
-  return newestFirst.some((m, i) => {
-    if (m.kind !== 'agent' || m.author.teamId !== self) return false;
-    if (m.replyToId === target.id || (dm && i < index)) return true;
-    if (person === null || m.replyToId === undefined || m.replyToId === null) return false;
-    const at = place.get(m.replyToId);
-    return at !== undefined && at < index && newestFirst[at]?.author.teamId === person;
-  });
+  // A reply always follows what it answers (the server checks), whatever order a tie of
+  // timestamps lists them in.
+  return newestFirst.some(
+    (m) =>
+      m.kind === 'agent' &&
+      m.author.teamId === self &&
+      (m.replyToId === target.id || (m.answersMessageIds ?? []).includes(target.id))
+  );
+}
+
+/** Words that open a question or a request, with or without a question mark. */
+const ASKING =
+  /(?:^|[.!\n]\s*)(?:who|what|what's|whats|when|where|why|how|which|would|will|can|could|should|do|does|did|is|are|thoughts|interested|wanna|want to|let me know|lmk|tell me|gimme|give me|send me|name your|make me an offer|you in|u in)\b/i;
+
+/**
+ * True when a person's message asks the agent something (#215): a question mark, or a sentence that
+ * opens like a question or a request ("what do you want for Kelce", "lmk if you're in"). A
+ * conservative rule, not a model call: plain statements and banter do not count.
+ */
+export function asksSomething(text: string): boolean {
+  return text.includes('?') || ASKING.test(text.trim());
 }

@@ -62,13 +62,20 @@ export { quote };
  *   applies.
  * - Without a model (kill switch, over budget, model failure) the agent stays quiet.
  * - A reply may run a while after the mention (a human-like response delay, #189), so it re-reads
- *   the room first: a message this agent already answered (its reply to it, or in a DM any
- *   message it wrote since) is skipped (`already_answered`), so it is never answered twice.
- * - Bursts (#215): a reply the router deferred past its cooldown (`coalesce`) answers the person's
- *   newest message to the agent in the room, with every earlier one still unanswered listed as the
- *   burst, and tells the model to answer them all in one message. A reply covers everything its
- *   person said before it (core `answeredBefore`), and the reply claims each burst message's
- *   once-only slot too, so neither a second reply nor a check-in's hand-off answers them again.
+ *   the room first: a message this agent already answered is skipped (`already_answered`), so it
+ *   is never answered twice. Answered is explicit (#215, core `answeredBefore`): the agent's reply
+ *   to it, or a reply that names it in `answersMessageIds`. Nothing else the agent wrote counts, so
+ *   an unrelated DM line, a reply to someone else, or a newer message never settles a question.
+ * - Bursts (#215): a person's reply (`coalesce`: the router's own, a reply it deferred past the
+ *   cooldown, and a check-in's hand-off) answers the person's newest message to the agent in the
+ *   room still unanswered, with up to `CHAT_BUDGETS.burst` earlier unanswered ones listed as the
+ *   burst, and tells the model to answer them all in one message. The model may leave a message it
+ *   did not answer open (`leftOpen`, by the ref the prompt gives it) and say which message a
+ *   takeaway comes from (`takeaway.ref`: the newest terms win over stale ones). Only refs from the
+ *   supplied burst count. The reply claims each message it covers (the once-only `reply#<id>` slot)
+ *   and posts them as `answersMessageIds`; a message it left open, one that arrived while the model
+ *   was writing, and one past the burst cap stay pending for the next reply or a check-in. A post
+ *   that fails (the chat budget, a closed room) gives its claims back, so nothing is lost to it.
  * - Conversation continuity: a person may keep talking to the agent without tagging it; the server
  *   marks such a message `addressedTeamIds` (core `continuationAddressee`), and it reads here as
  *   addressed to the agent like a mention.
@@ -161,10 +168,26 @@ export const TakeawaySchema = z.object({
 });
 export type Takeaway = z.infer<typeof TakeawaySchema>;
 
+/** A burst message's ref in the prompt (#215): `m1` is the oldest. */
+const RefSchema = z.string().max(8);
+
 export const ChatReplyDecisionSchema = ChatDecisionSchema.extend({
-  takeaway: TakeawaySchema.optional().describe(
-    'Only when the message is worth acting on: a trade offer or interest, a tip about a player, or a taunt about a weak position. You will look into it properly afterwards, with your own tools and numbers, and decide then. Leave it out for plain banter.'
-  )
+  takeaway: TakeawaySchema.extend({
+    ref: RefSchema.optional().describe(
+      'Only when they sent several messages: the ref (like m2) of the earlier message the takeaway comes from. Leave it out for the message you are answering. When they changed an offer, take the newest terms.'
+    )
+  })
+    .optional()
+    .describe(
+      'Only when the message is worth acting on: a trade offer or interest, a tip about a player, or a taunt about a weak position. You will look into it properly afterwards, with your own tools and numbers, and decide then. Leave it out for plain banter.'
+    ),
+  leftOpen: z
+    .array(RefSchema)
+    .max(CHAT_BUDGETS.burst)
+    .optional()
+    .describe(
+      'Only when they sent several messages: the refs (like m1) of earlier messages your message does not answer, e.g. a question you are not ready to answer yet. They stay open for later. Leave it out when your message answers them all.'
+    )
 });
 type ChatReplyDecision = z.infer<typeof ChatReplyDecisionSchema>;
 
@@ -318,17 +341,16 @@ export function conversationTeams(
 
 /**
  * True when `self` already answered `target` (core `answeredBefore`): one of its messages replies
- * to it or to a later message from the same person, or, in a DM, it wrote after it. `messages` is
- * the room's recent messages, newest first (get_chat).
+ * to it or names it in `answersMessageIds`. `messages` is the room's recent messages, newest first
+ * (get_chat).
  */
 export function alreadyAnswered(
-  messages: readonly Pick<ChatMessage, 'id' | 'kind' | 'author' | 'replyToId'>[],
+  messages: readonly Pick<ChatMessage, 'id' | 'kind' | 'author' | 'replyToId' | 'answersMessageIds'>[],
   target: Pick<ChatMessage, 'id'>,
-  self: string,
-  dm: boolean
+  self: string
 ): boolean {
   const at = messages.findIndex((m) => m.id === target.id);
-  return at >= 0 && answeredBefore(messages, at, self, dm);
+  return at >= 0 && answeredBefore(messages, at, self);
 }
 
 /** True when a person's `message` is to `self`: in its DM, @mentioning it, or continuing a talk with it. */
@@ -342,8 +364,9 @@ export function addressedTo(
 }
 
 /**
- * A deferred reply's target and burst (#215): the newest message the person who wrote `from` has
- * since addressed to `self` in the room, and their earlier ones still unanswered, oldest first.
+ * A coalesced reply's target and burst (#215): the newest message the person who wrote `from` has
+ * addressed to `self` in the room since `from` and not had answered (`from` itself when there is
+ * none), and up to `CHAT_BUDGETS.burst` of their earlier ones still unanswered, oldest first.
  * `messages` is newest first.
  */
 export function burstOf(
@@ -353,13 +376,25 @@ export function burstOf(
   dm: boolean
 ): { target: ChatMessage; burst: ChatMessage[] } {
   const person = from.author.teamId;
-  const theirs = messages.filter((m) => m.author.teamId === person && addressedTo(m, self, dm));
-  const target = theirs.find((m) => m.createdAt >= from.createdAt) ?? from;
-  const burst = theirs
-    .filter((m) => m.createdAt < target.createdAt && !answeredBefore(messages, messages.indexOf(m), self, dm))
+  const open = messages.filter(
+    (m, i) => m.author.teamId === person && addressedTo(m, self, dm) && !answeredBefore(messages, i, self)
+  );
+  const target = open.find((m) => m.createdAt >= from.createdAt) ?? from;
+  const burst = open
+    .filter((m) => m.createdAt < target.createdAt)
     .slice(0, CHAT_BUDGETS.burst)
     .reverse();
   return { target, burst };
+}
+
+/** A burst message's ref in the prompt (#215): `m1` is the oldest. */
+export const burstRef = (index: number): string => `m${index + 1}`;
+
+/** The burst message a ref names, or null for a ref the prompt never gave. */
+export function byRef(burst: readonly ChatMessage[], ref: string | undefined): ChatMessage | null {
+  if (ref === undefined) return null;
+  const at = burst.findIndex((_m, i) => burstRef(i) === ref.trim().toLowerCase());
+  return burst[at] ?? null;
 }
 
 export async function prepareChat(
@@ -384,12 +419,12 @@ export async function prepareChat(
   if (targetId !== null && found === null) throw new TaskUnavailableError('message_not_found');
   const self = ctx.principal.teamId;
   const dm = room.kind === 'dm';
-  // A deferred reply answers the newest message of the person's burst, with the rest in view.
+  // A person's reply answers the newest message of their burst still open, with the rest in view.
   const { target, burst } =
     found !== null && options.coalesce === true
       ? burstOf(messages, found, self, dm)
       : { target: found, burst: [] };
-  if (target !== null && alreadyAnswered(messages, target, self, dm))
+  if (target !== null && alreadyAnswered(messages, target, self))
     throw new TaskUnavailableError('already_answered');
   // Answering another agent is a retort: it spends the league's banter budget too.
   if (target?.kind === 'agent') checkBudget(listed.postingBudget, true);
@@ -476,7 +511,12 @@ export const HOW_TO_TALK = [
 /** How long one message's reply slot is held against other tasks (`claimOnce`). */
 export const REPLY_CLAIM_MS = 2 * 24 * 60 * 60_000;
 
-export async function post(ctx: TaskContext, prep: ChatPrep, decision: ChatDecision): Promise<TaskOutcome> {
+export async function post(
+  ctx: TaskContext,
+  prep: ChatPrep,
+  decision: ChatDecision,
+  leftOpen: readonly string[] = []
+): Promise<TaskOutcome> {
   const dm = prep.room.kind === 'dm';
   // In a DM the record keeps a fixed line: the model's summary may repeat what was said.
   const said = (summary: string) => (dm ? { summary, memorySummary: summary } : { summary });
@@ -485,22 +525,25 @@ export async function post(ctx: TaskContext, prep: ChatPrep, decision: ChatDecis
   // One reply per message, whichever path asked (a mention, a check-in's hand-off, #218): two
   // tasks running at once can both pass `alreadyAnswered`, so the slot is claimed right before
   // posting. A retry of the same task owns it and may still post (its post replays by key).
-  if (
-    prep.target !== null &&
-    ctx.claimOnce !== undefined &&
-    !(await ctx.claimOnce(`reply#${prep.target.id}`, REPLY_CLAIM_MS))
-  )
-    throw new TaskUnavailableError('already_answered');
-  // One reply covers a burst (#215): its earlier messages are claimed too, so a later hand-off of
-  // one of them finds it answered. One that another task claimed first stays that task's.
-  for (const m of prep.burst) await ctx.claimOnce?.(`reply#${m.id}`, REPLY_CLAIM_MS);
+  const claim = (m: ChatMessage) => ctx.claimOnce?.(`reply#${m.id}`, REPLY_CLAIM_MS) ?? Promise.resolve(true);
+  if (prep.target !== null && !(await claim(prep.target))) throw new TaskUnavailableError('already_answered');
+  // One reply covers a burst (#215): the earlier messages it answers are claimed too and named in
+  // the post, so a later reply or hand-off finds them answered. One the model left open, or that
+  // another task claimed first, is not this reply's.
+  const open = new Set(leftOpen.map((ref) => byRef(prep.burst, ref)?.id));
+  const covers: string[] = [];
+  for (const m of prep.burst) if (!open.has(m.id) && (await claim(m))) covers.push(m.id);
   const result = await ctx.tools.call('post_message', {
     roomId: prep.room.roomId,
     text,
     // A reply says what it answers: an answer to an agent is a retort the server counts and stops.
-    ...(prep.target === null ? {} : { replyToId: prep.target.id })
+    ...(prep.target === null ? {} : { replyToId: prep.target.id }),
+    ...(prep.target === null || covers.length === 0 ? {} : { answersMessageIds: covers })
   });
   if ('error' in result) {
+    // Never posted: the messages stay pending for the next reply or a check-in's hand-off.
+    for (const id of [...(prep.target === null ? [] : [prep.target.id]), ...covers])
+      await ctx.releaseOnce?.(`reply#${id}`);
     return {
       action: 'post_message_failed',
       ...said(`${dm ? DM_SUMMARY : decision.summary} post_message failed: ${result.error.code}`)
@@ -591,9 +634,9 @@ export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, 
       prep.burst.length === 0
         ? null
         : [
-            'Their earlier messages to you, not answered yet, oldest first. Answer them together with the newest, in this one message: a question there still needs its answer.',
+            'Their earlier messages to you, not answered yet, oldest first, each with its ref. Answer them together with the newest, in this one message: a question there still needs its answer. If they changed an offer, the newest terms count. A message you really cannot answer now goes in `leftOpen` by its ref, and stays open for later.',
             '<<<',
-            ...prep.burst.map(line),
+            ...prep.burst.map((m, i) => `(${burstRef(i)}) ${line(m)}`),
             '>>>'
           ].join('\n'),
       `The message you are answering: <<<${quote(target.text)}>>>`,
@@ -604,8 +647,10 @@ export const chatReplyTask = defineTaskKind<z.infer<typeof ReplyPayloadSchema>, 
       .join('\n\n');
   },
   async apply(ctx, _payload, prep, decision) {
-    const outcome = await post(ctx, prep, decision);
-    const followUps = await chatFollowUps(ctx, prep, decision.takeaway);
+    const outcome = await post(ctx, prep, decision, decision.leftOpen);
+    // A takeaway comes from the message it names (a ref the prompt gave), or the one answered.
+    const source = byRef(prep.burst, decision.takeaway?.ref) ?? prep.target;
+    const followUps = await chatFollowUps(ctx, { room: prep.room, target: source }, decision.takeaway);
     return followUps.length === 0 ? outcome : { ...outcome, followUps };
   },
   fallback: quiet,

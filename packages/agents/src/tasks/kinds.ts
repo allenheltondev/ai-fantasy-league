@@ -84,6 +84,11 @@ export interface TaskContext {
    * `windowMs` has passed (#218: one reply per message, whichever path triggered it).
    */
   claimOnce?(name: string, windowMs: number): Promise<boolean>;
+  /**
+   * Gives back this task's once-only slot `name` (#215: a reply that was never posted leaves the
+   * message pending for another task). A slot another task owns is left alone.
+   */
+  releaseOnce?(name: string): Promise<void>;
   taskId: string;
   principal: AgentPrincipal;
   league: League;

@@ -259,7 +259,13 @@ export async function lookOpportunities(
     return {
       act: null,
       answer: chosen,
-      followUps: [{ kind: 'chat_reply', payload: { messageId: chosen.replyToId, roomId: chosen.roomId } }]
+      // Coalesced (#215): the reply answers the person's newest pending message, the rest in view.
+      followUps: [
+        {
+          kind: 'chat_reply',
+          payload: { messageId: chosen.replyToId, roomId: chosen.roomId, coalesce: true }
+        }
+      ]
     };
   }
   return {
