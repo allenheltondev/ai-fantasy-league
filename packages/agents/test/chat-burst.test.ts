@@ -180,21 +180,38 @@ describe('a burst of messages inside the reply cooldown', () => {
     expect((await s.replies(DM)).map((m) => m.replyToId)).toEqual([inDm.message.id]);
   });
 
-  it('gives up on deferring, as a cooldown, when other deferrals keep taking the chat slot first', async () => {
+  it('frees the burst for the next message when every deferral loses the chat slot', async () => {
     const s = await burstSetup();
     const opening = await s.say('@Team 2 you up?', { mention: true });
     await s.route(opening.event);
+    await s.run(s.published()[0] as AgentActionRequested);
     const agents = s.services.repos.agents;
+    const reserve = agents.reserveDispatch.bind(agents);
     let reservations = 0;
     agents.reserveDispatch = async () => {
       reservations++;
       return { status: 'gated' };
     };
     s.clock.advance(10_000);
-    const next = await s.say('Well?', { continued: true });
-    expect(await s.route(next.event)).toMatchObject([{ decision: 'cooldown' }]);
-    // The immediate try, then every deferral attempt.
+    const lost = await s.say('Well?', { continued: true });
+    expect(await s.route(lost.event)).toMatchObject([{ decision: 'cooldown' }]);
+    // The immediate try, then every deferral attempt; nothing was scheduled.
     expect(reservations).toBe(1 + CHAT_BURST.attempts);
+    expect(s.scheduled()).toEqual([]);
+
+    // The contention clears: the person's next message is not coalesced into a reply that never
+    // existed. It gets its own deferred reply, which answers it with the lost one in view.
+    agents.reserveDispatch = reserve;
+    s.clock.advance(10_000);
+    const next = await s.say('Anyone home?', { continued: true });
+    expect(await s.route(next.event)).toMatchObject([
+      { decision: 'requested', delayMs: COOLDOWN_MS - 20_000 }
+    ]);
+    const schedule = s.scheduled()[0];
+    s.clock.set(new Date(schedule?.at as string));
+    await s.run(AgentActionRequestedSchema.parse(schedule?.event.detail));
+    expect((await s.replies()).map((m) => m.replyToId)).toEqual([next.message.id, opening.message.id]);
+    expect(s.model.transcript.at(-1)?.systemPrompt).toContain("Allen (Allen's Team): Well?");
   });
 
   it('leaves agent banter to its own cooldown: a retort inside it is still dropped', async () => {

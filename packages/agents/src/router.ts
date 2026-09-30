@@ -830,7 +830,8 @@ export function burstTaskId(eventId: string, teamId: string, kind: string): stri
 /**
  * Defers a person's message the reply cooldown turned away (see the module comment): one reply
  * per agent, room, and author, when the chat slot next frees. The pointer is taken with the
- * reply's run time, so it opens again only once that time has passed; the reply's reservation takes
+ * reply's run time, so it opens again only once that time has passed (or at once when every
+ * reservation attempt lost the chat slot: a held pointer always has a reply behind it); the reply's reservation takes
  * the chat slot at that time (its gate opens only then), so a later message, from anyone, waits a
  * cooldown after it.
  */
@@ -875,6 +876,9 @@ async function deferReply(
     });
     if (outcome.status !== 'gated') return dispatched(base, taskId, outcome);
   }
+  // Never hold the pointer without a reply behind it: the person's next message must not join a
+  // reply that was never scheduled. That reply still sees this one (its burst lists it).
+  await agents.releaseTrigger(base.leagueId, pointer, taskId);
   return { ...base, decision: 'cooldown' };
 }
 
