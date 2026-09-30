@@ -258,7 +258,17 @@ export const EVENT_DETAIL_SCHEMAS = {
     messageId: id,
     authorTeamId: z.string().nullable(),
     authorType: z.enum(CHAT_MESSAGE_KINDS),
-    mentionedTeamIds: z.array(id),
+    mentionedTeamIds: z
+      .array(id)
+      .describe(
+        'The teams addressed: the @mentioned ones; in a DM, the other team; for a message continuing a conversation, the AI manager it continues with (`addressedBy`).'
+      ),
+    addressedBy: z
+      .enum(['mention', 'dm', 'continuation'])
+      .optional()
+      .describe(
+        'How the message addresses them: @mentions, a DM (always the other team), or a person continuing a conversation with an AI manager without tagging it (core `continuationAddressee`).'
+      ),
     replyToAgentDepth: z
       .number()
       .int()

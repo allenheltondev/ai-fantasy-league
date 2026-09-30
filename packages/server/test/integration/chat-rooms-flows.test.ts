@@ -289,13 +289,18 @@ for (const backend of ['memory', 'dynamo'] as const) {
           authorTeamId: 'team-2',
           authorType: 'user',
           mentionedTeamIds: ['team-3'],
+          addressedBy: 'dm',
           replyToAgentDepth: 0
         },
         expect.objectContaining({
           messageId: data<{ message: ChatMessage }>(plain).message.id,
-          mentionedTeamIds: ['team-3']
+          mentionedTeamIds: ['team-3'],
+          addressedBy: 'dm'
         })
       ]);
+      // A DM needs no inferred addressee: the message's own fields stay as written.
+      expect(data<{ message: ChatMessage }>(plain).message).toMatchObject({ mentionedTeamIds: [] });
+      expect(data<{ message: ChatMessage }>(plain).message.addressedTeamIds).toBeUndefined();
 
       // Third member, commissioner, and another team's agent: FORBIDDEN on every chat operation.
       for (const person of [CAROL, ALICE]) {

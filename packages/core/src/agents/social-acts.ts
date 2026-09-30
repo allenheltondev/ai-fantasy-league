@@ -9,6 +9,7 @@ import {
   type MemoryVisibility,
   type SealCheck
 } from './memory.js';
+import { answeredBefore } from '../chat/continuation.js';
 import { relationshipWith } from './relationships.js';
 import { checkInChatChance, socialRoll } from './social.js';
 
@@ -202,6 +203,8 @@ export interface QuestionMessage {
   author: { teamId: string | null; name: string };
   text: string;
   mentionedTeamIds: readonly string[];
+  /** The agent a person was going back and forth with, when the message named nobody. */
+  addressedTeamIds?: readonly string[] | undefined;
   replyToId?: string | null | undefined;
   createdAt: string;
 }
@@ -217,10 +220,11 @@ export interface PendingQuestion {
 
 /**
  * A person's questions to this agent in one room that it has not answered: a message from a person
- * (not an agent, not the league) in its DM, or one that @mentions its team, with a question mark,
- * asked within `questionWindowMs` and at least `questionGraceMs` ago (the router's own reply goes
- * first). Answered means a reply of its own to that message, or, in a DM, any message of its own
- * since.
+ * (not an agent, not the league) in its DM, or one that @mentions its team or continues a
+ * conversation with it (`addressedTeamIds`), with a question mark, asked within `questionWindowMs`
+ * and at least `questionGraceMs` ago (the router's own reply goes first). Answered is core
+ * `answeredBefore`: a reply of its own to that message or to a later one from the same person (one
+ * reply covers a burst), or, in a DM, any message of its own since.
  */
 export function pendingQuestions(
   newestFirst: readonly QuestionMessage[],
@@ -235,15 +239,12 @@ export function pendingQuestions(
       m.kind !== 'user' ||
       m.author.teamId === self ||
       !m.text.includes('?') ||
-      !(room.dm || m.mentionedTeamIds.includes(self)) ||
+      !(room.dm || m.mentionedTeamIds.includes(self) || (m.addressedTeamIds ?? []).includes(self)) ||
       age < SOCIAL_ACT_LIMITS.questionGraceMs ||
       age > SOCIAL_ACT_LIMITS.questionWindowMs
     )
       return [];
-    const answered = newestFirst.some(
-      (r, j) => r.kind === 'agent' && r.author.teamId === self && (r.replyToId === m.id || (room.dm && j < i))
-    );
-    return answered
+    return answeredBefore(newestFirst, i, self, room.dm)
       ? []
       : [
           {

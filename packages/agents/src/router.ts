@@ -122,6 +122,15 @@ import type { TaskKindRegistry } from './tasks/kinds.js';
  * so it never spends the reply cooldown a person's mention needs. The daily chat budgets apply on
  * top (the chat task checks them). So two agents can never talk each other into an endless thread.
  *
+ * Bursts (#215): a person's message to an agent (a mention, a DM, or an untagged follow-up that
+ * continues a conversation, `addressedBy: continuation`) that the reply cooldown turns away is not
+ * dropped. One reply is deferred to when the cooldown ends (`deferReply`): scheduled through the
+ * outbox, it takes the agent's chat slot at that time, so replies stay paced and never run side by
+ * side, and a pointer per agent, room, and person (`CHAT_BURST`) holds until it runs, so the rest of
+ * the burst joins it (`coalesced`) instead of scheduling more. It answers the person's newest
+ * message with the burst in view (tasks/chat.ts, `coalesce`). Another room or person gets a reply of
+ * its own, one cooldown later, so a DM is never lost to a public room or the other way round.
+ *
  * Durable dispatch (#207): every gate is an atomic conditional write owned by what passed it
  * (`admitTrigger`): a `oncePer` key and a league cooldown by the event, an agent's cooldown slot by
  * the task. Racing events cannot both pass one gate, and a redelivered event passes its own gates
@@ -140,6 +149,11 @@ export interface TriggerRule<T extends FantasyEventType = FantasyEventType> {
   urgent: boolean;
   /** Its own cooldown instead of the difficulty's (chat); may depend on the event (banter). */
   cooldown?: ChatCooldown | ((detail: RuleDetail<T>) => ChatCooldown);
+  /**
+   * True when a task the agent's cooldown turns away is deferred to the cooldown's end instead,
+   * one per agent, room, and author (`deferReply`): a person's message to an agent.
+   */
+  coalesce?(detail: RuleDetail<T>): boolean;
   /**
    * A per-team gate checked before cooldowns (banter): null lets the team through, otherwise the
    * decision to log instead of a task.
@@ -229,6 +243,13 @@ export const CHAT_COOLDOWNS = {
    */
   rebuttal: { scope: 'banter', agentMinutes: 0 }
 } as const satisfies Record<string, ChatCooldown>;
+
+/**
+ * Deferred replies to bursts (#215): the pointer slot per agent, room, and author that holds while
+ * a deferred reply waits, and how often a reservation is retried when another deferral moved the
+ * chat slot first.
+ */
+export const CHAT_BURST = { scope: 'chat-burst', attempts: 3 } as const;
 
 /**
  * Pacing of the post-draft kickoff (#175): the first agent goes a minute after the draft ends
@@ -531,6 +552,8 @@ export const TRIGGER_RULES: RuleMap = {
             agents
           ),
     admit: admitBanter,
+    // A person's message waits out the reply cooldown instead of being dropped; banter does not.
+    coalesce: (d) => !agentMention(d),
     payload: (d) => ({ messageId: d.messageId, roomId: d.roomId })
   },
   'Chat Moment': {
@@ -631,7 +654,8 @@ export type RouteDecision =
   | {
       teamId: string;
       leagueId: string;
-      decision: 'no_handler' | 'cooldown' | 'repeat' | GateDecision;
+      /** `coalesced`: a deferred reply to the same person in the same room is already waiting. */
+      decision: 'no_handler' | 'cooldown' | 'repeat' | 'coalesced' | GateDecision;
       kind: string;
     };
 
@@ -730,10 +754,14 @@ async function routeRule(
         continue;
       }
       const taskId = taskIdFor(event.id, teamId, rule.kind);
-      // A redelivery: the task was admitted and reserved before; send it if it never went out.
-      const earlier = await agents.getDispatch(taskId);
+      const coalesce = rule.coalesce?.(detail) === true;
+      // A redelivery: the task (or its deferred reply) was admitted and reserved before; send it
+      // if it never went out.
+      const earlier =
+        (await agents.getDispatch(taskId)) ??
+        (coalesce ? await agents.getDispatch(burstTaskId(event.id, teamId, rule.kind)) : null);
       if (earlier !== null) {
-        decisions.push(dispatched(base, taskId, await resend(services, earlier)));
+        decisions.push(dispatched(base, earlier.taskId, await resend(services, earlier)));
         continue;
       }
       const seat = seats.find((s) => s.teamId === teamId) as AgentSeatRecord;
@@ -783,15 +811,71 @@ async function routeRule(
         ...(delayMs > 0 ? { delayMs } : {}),
         gate: cooldownGate(rule, seat, levers, taskId, now)
       });
-      decisions.push(
-        outcome.status === 'gated' ? { ...base, decision: 'cooldown' } : dispatched(base, taskId, outcome)
-      );
+      if (outcome.status !== 'gated') decisions.push(dispatched(base, taskId, outcome));
+      else if (!coalesce) decisions.push({ ...base, decision: 'cooldown' });
+      else decisions.push(await deferReply(services, { base, request, seat, rule, detail, now }));
     }
   }
   for (const d of decisions) log.info('agent trigger decision', { ...d, urgent: rule.urgent });
   if (decisions.length === 0)
     log.info('agent trigger decision', { decision: 'no_agent_teams', kind: rule.kind });
   return decisions;
+}
+
+/** The deferred reply's task id for (event, team, kind): one per event, so a redelivery finds it. */
+export function burstTaskId(eventId: string, teamId: string, kind: string): string {
+  return taskIdFor(`${eventId}#burst`, teamId, kind);
+}
+
+/**
+ * Defers a person's message the reply cooldown turned away (see the module comment): one reply
+ * per agent, room, and author, when the chat slot next frees. The pointer is taken with the
+ * reply's run time, so it opens again only once that time has passed; the reply's reservation takes
+ * the chat slot at that time (its gate opens only then), so a later message, from anyone, waits a
+ * cooldown after it.
+ */
+async function deferReply(
+  services: Services,
+  input: {
+    base: { teamId: string; leagueId: string; kind: string };
+    request: AgentActionRequested;
+    seat: AgentSeatRecord;
+    rule: ResolvedRule;
+    detail: RuleDetail<FantasyEventType>;
+    now: Date;
+  }
+): Promise<RouteDecision> {
+  const { base, request, seat, rule, now } = input;
+  const detail = input.detail as RuleDetail<'Chat Mention'>;
+  const { agents } = services.repos;
+  const windowMs = (rule.cooldown?.agentMinutes ?? 0) * 60_000;
+  const taskId = burstTaskId(request.trigger.eventId, base.teamId, base.kind);
+  const deferred: AgentActionRequested = {
+    ...request,
+    taskId,
+    payload: { ...request.payload, coalesce: true }
+  };
+  const slot = cooldownSlot(seat.agentId, rule);
+  const pointer = `${seat.agentId}#${CHAT_BURST.scope}#${str(detail.roomId) ?? ''}#${str(detail.authorTeamId) ?? ''}`;
+  for (let attempt = 0; attempt < CHAT_BURST.attempts; attempt++) {
+    const state = await agents.getTriggerState(base.leagueId, slot);
+    const last = state === null ? 0 : Date.parse(state.lastTriggeredAt);
+    const at = Math.max(now.getTime(), last + windowMs);
+    // Open when no reply waits for this person here (or the one that did has had its time).
+    const own = await agents.admitTrigger(base.leagueId, {
+      slot: pointer,
+      owner: taskId,
+      now: new Date(at),
+      windowMs: Math.max(1, at - now.getTime())
+    });
+    if (!own) return { ...base, decision: 'coalesced' };
+    const outcome = await dispatchTask(services, deferred, {
+      delayMs: at - now.getTime(),
+      gate: { slot, owner: taskId, now: new Date(at), windowMs }
+    });
+    if (outcome.status !== 'gated') return dispatched(base, taskId, outcome);
+  }
+  return { ...base, decision: 'cooldown' };
 }
 
 /** Resends an earlier reservation that never went out; reports one that did. */

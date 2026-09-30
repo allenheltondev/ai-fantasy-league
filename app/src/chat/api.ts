@@ -53,6 +53,8 @@ export interface ChatMessage {
   author: { teamId: string | null; teamName: string | null; name: string; avatarSeed?: string };
   text: string;
   mentionedTeamIds: string[];
+  /** The AI manager an untagged message continues a conversation with; absent otherwise. */
+  addressedTeamIds?: string[];
   event: { detailType: string; eventId: string } | null;
   /** System messages: the players the event names, shown as cards. */
   players?: ChatPlayer[];
