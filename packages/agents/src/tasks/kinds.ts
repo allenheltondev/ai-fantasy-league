@@ -1,5 +1,6 @@
 import type {
   AgentAgenda,
+  AgentLeagueMemory,
   Clock,
   MemoryAudience,
   MemoryEvent,
@@ -11,6 +12,7 @@ import type { AgentPrincipal, AgentSeatRecord, AgentTaskSeal, League, Logger } f
 import { z } from 'zod';
 import type { CommitmentAccess } from '../commitments.js';
 import type { FakeScript } from '../fake-model.js';
+import type { SocialActAccess } from '../social-acts.js';
 import type { ChatMemoryScope } from '../memory.js';
 import { MEMORY_NOTE_MAX } from '../prompt.js';
 import type { ToolBox } from '../tools.js';
@@ -61,6 +63,24 @@ export interface TaskContext {
   attachments?: PlayerAttachments;
   /** The agent's durable commitments (#215): operational state, never shown to a model. */
   commitments?: CommitmentAccess;
+  /** The social acts it chose (#218): operational state, never shown to a model. */
+  socialActs?: SocialActAccess;
+  /**
+   * The agent's league memory as `audience` may hear it (#206), records only: no chat snapshots or
+   * relationship notes (#218's grounded acts rest on what it can prove).
+   */
+  recall?(audience: MemoryAudience): Promise<AgentLeagueMemory>;
+  /**
+   * Takes one use of a league-wide rolling-window limit `name`, atomically (#218: one agent speaks
+   * about one event in one room). False when used up.
+   */
+  claimShared?(name: string, cap: number, windowMs: number): Promise<boolean>;
+  /**
+   * Takes this agent's once-only slot `name` for this task, atomically: true for the first task
+   * that asks and for any retry of that same task (the owner), false for every other task until
+   * `windowMs` has passed (#218: one reply per message, whichever path triggered it).
+   */
+  claimOnce?(name: string, windowMs: number): Promise<boolean>;
   taskId: string;
   principal: AgentPrincipal;
   league: League;

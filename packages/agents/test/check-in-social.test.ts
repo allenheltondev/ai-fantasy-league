@@ -241,7 +241,11 @@ describe('check-in: a board post', () => {
   it('stays quiet when the dice say so, with no news, or with the chat budget spent', async () => {
     const quiet = await league(QUIET);
     const record = await run(quiet, checkIn(rolled(QUIET, [])));
-    expect(record.toolsCalled.map((c) => c.name)).not.toContain('list_chat_rooms');
+    // It only lists the rooms, for a person's question waiting on it (#218): no news, no chat read.
+    const names = record.toolsCalled.map((c) => c.name);
+    expect(names).toContain('list_chat_rooms');
+    expect(names).not.toContain('get_chat_context');
+    expect(names).not.toContain('get_chat');
 
     const noNews = await setup();
     await noNews.seat(AGENT_TEAM, LOUD);

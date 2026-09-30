@@ -42,6 +42,7 @@ import { refreshAgenda } from './agenda.js';
 import { effectiveBehavior, readSituation } from './situation.js';
 import { ATTACHMENT_KINDS, refreshAttachments } from './attachments.js';
 import { commitmentAccess } from './commitments.js';
+import { socialActAccess } from './social-acts.js';
 import type { ScriptedRequestExtras } from './fake-model.js';
 import type { KillSwitch } from './kill-switch.js';
 import {
@@ -282,6 +283,7 @@ export async function runAgentAction(
 
   const principal = agentPrincipal({ agentId: seat.agentId, teamId: seat.teamId, leagueId: league.id });
   const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
+  const memoryStore = deps.memory ?? tableMemoryStore(agents);
   const prefix = keyPrefix(request.taskId);
   const beforeMutation = () => agents.recordTaskEffect(fence);
   const system = new ToolBox({
@@ -294,6 +296,12 @@ export async function runAgentAction(
     beforeMutation
   });
   attempt.toolboxes.push(system);
+  const leagueId = league.id;
+  const claimUse = async (key: string, name: string, cap: number, windowMs: number): Promise<boolean> => {
+    const result = await agents.claimLimit({ leagueId, key, now: clock.now(), windowMs, cap });
+    if (result === 'contended') log.warn('agent limit contended; treated as used up', { limit: name });
+    return result === 'claimed';
+  };
   const ctx: TaskContext = {
     taskId: request.taskId,
     principal,
@@ -305,17 +313,21 @@ export async function runAgentAction(
     log,
     trigger: { detailType: request.trigger.detailType, eventId: request.trigger.eventId },
     commitments: commitmentAccess(services, league.id, seat.agentId, seat.teamId),
-    claimLimit: async (name, cap, windowMs) => {
-      const result = await agents.claimLimit({
-        leagueId: league.id,
-        key: `${seat.agentId}#${name}`,
+    socialActs: socialActAccess(services, league.id, seat.agentId, seat.teamId),
+    recall: async (audience) => {
+      const memory = await memoryStore.load(league.id, seat.agentId);
+      const sealed = await sealChecker(services, league.id, memory);
+      return memoryForAudience(memoryForPrompt(memory, 'decision'), audience, sealed).memory;
+    },
+    claimLimit: (name, cap, windowMs) => claimUse(`${seat.agentId}#${name}`, name, cap, windowMs),
+    claimShared: (name, cap, windowMs) => claimUse(`league#${name}`, name, cap, windowMs),
+    claimOnce: (name, windowMs) =>
+      agents.admitTrigger(leagueId, {
+        slot: `${seat.agentId}#once#${name}`,
+        owner: request.taskId,
         now: clock.now(),
-        windowMs,
-        cap
-      });
-      if (result === 'contended') log.warn('agent limit contended; treated as used up', { limit: name });
-      return result === 'claimed';
-    }
+        windowMs
+      })
   };
 
   // One read of the stakes feeds both the deterministic levers and the prompt (#217).
@@ -373,7 +385,6 @@ export async function runAgentAction(
     });
   }
 
-  const memoryStore = deps.memory ?? tableMemoryStore(agents);
   const audience = prepared.memoryAudience ?? defaultAudience(kind.modelRole, prepared.memoryScope);
   attempt.remember = async (outcome: TaskOutcome, note?: string) => {
     // Only a new authoritative snapshot can finish a goal; pending offers/claims do not.
@@ -558,6 +569,9 @@ export async function runAgentAction(
       outcome = sealHeard(await prepared.apply(decision));
     } catch (error) {
       if (attempt.fenced) return attempt.discard(attempt.failedResult('apply', error, null, usage));
+      // A no-op found only at apply time (another task answered first): skipped, nothing acted.
+      if (error instanceof TaskUnavailableError && attempt.actionsTaken === 0)
+        return attempt.finish({ ...skipped(error.message), toolsCalled: attempt.calls(), usage });
       // After an action, or on a failure that may pass: retry, and reconcile then. Otherwise the
       // decision itself is unusable, and the deterministic fallback decides instead.
       if (attempt.actionsTaken > 0 || failureClass(error) === 'retryable') {

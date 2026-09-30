@@ -411,12 +411,24 @@ export const HOW_TO_TALK = [
   'You have read-only league tools (standings, rosters, matchups, scoring logs, players, transactions, history, draft grades) to dig up ammunition; use them when the facts above are not enough. Your message is posted for you. Chat itself never changes a roster or a trade: a real move needs a proper look first, by your own numbers.'
 ].join('\n');
 
+/** How long one message's reply slot is held against other tasks (`claimOnce`). */
+export const REPLY_CLAIM_MS = 2 * 24 * 60 * 60_000;
+
 export async function post(ctx: TaskContext, prep: ChatPrep, decision: ChatDecision): Promise<TaskOutcome> {
   const dm = prep.room.kind === 'dm';
   // In a DM the record keeps a fixed line: the model's summary may repeat what was said.
   const said = (summary: string) => (dm ? { summary, memorySummary: summary } : { summary });
   const text = decision.message.trim();
   if (text.length === 0) return { action: 'none', ...said(dm ? DM_SUMMARY : decision.summary) };
+  // One reply per message, whichever path asked (a mention, a check-in's hand-off, #218): two
+  // tasks running at once can both pass `alreadyAnswered`, so the slot is claimed right before
+  // posting. A retry of the same task owns it and may still post (its post replays by key).
+  if (
+    prep.target !== null &&
+    ctx.claimOnce !== undefined &&
+    !(await ctx.claimOnce(`reply#${prep.target.id}`, REPLY_CLAIM_MS))
+  )
+    throw new TaskUnavailableError('already_answered');
   const result = await ctx.tools.call('post_message', {
     roomId: prep.room.roomId,
     text,

@@ -5,10 +5,12 @@ import {
   emptyAttachments,
   emptyCommitments,
   emptyMemory,
+  emptySocialActs,
   observePerformance,
   openTradeInterest,
   reconcileAgenda,
   recordAcquisition,
+  recordSocialAct,
   rememberEvent
 } from '@fantasy/core';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
@@ -226,6 +228,48 @@ describe.each(backends)('%s agent repository', (_name, make) => {
     expect(await agents.getCommitments(unique('other'), 'a', tenure)).toEqual(emptyCommitments());
     expect(await agents.getAgenda(leagueId, 'a', tenure)).toEqual(emptyAgenda());
     expect(await agents.getMemory(leagueId, 'a')).toEqual(emptyMemory());
+  });
+
+  it('persists social acts per league, agent and occupant, apart from the other agent state', async () => {
+    const { agents } = make();
+    const leagueId = unique('social');
+    const tenure = T0.toISOString();
+    const act = {
+      id: 'task-1',
+      taskId: 'task-1',
+      act: 'callback' as const,
+      reason: 'rematch',
+      topic: 'callback:team-3:result:w2',
+      eventKey: 'callback:w5:team-2|team-3',
+      roomId: 'trash-talk',
+      counterpartTeamId: 'team-3',
+      evidence: ['result:w2', 'matchup:w5'],
+      commitmentId: null,
+      at: tenure,
+      outcome: 'posted' as const,
+      detail: null
+    };
+    expect(await agents.getSocialActs(leagueId, 'a', tenure)).toEqual(emptySocialActs());
+    const first = await agents.updateSocialActs(leagueId, 'a', tenure, (book) => recordSocialAct(book, act));
+    expect(await agents.getSocialActs(leagueId, 'a', tenure)).toEqual(first);
+    first.acts[0]!.outcome = 'withheld';
+    expect((await agents.getSocialActs(leagueId, 'a', tenure)).acts[0]?.outcome).toBe('posted');
+    expect(await agents.getSocialActs(leagueId, 'b', tenure)).toEqual(emptySocialActs());
+    expect(await agents.getSocialActs(leagueId, 'a', 'new-occupant')).toEqual(emptySocialActs());
+    expect(await agents.getCommitments(leagueId, 'a', tenure)).toEqual(emptyCommitments());
+    // Racing writers both land: the revision check retries the loser on the newer book.
+    await Promise.all(
+      ['task-2', 'task-3'].map((id) =>
+        agents.updateSocialActs(leagueId, 'a', tenure, (book) =>
+          recordSocialAct(book, { ...act, id, taskId: id })
+        )
+      )
+    );
+    expect((await agents.getSocialActs(leagueId, 'a', tenure)).acts.map((a) => a.id).sort()).toEqual([
+      'task-1',
+      'task-2',
+      'task-3'
+    ]);
   });
 
   it('lists only finished tasks, and no seat history for a team never seated', async () => {
@@ -668,7 +712,7 @@ describe.each(backends)('%s agent repository', (_name, make) => {
   });
 });
 
-describe('DynamoDB versioned agent rows (agenda, attachments, commitments)', () => {
+describe('DynamoDB versioned agent rows (agenda, attachments, commitments, social acts)', () => {
   const failPuts = (error: Error, times: number) => {
     const send = table.doc.send.bind(table.doc);
     let left = times;
@@ -692,6 +736,10 @@ describe('DynamoDB versioned agent rows (agenda, attachments, commitments)', () 
     spy = failPuts(conflict(), 3);
     await expect(agents.updateCommitments(leagueId, 'a', tenure, (book) => book)).rejects.toThrow('conflict');
     expect(puts(spy)).toBe(3);
+    spy.mockRestore();
+    spy = failPuts(conflict(), 1);
+    await agents.updateSocialActs(leagueId, 'a', tenure, (book) => book);
+    expect(puts(spy)).toBe(2);
     spy.mockRestore();
     spy = failPuts(new Error('throttled'), 1);
     await expect(agents.updateAgenda(leagueId, 'a', tenure, (agenda) => agenda)).rejects.toThrow('throttled');

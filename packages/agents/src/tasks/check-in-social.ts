@@ -12,11 +12,19 @@ import {
   socialRoll,
   type DmVerdict
 } from '@fantasy/core';
-import { ChatContextPackSchema, ChatMessageSchema, ChatRoomSchema, type Envelope } from '@fantasy/server';
+import { ChatContextPackSchema, ChatMessageSchema, type Envelope } from '@fantasy/server';
 import { z } from 'zod';
 import type { ActionStep, CheckInAction, CheckInLook, CheckInPrep, CheckInProbe, Run } from './check-in.js';
-import type { TaskContext } from './kinds.js';
+import type { TaskContext, TaskFollowUp } from './kinds.js';
 import { quote } from './quote.js';
+import {
+  ListedRoomsSchema,
+  actInstructions,
+  fakeActAction,
+  lookOpportunities,
+  socialActStep,
+  type ChosenAct
+} from './social-acts.js';
 import { namingFor, namingSection, scriptedName, type NamingPrep } from './team-identity.js';
 
 /**
@@ -41,6 +49,11 @@ import { namingFor, namingSection, scriptedName, type NamingPrep } from './team-
  *   the terms. At most one agent-started thread per team per day, and none while the last DM went
  *   unanswered, unless an offer between them changed status (core `dmVerdict`).
  *
+ * - Grounded social acts (#218, social-acts.ts): first, a person's question still waiting on the
+ *   agent is handed to `chat_reply` (and the check-in adds no ambient talk); otherwise, on a board
+ *   turn, one act the selector chose from verified, audience-safe facts (a callback, congratulations,
+ *   an admission, a reaction) takes the board post's place (`social_act`).
+ *
  * Every post respects the daily chat budgets (checked here and enforced by post_message), and the
  * agent never posts twice in a row in a room until someone else has spoken (`lastWordIsMine`).
  */
@@ -62,12 +75,26 @@ export interface SocialLook {
   /** Matchup talk, or null. */
   matchup: { roomId: string; opponent: { teamId: string; name: string }; angles: string[] } | null;
   dms: DmGoal[];
+  /** A grounded act for the model to word (#218), in the board post's place; or null. */
+  act: ChosenAct | null;
+  /** A person's question handed to `chat_reply` (#218): nothing ambient goes out alongside it. */
+  answer: { roomId: string; counterpartTeamId: string | null } | null;
+  /** The reply to that question. */
+  followUps: TaskFollowUp[];
 }
 
-export const NO_SOCIAL: SocialLook = { naming: null, board: null, matchup: null, dms: [] };
+export const NO_SOCIAL: SocialLook = {
+  naming: null,
+  board: null,
+  matchup: null,
+  dms: [],
+  act: null,
+  answer: null,
+  followUps: []
+};
 
 const RoomsSchema = z.object({
-  rooms: z.array(ChatRoomSchema.loose()),
+  rooms: ListedRoomsSchema,
   postingBudget: z.object({ agentRemaining: z.number(), leagueRemaining: z.number() }).nullable()
 });
 const ChatSchema = z.object({ messages: z.array(ChatMessageSchema) });
@@ -244,8 +271,9 @@ async function dmCheck(ctx: TaskContext, g: DmGoal): Promise<DmVerdict> {
 }
 
 /**
- * The social look, rolls first so a quiet check-in costs nothing: the naming step when the router
- * asked for one, then the chat budget, then each kind of post its roll allows.
+ * The social look: the naming step when the router asked for one, then the rooms (a person's
+ * question waiting on the agent is looked for at every check-in, #218), then the chat budget, then
+ * each kind of post its roll allows; a quiet roll reads nothing more.
  */
 export async function lookSocial(
   ctx: TaskContext,
@@ -264,12 +292,21 @@ export async function lookSocial(
     ...NO_SOCIAL,
     naming: naming === undefined ? null : await namingFor(ctx, naming)
   };
-  if (!rolls.board && !rolls.matchup && !rolls.dm) return social;
   const listed = data(await ctx.tools.call('list_chat_rooms', {}), RoomsSchema);
-  const budget = listed?.postingBudget;
-  if (listed === null || (budget != null && (budget.agentRemaining <= 0 || budget.leagueRemaining <= 0)))
-    return social;
-  if (rolls.board) {
+  if (listed === null) return social;
+  const budget = listed.postingBudget;
+  const postsLeft = budget === null ? null : Math.min(budget.agentRemaining, budget.leagueRemaining);
+  const opportunity = await lookOpportunities(ctx, { rooms: listed.rooms, postsLeft, seed: `${seed}:board` });
+  const answer = opportunity.answer;
+  social.act = opportunity.act;
+  social.followUps = opportunity.followUps;
+  social.answer =
+    answer === null ? null : { roomId: answer.roomId, counterpartTeamId: answer.counterpartTeamId };
+  // A person's question comes first: the check-in adds no talk of its own alongside the answer.
+  if (answer !== null || (!rolls.board && !rolls.matchup && !rolls.dm)) return social;
+  if (postsLeft !== null && postsLeft <= 0) return social;
+  // A grounded act takes the board post's place (it came from the same roll).
+  if (rolls.board && social.act === null) {
     const news = await leagueNews(ctx);
     if (news.length > 0) social.board = { news };
   }
@@ -320,7 +357,11 @@ export const SOCIAL_PROBES: readonly CheckInProbe[] = [
   (look) =>
     look.social.dms.length === 0
       ? null
-      : { code: 'dm_goal', line: `Worth a direct message: ${look.social.dms.map(goalLine).join('; ')}.` }
+      : { code: 'dm_goal', line: `Worth a direct message: ${look.social.dms.map(goalLine).join('; ')}.` },
+  (look) =>
+    look.social.act === null
+      ? null
+      : { code: 'social_act', line: `Worth a word: ${quote(look.social.act.pack.purpose, 200)}.` }
 ];
 
 /** The social part of the check-in prompt. */
@@ -357,6 +398,7 @@ export function socialInstructions(ctx: TaskContext, prep: CheckInPrep): string[
         `You may add one \`matchup_post\` action: a \`message\` for your matchup room reacting to this, in your own voice; it tags @${name(social.matchup.opponent.name)}.`
       ].join('\n')
     );
+  if (social.act !== null) parts.push(actInstructions(social.act));
   if (social.dms.length > 0)
     parts.push(
       [
@@ -462,7 +504,8 @@ export const SOCIAL_STEPS: readonly ActionStep[] = [
   { types: ['rename_team'], run: rename },
   { types: ['post_chat'], run: boardPost },
   { types: ['matchup_post'], run: matchupPost },
-  { types: ['send_dm'], run: directMessage }
+  { types: ['send_dm'], run: directMessage },
+  { types: ['social_act'], run: (ctx, prep, actions, run) => socialActStep(ctx, prep.look, actions, run) }
 ];
 
 /** The scripted model's social actions (tests, local dev, the simulator). Its lines are canned. */
@@ -474,6 +517,7 @@ export function fakeSocialActions(ctx: TaskContext, look: CheckInLook): CheckInA
   const picked = social.naming === null ? null : scriptedName(ctx, social.naming);
   if (picked !== null) actions.push({ type: 'rename_team', teamName: picked });
   if (social.board !== null) actions.push({ type: 'post_chat', message: line });
+  if (social.act !== null) actions.push(fakeActAction(social.act));
   if (social.matchup !== null)
     actions.push({ type: 'matchup_post', message: `This one is mine. ${line}`.slice(0, 280) });
   const dm = social.dms[0];
