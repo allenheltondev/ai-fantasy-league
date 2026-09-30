@@ -3,16 +3,8 @@ import type { AppNavItem } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
 import type { Phase } from '../api/types';
 import { countLabel } from '../notifications/types';
+import { draftIsLive, leaguePath, onPage, PAGE_GROUPS, type PageGroup } from '../routes/leagueRoutes';
 import {
-  draftIsLive,
-  LEAGUE_PAGES,
-  leaguePath,
-  TEAM_PAGES,
-  type LeagueTabPath,
-  type TeamPagePath
-} from '../routes/leagueRoutes';
-import {
-  AchievementsIcon,
   ChatIcon,
   CreateIcon,
   DraftIcon,
@@ -23,36 +15,21 @@ import {
   MatchupIcon,
   MovesIcon,
   PlayersIcon,
-  PlayoffsIcon,
-  ProfileIcon,
-  ScoreboardIcon,
   SettingsIcon,
   StandingsIcon,
-  TeamsIcon,
-  TradesIcon,
-  TransactionsIcon
+  TeamsIcon
 } from './navIcons';
 
-const LEAGUE_ICONS: Record<LeagueTabPath, ReactNode> = {
-  scoreboard: <ScoreboardIcon />,
+const GROUP_ICONS: Record<PageGroup['id'], ReactNode> = {
+  matchup: <MatchupIcon />,
+  moves: <MovesIcon />,
   standings: <StandingsIcon />,
-  playoffs: <PlayoffsIcon />,
-  transactions: <TransactionsIcon />,
-  players: <PlayersIcon />
+  players: <PlayersIcon />,
+  teams: <TeamsIcon />
 };
 
 /** How often the nav re-reads chat unread counts (the chat page itself keeps its own live). */
 export const CHAT_UNREAD_POLL_MS = 30_000;
-
-const TEAM_ICONS: Record<TeamPagePath, ReactNode> = {
-  lineup: <LineupIcon />,
-  matchup: <MatchupIcon />,
-  moves: <MovesIcon />,
-  trades: <TradesIcon />,
-  achievements: <AchievementsIcon />,
-  profile: <ProfileIcon />,
-  teams: <TeamsIcon />
-};
 
 /** The league in a path (`/leagues/:id/...`), or null outside one (and on the create wizard). */
 export function leagueIdIn(pathname: string): string | null {
@@ -69,16 +46,18 @@ export function leagueSubpath(pathname: string, leagueId: string): string {
 
 /**
  * The side nav (#178), as `AppNav` items. Outside a league: My Leagues and Create League. In one:
- * My Leagues, then the league (Home, the Draft while it is on, Scoreboard, Standings, Playoffs, Transactions, Players, Chat), then My
- * Team's pages, then Settings, with the trade-offer and chat-unread badges. Only the commissioner
- * can change anything there, so everyone else sees the same page as League info.
+ * My Leagues (where you switch leagues), then the league's items under its name: Home, the Draft
+ * while it is on, Lineup, Matchup, Moves, Standings, Players, Chat, Teams, and Settings. Items that
+ * hold several pages (PAGE_GROUPS) show them as tabs, so the menu stays short on a phone. Only the
+ * commissioner can change anything in Settings, so everyone else sees it as League info.
  */
 export function navItems({
   pathname,
   phase,
   offers,
   unread,
-  commissioner = false
+  commissioner = false,
+  leagueName = null
 }: {
   pathname: string;
   phase: Phase | null;
@@ -86,6 +65,8 @@ export function navItems({
   unread: number;
   /** You run the league: the last item is Settings rather than League info. */
   commissioner?: boolean;
+  /** Heads the league's items, so you can see which league you are in. */
+  leagueName?: string | null;
 }): AppNavItem[] {
   const leagueId = leagueIdIn(pathname);
   const leagues: AppNavItem = {
@@ -108,19 +89,25 @@ export function navItems({
       }
     ];
   }
+  const section = leagueName === null || leagueName === '' ? 'League' : leagueName;
   const subpath = leagueSubpath(pathname, leagueId);
-  const on = (page: string) => subpath === page || subpath.startsWith(`${page}/`);
+  const on = (page: string) => onPage(subpath, page);
   const href = (page: string) => leaguePath(leagueId, page);
+  const group = (id: PageGroup['id'], extra: Partial<AppNavItem> = {}): AppNavItem => {
+    const { label, pages } = PAGE_GROUPS.find((g) => g.id === id) as PageGroup;
+    return {
+      id,
+      label,
+      href: href(pages[0].path),
+      icon: GROUP_ICONS[id],
+      active: pages.some((page) => on(page.path)),
+      section,
+      ...extra
+    };
+  };
   const items: AppNavItem[] = [
     leagues,
-    {
-      id: 'home',
-      label: 'Home',
-      href: href('home'),
-      icon: <HomeIcon />,
-      active: on('home'),
-      section: 'League'
-    }
+    { id: 'home', label: 'Home', href: href('home'), icon: <HomeIcon />, active: on('home'), section }
   ];
   if (draftIsLive(phase)) {
     items.push({
@@ -129,50 +116,50 @@ export function navItems({
       href: href('draft'),
       icon: <DraftIcon />,
       active: on('draft'),
-      section: 'League',
+      section,
       ...(phase === 'drafting' ? { badge: 'Live', badgeTone: 'success' as const } : {})
     });
   }
   items.push(
-    ...LEAGUE_PAGES.map((page): AppNavItem => ({
-      id: page.path,
-      label: page.label,
-      href: href(`league/${page.path}`),
-      icon: LEAGUE_ICONS[page.path],
-      active: on(`league/${page.path}`),
-      section: 'League'
-    })),
+    {
+      id: 'lineup',
+      label: 'Lineup',
+      href: href('team/lineup'),
+      icon: <LineupIcon />,
+      active: on('team/lineup'),
+      section
+    },
+    group('matchup'),
+    group(
+      'moves',
+      offers > 0
+        ? {
+            badge: countLabel(offers),
+            badgeLabel: `${countLabel(offers)} trade ${offers === 1 ? 'offer' : 'offers'} waiting`,
+            badgeTone: 'error' as const
+          }
+        : {}
+    ),
+    group('standings'),
+    group('players'),
     {
       id: 'chat',
       label: 'Chat',
       href: href('chat'),
       icon: <ChatIcon />,
       active: on('chat'),
-      section: 'League',
+      section,
       ...(unread > 0 && !on('chat')
         ? { badge: countLabel(unread), badgeLabel: `${countLabel(unread)} unread` }
         : {})
     },
-    ...TEAM_PAGES.map((page): AppNavItem => ({
-      id: `team-${page.path}`,
-      label: page.label,
-      href: href(`team/${page.path}`),
-      icon: TEAM_ICONS[page.path],
-      active: on(`team/${page.path}`),
-      section: 'My Team',
-      ...(page.path === 'trades' && offers > 0
-        ? {
-            badge: countLabel(offers),
-            badgeLabel: `${countLabel(offers)} ${offers === 1 ? 'offer' : 'offers'} waiting`,
-            badgeTone: 'error' as const
-          }
-        : {})
-    })),
+    group('teams'),
     {
       id: 'settings',
       label: commissioner ? 'Settings' : 'League info',
       href: href('settings'),
       icon: commissioner ? <SettingsIcon /> : <InfoIcon />,
+      section,
       // After the draft, its results (and the league's history) are League info views.
       active: on('settings') || on('league/history') || (!draftIsLive(phase) && phase !== null && on('draft'))
     }

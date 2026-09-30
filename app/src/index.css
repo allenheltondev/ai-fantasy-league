@@ -260,3 +260,19 @@ body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
+
+/*
+ * Page tabs: a nav item's pages (Matchup | Scoreboard) as links styled like the design system's
+ * segmented control, the page you are on popped onto the surface.
+ */
+.page-tabs .segmented-control-option {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.page-tabs .segmented-control-option[aria-current='page'] {
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
+  box-shadow: 0 1px 2px rgb(14 34 51 / 0.1);
+}

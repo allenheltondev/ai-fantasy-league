@@ -1,5 +1,4 @@
-import { render, renderHook, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, renderHook, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import type { AppNavItem } from '@readysetcloud/ui';
@@ -65,30 +64,26 @@ describe('the side nav items', () => {
     expect(find(nav('/', { phase: null }), 'leagues')?.active).toBe(true);
   });
 
-  it('groups a league in setup under League and My Team, the Draft among them', () => {
-    const items = nav('/leagues/L1/home', { phase: 'setup' });
+  it('lists a league in setup under its name, one item per job, the Draft among them', () => {
+    const items = nav('/leagues/L1/home', { phase: 'setup', leagueName: 'Sunday Funday' });
     expect(items.map((i) => [i.label, i.section ?? null])).toEqual([
       ['My Leagues', null],
-      ['Home', 'League'],
-      ['Draft', 'League'],
-      ['Scoreboard', 'League'],
-      ['Standings', 'League'],
-      ['Playoffs', 'League'],
-      ['Transactions', 'League'],
-      ['Players', 'League'],
-      ['Chat', 'League'],
-      ['Lineup', 'My Team'],
-      ['Matchup', 'My Team'],
-      ['Roster & moves', 'My Team'],
-      ['Trades', 'My Team'],
-      ['Achievements', 'My Team'],
-      ['Team profile', 'My Team'],
-      ['Other teams', 'My Team'],
-      ['League info', null]
+      ['Home', 'Sunday Funday'],
+      ['Draft', 'Sunday Funday'],
+      ['Lineup', 'Sunday Funday'],
+      ['Matchup', 'Sunday Funday'],
+      ['Moves', 'Sunday Funday'],
+      ['Standings', 'Sunday Funday'],
+      ['Players', 'Sunday Funday'],
+      ['Chat', 'Sunday Funday'],
+      ['Teams', 'Sunday Funday'],
+      ['League info', 'Sunday Funday']
     ]);
     expect(find(items, 'home')?.active).toBe(true);
     expect(find(items, 'draft')?.badge).toBeUndefined();
     expect(items.every((i) => i.icon !== undefined)).toBe(true);
+    // Until the league's name loads, its items sit under "League".
+    expect(find(nav('/leagues/L1/home'), 'home')?.section).toBe('League');
   });
 
   it('calls the last item Settings only for the commissioner, League info for everyone else', () => {
@@ -107,43 +102,41 @@ describe('the side nav items', () => {
     expect(find(after, 'settings')?.active).toBe(true);
   });
 
-  it('marks the page you are on, another team counting as Other teams', () => {
+  it('marks the item whose pages you are on, another team counting as Teams', () => {
     const items = nav('/leagues/L1/team/teams/team-2');
-    expect(find(items, 'team-teams')?.active).toBe(true);
-    expect(find(items, 'team-lineup')?.active).toBe(false);
+    expect(find(items, 'teams')?.active).toBe(true);
+    expect(find(items, 'lineup')?.active).toBe(false);
+    expect(find(nav('/leagues/L1/team/achievements'), 'teams')?.active).toBe(true);
+    expect(find(nav('/leagues/L1/league/scoreboard'), 'matchup')?.active).toBe(true);
+    expect(find(nav('/leagues/L1/team/trades'), 'moves')?.active).toBe(true);
+    expect(find(nav('/leagues/L1/league/playoffs'), 'standings')?.active).toBe(true);
     const standings = nav('/leagues/L1/league/standings');
     expect(find(standings, 'standings')?.active).toBe(true);
-    expect(find(standings, 'scoreboard')?.active).toBe(false);
-    expect(find(nav('/leagues/L1/league/players'), 'players')).toMatchObject({
+    expect(find(standings, 'matchup')?.active).toBe(false);
+    expect(find(nav('/leagues/L1/league/transactions'), 'players')).toMatchObject({
       active: true,
-      section: 'League',
       href: '/leagues/L1/league/players'
     });
   });
 
   it('carries the trade-offer and chat-unread badges, and drops chat’s while you are in it', () => {
     const items = nav('/leagues/L1/home', { offers: 2, unread: 120 });
-    expect(find(items, 'team-trades')).toMatchObject({
+    expect(find(items, 'moves')).toMatchObject({
       badge: '2',
-      badgeLabel: '2 offers waiting',
+      badgeLabel: '2 trade offers waiting',
       badgeTone: 'error'
     });
     expect(find(items, 'chat')).toMatchObject({ badge: '99+', badgeLabel: '99+ unread' });
     const one = nav('/leagues/L1/chat', { offers: 1, unread: 3 });
-    expect(find(one, 'team-trades')?.badgeLabel).toBe('1 offer waiting');
+    expect(find(one, 'moves')?.badgeLabel).toBe('1 trade offer waiting');
     expect(find(one, 'chat')?.badge).toBeUndefined();
   });
 });
 
 describe('the shell', () => {
-  it('shows the chat unread count and switches leagues from the header bar', async () => {
-    const user = userEvent.setup();
+  it('shows the chat unread count, and switches leagues from My Leagues with no bar over the page', async () => {
     signInAs(ALICE);
     const api = fakeApi({
-      listMyLeagues: vi.fn(async () => [
-        { id: 'L1', name: 'Sunday Funday' },
-        { id: 'L2', name: 'Monday Mayhem' }
-      ]) as never,
       listChatRooms: vi.fn(async () => ({
         defaultRoomId: 'trash-talk',
         rooms: [
@@ -155,10 +148,54 @@ describe('the shell', () => {
     renderApp('/leagues/L1/home', undefined, api);
     const sideNav = await screen.findByRole('navigation', { name: 'Primary navigation' });
     expect(await within(sideNav).findByRole('link', { name: 'Chat 3 unread' })).toBeInTheDocument();
-    const switcher = await screen.findByLabelText('League');
-    await waitFor(() => expect(within(switcher).getAllByRole('option')).toHaveLength(2));
-    await user.selectOptions(switcher, 'L2');
-    await waitFor(() => expect(api.getLeagueState).toHaveBeenCalledWith('L2'));
+    expect(within(sideNav).getByRole('link', { name: 'My Leagues' })).toHaveAttribute('href', '/leagues');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByTestId('notification-bell')).toBeInTheDocument();
+  });
+
+  it.each([
+    [1, 'Trades 1 offer waiting'],
+    [2, 'Trades 2 offers waiting']
+  ])('badges the Trades tab with the %i offer(s) waiting on you', async (offers, name) => {
+    signInAs(ALICE);
+    const api = fakeApi({
+      getNotificationSummary: vi.fn(async () => ({
+        unreadCount: 1,
+        leagues: [{ leagueId: 'L1', name: 'Sunday Funday', unreadCount: 1, tradeOffersWaiting: offers }]
+      })) as never
+    });
+    renderApp('/leagues/L1/team/moves', undefined, api);
+    const tabs = await screen.findByRole('navigation', { name: 'Moves pages' });
+    expect(await within(tabs).findByRole('link', { name })).toHaveAttribute(
+      'href',
+      '/leagues/L1/team/trades'
+    );
+  });
+
+  it('puts the bell in the top bar on a phone, outside the menu, and with the rail’s actions otherwise', async () => {
+    signInAs(ALICE);
+    const view = renderApp('/leagues/L1/home');
+    const wide = await screen.findByTestId('notification-bell');
+    expect(wide.closest('.app-nav-actions')).not.toBeNull();
+    view.unmount();
+
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(max-width: 640px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined
+    })) as unknown as typeof window.matchMedia;
+    try {
+      signInAs(ALICE);
+      renderApp('/leagues/L1/home');
+      const phone = await screen.findByTestId('notification-bell');
+      expect(phone.closest('.app-nav')).toBeNull();
+      expect(phone).toHaveClass('absolute');
+      expect(screen.getAllByTestId('notification-bell')).toHaveLength(1);
+    } finally {
+      window.matchMedia = original;
+    }
   });
 
   it('shares every team with the pages, for their avatars', async () => {

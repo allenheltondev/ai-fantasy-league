@@ -14,7 +14,10 @@ test('a manager checks the projected playoff bracket and the league history', as
   // The old Standings URL still lands there.
   await page.goto('/leagues/demo-season/standings');
   await expect(page).toHaveURL(/\/league\/standings$/);
-  await page.getByRole('link', { name: 'Playoffs' }).click();
+  await page
+    .getByRole('navigation', { name: 'Standings pages' })
+    .getByRole('link', { name: 'Playoffs' })
+    .click();
   await expect(page).toHaveURL(/\/league\/playoffs$/);
   await expect(page.getByText(/Projected: the bracket if the regular season ended today\./)).toBeVisible();
   const bracket = page.getByRole('region', { name: 'Championship bracket' });

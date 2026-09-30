@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router';
 import { AppNav, Container, readySetCloudServices, type AppNavLinkProps } from '@readysetcloud/ui';
 import { useAuth, type IdClaims } from '@readysetcloud/ui/auth';
 import { APP_NAME } from '../auth/AuthScreens';
 import { transitionClick } from '../motion/pageTransition';
+import { NotificationBell } from '../notifications/NotificationBell';
 import { NotificationPanel } from '../notifications/NotificationPanel';
 import { NotificationsProvider, useNotifications } from '../notifications/NotificationsContext';
 import { CurrentLeagueProvider, useCurrentLeague } from '../routes/currentLeague';
 import { forgetLastLeague } from '../routes/lastLeague';
-import { PageHeaderBar } from './PageHeaderBar';
 import { documentTitle, pageName, TitleBadgeContext, usePageTitle } from './pageTitle';
 import { leagueIdIn, navItems, useChatUnread } from './navItems';
 
@@ -34,39 +34,72 @@ export function activeNavId(pathname: string): 'leagues' | 'create' | null {
   return null;
 }
 
-/** The shared side nav (#178), with the league's sections and their badges when you're in one. */
-function SideNav() {
+/** The width at which AppNav folds into a top bar with a menu button (the design system's breakpoint). */
+const PHONE = '(max-width: 640px)';
+
+function subscribePhone(onChange: () => void): () => void {
+  const list = window.matchMedia(PHONE);
+  list.addEventListener('change', onChange);
+  return () => list.removeEventListener('change', onChange);
+}
+
+/** True on a phone-width screen, where the side nav is a top bar with its links behind a menu. */
+function usePhoneLayout(): boolean {
+  return useSyncExternalStore(subscribePhone, () => window.matchMedia(PHONE).matches);
+}
+
+/**
+ * The shared side nav (#178), with the league's pages and their badges when you're in one. The
+ * notification bell sits with its actions on a wide screen; on a phone those fold into the menu, so
+ * the bell sits in the top bar beside the menu button instead, always in reach.
+ */
+function SideNav({ onOpenNotifications }: { onOpenNotifications: () => void }) {
   const { user, signOut } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const current = useCurrentLeague();
   const offers = useNotifications().offersWaiting(current?.leagueId ?? '');
   const unread = useChatUnread(current?.leagueId ?? null, pathname);
+  const phone = usePhoneLayout();
   const items = navItems({
     pathname,
     phase: current?.state.data?.phase ?? null,
     offers,
     unread,
-    commissioner: current?.state.data?.youAreCommissioner === true
+    commissioner: current?.state.data?.youAreCommissioner === true,
+    leagueName: current?.state.data?.name ?? null
   });
-  return (
-    <AppNav
-      appName={APP_NAME}
-      currentServiceId="fantasy"
-      homeHref="/"
-      layout="side"
-      linkComponent={RouterNavLink}
-      services={readySetCloudServices}
-      authState="authenticated"
-      user={{ name: displayName(user), email: typeof user.email === 'string' ? user.email : undefined }}
-      navItems={items}
-      onSignOut={() => {
-        // The next person on this browser starts at My Leagues, not in your league (#212).
-        forgetLastLeague();
-        void signOut().then(() => navigate('/login', { replace: true }));
-      }}
-      className="sm:sticky sm:top-0 sm:h-screen sm:self-start sm:overflow-y-auto"
+  const bell = (
+    <NotificationBell
+      onOpen={onOpenNotifications}
+      // On a phone: centered in the 4rem top bar, just left of the menu button.
+      className={
+        phone ? 'absolute right-[calc(clamp(1rem,4vw,1.5rem)+3.25rem)] top-[0.625rem] z-10' : 'relative'
+      }
     />
+  );
+  return (
+    <>
+      {phone ? bell : null}
+      <AppNav
+        appName={APP_NAME}
+        currentServiceId="fantasy"
+        homeHref="/"
+        layout="side"
+        linkComponent={RouterNavLink}
+        services={readySetCloudServices}
+        authState="authenticated"
+        user={{ name: displayName(user), email: typeof user.email === 'string' ? user.email : undefined }}
+        navItems={items}
+        actions={phone ? undefined : bell}
+        onSignOut={() => {
+          // The next person on this browser starts at My Leagues, not in your league (#212).
+          forgetLastLeague();
+          void signOut().then(() => navigate('/login', { replace: true }));
+        }}
+        className="sm:sticky sm:top-0 sm:h-screen sm:self-start sm:overflow-y-auto"
+      />
+    </>
   );
 }
 
@@ -83,8 +116,8 @@ function PageTitle({ badge }: { badge: string | null }) {
 }
 
 /**
- * The signed-in shell (#178): the side nav (a top bar with a menu on a phone), and beside it a
- * quiet header bar (the league switcher and the notification bell) over the page.
+ * The signed-in shell (#178): the side nav (a top bar with a menu on a phone) with the notification
+ * bell, and beside it the page. You switch leagues from My Leagues, so there is no bar over the page.
  */
 export function AppLayout() {
   const { pathname } = useLocation();
@@ -95,10 +128,9 @@ export function AppLayout() {
     <NotificationsProvider>
       <CurrentLeagueProvider leagueId={leagueIdIn(pathname)}>
         <PageTitle badge={badge} />
-        <div className="flex min-h-screen flex-col bg-background text-foreground sm:flex-row">
-          <SideNav />
+        <div className="relative flex min-h-screen flex-col bg-background text-foreground sm:flex-row">
+          <SideNav onOpenNotifications={() => setPanelOpen(true)} />
           <div className="flex min-w-0 flex-1 flex-col">
-            <PageHeaderBar onOpenNotifications={() => setPanelOpen(true)} />
             {panelOpen ? <NotificationPanel onClose={() => setPanelOpen(false)} /> : null}
             <main id="main-content" className="flex-1">
               <Container className="py-6" style={{ maxWidth: '90rem' }}>

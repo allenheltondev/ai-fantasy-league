@@ -23,11 +23,11 @@ test('the tab title and the one h1 follow you around a league', async ({ page })
   await page.goto('/leagues/demo-season/home');
   await expect(page).toHaveTitle(`Home · ${LEAGUE} · AI Fantasy Football`);
   await expectOneH1(page, 'Home');
-  // The header bar names the league, so nothing on the page repeats it as a heading.
-  await expect(page.getByRole('combobox', { name: 'League' })).toContainText(LEAGUE);
+  // The side nav names the league, so nothing on the page repeats it as a heading.
+  const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+  await expect(nav.locator('.app-nav-section-title')).toHaveText([LEAGUE]);
   await expect(page.getByRole('heading', { name: LEAGUE })).toHaveCount(0);
 
-  const nav = page.getByRole('navigation', { name: 'Primary navigation' });
   await nav.getByRole('link', { name: 'Chat' }).click();
   await expect(page).toHaveTitle(`Chat · ${LEAGUE} · AI Fantasy Football`);
   await expectOneH1(page, 'Chat');

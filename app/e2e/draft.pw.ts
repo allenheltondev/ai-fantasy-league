@@ -365,8 +365,10 @@ test('a human on the clock drafts a player from the board', async ({ page }) => 
   await expect(page.getByTestId('youre-up')).toHaveText("You're up!");
   await expect(page.getByTestId('ticker-1')).toContainText('C. McCaffrey');
   await expect(page.getByTestId('pick-clock')).toHaveText(/^1:(2\d|30)$/);
-  // The header bar names the league; the tab says it's your pick (#212).
-  await expect(page.getByRole('combobox', { name: 'League' })).toContainText('Draft Day League');
+  // The side nav names the league; the tab says it's your pick (#212).
+  await expect(
+    page.getByRole('navigation', { name: 'Primary navigation' }).locator('.app-nav-section-title')
+  ).toHaveText(['Draft Day League']);
   await expect(page).toHaveTitle('⏰ Your pick · Draft · Draft Day League · AI Fantasy Football');
   await expect(page.getByTestId('draft-updates')).toHaveText('Refreshing every 3s');
 
