@@ -14,6 +14,9 @@
  *
  * Prices are ESTIMATES in USD per million tokens, used only for budget tracking and the cost
  * dashboard. They are not billing data; check the Bedrock pricing page before relying on them.
+ * `price` is the list (global endpoint) price. Bedrock bills a geographic (`us.`) inference profile
+ * of Claude 4.5 and later, and of Nova 2, at `REGIONAL_PREMIUM` times that: those entries set
+ * `regionalPremium`, and `estimateCostUsd` applies it, so estimates match what AWS bills.
  *
  * This file has no imports so `scripts/verify-models.mjs` can load it directly.
  */
@@ -49,6 +52,11 @@ export interface CatalogModel {
   /** Whether the price is an estimate. Always true today. */
   priceIsEstimate: true;
   /**
+   * True when Bedrock bills `bedrockId` at `REGIONAL_PREMIUM` times `price`: a geographic (`us.`)
+   * inference profile of a model priced per endpoint type (Claude 4.5 and later, Nova 2).
+   */
+  regionalPremium?: true;
+  /**
    * True when the model takes an extended-thinking budget (Anthropic `thinking.budget_tokens` in
    * Converse `additionalModelRequestFields`). The runtime maps the difficulty's reasoning effort to
    * that budget; for other models reasoning effort only sets the response token limit.
@@ -69,6 +77,9 @@ export interface CatalogModel {
 }
 
 export const MODEL_REGION = 'us-east-1';
+
+/** What Bedrock bills a regional-premium profile (`regionalPremium`) over its list price. */
+export const REGIONAL_PREMIUM = 1.1;
 
 function model(
   input: Omit<CatalogModel, 'foundationModelId' | 'priceIsEstimate' | 'verified'>
@@ -96,6 +107,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'nova-2-lite',
+    regionalPremium: true,
     displayName: 'Amazon Nova 2 Lite',
     provider: 'amazon',
     bedrockId: 'us.amazon.nova-2-lite-v1:0',
@@ -121,6 +133,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'claude-haiku-4-5',
+    regionalPremium: true,
     thinkingBudget: true,
     displayName: 'Claude Haiku 4.5',
     provider: 'anthropic',
@@ -130,6 +143,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'claude-sonnet-5',
+    regionalPremium: true,
     thinkingBudget: true,
     adaptiveThinking: true,
     displayName: 'Claude Sonnet 5',
@@ -140,6 +154,7 @@ export const MODEL_CATALOG = [
   }),
   model({
     key: 'claude-opus-5',
+    regionalPremium: true,
     thinkingBudget: true,
     adaptiveThinking: true,
     displayName: 'Claude Opus 5',
@@ -184,10 +199,14 @@ export function modelByBedrockId(bedrockId: string): CatalogModel | null {
   return MODEL_CATALOG.find((m) => m.bedrockId === bedrockId) ?? null;
 }
 
-/** The ordered model chain (primary first, then fallbacks) for a tier, optionally with an override first. */
-export function modelChain(tier: ModelTier, override?: ModelKey): ModelKey[] {
-  const chain: ModelKey[] = override === undefined ? [] : [override];
-  for (const key of MODEL_TIER_MODELS[tier]) if (!chain.includes(key)) chain.push(key);
+/**
+ * The ordered model chain for a tier: any overrides first (in the order given, skipping undefined),
+ * then the tier's models, each key once.
+ */
+export function modelChain(tier: ModelTier, ...overrides: (ModelKey | null | undefined)[]): ModelKey[] {
+  const chain: ModelKey[] = [];
+  for (const key of [...overrides, ...MODEL_TIER_MODELS[tier]])
+    if (key !== undefined && key !== null && !chain.includes(key)) chain.push(key);
   return chain;
 }
 
@@ -201,11 +220,21 @@ export interface TokenUsage {
   outputTokens: number;
 }
 
+/** The price Bedrock bills for the model's `bedrockId`: its list price, with any regional premium. */
+export function billedPrice(model: CatalogModel): ModelPrice {
+  const factor = model.regionalPremium === true ? REGIONAL_PREMIUM : 1;
+  return {
+    inputPerMTok: model.price.inputPerMTok * factor,
+    outputPerMTok: model.price.outputPerMTok * factor
+  };
+}
+
 /** Estimated USD cost of a call (see the price disclaimer above). Unknown models cost 0. */
 export function estimateCostUsd(modelKeyOrBedrockId: string, usage: TokenUsage): number {
   const m = MODEL_CATALOG.find((c) => c.key === modelKeyOrBedrockId) ?? modelByBedrockId(modelKeyOrBedrockId);
   if (m === undefined || m === null) return 0;
+  const price = billedPrice(m);
   const cost =
-    (usage.inputTokens * m.price.inputPerMTok + usage.outputTokens * m.price.outputPerMTok) / 1_000_000;
+    (usage.inputTokens * price.inputPerMTok + usage.outputTokens * price.outputPerMTok) / 1_000_000;
   return Math.round(cost * 1_000_000) / 1_000_000;
 }

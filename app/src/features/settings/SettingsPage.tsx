@@ -10,6 +10,7 @@ import { PHASE_LABELS } from '../leagues/MyLeaguesPage';
 import { HistoryPanel } from '../season/HistoryPanel';
 import { AgentManagers } from './AgentManagers';
 import { AiActivityPanel } from './AiActivityPanel';
+import { AiControlsPanel } from './AiControlsPanel';
 import { DataStatusPanel } from './DataStatusPanel';
 import { DraftSchedulePanel } from './DraftSchedulePanel';
 import { InvitesPanel } from './InvitesPanel';
@@ -132,8 +133,16 @@ export function SettingsPage() {
         </Section>
       ) : commissioner && tab === 'ai' ? (
         <>
+          <Section id="ai-controls" title="AI budget & models">
+            <AiControlsPanel
+              key={league.version}
+              league={league}
+              canEdit={can('update_league_settings')}
+              onSaved={loaded.reload}
+            />
+          </Section>
           <Section id="ai-activity" title="AI activity">
-            <AiActivityPanel leagueId={league.id} teams={league.teams} />
+            <AiActivityPanel leagueId={league.id} teams={league.teams} refreshKey={league.version} />
           </Section>
           <Section id="seat-history" title="Seat version history">
             <SeatHistoryPanel leagueId={league.id} teams={league.teams} />

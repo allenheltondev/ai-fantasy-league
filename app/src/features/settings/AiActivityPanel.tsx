@@ -34,15 +34,24 @@ const KIND_LABELS: Record<string, string> = {
 
 /**
  * The commissioner's AI activity tab (#77): the kill switch, the week's estimated model spend
- * against the league ceiling and each agent's allowance, and the decision log with each task's
- * reasoning summary and tool calls.
+ * against the league ceiling (and any overage) with each agent's allowance, the season's spend so
+ * far, and the decision log with each task's reasoning summary and tool calls.
  */
-export function AiActivityPanel({ leagueId, teams }: { leagueId: string; teams: TeamDetail[] }) {
+export function AiActivityPanel({
+  leagueId,
+  teams,
+  refreshKey = 0
+}: {
+  leagueId: string;
+  teams: TeamDetail[];
+  /** Changes when the league's AI settings may have changed, to reload the budget. */
+  refreshKey?: number;
+}) {
   const api = useLeagueApi();
   const [teamId, setTeamId] = useState('');
   const loaded = useLoad(
     () => api.getAgentActivity(leagueId, { limit: 50, ...(teamId === '' ? {} : { teamId }) }),
-    `${leagueId}:${teamId}`
+    `${leagueId}:${teamId}:${refreshKey}`
   );
   const teamName = (id: string | null) => teams.find((t) => t.id === id)?.name ?? id ?? 'Removed seat';
 
@@ -53,13 +62,15 @@ export function AiActivityPanel({ leagueId, teams }: { leagueId: string; teams: 
       <p className="text-sm text-muted-foreground">Loading AI activity…</p>
     );
   }
-  const { tasks, budget, killSwitch } = loaded.data;
+  const { tasks, budget, season, killSwitch } = loaded.data;
+  const overageUsd = budget.overageUsd ?? 0;
+  const limitUsd = budget.limitUsd ?? budget.ceilingUsd;
   const agentTeams = teams.filter((t) => t.seatType === 'agent');
 
   return (
     <div className="space-y-6" data-testid="ai-activity">
       <ApiErrorAlert error={loaded.error} />
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Kill switch"
           value={!killSwitch.configured ? 'Not set up' : killSwitch.engaged ? 'On' : 'Off'}
@@ -73,15 +84,33 @@ export function AiActivityPanel({ leagueId, teams }: { leagueId: string; teams: 
         <StatTile
           label={`Week ${budget.week} spend`}
           value={`${formatUsd(budget.spentUsd)} of ${formatUsd(budget.ceilingUsd)}`}
-          meta={`${formatUsd(budget.remainingUsd)} left · estimates, not billing`}
-          {...(budget.exceeded ? { status: { tone: 'warning' as const, label: 'Over budget' } } : {})}
+          meta={
+            budget.overage === true
+              ? `On overage: ${formatUsd(Math.max(0, limitUsd - budget.spentUsd))} of ${formatUsd(overageUsd)} left`
+              : `${formatUsd(budget.remainingUsd)} left${
+                  overageUsd > 0 ? ` + ${formatUsd(overageUsd)} overage` : ''
+                } · ${budget.automatic === false ? 'your budget' : 'automatic budget'}`
+          }
+          {...(budget.exceeded
+            ? { status: { tone: 'warning' as const, label: 'Over budget' } }
+            : budget.overage === true
+              ? { status: { tone: 'warning' as const, label: 'On overage' } }
+              : {})}
         />
+        {season !== undefined && (
+          <StatTile
+            label="Season to date"
+            value={formatUsd(season.spentUsd)}
+            meta={`${season.weeks.reduce((n, w) => n + w.tasks, 0)} tasks · estimates, not billing`}
+          />
+        )}
         <StatTile label="Tasks shown" value={String(tasks.length)} meta="Newest first" />
       </div>
       {budget.exceeded && (
         <p className="text-sm text-muted-foreground" role="status">
-          This league reached its weekly model budget. Agents use deterministic fallbacks (the lineup
-          optimizer, autopick, no waiver claims) until the week rolls over.
+          This league reached its weekly model budget{overageUsd > 0 ? ' and its overage' : ''}. Agents use
+          deterministic fallbacks (the lineup optimizer, autopick, no waiver claims) until the week rolls
+          over.
         </p>
       )}
 

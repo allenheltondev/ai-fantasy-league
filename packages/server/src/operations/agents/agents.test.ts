@@ -306,6 +306,94 @@ describe('agent seat operations', () => {
     expect((await leagueBudget(repos.agents, league5!)).week).toBe(5);
   });
 
+  it('lets the commissioner set the budget, overage, and models mid-season, and reports spend by week', async () => {
+    const { run, repos, events } = await setup('regular_season');
+    await repos.agents.putSeat({
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      agentId: 'lg-1.team-2',
+      config: { personalityId: 'hype-man', difficulty: 'pro', archetype: 'balanced' },
+      version: 1,
+      updatedAt: START,
+      updatedBy: 'user#user-123'
+    });
+    const row = {
+      leagueId: 'lg-1',
+      agentId: 'lg-1.team-2',
+      modelKey: 'nova-pro',
+      inputTokens: 100,
+      outputTokens: 10,
+      tasks: 1
+    };
+    await repos.agents.addUsage({ ...row, week: 0, costUsd: 0.25 });
+    await repos.agents.addUsage({ ...row, week: 5, costUsd: 3 });
+
+    const changed = await run('update_league_settings', {
+      leagueId: 'lg-1',
+      changes: {
+        ai: {
+          weeklyBudgetUsd: 2.5,
+          overageUsd: 1,
+          models: { pro: { decision: 'nova-pro', chat: 'nova-micro' } }
+        }
+      }
+    });
+    expect(changed.status).toBe(200);
+    expect(changed.body).toMatchObject({
+      data: {
+        changedPaths: ['ai.models.pro.chat', 'ai.models.pro.decision', 'ai.overageUsd', 'ai.weeklyBudgetUsd']
+      }
+    });
+    expect(events.events.some((e) => e.detailType === 'Settings Changed')).toBe(true);
+
+    const result = await run('get_agent_activity', { leagueId: 'lg-1' });
+    expect(result.body).toMatchObject({
+      data: {
+        budget: {
+          ceilingUsd: 2.5,
+          automatic: false,
+          overageUsd: 1,
+          limitUsd: 3.5,
+          spentUsd: 3,
+          remainingUsd: 0,
+          overage: true,
+          exceeded: false,
+          byAgent: [{ agentId: 'lg-1.team-2', allowanceUsd: 2.5 }]
+        },
+        season: { spentUsd: 3.25 }
+      }
+    });
+    const weeks = (result.body as { data: { season: { weeks: { week: number; spentUsd: number }[] } } }).data
+      .season.weeks;
+    expect(weeks.map((w) => w.week)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(weeks.filter((w) => w.spentUsd > 0)).toMatchObject([
+      { week: 0, spentUsd: 0.25 },
+      { week: 5, spentUsd: 3 }
+    ]);
+
+    // The seat's effective models follow the league's choice for its difficulty.
+    const seat = await run('get_agent_seat', { leagueId: 'lg-1', teamId: 'team-2' });
+    expect(seat.body).toMatchObject({
+      data: {
+        commissioner: {
+          current: { effective: { decisionModels: ['nova-pro', 'kimi-k2-thinking', 'claude-haiku-4-5'] } }
+        }
+      }
+    });
+
+    // Back to automatic with overage off: null clears a model choice too.
+    await run('update_league_settings', {
+      leagueId: 'lg-1',
+      changes: { ai: { weeklyBudgetUsd: null, overageUsd: 0, models: { pro: { decision: null } } } }
+    });
+    const league = await repos.leagues.get('lg-1');
+    expect(league?.settings.ai).toMatchObject({
+      weeklyBudgetUsd: null,
+      overageUsd: 0,
+      models: { pro: { decision: null, chat: 'nova-micro' } }
+    });
+  });
+
   it('withholds sealed summaries (pending bids, private offers, open votes) until they resolve', async () => {
     const { run, repos } = await setup('regular_season');
     const base = {

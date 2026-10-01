@@ -308,7 +308,7 @@ export async function modelLeaderboard(
   const entries = rows.map((row): LeaderboardTeam => {
     const team = teams.find((t) => t.id === row.teamId);
     const seat = team?.seatType === 'agent' ? seats.find((s) => s.teamId === row.teamId) : undefined;
-    const config = seat === undefined ? null : resolveAgentConfig(seat.config);
+    const config = seat === undefined ? null : resolveAgentConfig(seat.config, { ai: league.settings.ai });
     const modelKey = config?.models.decision[0] ?? HUMAN_MODEL;
     const model = modelKey === HUMAN_MODEL ? null : getModel(modelKey);
     return {

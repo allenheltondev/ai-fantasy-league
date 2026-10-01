@@ -4,7 +4,8 @@ import {
   PERSONALITY_IDS,
   getDifficulty,
   getPersonality,
-  resolveAgentConfig
+  resolveAgentConfig,
+  type AiSettings
 } from '@fantasy/core';
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
@@ -131,8 +132,12 @@ export function publicSeat(record: AgentSeatRecord): PublicSeat {
   };
 }
 
-export function commissionerSeat(record: AgentSeatRecord): CommissionerSeat {
-  const resolved = resolveAgentConfig(record.config, { managerKey: record.agentId });
+/** The seat as its commissioner sees it; `ai` (the league's AI settings) sets its effective models. */
+export function commissionerSeat(record: AgentSeatRecord, ai?: AiSettings): CommissionerSeat {
+  const resolved = resolveAgentConfig(record.config, {
+    managerKey: record.agentId,
+    ...(ai === undefined ? {} : { ai })
+  });
   return {
     teamId: record.teamId,
     agentId: record.agentId,

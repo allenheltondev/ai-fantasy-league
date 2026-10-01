@@ -18,6 +18,7 @@ import {
   type DifficultyLevers,
   type DifficultyTier
 } from './difficulty.js';
+import { leagueModelsFor, type AiSettings } from './ai-settings.js';
 import { tradeAppetite, waiverMinGain } from './behavior.js';
 import { MODEL_KEYS, getModel, modelChain, type ModelKey } from './models.js';
 import { ResponseDelayLeverSchema } from './response-delay.js';
@@ -95,9 +96,12 @@ export interface ResolvedAgentConfig {
   /** The difficulty's levers with any Advanced overrides applied. */
   levers: DifficultyLevers;
   models: {
-    /** Decision model keys, primary first then fallbacks. The override (if any) is first. */
+    /**
+     * Decision model keys, primary first then fallbacks: the seat's override (if any), the league's
+     * model for the difficulty (if any), then the tier's models.
+     */
     decision: ModelKey[];
-    /** Chat model keys, primary first then fallbacks. */
+    /** Chat model keys, primary first then fallbacks: the league's chat model (if any) first. */
     chat: ModelKey[];
     decisionBedrockIds: string[];
     chatBedrockIds: string[];
@@ -172,6 +176,11 @@ export interface ResolveAgentConfigOptions {
    * (`<leagueId>.<teamId>`). Defaults to the personality id.
    */
   managerKey?: string;
+  /**
+   * The league's AI settings: their model for the seat's difficulty goes to the front of each chain,
+   * after the seat's own Advanced override. Omitted: the tier defaults.
+   */
+  ai?: Pick<AiSettings, 'models'>;
 }
 
 /** Turns a stored seat config into everything the runtime needs: models, levers, and prompt pieces. */
@@ -185,8 +194,9 @@ export function resolveAgentConfig(
   const difficulty = getDifficulty(config.difficulty);
   const archetype = getArchetype(config.archetype);
   const levers = mergeLevers(difficulty.levers, config.advanced?.levers);
-  const decision = modelChain(levers.decisionModelTier, config.advanced?.modelOverride);
-  const chat = modelChain(levers.chatModelTier);
+  const league = leagueModelsFor(options.ai, config.difficulty);
+  const decision = modelChain(levers.decisionModelTier, config.advanced?.modelOverride, league.decision);
+  const chat = modelChain(levers.chatModelTier, league.chat);
   return {
     name: manager.name,
     avatarSeed: manager.avatarSeed,

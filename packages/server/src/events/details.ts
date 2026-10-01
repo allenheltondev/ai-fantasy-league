@@ -452,7 +452,12 @@ export const EVENT_DETAIL_SCHEMAS = {
     leagueId: id,
     week: z.number().int().min(0).describe('The budget week (the league week, 0 before the season).'),
     spentUsd: z.number().min(0).describe('Estimated model spend this week.'),
-    ceilingUsd: z.number().min(0).describe('The league’s weekly ceiling.')
+    ceilingUsd: z
+      .number()
+      .min(0)
+      .describe(
+        'Where the agents stopped: the league’s weekly ceiling plus any overage the commissioner allows.'
+      )
   }),
   'Manager Check-In': z.object({
     leagueId: id,

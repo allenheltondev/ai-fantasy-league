@@ -11,7 +11,7 @@ import {
 import { ScriptedModelClient } from '../src/fake-model.js';
 import { OFF_SWITCH, type KillSwitch } from '../src/kill-switch.js';
 import { agentSubscribers, inProcessAgentDeps } from '../src/loop.js';
-import { ModelUnavailableError } from '../src/model.js';
+import { ModelUnavailableError, withRunUsage, type ModelClient } from '../src/model.js';
 import { draftSetup, type DraftSetup } from './draft-support.js';
 
 /** A 4-team league whose draft ran to the end on the pick clock. */
@@ -183,6 +183,54 @@ describe('the draft report card grader', () => {
       source: 'computed',
       fallbackReason: 'models_unavailable'
     });
+  });
+
+  it('charges what a failed run reported, and the estimate when a run times out', async () => {
+    const s = await drafted();
+    const first = getModel(DRAFT_REPORT_MODELS[0]!).bedrockId;
+    const model = new ScriptedModelClient({
+      fail: (id) =>
+        withRunUsage(
+          id === first ? new ModelUnavailableError('throttled') : new Error('bad output'),
+          id === first
+            ? { inputTokens: 1000, outputTokens: 100, estimated: false }
+            : { inputTokens: 2000, outputTokens: 200, estimated: false }
+        ) as Error
+    });
+    expect(await gradeDraft(deps(s, model), s.leagueId)).toMatchObject({
+      source: 'computed',
+      fallbackReason: 'model_error'
+    });
+    const league = (await s.repos.leagues.get(s.leagueId))!;
+    const usage = (await s.repos.agents.weekUsage(s.leagueId, league.week!)).filter(
+      (u) => u.agentId === DRAFT_REPORT_AGENT_ID
+    );
+    // Both runs are charged what Bedrock reported, not the prompt plus the whole response limit.
+    expect(usage.map((u) => [u.modelKey, u.inputTokens, u.outputTokens]).sort()).toEqual(
+      [
+        [DRAFT_REPORT_MODELS[0], 1000, 100],
+        [DRAFT_REPORT_MODELS[1], 2000, 200]
+      ].sort()
+    );
+
+    const t = await drafted();
+    const hangs: ModelClient = {
+      name: 'hangs',
+      run: (request) =>
+        new Promise((_, reject) =>
+          request.signal.addEventListener('abort', () => reject(request.signal.reason as Error))
+        )
+    };
+    expect(
+      await gradeDraft(
+        { services: t.services, model: hangs, killSwitch: OFF_SWITCH, modelTimeoutMs: 5 },
+        t.leagueId
+      )
+    ).toMatchObject({ source: 'computed', fallbackReason: 'timeout' });
+    const timedOut = (await t.repos.agents.weekUsage(t.leagueId, league.week!)).find(
+      (u) => u.agentId === DRAFT_REPORT_AGENT_ID
+    );
+    expect(timedOut?.outputTokens).toBeGreaterThan(0);
   });
 
   it('releases its claim when grading crashes, so the retry grades the draft', async () => {

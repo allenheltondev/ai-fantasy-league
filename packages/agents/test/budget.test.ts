@@ -240,6 +240,63 @@ describe.each(backends)('agent spend accounting (%s)', (_name, makeRepos) => {
     expect(s.events.events.some((e) => e.detailType === 'Agent Budget Exceeded')).toBe(false);
   });
 
+  it("spends past the commissioner's ceiling on overage, then stops at the limit", async () => {
+    const s = await seated();
+    const league = (await s.repos.leagues.get(LEAGUE_ID)) as League;
+    await s.repos.leagues.update({
+      ...league,
+      settings: { ...league.settings, ai: { ...league.settings.ai, weeklyBudgetUsd: 1, overageUsd: 0.5 } }
+    });
+    const spend = (costUsd: number) =>
+      s.repos.agents.addUsage({
+        leagueId: LEAGUE_ID,
+        week: WEEK,
+        agentId: 'someone-else',
+        modelKey: 'nova-pro',
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd,
+        tasks: 0
+      });
+    await spend(1.1);
+    expect(await budget(s)).toMatchObject({
+      ceilingUsd: 1,
+      automatic: false,
+      overageUsd: 0.5,
+      limitUsd: 1.5,
+      remainingUsd: 0,
+      overage: true,
+      exceeded: false
+    });
+    const deps = s.deps(model(), { kinds });
+    expect(await runAgentAction(deps, task('team-2', 'evt-1'))).toMatchObject({ status: 'completed' });
+
+    await spend(0.5);
+    expect(await budget(s)).toMatchObject({ overage: false, exceeded: true });
+    expect(await runAgentAction(deps, task('team-3', 'evt-2'))).toMatchObject({
+      status: 'fallback',
+      fallbackReason: 'budget_exceeded'
+    });
+    const notice = s.events.events.find((e) => e.detailType === 'Agent Budget Exceeded');
+    expect(notice?.detail).toMatchObject({ ceilingUsd: 1.5 });
+  });
+
+  it("calls the league's model for the seat's difficulty first", async () => {
+    const s = await seated();
+    const watch = watchHolds(s);
+    const league = (await s.repos.leagues.get(LEAGUE_ID)) as League;
+    const models = { ...league.settings.ai.models, pro: { decision: 'nova-pro' as const, chat: null } };
+    await s.repos.leagues.update({
+      ...league,
+      settings: { ...league.settings, ai: { ...league.settings.ai, models } }
+    });
+    expect(await runAgentAction(s.deps(model(), { kinds }), task('team-2'))).toMatchObject({
+      status: 'completed',
+      usage: [expect.objectContaining({ modelKey: 'nova-pro' })]
+    });
+    expect(watch.holds[0]?.modelKey).toBe('nova-pro');
+  });
+
   it('repairs a usage write that failed after completion, and never counts a line twice', async () => {
     const s = await seated();
     const restore = failLedger(s, (e) => e.tasks > 0);
