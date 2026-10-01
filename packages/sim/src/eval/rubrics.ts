@@ -1,7 +1,7 @@
 import { PERSONALITIES, type PersonalityPreset } from '@fantasy/core';
 import type { ChatMessage } from '@fantasy/server';
 import type { Probe, ScenarioRun } from '../scenarios/season-scenarios.js';
-import { checkClaims, type ClaimLedger, type ClaimVerdict } from './claims.js';
+import { checkClaims, teamAliases, type ClaimLedger, type ClaimVerdict } from './claims.js';
 
 /**
  * Rubrics for the live evaluation (#211), scored from one season scenario run. Each is a
@@ -185,13 +185,20 @@ function memoryAccuracy(run: ScenarioRun): RubricScore {
   const probe = run.probes.find((p) => p.kind === 'recall');
   if (probe === undefined) return score('memory_accuracy', 0, 0, ['the recall question was never asked']);
   const truth = run.results.find((r) => r.teamId === probe.teamId && r.week === probe.week);
-  const reply = answersTo(run, probe)[0];
+  // Its answer to the question: a reply to it, else its next line there (not an unrelated closing line).
+  const lines = answersTo(run, probe);
+  const reply = lines.find((m) => m.replyToId === probe.messageId) ?? lines[0];
   if (truth === undefined || reply === undefined)
     return score('memory_accuracy', 0, 1, [`${probe.teamId} did not answer the recall question`]);
   const text = reply.text.toLowerCase();
   const name = run.teamNames[truth.opponentTeamId] ?? truth.opponentTeamId;
-  const named = text.includes(name.toLowerCase()) || text.includes(truth.opponentTeamId);
-  const shown = (x: number) => text.includes(String(x)) || text.includes(String(Math.round(x)));
+  // Any name the opponent went by (teams rename in season), and a score to the point or a decimal.
+  const aliases = teamAliases({ teamNames: run.teamNames, messages: run.chat.map((c) => c.message) })[
+    truth.opponentTeamId
+  ] ?? [name];
+  const named = aliases.some((n) => text.includes(n.toLowerCase())) || text.includes(truth.opponentTeamId);
+  const shown = (x: number) =>
+    [String(x), String(Math.round(x)), x.toFixed(1)].some((form) => text.includes(form));
   const scored = shown(truth.pointsFor) && shown(truth.pointsAgainst);
   return score('memory_accuracy', (named ? 0.5 : 0) + (scored ? 0.5 : 0), 1, [
     `asked about week ${probe.week} (${name}, ${truth.pointsFor}-${truth.pointsAgainst}): ${named ? 'named' : 'did not name'} the opponent, ${scored ? 'gave' : 'did not give'} the score`,

@@ -190,6 +190,49 @@ describe('asking at a check-in', () => {
     expect(again.act).toBeNull();
   });
 
+  it('asks about a bench player at the needed position when no trade idea clears the floor (#247)', async () => {
+    const { ctx, calls } = checkInCtx();
+    const call = ctx.tools.call.bind(ctx.tools);
+    (ctx.tools as { call: typeof call }).call = async (name, args) =>
+      name === 'get_roster'
+        ? {
+            data: {
+              players: [
+                { player: { id: 'brb', name: 'Bench Back', position: 'RB' }, slot: 'BN' },
+                { player: { id: 'srb', name: 'Starting Back', position: 'RB' }, slot: 'RB' }
+              ]
+            },
+            league: null,
+            warnings: []
+          }
+        : call(name, args);
+    const found = await lookOpportunities(ctx, { rooms: [], postsLeft: 10, seed: turn(), trade: null });
+    expect(found.act?.candidate).toMatchObject({ reason: 'need_partner', counterpartTeamId: 'team-1' });
+    expect(found.act?.pack.facts).toEqual([
+      { id: 'roster:team-1:brb', line: 'Big Tuna rosters Bench Back (RB).' }
+    ]);
+    // Only people's rosters are read: never an agent's or an open seat's.
+    expect(calls.filter((c) => c.name === 'get_league')).toHaveLength(1);
+  });
+
+  it('holds a question back once it messaged that person enough today', async () => {
+    const { ctx, calls, book } = checkInCtx();
+    const found = await lookOpportunities(ctx, { rooms: [], postsLeft: 10, seed: turn(), trade: TRADE });
+    (ctx as { claimLimit: unknown }).claimLimit = async () => false;
+    const run = newRun();
+    const look = {
+      social: { ...NO_SOCIAL, act: found.act },
+      waivers: { pickups: [] },
+      trade: { prep: TRADE }
+    };
+    await socialActStep(ctx, look as unknown as CheckInLook, [fakeActAction(found.act as never)], run);
+    expect(run.done).toEqual([
+      { action: 'dm_held', line: 'Held back a question: I have messaged them enough today.' }
+    ]);
+    expect(calls.filter((c) => c.name === 'post_message')).toEqual([]);
+    expect(book().acts).toMatchObject([{ outcome: 'withheld', detail: 'daily_limit' }]);
+  });
+
   it('cancels a question still waiting once its goal closes, and does not ask again', async () => {
     const waiting = recordSocialAct(emptySocialActs(), askEntry());
     const { ctx, book } = checkInCtx({ history: waiting, goals: 'none' });

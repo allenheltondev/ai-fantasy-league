@@ -94,10 +94,12 @@ const WEEK = /\bweek\s+(\d{1,2})\b/i;
 const SELF_WORDS = /\b(i|i'm|we|we're|my|our|me|us)\b/i;
 const YOU_WORDS = /\b(you|your|you're|ya)\b/i;
 const COMPLETED =
-  /\b(trade (?:went|is|has gone) through|deal(?:'s| is)? done|done deal|trade (?:is )?(?:complete|completed|processed|official|final))\b/i;
+  /\b(trade (?:went|is|has gone) through|deal(?:'s| is) done|done deal|trade (?:is )?(?:complete|completed|processed|official|final))\b/i;
 const SENT = /\b(offer(?:'s| is)? (?:sent|on its way|went out|is out)|sent (?:you )?(?:an|the|my) offer)\b/i;
 const ACCEPTED = /\b(you accepted|accepted (?:my|the|our) offer)\b/i;
 const QUOTE = /["“]([^"”]{8,})["”]/g;
+/** A quote is at least three words: a one-word nickname in quotes is part of a name. */
+const QUOTE_WORDS = 3;
 const DRAFTED = /\bI drafted ([A-Z][\w.'-]*(?: [A-Z][\w.'-]*)*)/g;
 const TRADED_ME = /\b(?:[Yy]ou traded me|I got) ([A-Z][\w.'-]*(?: [A-Z][\w.'-]*)*)(?: from you)?/g;
 const CHANGED = /\b(changed my mind|you convinced me|on second thought|you talked me into)\b/i;
@@ -124,12 +126,25 @@ function counterpartOf(m: ChatMessage, ledger: ClaimLedger): string | null {
   return replied !== self ? replied : null;
 }
 
-/** Teams a message names: by team name, @mention, and "I"/"you" words. */
+/**
+ * Every name each team went by: today's, and any it had when it posted (teams rename themselves
+ * in season, #194, and a message may name a team as it was then).
+ */
+export function teamAliases(ledger: Pick<ClaimLedger, 'teamNames' | 'messages'>): Record<string, string[]> {
+  const out: Record<string, Set<string>> = {};
+  for (const [id, name] of Object.entries(ledger.teamNames)) (out[id] ??= new Set()).add(name);
+  for (const m of ledger.messages)
+    if (m.author.teamId !== null && m.author.teamName !== null)
+      (out[m.author.teamId] ??= new Set()).add(m.author.teamName);
+  return Object.fromEntries(Object.entries(out).map(([id, names]) => [id, [...names]]));
+}
+
+/** Teams a message names: by any name the team went by, @mention, and "I"/"you" words. */
 function named(m: ChatMessage, ledger: ClaimLedger): Set<string> {
   const text = m.text.toLowerCase();
   const out = new Set<string>(m.mentionedTeamIds);
-  for (const [id, name] of Object.entries(ledger.teamNames))
-    if (name.length > 2 && text.includes(name.toLowerCase())) out.add(id);
+  for (const [id, names] of Object.entries(teamAliases(ledger)))
+    if (names.some((name) => name.length > 2 && text.includes(name.toLowerCase()))) out.add(id);
   const self = m.author.teamId;
   if (self !== null && SELF_WORDS.test(m.text)) out.add(self);
   const other = counterpartOf(m, ledger);
@@ -252,7 +267,7 @@ function quoteClaims(m: ChatMessage, ledger: ClaimLedger): ClaimVerdict[] {
   const out: ClaimVerdict[] = [];
   for (const match of m.text.matchAll(QUOTE)) {
     const quoted = norm(match[1] as string);
-    if (quoted.length === 0) continue;
+    if (quoted.split(' ').length < QUOTE_WORDS) continue;
     const source = ledger.messages.find(
       (x) =>
         x.id !== m.id &&
@@ -340,6 +355,8 @@ function privacyClaims(m: ChatMessage, ledger: ClaimLedger): ClaimVerdict[] {
     (x) =>
       x.roomId.startsWith('dm-') &&
       dmTeams(x.roomId, ledger).includes(speaker) &&
+      // Its own words are its own to repeat: a leak is what the other side said in private.
+      x.author.teamId !== speaker &&
       x.createdAt <= m.createdAt &&
       [...grams(x.text)].some((g) => mine.has(g))
   );

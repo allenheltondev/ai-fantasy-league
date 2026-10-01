@@ -186,3 +186,31 @@ describe('tallies', () => {
     expect(mixed.player_history).toMatchObject({ n: 0, unverifiable: 1 });
   });
 });
+
+describe('false positives the first clean live run surfaced (#247)', () => {
+  it('reads a question about making a deal as no claim that one is done', () => {
+    expect(judge(msg('What would it take to get a deal done?', { roomId: DM }))).toEqual([]);
+  });
+
+  it('treats a nickname in quotes as part of a name, not a quote', () => {
+    expect(judge(msg('@Camila "Hometown" Lindqvist, our TE is ready.'))).toEqual([]);
+  });
+
+  it('lets an agent repeat its own DM words in public; only the other side’s words leak', () => {
+    const own = msg('I have seen the tape, and you are not ready.', { roomId: DM, createdAt: at(3) });
+    const again = msg('I have seen the tape, and you are not ready, Zen.', { createdAt: at(4) });
+    expect(checkClaims(ledger([own, again])).find((v) => v.messageId === again.id)).toMatchObject({
+      ok: true
+    });
+  });
+
+  it('knows a team by a name it had when it posted, not only its name today', () => {
+    const before = msg('gg', { author: { teamId: OTHER, teamName: 'Old Zen', name: 'Zen' } });
+    const said = msg('Week 2: I beat Old Zen 110-95.');
+    expect(
+      checkClaims(ledger([before, said])).find((v) => v.messageId === said.id && v.kind === 'score')
+    ).toMatchObject({
+      ok: true
+    });
+  });
+});
