@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LeagueApi } from '../../api/league';
 import type { AgentActivity, AiSettings } from '../../api/types';
-import { fakeApi, league, settings, state } from '../../test/fakeApi';
+import { catalog, fakeApi, league, settings, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 
 beforeEach(() => signInAs({ sub: 'alice', given_name: 'Alice' }));
@@ -143,6 +143,84 @@ describe('settings: AI budget & models', () => {
     expect(within(panel).getByText('On overage: $0.60 of $1.00 left')).toBeInTheDocument();
     expect(within(panel).getByText('$5.75')).toBeInTheDocument();
     expect(within(panel).getByText('42 tasks · estimates, not billing')).toBeInTheDocument();
+  });
+
+  it('groups models by maker, cheapest first, and still lists a model without a price', async () => {
+    const base = catalog(null);
+    const api = fakeApi({
+      getAgentActivity: vi.fn(async () => activity()),
+      getAgentCatalog: vi.fn(async () => ({
+        ...base,
+        models: [
+          {
+            key: 'nova-pro',
+            displayName: 'Amazon Nova Pro',
+            provider: 'amazon',
+            tier: 'standard',
+            price: { inputPerMTok: 0.8, outputPerMTok: 3.2 }
+          },
+          { key: 'mystery', displayName: 'Mystery Model', tier: 'lite' },
+          ...base.models
+        ]
+      }))
+    });
+    const user = await openAi(api);
+    const chat = screen.getByRole('combobox', { name: 'Pro chat model' });
+    const groups = within(chat).getAllByRole('group');
+    expect(groups.map((g) => g.getAttribute('label'))).toEqual(['Amazon Nova', 'Anthropic', 'other']);
+    expect(
+      within(groups[0]!)
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+    ).toEqual(['Amazon Nova Micro · $0.035 in / $0.14 out', 'Amazon Nova Pro · $0.80 in / $3.20 out']);
+    expect(within(groups[2]!).getByRole('option')).toHaveTextContent('Mystery Model');
+    await user.selectOptions(chat, 'nova-pro');
+    await user.click(screen.getByRole('button', { name: 'Save AI settings' }));
+    await waitFor(() =>
+      expect(api.updateSettings).toHaveBeenCalledWith(
+        'L1',
+        {
+          ai: {
+            weeklyBudgetUsd: null,
+            overageUsd: 0,
+            models: { ...NO_MODELS, pro: { decision: null, chat: 'nova-pro' } }
+          }
+        },
+        3
+      )
+    );
+  });
+
+  it('shows why a save failed', async () => {
+    const api = fakeApi({
+      getAgentActivity: vi.fn(async () => activity()),
+      updateSettings: vi.fn(async () => {
+        throw new Error('The league is at version 4, not 3.');
+      })
+    });
+    const user = await openAi(api);
+    const panel = screen.getByTestId('ai-controls');
+    await user.click(within(panel).getByRole('button', { name: 'Allow overage' }));
+    await user.type(within(panel).getByLabelText('Extra per week (USD)'), '2');
+    await user.click(within(panel).getByRole('button', { name: 'Save AI settings' }));
+    expect(await within(panel).findByText(/version 4, not 3/)).toBeInTheDocument();
+  });
+
+  it('shows the overage still in reserve', async () => {
+    const api = fakeApi({
+      getAgentActivity: vi.fn(async () => activity({ spentUsd: 1.5, remainingUsd: 0.5, overage: false }))
+    });
+    await openAi(api);
+    const panel = await screen.findByTestId('ai-activity');
+    expect(within(panel).getByText('$0.50 left + $1.00 overage · your budget')).toBeInTheDocument();
+  });
+
+  it('says when the budget and its overage are both spent', async () => {
+    const spent = fakeApi({
+      getAgentActivity: vi.fn(async () => activity({ spentUsd: 3, overage: false, exceeded: true }))
+    });
+    await openAi(spent);
+    expect(await screen.findByText(/reached its weekly model budget and its overage/)).toBeInTheDocument();
   });
 
   it('is read-only when the settings cannot change', async () => {
