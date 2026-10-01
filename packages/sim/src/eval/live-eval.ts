@@ -1,3 +1,4 @@
+import type { ModelKey } from '@fantasy/core';
 import { AGENT_ABLATIONS, ScriptedModelClient, type AgentAblation, type ModelClient } from '@fantasy/agents';
 import type { SimArchive } from '../archive/format.js';
 import { withoutSections, type ModelRun, type PromptTransform } from '../scenarios/recording-model.js';
@@ -265,6 +266,8 @@ export async function runLiveEval(options: LiveEvalOptions): Promise<EvalReport>
         weeks,
         model: live ? pinned : new ScriptedModelClient(),
         transform: CONDITION_PROMPTS[condition],
+        // The runner asks for (and its ledger prices) the pinned model, not each seat's tier.
+        ...(live && options.modelKey !== undefined ? { modelPin: options.modelKey as ModelKey } : {}),
         ...(isStateCondition(condition) ? { ablations: [condition] } : {})
       });
       const result = summarize(

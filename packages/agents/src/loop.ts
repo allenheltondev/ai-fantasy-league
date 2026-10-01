@@ -1,6 +1,7 @@
 import { EVENT_DETAIL_SCHEMAS, registry, type EventSubscriber, type Services } from '@fantasy/server';
 
 const DraftCompletedSchema = EVENT_DETAIL_SCHEMAS['Draft Completed'];
+import type { ModelKey } from '@fantasy/core';
 import type { AgentAblation } from './ablations.js';
 import { gradeDraft } from './draft-report.js';
 import { AgentActionRequestedSchema } from './events.js';
@@ -47,6 +48,8 @@ export function inProcessAgentDeps(
     responseDelays?: boolean;
     /** State switched off for an evaluation (ablations.ts); the dev server and e2e pass none. */
     ablations?: readonly AgentAblation[];
+    /** One catalog model for every seat (an evaluation, `RunnerDeps.modelPin`). */
+    modelPin?: ModelKey;
   } = {}
 ): { router: RouterDeps; runner: RunnerDeps } {
   return {
@@ -66,7 +69,8 @@ export function inProcessAgentDeps(
       ...(options.modelTimeoutMs === undefined ? {} : { modelTimeoutMs: options.modelTimeoutMs }),
       ...(options.ablations === undefined || options.ablations.length === 0
         ? {}
-        : { ablations: options.ablations })
+        : { ablations: options.ablations }),
+      ...(options.modelPin === undefined ? {} : { modelPin: options.modelPin })
     }
   };
 }

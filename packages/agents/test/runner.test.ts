@@ -99,6 +99,15 @@ describe('runAgentAction with the fake model', () => {
     expect(await s.savedLineups()).toEqual(saved);
   });
 
+  it('plays the pinned model for every seat when an evaluation pins one, and prices it so (#247)', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'balanced' });
+    const model = new ScriptedModelClient();
+    const record = await runAgentAction({ ...s.deps(model), modelPin: 'nova-micro' }, request());
+    expect(model.transcript.map((t) => t.modelId)).toEqual(['us.amazon.nova-micro-v1:0']);
+    expect(record.usage[0]).toMatchObject({ modelKey: 'nova-micro' });
+  });
+
   it('uses the task kind default script and the memory in the prompt', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, PRO);

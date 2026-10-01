@@ -148,6 +148,12 @@ export interface RunnerDeps {
   memory?: AgentMemoryStore;
   /** State switched off for an evaluation (ablations.ts); production passes none. */
   ablations?: readonly AgentAblation[];
+  /**
+   * Every seat plays this catalog model for decisions and chat, whatever its tier (#247: a matched
+   * live evaluation). The runner then asks for, and prices, the model that really runs, so the
+   * league's spend ceiling sees real costs. Production passes none.
+   */
+  modelPin?: ModelKey;
 }
 
 /** How long a crashed run blocks a retry of the same task (its lease). */
@@ -526,7 +532,12 @@ export async function runAgentAction(
       ].join('\n')
     }
   });
-  const chain: ModelKey[] = kind.modelRole === 'chat' ? config.models.chat : config.models.decision;
+  const chain: ModelKey[] =
+    deps.modelPin !== undefined
+      ? [deps.modelPin]
+      : kind.modelRole === 'chat'
+        ? config.models.chat
+        : config.models.decision;
   const usage: AgentModelUsage[] = [];
   let lastError: unknown = null;
   const effort = config.levers.reasoningEffort;
