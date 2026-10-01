@@ -214,3 +214,36 @@ describe('false positives the first clean live run surfaced (#247)', () => {
     });
   });
 });
+
+describe('a status claim is about the latest trade with that counterpart (#247 review)', () => {
+  const two = (newer: { status: string; at: string }[], proposer = AGENT): Partial<ClaimLedger> => ({
+    trades: [
+      {
+        tradeId: 't-old',
+        teams: [AGENT, PERSON],
+        history: [
+          { status: 'proposed', at: at(1) },
+          { status: 'processed', at: at(2) }
+        ]
+      },
+      { tradeId: 't-new', teams: [proposer, proposer === AGENT ? PERSON : AGENT], history: newer }
+    ]
+  });
+
+  it('does not let an old processed trade support "went through" about a newer withdrawn one', () => {
+    const newer = [
+      { status: 'proposed', at: at(5) },
+      { status: 'withdrawn', at: at(6) }
+    ];
+    expect(
+      judge(msg('The trade went through.', { roomId: DM, createdAt: at(7) }), [], two(newer))
+    ).toMatchObject([{ ok: false, problem: 'withdrawn_as_completed' }]);
+  });
+
+  it('does not let an old offer of its own support "Offer sent" when the latest came from them', () => {
+    const theirs = [{ status: 'proposed', at: at(5) }];
+    expect(
+      judge(msg('Offer sent.', { roomId: DM, createdAt: at(6) }), [], two(theirs, PERSON))
+    ).toMatchObject([{ ok: false, problem: 'unsupported_status' }]);
+  });
+});

@@ -190,16 +190,50 @@ describe('asking at a check-in', () => {
     expect(again.act).toBeNull();
   });
 
-  it('asks about a bench player at the needed position when no trade idea clears the floor (#247)', async () => {
+  it('asks about a bench player who could start at the needed position, when no trade idea clears the floor (#247)', async () => {
     const { ctx, calls } = checkInCtx();
     const call = ctx.tools.call.bind(ctx.tools);
     (ctx.tools as { call: typeof call }).call = async (name, args) =>
       name === 'get_roster'
         ? {
             data: {
+              // Out, on bye, or locked on the bench, a back fills no starting need this week.
               players: [
-                { player: { id: 'brb', name: 'Bench Back', position: 'RB' }, slot: 'BN' },
-                { player: { id: 'srb', name: 'Starting Back', position: 'RB' }, slot: 'RB' }
+                {
+                  player: { id: 'orb', name: 'Hurt Back', position: 'RB' },
+                  slot: 'BN',
+                  status: 'out',
+                  onBye: false,
+                  locked: false
+                },
+                {
+                  player: { id: 'yrb', name: 'Bye Back', position: 'RB' },
+                  slot: 'BN',
+                  status: 'active',
+                  onBye: true,
+                  locked: false
+                },
+                {
+                  player: { id: 'lrb', name: 'Locked Back', position: 'RB' },
+                  slot: 'BN',
+                  status: 'active',
+                  onBye: false,
+                  locked: true
+                },
+                {
+                  player: { id: 'brb', name: 'Bench Back', position: 'RB' },
+                  slot: 'BN',
+                  status: 'questionable',
+                  onBye: false,
+                  locked: false
+                },
+                {
+                  player: { id: 'srb', name: 'Starting Back', position: 'RB' },
+                  slot: 'RB',
+                  status: 'active',
+                  onBye: false,
+                  locked: false
+                }
               ]
             },
             league: null,
@@ -211,6 +245,30 @@ describe('asking at a check-in', () => {
     expect(found.act?.pack.facts).toEqual([
       { id: 'roster:team-1:brb', line: 'Big Tuna rosters Bench Back (RB).' }
     ]);
+    // With only unavailable backs on the bench, there is nothing to ask.
+    const none = checkInCtx();
+    const noneCall = none.ctx.tools.call.bind(none.ctx.tools);
+    (none.ctx.tools as { call: typeof noneCall }).call = async (name, args) =>
+      name === 'get_roster'
+        ? {
+            data: {
+              players: [
+                {
+                  player: { id: 'orb', name: 'Hurt Back', position: 'RB' },
+                  slot: 'BN',
+                  status: 'ir',
+                  onBye: false,
+                  locked: false
+                }
+              ]
+            },
+            league: null,
+            warnings: []
+          }
+        : noneCall(name, args);
+    expect(
+      (await lookOpportunities(none.ctx, { rooms: [], postsLeft: 10, seed: turn(), trade: null })).act
+    ).toBeNull();
     // Only people's rosters are read: never an agent's or an open seat's.
     expect(calls.filter((c) => c.name === 'get_league')).toHaveLength(1);
   });

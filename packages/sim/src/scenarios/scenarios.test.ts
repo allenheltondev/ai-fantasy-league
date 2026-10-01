@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { MANIPULATION_PROBES } from '@fantasy/core';
-import { ScriptedModelClient, type ModelClient, type ModelRunRequest } from '@fantasy/agents';
+import { MANIPULATION_PROBES, estimateCostUsd } from '@fantasy/core';
+import { ScriptedModelClient, withRunUsage, type ModelClient, type ModelRunRequest } from '@fantasy/agents';
 import { fixtureArchive } from '../../test/helpers.js';
 import {
   BudgetExhaustedError,
@@ -454,13 +454,32 @@ describe('live evaluation safety', () => {
     await expect(budget.run(request())).rejects.toBeInstanceOf(BudgetExhaustedError);
     expect(budget.exhausted).toBe(true);
     expect(budget.name).toBe('fake');
-    // A failed call gives its reservation back.
+    // A failed call gives its reservation back but is still charged (#247 review): what it reported,
+    // or one prompt read plus the full response limit when it reported nothing.
     const failing = new BudgetedModel(
+      new ScriptedModelClient({ fail: () => new Error('down') }),
+      reserve * 10
+    );
+    await expect(failing.run(request())).rejects.toThrow('down');
+    expect(failing.spentUsd).toBeCloseTo(
+      estimateCostUsd(request().modelId, BudgetedModel.failedCall(request())),
+      8
+    );
+    expect(failing.spentUsd).toBeLessThan(reserve);
+    const usage = { inputTokens: 12_000, outputTokens: 900, estimated: false };
+    const billed = new BudgetedModel(
+      new ScriptedModelClient({ fail: () => withRunUsage(new Error('cut off'), usage) as Error }),
+      reserve * 10
+    );
+    await expect(billed.run(request())).rejects.toThrow('cut off');
+    expect(billed.spentUsd).toBeCloseTo(estimateCostUsd(request().modelId, usage), 8);
+    // Failures add up against the cap like any spend.
+    const capped = new BudgetedModel(
       new ScriptedModelClient({ fail: () => new Error('down') }),
       reserve * 1.1
     );
-    await expect(failing.run(request())).rejects.toThrow('down');
-    await expect(failing.run(request())).rejects.toThrow('down');
+    await expect(capped.run(request())).rejects.toThrow('down');
+    await expect(capped.run(request())).rejects.toBeInstanceOf(BudgetExhaustedError);
     expect(BudgetedModel.reserve(request({ maxIterations: 0 }))).toBeLessThan(reserve);
   });
 

@@ -21,7 +21,7 @@ The results are in [live-2026-09-30/](live-2026-09-30/): the report (`nova-lite.
   - `persona_only`: no memory, and no strategy or difficulty guidance in the prompt.
   - `deterministic`: the scripted policy, with no model.
 - **Samples.** Two seeds per condition, all completed; no run was cut short by the budget.
-- **Spend.** $5.43 for this run, at Nova Lite prices for the model that actually ran. Three earlier attempts were invalid or stopped (below) and cost at most about $9.70 together. #247's total is about $15.
+- **Spend.** $5.43 for this run, at Nova Lite prices for the model that actually ran. That figure counts successful calls only. Failed calls can be billed too, and the budget now charges them (their reported usage, or one prompt read plus the response limit). By the runs' token counts, 48–90 failed calls add at most about $0.25 a run. Three earlier attempts were invalid or stopped (below) and cost at most about $9.70 together. #247's total is about $15.
 - **Fallback.** The deterministic policy decided 10–14% of tasks in each live run. The model errors account for those fallbacks one for one: 48–90 failed calls per run out of 531–560. The failures are genuine Nova Lite errors; this run did not record their kinds (see limitations).
 
 ## Harness problems found and fixed first

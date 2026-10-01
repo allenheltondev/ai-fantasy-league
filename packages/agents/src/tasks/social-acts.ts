@@ -2,6 +2,8 @@ import {
   DEFAULT_ROOM_ID,
   SOCIAL_ACT_LIMITS,
   SOCIAL_LIMITS,
+  PlayerStatusSchema,
+  WILL_NOT_PLAY_STATUSES,
   ambientOpportunities,
   ambientTurn,
   askOpportunities,
@@ -240,14 +242,17 @@ const RosterSchema = z.object({
   players: z.array(
     z.object({
       player: z.object({ id: z.string(), name: z.string(), position: z.string() }),
-      slot: z.string()
+      slot: z.string(),
+      status: PlayerStatusSchema,
+      onBye: z.boolean(),
+      locked: z.boolean()
     })
   )
 });
 
 /**
  * The people the agent may ask something (#218): players of theirs its trade look found first,
- * then, when a goal is active, their bench players (read from up to `ASK_ROSTERS` rosters in a
+ * then, when a goal is active, their bench players who could start this week (read from up to `ASK_ROSTERS` rosters in a
  * seeded order). A question is only a question: the look its answer leads to keeps every floor.
  */
 async function askPartners(
@@ -269,7 +274,11 @@ async function askPartners(
       !benches || i >= ASK_ROSTERS
         ? []
         : (data(await ctx.tools.call('get_roster', { teamId: t.id }), RosterSchema)?.players ?? [])
-            .filter((p) => p.slot === 'BN')
+            // Only a back who could start this week fills an `insufficient_available_starters` goal
+            // (#247 review): not Out or on IR, not on bye, not locked on the bench.
+            .filter(
+              (p) => p.slot === 'BN' && !p.onBye && !p.locked && !WILL_NOT_PLAY_STATUSES.includes(p.status)
+            )
             .map((p) => p.player);
     const players = [...pitched, ...bench.filter((b) => !pitched.some((p) => p.id === b.id))];
     out.push({ teamId: t.id, teamName: t.name, roomId: dmRoomId(self, t.id), players });

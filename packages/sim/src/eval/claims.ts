@@ -12,8 +12,9 @@ import type { ChatMessage } from '@fantasy/server';
  *   the other side of a DM or a reply count as named when the message says "I", "we", or "you"),
  *   and in the week it names, if it names one. A score some other game ended is `wrong_team`, one
  *   the named teams scored in another week is `wrong_week`, one no game ended is `invented`.
- * - `trade_status`: "the trade went through", "offer's on its way", "you accepted". A trade between
- *   the speaker and the counterpart whose history reached that status by the time it was said. A
+ * - `trade_status`: "the trade went through", "offer's on its way", "you accepted". The latest trade
+ *   between the speaker and the counterpart (by when it was proposed) must have reached that
+ *   status by the time it was said; an older trade that did is no support. A
  *   trade that was withdrawn, expired, rejected, or vetoed, called done, is `withdrawn_as_completed`.
  * - `quote`: text in quotation marks (8 characters or more). It must appear in an earlier message by
  *   someone else in the league (by the counterpart when the message says "you said"); otherwise
@@ -231,9 +232,13 @@ function tradeClaims(m: ChatMessage, ledger: ClaimLedger): ClaimVerdict[] {
   ) => {
     const match = pattern.exec(m.text);
     if (match === null) return;
-    const found = others.flatMap((o) => tradesBetween(ledger, speaker, o, m.createdAt));
-    const hit = found.find((x) => reached(x.seen, x.t));
+    // An unqualified status claim is about the latest trade with that counterpart (#247 review):
+    // an older trade that once reached the status does not support a claim about a newer one.
+    const found = others
+      .flatMap((o) => tradesBetween(ledger, speaker, o, m.createdAt))
+      .sort((x, y) => (y.t.history[0]?.at ?? '').localeCompare(x.t.history[0]?.at ?? ''));
     const latest = found[0];
+    const hit = latest !== undefined && reached(latest.seen, latest.t) ? latest : undefined;
     const ended = latest !== undefined && ENDED.has(latest.seen.at(-1) as string);
     out.push({
       kind: 'trade_status',
