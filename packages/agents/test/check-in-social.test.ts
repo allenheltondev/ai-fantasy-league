@@ -125,6 +125,7 @@ describe('check-in: a rename in the same decision', () => {
     expect(record.reasoningSummary).toContain(`Renamed "Team 2" to "Let's Gooo Brigade".`);
     expect((await s.repos.teams.get(LEAGUE_ID, AGENT_TEAM))?.name).toBe("Let's Gooo Brigade");
     expect(model.transcript[0]?.systemPrompt).toContain('To rename, add `{ "type": "rename_team"');
+    expect(model.transcript[0]?.systemPrompt).toContain('keeping the placeholder is not an option');
     // One model call: the rename is one of the check-in's actions.
     expect(model.transcript).toHaveLength(1);
   });
@@ -144,6 +145,9 @@ describe('check-in: a rename in the same decision', () => {
     );
     expect(refused.finalAction).toContain('rename_team_failed');
     expect(refused.reasoningSummary).toContain('Tried to rename to "Team 3"');
+    // The refused pick does not leave the placeholder: a name in its style is taken instead.
+    expect(refused.finalAction).toContain('+rename_team');
+    expect((await other.repos.teams.get(LEAGUE_ID, AGENT_TEAM))?.nameSetBy).toBe('agent');
   });
 });
 
@@ -441,7 +445,8 @@ describe('check-in: chat actions that were not on offer', () => {
     const record = await run(s, checkIn(rolled(QUIET, []), { naming: 'placeholder' }), model);
     const prompt = model.transcript[0]?.systemPrompt ?? '';
     expect(prompt).toContain('No chat actions are on offer this check-in');
-    expect(record.finalAction).toBe('chat_not_sent');
+    // The model left out the rename, but a placeholder never stays: the fallback named the team.
+    expect(record.finalAction).toBe('rename_team+chat_not_sent');
     expect(record.reasoningSummary).toContain('Fired one shot at Team 3.');
     expect(record.reasoningSummary).toContain('no board post was on offer this time: nothing went out.');
     expect(record.reasoningSummary).toContain('matchup talk was not on offer this time: nothing went out.');

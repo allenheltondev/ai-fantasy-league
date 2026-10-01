@@ -32,7 +32,10 @@ import { TaskUnavailableError } from './lineup.js';
  *   so a name can play off the roster it just drafted.
  *
  * A refused name comes back with its reason and fix; the model may try once more
- * (`NAMING_ACTIONS`). After a second refusal the team keeps its name, and the task logs it. A name
+ * (`NAMING_ACTIONS`). No AI manager keeps a placeholder: when the model skips the name, both its
+ * tries are refused, or there is no model at all, the team takes the first name in its
+ * personality's style that the league's rules allow (`fallbackRename`). A rebrand that does not
+ * take just keeps the name, and the task logs it. A name
  * the commissioner locked, or a seat that does not name its team (`namesTeam: false`), is never
  * touched: the task stops before the model is called, and `rename_team` refuses it anyway.
  */
@@ -121,7 +124,7 @@ export function namingSection(
   const p = ctx.config.personality;
   const why =
     naming.occasion === 'placeholder'
-      ? `Your team still has a placeholder name, "${quote(naming.current, 40)}". Give it a real one.`
+      ? `Your team still has a placeholder name, "${quote(naming.current, 40)}". Naming it comes first: no team in this league keeps a default name. Give it a real one.`
       : `${REBRAND_PROMPTS[naming.occasion]} Your team is called "${quote(naming.current, 40)}" now; rebrand it.`;
   return [
     why,
@@ -181,6 +184,65 @@ export function scriptedName(ctx: TaskContext, naming: NamingPrep): string | nul
       (name) => name !== naming.current && teamNameIssue(name, rules) === null
     ) ?? null
   );
+}
+
+/** Fallback renames to try: one pick, and one more if another team took it meanwhile. */
+const FALLBACK_TRIES = 2;
+
+/**
+ * The names a team may fall back on, in order: the scripted model's pick and the rest of its
+ * personality's names that pass the league's rules, then numbered takes on them ("Standard
+ * Deviants 2") for a league that already took every one.
+ */
+export function fallbackNames(ctx: TaskContext, naming: NamingPrep): string[] {
+  const p = ctx.config.personality;
+  const rules = { self: { managerName: ctx.config.name }, others: naming.others };
+  const ideas = [p.teamNameSuggestion, ...p.teamNameIdeas];
+  const numbered = [2, 3, 4, 5].flatMap((n) => ideas.map((idea) => `${idea} ${n}`));
+  return [...ideas, ...numbered].filter(
+    (name, i, all) =>
+      all.indexOf(name) === i && name !== naming.current && teamNameIssue(name, rules) === null
+  );
+}
+
+/**
+ * Makes sure a placeholder never stays (#194): when the model did not name the team, the team takes
+ * the first fallback name `rename_team` accepts. Only for a placeholder (a rebrand that did not take
+ * keeps the name). Returns the new name, or null when nothing was renamed.
+ */
+export async function fallbackRename(ctx: TaskContext, naming: NamingPrep): Promise<string | null> {
+  if (naming.occasion !== 'placeholder') return null;
+  for (const name of fallbackNames(ctx, naming).slice(0, FALLBACK_TRIES)) {
+    const result = await ctx.tools.call('rename_team', { teamId: ctx.principal.teamId, name });
+    if (!('error' in result)) {
+      ctx.log.info('agent team named by fallback', { teamId: ctx.principal.teamId, name });
+      return name;
+    }
+    // A name taken meanwhile is worth one more try; anything else (a locked name) is final.
+    if (result.error.code !== 'CONFLICT') break;
+  }
+  ctx.log.warn('agent team kept a placeholder name', {
+    teamId: ctx.principal.teamId,
+    current: naming.current
+  });
+  return null;
+}
+
+/**
+ * `namingOutcome`, then `fallbackRename` when the model's name did not take: the team's name now,
+ * and whether the fallback picked it.
+ */
+export async function namedOrFallback(
+  ctx: TaskContext,
+  naming: NamingPrep,
+  picked: string | undefined
+): Promise<{ renamed: boolean; name: string; summary: string; fallback: boolean }> {
+  const result = await namingOutcome(ctx, naming, picked);
+  if (result.renamed) return { ...result, fallback: false };
+  const name = await fallbackRename(ctx, naming);
+  return name === null
+    ? { ...result, fallback: false }
+    : { renamed: true, name, summary: `${result.summary} Took "${name}" instead.`, fallback: true };
 }
 
 /** The scripted model's announcement. */
@@ -323,13 +385,20 @@ async function prepare(ctx: TaskContext, payload: Payload, chat = true): Promise
   return { naming, ...(chat ? await leagueChatOrQuiet(ctx) : { chat: null, quiet: '' }) };
 }
 
-async function apply(ctx: TaskContext, prep: IdentityPrep, decision: IdentityDecision): Promise<TaskOutcome> {
-  const result = await namingOutcome(ctx, prep.naming, decision.teamName);
+async function apply(
+  ctx: TaskContext,
+  prep: IdentityPrep,
+  decision: IdentityDecision | null
+): Promise<TaskOutcome> {
+  const result = await namedOrFallback(ctx, prep.naming, decision?.teamName);
   if (!result.renamed) return { action: 'none', summary: result.summary };
-  if (prep.chat === null) {
-    return { action: 'rename_team', summary: `${result.summary} No announcement (${prep.quiet}).` };
+  // After a fallback the model's line is about a name that did not take: announce the one that did.
+  const message = result.fallback ? scriptedAnnouncement(ctx, result.name) : (decision?.message ?? '');
+  if (prep.chat === null || decision === null) {
+    const why = decision === null ? 'no model decision' : prep.quiet;
+    return { action: 'rename_team', summary: `${result.summary} No announcement (${why}).` };
   }
-  const chat = await post(ctx, prep.chat, { summary: decision.summary, message: decision.message });
+  const chat = await post(ctx, prep.chat, { summary: decision.summary, message });
   return {
     action: 'rename_team',
     summary: `${result.summary} Chat: ${chat.summary}`,
@@ -354,7 +423,8 @@ export const teamIdentityTask = defineTaskKind<Payload, IdentityDecision, Identi
         : 'Then announce it: one short line in `message` for the league chat, in your own voice, that says the new name. It is posted for you once the rename goes through.'
     ].join('\n\n'),
   apply: (ctx, _payload, prep, decision) => apply(ctx, prep, decision),
-  fallback: async () => ({ action: 'none', summary: 'Kept the team name (no model decision).' }),
+  // No model: a placeholder still gets a name from the personality's style, quietly.
+  fallback: (ctx, _payload, prep) => apply(ctx, prep, null),
   memoryScope: (_ctx, _payload, prep) =>
     prep.chat === null ? { roomId: DEFAULT_ROOM_ID, dm: false, teamIds: [] } : scopeOf(prep.chat),
   fakeScript: (ctx, _payload, prep) => {

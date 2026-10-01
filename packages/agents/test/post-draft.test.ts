@@ -200,9 +200,12 @@ describe('post-draft kickoff', () => {
     expect(kickoffs.every((t) => t.reasoningSummary.includes('Lineup:'))).toBe(true);
     expect(await reactions()).toEqual([]);
     expect(await tasks('trade_proposal')).toEqual([]);
-    // Naming is the model's part: without one, the teams keep their names for a later look.
-    for (const teamId of AGENTS)
-      expect((await s.repos.teams.get(s.leagueId, teamId))?.nameSetBy).toBe('default');
+    // No model, still no placeholder: each team takes a name in its personality's style.
+    for (const teamId of AGENTS) {
+      const team = await s.repos.teams.get(s.leagueId, teamId);
+      expect(team?.nameSetBy).toBe('agent');
+      expect(team?.name).not.toMatch(/^Team \d+$/);
+    }
   });
 });
 
