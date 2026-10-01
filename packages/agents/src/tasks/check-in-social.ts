@@ -26,7 +26,7 @@ import {
   socialActStep,
   type ChosenAct
 } from './social-acts.js';
-import { namingFor, namingSection, scriptedName, type NamingPrep } from './team-identity.js';
+import { fallbackRename, namingFor, namingSection, scriptedName, type NamingPrep } from './team-identity.js';
 
 /**
  * The social side of a check-in (#196): besides its lineup, the waiver wire, and trades, a manager
@@ -384,7 +384,9 @@ export function socialInstructions(ctx: TaskContext, prep: CheckInPrep): string[
         ctx,
         social.naming,
         ctx.league,
-        'To rename, add `{ "type": "rename_team", "teamName": "..." }` to your actions; leave it out to keep the name.'
+        social.naming.occasion === 'placeholder'
+          ? 'To rename, add `{ "type": "rename_team", "teamName": "..." }` to your actions. Do it this check-in, before anything else: keeping the placeholder is not an option, and a name you leave out or that is refused is picked for you from your style.'
+          : 'To rename, add `{ "type": "rename_team", "teamName": "..." }` to your actions; leave it out to keep the name.'
       )
     );
   const facts = (lines: string[]) =>
@@ -446,16 +448,22 @@ async function post(ctx: TaskContext, roomId: string, text: string) {
 async function rename(ctx: TaskContext, prep: CheckInPrep, actions: readonly CheckInAction[], run: Run) {
   const naming = prep.look.social.naming;
   const wanted = actions.find((a) => (a.teamName ?? '').trim() !== '')?.teamName?.trim();
-  if (naming === null || wanted === undefined) return;
-  const result = await ctx.tools.call('rename_team', { teamId: ctx.principal.teamId, name: wanted });
-  run.done.push(
-    'error' in result
-      ? {
-          action: 'rename_team_failed',
-          line: `Tried to rename to "${quote(wanted, 40)}": ${result.error.code}.`
-        }
-      : { action: 'rename_team', line: `Renamed "${quote(naming.current, 40)}" to "${quote(wanted, 40)}".` }
-  );
+  if (naming === null) return;
+  const renamed = (to: string) => `Renamed "${quote(naming.current, 40)}" to "${quote(to, 40)}".`;
+  if (wanted !== undefined) {
+    const result = await ctx.tools.call('rename_team', { teamId: ctx.principal.teamId, name: wanted });
+    if (!('error' in result)) {
+      run.done.push({ action: 'rename_team', line: renamed(wanted) });
+      return;
+    }
+    run.done.push({
+      action: 'rename_team_failed',
+      line: `Tried to rename to "${quote(wanted, 40)}": ${result.error.code}.`
+    });
+  }
+  // A placeholder never stays: no pick, or a refused one, takes a name from the personality's style.
+  const fallback = await fallbackRename(ctx, naming);
+  if (fallback !== null) run.done.push({ action: 'rename_team', line: renamed(fallback) });
 }
 
 const BOARD_ROOMS = new Set([DEFAULT_ROOM_ID, 'league', 'trades', 'waivers-news']);
