@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router';
 import { AppNav, Container, readySetCloudServices, type AppNavLinkProps } from '@readysetcloud/ui';
 import { useAuth, type IdClaims } from '@readysetcloud/ui/auth';
@@ -9,6 +9,8 @@ import { NotificationPanel } from '../notifications/NotificationPanel';
 import { NotificationsProvider, useNotifications } from '../notifications/NotificationsContext';
 import { CurrentLeagueProvider, useCurrentLeague } from '../routes/currentLeague';
 import { forgetLastLeague } from '../routes/lastLeague';
+import { useFocusMode } from './focusMode';
+import { HideNavIcon, ShowNavIcon } from './navIcons';
 import { documentTitle, pageName, TitleBadgeContext, usePageTitle } from './pageTitle';
 import { leagueIdIn, navItems, useChatUnread } from './navItems';
 
@@ -53,7 +55,16 @@ function usePhoneLayout(): boolean {
  * notification bell sits with its actions on a wide screen; on a phone those fold into the menu, so
  * the bell sits in the top bar beside the menu button instead, always in reach.
  */
-function SideNav({ onOpenNotifications }: { onOpenNotifications: () => void }) {
+function SideNav({
+  onOpenNotifications,
+  onHide,
+  hideRef
+}: {
+  onOpenNotifications: () => void;
+  /** Folds the rail away for focus mode; only offered on a wide screen. */
+  onHide: () => void;
+  hideRef: RefObject<HTMLButtonElement | null>;
+}) {
   const { user, signOut } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -91,7 +102,26 @@ function SideNav({ onOpenNotifications }: { onOpenNotifications: () => void }) {
         authState="authenticated"
         user={{ name: displayName(user), email: typeof user.email === 'string' ? user.email : undefined }}
         navItems={items}
-        actions={phone ? undefined : bell}
+        actions={
+          phone ? undefined : (
+            <>
+              <button
+                type="button"
+                ref={hideRef}
+                data-testid="hide-nav"
+                aria-label="Hide menu (focus mode)"
+                title="Hide menu"
+                onClick={onHide}
+                className="app-nav-icon-btn relative"
+              >
+                <span className="block h-[22px] w-[22px]">
+                  <HideNavIcon />
+                </span>
+              </button>
+              {bell}
+            </>
+          )
+        }
         onSignOut={() => {
           // The next person on this browser starts at My Leagues, not in your league (#212).
           forgetLastLeague();
@@ -100,6 +130,42 @@ function SideNav({ onOpenNotifications }: { onOpenNotifications: () => void }) {
         className="sm:sticky sm:top-0 sm:h-screen sm:self-start sm:overflow-y-auto"
       />
     </>
+  );
+}
+
+/**
+ * Focus mode's stand-in for the rail: a button to bring the menu back and the bell, pinned to the
+ * top-left corner over the page so nothing else takes up room.
+ */
+function FocusBar({
+  onShow,
+  onOpenNotifications,
+  showRef
+}: {
+  onShow: () => void;
+  onOpenNotifications: () => void;
+  showRef: RefObject<HTMLButtonElement | null>;
+}) {
+  return (
+    <div
+      data-testid="focus-bar"
+      className="fixed left-3 top-3 z-30 flex items-center gap-1 rounded-full border border-border bg-surface p-1 shadow-md"
+    >
+      <button
+        type="button"
+        ref={showRef}
+        data-testid="show-nav"
+        aria-label="Show menu"
+        title="Show menu"
+        onClick={onShow}
+        className="app-nav-icon-btn relative"
+      >
+        <span className="block h-[22px] w-[22px]">
+          <ShowNavIcon />
+        </span>
+      </button>
+      <NotificationBell onOpen={onOpenNotifications} className="relative" />
+    </div>
   );
 }
 
@@ -123,17 +189,50 @@ export function AppLayout() {
   const { pathname } = useLocation();
   const [panelOpen, setPanelOpen] = useState(false);
   const [badge, setBadge] = useState<string | null>(null);
+  const [focus, setFocus] = useFocusMode();
+  // A phone's nav is already just a top bar, so focus mode is for wide screens.
+  const phone = usePhoneLayout();
+  const focused = focus && !phone;
+  // Each toggle unmounts the button you pressed, so keyboard focus moves to its counterpart.
+  const hideRef = useRef<HTMLButtonElement>(null);
+  const showRef = useRef<HTMLButtonElement>(null);
+  const toggled = useRef(false);
+  useEffect(() => {
+    if (!toggled.current) return;
+    toggled.current = false;
+    (focused ? showRef : hideRef).current?.focus();
+  }, [focused]);
+  const toggleFocus = (on: boolean) => {
+    toggled.current = true;
+    setFocus(on);
+  };
 
   return (
     <NotificationsProvider>
       <CurrentLeagueProvider leagueId={leagueIdIn(pathname)}>
         <PageTitle badge={badge} />
         <div className="relative flex min-h-screen flex-col bg-background text-foreground sm:flex-row">
-          <SideNav onOpenNotifications={() => setPanelOpen(true)} />
+          {focused ? (
+            <FocusBar
+              onShow={() => toggleFocus(false)}
+              onOpenNotifications={() => setPanelOpen(true)}
+              showRef={showRef}
+            />
+          ) : (
+            <SideNav
+              onOpenNotifications={() => setPanelOpen(true)}
+              onHide={() => toggleFocus(true)}
+              hideRef={hideRef}
+            />
+          )}
           <div className="flex min-w-0 flex-1 flex-col">
             {panelOpen ? <NotificationPanel onClose={() => setPanelOpen(false)} /> : null}
             <main id="main-content" className="flex-1">
-              <Container className="py-6" style={{ maxWidth: '90rem' }}>
+              {/* In focus mode the page takes the full width, clear of the corner bar. */}
+              <Container
+                className={focused ? 'pb-6 pt-16' : 'py-6'}
+                style={{ maxWidth: focused ? 'none' : '90rem' }}
+              >
                 <TitleBadgeContext.Provider value={setBadge}>
                   <Outlet />
                 </TitleBadgeContext.Provider>

@@ -143,11 +143,9 @@ describe('signed-in shell', () => {
 async function openSignOut(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
   const direct = screen.queryAllByRole('button', { name: /sign out/i });
   if (direct[0]) return direct[0];
-  const menus = screen.getAllByRole('button', { name: /alice|account|profile|menu/i });
-  for (const menu of menus) {
-    await user.click(menu);
-    const found = screen.queryAllByRole('button', { name: /sign out/i });
-    if (found[0]) return found[0];
-  }
+  // Exactly AppNav's profile button: the rail has other "menu" buttons (focus mode's Hide menu).
+  await user.click(screen.getByRole('button', { name: 'Open profile menu' }));
+  const found = screen.queryAllByRole('button', { name: /sign out/i });
+  if (found[0]) return found[0];
   throw new Error('No sign-out control found in AppNav');
 }
