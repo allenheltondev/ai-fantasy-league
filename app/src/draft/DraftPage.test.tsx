@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -322,7 +322,8 @@ describe('DraftPage', () => {
       '#— · FA'
     );
     expect(screen.getByRole('button', { name: "Draft Ja'Marr Chase" })).toBeDisabled();
-    expect(screen.getByTestId('roster-needs')).toHaveTextContent('Need: 1 QB, 1 K');
+    await userEvent.click(screen.getByRole('tab', { name: 'My roster' }));
+    expect(screen.getByTestId('roster-needs')).toHaveTextContent('Open starters: 1 QB, 1 K');
     expect(
       within(screen.getByRole('list', { name: 'Your roster' })).getByText('Christian McCaffrey')
     ).toBeInTheDocument();
@@ -379,7 +380,8 @@ describe('DraftPage', () => {
           })
     );
     renderDraft(api);
-    expect(await screen.findByTestId('roster-needs')).toHaveTextContent('Need: 1 QB, 1 K, 1 DEF');
+    await userEvent.click(await screen.findByRole('tab', { name: 'My roster' }));
+    expect(await screen.findByTestId('roster-needs')).toHaveTextContent('Open starters: 1 QB, 1 K, 1 DEF');
     const seats = within(screen.getByRole('list', { name: 'Your roster' })).getAllByRole('listitem');
     expect(seats.map((s) => s.textContent)).toEqual([
       'QBEmpty',
@@ -391,11 +393,13 @@ describe('DraftPage', () => {
     ]);
     expect(seats[0]).toHaveAttribute('data-empty', 'true');
     expect(screen.getByTestId('likely-gone')).toHaveTextContent('Likely gone before your pick: J. Chase');
-    expect(screen.getByTestId('scarcity')).toHaveTextContent('Left in the top 100: 20 WR (1 likely gone)');
+    expect(screen.getByTestId('scarcity')).toHaveTextContent(
+      'Among the 100 best remaining: 20 WR (1 likely gone)'
+    );
     expect(within(screen.getByTestId('available-fx-chase')).getByText('likely gone')).toBeInTheDocument();
     // A roster seat opens the player card.
     await user.click(within(seats[1] as HTMLElement).getByRole('button', { name: 'Christian McCaffrey' }));
-    expect(await screen.findByTestId('player-card')).toBeInTheDocument();
+    expect(await screen.findByRole('article')).toBeInTheDocument();
   });
 
   it('says so when your starting lineup is full, and when you have no team', async () => {
@@ -403,6 +407,7 @@ describe('DraftPage', () => {
       board({ yourRoster: { starters: [{ slot: 'RB', player: CMC }], bench: [], benchSize: 0 } })
     );
     renderDraft(full.api);
+    await userEvent.click(await screen.findByRole('tab', { name: 'My roster' }));
     expect(await screen.findByTestId('roster-needs')).toHaveTextContent('Starting lineup filled.');
   });
 
@@ -454,7 +459,7 @@ describe('DraftPage', () => {
     expect(screen.getByText('Complete')).toBeInTheDocument();
   });
 
-  it('drafts from the player card drawer, then closes it', async () => {
+  it('drafts from research and keeps the comparison available', async () => {
     const user = userEvent.setup();
     const { api, calls } = fakeApi((path) =>
       path === '/players/card'
@@ -473,13 +478,13 @@ describe('DraftPage', () => {
     );
     renderDraft(api);
     await user.click(await screen.findByRole('button', { name: "Ja'Marr Chase" }));
-    const card = await screen.findByTestId('player-card');
-    await user.click(within(card).getByRole('button', { name: 'Draft' }));
+    const card = await screen.findByRole('article');
+    await user.click(within(card).getByRole('button', { name: "Draft Ja'Marr Chase" }));
     expect(calls.find((c) => c.path.endsWith('/picks'))?.request.body).toEqual({
       playerId: 'fx-chase',
       pick: 3
     });
-    await waitFor(() => expect(screen.queryByTestId('player-card')).toBeNull());
+    await waitFor(() => expect(screen.getByRole('article')).toBeInTheDocument());
   });
 
   it('shows why a pick was refused', async () => {
@@ -514,6 +519,7 @@ describe('DraftPage', () => {
       within(screen.getByRole('group', { name: 'Position' })).getByRole('button', { name: 'WR' })
     );
     expect(calls.at(-1)?.request.query).toEqual({ q: 'chase', position: 'WR', limit: 50 });
+    await user.click(screen.getByRole('button', { name: 'Research' }));
     await user.click(screen.getByRole('button', { name: 'Sort by last season points per game' }));
     expect(calls.at(-1)?.request.query).toEqual({ q: 'chase', position: 'WR', limit: 50, sort: 'ppg' });
   });
@@ -537,22 +543,23 @@ describe('DraftPage', () => {
     await user.click(
       await screen.findByRole('button', { name: /Christian McCaffrey, pick 1\.01 by Allen's Team/ })
     );
-    expect(await screen.findByTestId('player-card')).toHaveTextContent('bye 14');
+    expect(await screen.findByRole('article')).toHaveTextContent('Bye 14');
     expect(calls.find((c) => c.path === '/players/card')?.request.query).toEqual({
       playerId: 'fx-cmc',
       leagueId: 'L1'
     });
     // Drafted already, and not your turn: no Draft button.
-    expect(within(screen.getByTestId('player-card')).queryByRole('button', { name: 'Draft' })).toBeNull();
+    expect(within(screen.getByRole('article')).queryByRole('button', { name: 'Draft' })).toBeNull();
     await user.keyboard('{Escape}');
     await user.click(tab('Board'));
     await user.click(
       within(screen.getByTestId('cell-1')).getByRole('button', { name: 'Christian McCaffrey' })
     );
-    expect(await screen.findByTestId('player-card')).toBeInTheDocument();
+    expect(await screen.findByRole('article')).toBeInTheDocument();
     await user.keyboard('{Escape}');
+    await user.click(tab('My roster'));
     await user.click(within(screen.getByRole('list', { name: 'Your roster' })).getByRole('button'));
-    expect(await screen.findByTestId('player-card')).toBeInTheDocument();
+    expect(await screen.findByRole('article')).toBeInTheDocument();
   });
 
   it('switches the main view to the depth chart', async () => {
@@ -833,7 +840,7 @@ describe('DraftPage', () => {
     await user.click(
       within(screen.getByRole('list', { name: 'Your queue' })).getByRole('button', { name: "Ja'Marr Chase" })
     );
-    expect(await screen.findByTestId('player-card')).toHaveTextContent('bye 10');
+    expect(await screen.findByRole('article')).toHaveTextContent('Bye 10');
   });
 
   it('says when your queue cannot load', async () => {
@@ -1132,5 +1139,200 @@ describe('spaceBelow', () => {
     } finally {
       outer.remove();
     }
+  });
+});
+
+describe('draft workspace continuity', () => {
+  const choices = [1, 2, 3, 4].map((i) => ref(`choice-${i}`, `Candidate ${i}`, 'WR'));
+  const cardFor = (player: typeof CHASE) => ({
+    player,
+    scoring: { source: 'league' },
+    bye: 10,
+    injuryStatus: null,
+    lastSeason: null,
+    projection: null,
+    news: []
+  });
+  const researchApi = () =>
+    fakeApi((path, request) =>
+      path === '/players/card'
+        ? cardFor(choices.find((p) => p.id === request.query?.playerId) ?? CHASE)
+        : path.endsWith('/depth')
+          ? { yourTeamId: 'team-1', teams: [] }
+          : board({ bestAvailable: choices.map((player, i) => ({ player, rank: i + 1 })) })
+    );
+
+  it('remembers density, caps pinned comparisons without evicting candidates, and shares a question only on request', async () => {
+    const user = userEvent.setup();
+    const { api } = researchApi();
+    const { chat } = fakeChat();
+    renderDraft(api, 60000, undefined, { chat });
+    await user.click(await screen.findByRole('button', { name: 'Research' }));
+    expect(localStorage.getItem('fantasy:draft-density')).toBe('research');
+    await user.click(screen.getByRole('button', { name: 'Essentials' }));
+    expect(localStorage.getItem('fantasy:draft-density')).toBe('essentials');
+    for (const player of choices.slice(0, 3))
+      await user.click(screen.getAllByRole('button', { name: `Compare ${player.name}` })[0]!);
+    expect(screen.getAllByRole('button', { name: 'Compare Candidate 4' })[0]).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Candidate 4' }));
+    expect(screen.getByText(/Three players are pinned/)).toBeInTheDocument();
+    expect(screen.getAllByRole('article')).toHaveLength(3);
+    expect(screen.queryByRole('article', { name: 'Candidate 4 research' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+    await user.click(screen.getByRole('button', { name: 'Remove Candidate 1 from research' }));
+    await user.click(screen.getByRole('tab', { name: 'Players' }));
+    await user.click(screen.getAllByRole('button', { name: 'Compare Candidate 2' })[0]!);
+    await user.click(screen.getByRole('button', { name: 'Compare 1 / 3 players →' }));
+    await user.click(screen.getByRole('button', { name: 'Discuss in chat →' }));
+    expect(screen.getByLabelText('Message')).toHaveValue('What do you think of Candidate 3?');
+    await user.click(screen.getByRole('tab', { name: 'Players' }));
+    await user.click(screen.getAllByRole('button', { name: 'Compare Candidate 2' })[0]!);
+    await user.click(screen.getByRole('button', { name: 'Compare 2 / 3 players →' }));
+    await user.click(screen.getByRole('button', { name: 'Discuss in chat →' }));
+    expect(screen.getByLabelText('Message')).toHaveValue(
+      'What do you think of Candidate 3?\nWho would you take: Candidate 3 or Candidate 2?'
+    );
+  });
+
+  it('keeps mobile research and the chat draft when switching panels', async () => {
+    width.set(false);
+    const user = userEvent.setup();
+    const { api } = researchApi();
+    renderDraft(api);
+    await user.click(await screen.findByRole('button', { name: 'Candidate 1' }));
+    expect(await screen.findByRole('article')).toHaveTextContent('Candidate 1');
+    await user.click(screen.getByRole('button', { name: '← Back to players' }));
+    expect(screen.getByRole('table', { name: 'Best available' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Compare 1 / 3 players →' }));
+    await user.click(screen.getByRole('button', { name: 'Discuss in chat →' }));
+    expect(screen.getByLabelText('Message')).toHaveValue('What do you think of Candidate 1?');
+    await user.click(screen.getByRole('tab', { name: 'Queue' }));
+    await user.click(screen.getByRole('tab', { name: 'Chat' }));
+    expect(screen.getByLabelText('Message')).toHaveValue('What do you think of Candidate 1?');
+  });
+
+  it('supports keyboard tab navigation and lets the room conversation collapse independently', async () => {
+    const user = userEvent.setup();
+    const { api } = researchApi();
+    renderDraft(api);
+    const players = await screen.findByRole('tab', { name: 'Players' });
+    players.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: 'Research' })).toHaveFocus();
+    await user.keyboard('{ArrowLeft}{End}');
+    expect(screen.getByRole('tab', { name: 'Depth' })).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(players).toHaveFocus();
+    await user.keyboard('x');
+    await user.click(screen.getByRole('button', { name: /Around the room/ }));
+    expect(screen.queryByLabelText('Message')).not.toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Chat' }));
+    expect(screen.getByLabelText('Message')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Around the room/ }));
+    expect(screen.getByRole('tab', { name: 'Queue' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('carries lobby research into the live draft and preserves saved density when storage is unavailable', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('fantasy:draft-density', 'research');
+    let started = false;
+    const { api } = fakeApi((path) => {
+      if (path.endsWith('/draft')) return started ? board() : NOT_STARTED;
+      if (path.endsWith('/lobby')) return lobbyView();
+      if (path === '/players') return { players: [CHASE, CMC, NYJ, ...choices] };
+      if (path === '/players/card') return cardFor(CHASE);
+      return {};
+    });
+    renderDraft(api, 50);
+    const found = within(await screen.findByRole('list', { name: 'Players to queue' }));
+    for (const player of [CHASE, CMC, NYJ])
+      await user.click(found.getByRole('button', { name: player.name }));
+    await user.click(found.getByRole('button', { name: 'Candidate 1' }));
+    expect(screen.getByText(/Three players are pinned/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove NYJ Defense from research' }));
+    expect(screen.queryByText(/Three players are pinned/)).toBeNull();
+    started = true;
+    await screen.findByTestId('draft-room');
+    expect(screen.getByRole('tab', { name: 'Research' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    await user.click(screen.getByRole('tab', { name: 'Players' }));
+    expect(screen.getByRole('button', { name: 'Research' })).toHaveAttribute('aria-pressed', 'true');
+    const block = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    await user.click(screen.getByRole('button', { name: 'Essentials' }));
+    expect(screen.getByRole('button', { name: 'Essentials' })).toHaveAttribute('aria-pressed', 'true');
+    block.mockRestore();
+  });
+
+  it('shows unread room activity without losing the reading position or the draft clock', async () => {
+    const user = userEvent.setup();
+    const { api } = researchApi();
+    renderDraft(api);
+    await screen.findByText('Chase is mine next round.');
+    const messages = screen.getByRole('list', { name: 'Chat messages' });
+    Object.defineProperties(messages, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 100 },
+      scrollTop: { configurable: true, writable: true, value: 0 }
+    });
+    fireEvent.scroll(messages);
+    expect(screen.getByRole('button', { name: 'Jump to latest messages ↓' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Jump to latest messages ↓' }));
+    expect(messages.scrollTop).toBe(1000);
+    expect(screen.getByTestId('pick-clock')).toBeInTheDocument();
+  });
+
+  it('starts in Essentials if device storage cannot be read', async () => {
+    const block = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const { api } = researchApi();
+    renderDraft(api);
+    expect(await screen.findByRole('button', { name: 'Essentials' })).toHaveAttribute('aria-pressed', 'true');
+    block.mockRestore();
+  });
+
+  it('keeps the newest search result when an older request finishes late', async () => {
+    const { api: base } = researchApi();
+    let finishOld!: (value: unknown) => void;
+    let finishNew!: (value: unknown) => void;
+    const api = ((path: string, request?: ApiRequest) => {
+      if (path.endsWith('/draft') && request?.query?.q === 'old')
+        return new Promise<unknown>((resolve) => {
+          finishOld = resolve;
+        });
+      if (path.endsWith('/draft') && request?.query?.q === 'new')
+        return new Promise<unknown>((resolve) => {
+          finishNew = resolve;
+        });
+      return base(path, request);
+    }) as unknown as ApiFetch;
+    renderDraft(api);
+    const input = await screen.findByLabelText('Search players');
+    fireEvent.change(input, { target: { value: 'old' } });
+    fireEvent.change(input, { target: { value: 'new' } });
+    await act(async () =>
+      finishNew({ data: board({ bestAvailable: [{ player: CHASE, rank: 1 }] }), league: null, warnings: [] })
+    );
+    await act(async () =>
+      finishOld({ data: board({ bestAvailable: [{ player: NYJ, rank: 1 }] }), league: null, warnings: [] })
+    );
+    expect(screen.getByTestId('available-fx-chase')).toBeInTheDocument();
+    expect(screen.queryByTestId('available-fx-def-nyj')).toBeNull();
+  });
+
+  it('shows refresh failures after initial load and recovers through the refresh action', async () => {
+    let offline = false;
+    const { api } = fakeApi(() => (offline ? new Error('offline') : board({ onTheClock: MY_TURN })));
+    renderDraft(api, 50);
+    await screen.findByTestId('draft-room');
+    offline = true;
+    await screen.findByText(/Updates are delayed/);
+    expect(screen.getByRole('button', { name: "Draft Ja'Marr Chase" })).toBeDisabled();
+    offline = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }));
+    await waitFor(() => expect(screen.queryByText(/Updates are delayed/)).toBeNull());
+    expect(screen.getByRole('button', { name: "Draft Ja'Marr Chase" })).toBeEnabled();
   });
 });

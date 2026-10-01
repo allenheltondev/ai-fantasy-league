@@ -15,6 +15,7 @@ const ID_TOKEN = [
 
 const ref = (id: string, name: string, position: string, team: string) => ({ id, name, team, position });
 const CHASE = ref('fx-chase', "Ja'Marr Chase", 'WR', 'CIN');
+const LAMB = ref('fx-lamb', 'CeeDee Lamb', 'WR', 'DAL');
 const CMC = ref('fx-cmc', 'Christian McCaffrey', 'RB', 'SF');
 
 const envelope = (data: unknown) => ({
@@ -24,6 +25,13 @@ const envelope = (data: unknown) => ({
 });
 
 function researchApi(page: Page) {
+  void page.route('**/api/v1/leagues/L1/chat/messages?*', (route) =>
+    route.fulfill({ json: envelope({ messages: [], nextCursor: null }) })
+  );
+  void page.route('**/api/v1/leagues/L1/chat/rooms/draft/read', (route) =>
+    route.fulfill({ json: envelope({}) })
+  );
+  void page.route('**/api/v1/leagues/L1', (route) => route.fulfill({ json: envelope({ teams: [] }) }));
   const board = {
     status: 'in_progress',
     rounds: 2,
@@ -120,10 +128,18 @@ function researchApi(page: Page) {
   };
   void page.route('**/api/v1/leagues/L1/draft?*', (route) => route.fulfill({ json: envelope(board) }));
   void page.route('**/api/v1/leagues/L1/draft/depth', (route) => route.fulfill({ json: envelope(depth) }));
-  void page.route('**/api/v1/players/card?*', (route) => route.fulfill({ json: envelope(card) }));
+  void page.route('**/api/v1/players/card?*', (route) =>
+    route.fulfill({
+      json: envelope(
+        new URL(route.request().url()).searchParams.get('playerId') === LAMB.id
+          ? { ...card, player: { ...LAMB, rank: 2 }, projection: { ...card.projection, points: 274 } }
+          : card
+      )
+    })
+  );
   // The server-side draft queue (#134): starts empty; a PUT stores the order and echoes it back.
   let queued: string[] = [];
-  const known = [CHASE, CMC];
+  const known = [LAMB, CHASE, CMC];
   void page.route('**/api/v1/leagues/L1/draft/queue', async (route) => {
     if (route.request().method() === 'PUT') {
       queued = (route.request().postDataJSON() as { playerIds: string[] }).playerIds;
@@ -175,6 +191,7 @@ function researchApi(page: Page) {
       })
     })
   );
+  return { board, card };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -192,18 +209,20 @@ test.beforeEach(async ({ page }) => {
 test('open a player card from best available, queue him, then view depth', async ({ page }) => {
   researchApi(page);
   await page.goto('/leagues/L1/draft');
+  await page.getByRole('button', { name: 'Research', exact: true }).click();
   const row = page.getByTestId('available-fx-chase');
   await expect(row).toContainText('17.7');
   await expect(row).toContainText('288');
 
   await row.getByRole('button', { name: "Ja'Marr Chase", exact: true }).click();
-  const card = page.getByTestId('player-card');
-  await expect(card).toContainText('301.4 pts · 17.7 PPG · 17 games');
+  const card = page.getByRole('article', { name: "Ja'Marr Chase research" });
+  await expect(card).toContainText('17.7 · 17 games');
+  await card.getByText('Weekly production & stat detail').click();
   await expect(card.getByTestId('weekly-points').first()).toBeVisible();
-  await expect(card).toContainText('bye 10');
+  await expect(card).toContainText('Bye 10');
   await expect(card.getByRole('link', { name: 'Chase full go at practice' })).toBeVisible();
-  await card.getByRole('button', { name: 'Queue', exact: true }).click();
-  await expect(card.getByRole('button', { name: 'Queued' })).toBeDisabled();
+  await card.getByRole('button', { name: '＋ Queue', exact: true }).click();
+  await expect(card.getByRole('button', { name: 'Queued ✓' })).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('tab', { name: 'Queue' })).toHaveText('Queue (1)');
   await page.getByRole('tab', { name: 'Queue' }).click();
@@ -217,3 +236,93 @@ test('open a player card from best available, queue him, then view depth', async
   await expect(page.getByTestId('depth-team-2')).toContainText('1 pick before you');
   await expect(page.getByTestId('depth-team-1-QB')).toHaveAttribute('data-gap', 'true');
 });
+
+test('research survives a rival pick, keeps a fallback ready, and composes a shared comparison', async ({
+  page
+}, testInfo) => {
+  const { board } = researchApi(page);
+  board.bestAvailable.push({ ...board.bestAvailable[0]!, player: LAMB, rank: 2 });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/leagues/L1/draft');
+  await page.getByRole('button', { name: "Queue Ja'Marr Chase", exact: true }).click();
+  await page.getByRole('button', { name: 'Queue CeeDee Lamb', exact: true }).click();
+  await page.getByRole('button', { name: "Compare Ja'Marr Chase", exact: true }).click();
+  await page.getByRole('button', { name: 'Compare CeeDee Lamb', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('desktop-players.png') });
+  await page.getByRole('button', { name: 'Compare 2 / 3 players' }).click();
+  const chase = page.getByRole('article', { name: "Ja'Marr Chase research" });
+  const lamb = page.getByRole('article', { name: 'CeeDee Lamb research' });
+  await expect(chase).toContainText('288');
+  await expect(lamb).toContainText('274');
+  await chase.getByText('Private notes', { exact: true }).click();
+  await chase.getByLabel("Notes for Ja'Marr Chase").fill('Watch the injury report before my pick.');
+  await page
+    .locator('#draft-center > div')
+    .nth(1)
+    .evaluate((element) => (element.scrollTop = 0));
+  await page.screenshot({ path: testInfo.outputPath('desktop-research.png') });
+  board.picks.push({
+    overall: 2,
+    round: 1,
+    pick: 2,
+    teamId: 'team-2',
+    player: CHASE,
+    auto: false,
+    madeAt: null
+  });
+  board.bestAvailable = board.bestAvailable.filter((p) => p.player.id !== CHASE.id);
+  board.onTheClock = {
+    ...board.onTheClock,
+    overall: 3,
+    round: 2,
+    pick: 1,
+    teamId: 'team-1',
+    teamName: "Allen's Team"
+  };
+  board.yourNextPick = { overall: 3, round: 2, pick: 1, picksAway: 0 };
+  await expect(chase).toContainText('Drafted · research kept for reference', { timeout: 10000 });
+  await expect(chase.getByLabel("Notes for Ja'Marr Chase")).toHaveValue(
+    'Watch the injury report before my pick.'
+  );
+  await expect(lamb.getByRole('button', { name: 'Draft CeeDee Lamb' })).toBeEnabled();
+  await expect(page.getByTestId('autopick-plan')).toContainText('try CeeDee Lamb');
+  await page.getByRole('button', { name: 'Discuss in chat' }).click();
+  await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
+    "Who would you take: Ja'Marr Chase or CeeDee Lamb?"
+  );
+  await expect(page.getByRole('table', { name: 'Best available' })).toBeHidden();
+  await page.getByRole('tab', { name: 'Players', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Compare CeeDee Lamb', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+});
+
+for (const width of [320, 390, 768, 1024]) {
+  test(`draft research and navigation remain usable at ${width}px`, async ({ page }, testInfo) => {
+    researchApi(page);
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/leagues/L1/draft');
+    await expect(page.getByRole('table', { name: 'Best available' })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+      .toBe(true);
+    await page
+      .getByTestId('available-fx-chase')
+      .getByRole('button', { name: "Ja'Marr Chase", exact: true })
+      .click();
+    await expect(page.getByRole('article')).toContainText('288');
+    await expect(page.getByTestId('pick-clock')).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+      .toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`research-${width}.png`) });
+    if (width < 1024) {
+      await page.getByRole('tab', { name: 'Chat', exact: true }).click();
+      await page.getByLabel('Message', { exact: true }).fill('My draft-day hot take');
+      await page.getByRole('tab', { name: 'Queue', exact: true }).click();
+      await page.getByRole('tab', { name: 'Chat', exact: true }).click();
+      await expect(page.getByLabel('Message', { exact: true })).toHaveValue('My draft-day hot take');
+    }
+  });
+}

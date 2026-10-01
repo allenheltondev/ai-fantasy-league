@@ -136,10 +136,23 @@ describe('BestAvailableTable', () => {
     expect(chips.getByRole('button', { name: 'WR' })).toHaveTextContent('WR12');
     expect(chips.getByRole('button', { name: 'WR' })).toHaveAttribute(
       'title',
-      '12 WR left in the top 100, 2 likely gone before your pick'
+      '12 WR among the 100 best remaining players (unranked positions count the full pool), 2 likely gone before your pick'
     );
-    expect(chips.getByRole('button', { name: 'TE' })).toHaveAttribute('title', '5 TE left in the top 100');
+    expect(chips.getByRole('button', { name: 'TE' })).toHaveAttribute(
+      'title',
+      '5 TE among the 100 best remaining players (unranked positions count the full pool)'
+    );
     expect(chips.getByRole('button', { name: 'K' })).not.toHaveAttribute('title');
+  });
+
+  it('offers both compact and desktop comparison actions when used without a pinned selection', async () => {
+    const user = userEvent.setup();
+    const onCompare = vi.fn();
+    renderTable({ onCompare });
+    for (const button of screen.getAllByRole('button', { name: "Compare Ja'Marr Chase" }))
+      await user.click(button);
+    expect(onCompare).toHaveBeenCalledTimes(2);
+    expect(onCompare).toHaveBeenCalledWith(CHASE);
   });
 
   it('sorts from the phone menu, and says when nothing matches', async () => {

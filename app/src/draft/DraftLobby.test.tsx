@@ -150,7 +150,7 @@ describe('DraftLobby', () => {
     const { api, calls } = fakeApi(() => lobby());
     renderLobby(api, { queue });
     const found = within(await screen.findByRole('list', { name: 'Players to queue' }));
-    expect(await found.findByText(/CeeDee Lamb/)).toHaveTextContent('WR · FA');
+    expect((await found.findByText(/CeeDee Lamb/)).closest('li')).toHaveTextContent('WR · FA');
     expect(found.getByRole('button', { name: "Queue Ja'Marr Chase" })).toBeDisabled();
     const list = within(screen.getByRole('list', { name: 'Your queue' }));
     await user.click(list.getByRole('button', { name: 'Move CeeDee Lamb up' }));

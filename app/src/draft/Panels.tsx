@@ -34,9 +34,9 @@ export function RosterPanel({ board, onOpen }: { board: DraftBoard; onOpen(playe
     <div className="space-y-2 text-sm">
       <p
         data-testid="roster-needs"
-        className={`rounded-md px-2 py-1.5 font-medium ${need === '' ? 'bg-success-50 text-success-800' : 'bg-warning-50 text-warning-800'}`}
+        className={`rounded-md px-2 py-1.5 font-medium ${need === '' ? 'bg-success-50 text-success-800' : 'bg-muted text-foreground'}`}
       >
-        {need === '' ? 'Starting lineup filled.' : `Need: ${need}`}
+        {need === '' ? 'Starting lineup filled.' : `Open starters: ${need}`}
       </p>
       {layout == null ? (
         <ol aria-label="Your roster" className="divide-y divide-border">

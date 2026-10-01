@@ -61,6 +61,7 @@ export interface DraftQueue {
   players: PlayerRef[];
   /** False until the server queue has loaded. */
   ready: boolean;
+  saving?: boolean;
   /** Why the last load or save failed, or null. */
   error: string | null;
   has(playerId: string): boolean;
@@ -75,18 +76,22 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
   const [players, setPlayers] = useState<PlayerRef[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(0);
   const path = `/leagues/${leagueId}/draft/queue`;
   // Saves run one at a time, in order, so the last change always wins on the server.
   const saving = useRef<Promise<void>>(Promise.resolve());
 
   const save = useCallback(
     (next: readonly PlayerRef[]) => {
+      setPending((n) => n + 1);
       saving.current = saving.current.then(async () => {
         try {
           await api<ServerDraftQueue>(path, { method: 'PUT', body: { playerIds: next.map((p) => p.id) } });
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : 'Could not save your queue.');
+        } finally {
+          setPending((n) => n - 1);
         }
       });
     },
@@ -135,6 +140,7 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
   return {
     players,
     ready,
+    saving: pending > 0,
     error,
     has: (playerId) => players.some((p) => p.id === playerId),
     add: (player) => update((q) => (q.some((p) => p.id === player.id) ? q : [...q, player])),

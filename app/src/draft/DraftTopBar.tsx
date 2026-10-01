@@ -1,4 +1,5 @@
 import { Button, StatusBadge } from '@readysetcloud/ui';
+import { useLayoutEffect, useRef } from 'react';
 import { ConfirmButton } from '../components/ConfirmButton';
 import { formatClock, roundPick, type DraftBoard } from './board';
 import { TeamMark } from './marks';
@@ -23,6 +24,7 @@ export interface DraftTopBarProps {
   sound: { enabled: boolean; toggle(): void };
   /** Commissioner controls, when you may pause or resume. */
   commissioner: { busy: boolean; onPause(): void; onResume(): void } | null;
+  onHeight?(height: number): void;
 }
 
 /**
@@ -36,14 +38,27 @@ export function DraftTopBar({
   updates,
   live,
   sound,
-  commissioner
+  commissioner,
+  onHeight
 }: DraftTopBarProps) {
+  const header = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = header.current;
+    if (!element || !onHeight) return;
+    const measure = () => onHeight(element.getBoundingClientRect().height + 8);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onHeight]);
   const clock = board.onTheClock;
   const team = clock === null ? undefined : board.order.find((t) => t.teamId === clock.teamId);
   const next = board.yourNextPick;
   const urgent = yourTurn && board.status === 'in_progress' && seconds !== null && seconds <= URGENT_SECONDS;
   return (
     <header
+      ref={header}
       data-testid="draft-topbar"
       aria-label="Draft clock"
       className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 ${
