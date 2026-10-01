@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router';
 import { AppNav, Container, readySetCloudServices, type AppNavLinkProps } from '@readysetcloud/ui';
 import { useAuth, type IdClaims } from '@readysetcloud/ui/auth';
@@ -57,11 +57,13 @@ function usePhoneLayout(): boolean {
  */
 function SideNav({
   onOpenNotifications,
-  onHide
+  onHide,
+  hideRef
 }: {
   onOpenNotifications: () => void;
   /** Folds the rail away for focus mode; only offered on a wide screen. */
   onHide: () => void;
+  hideRef: RefObject<HTMLButtonElement | null>;
 }) {
   const { user, signOut } = useAuth();
   const { pathname } = useLocation();
@@ -105,6 +107,7 @@ function SideNav({
             <>
               <button
                 type="button"
+                ref={hideRef}
                 data-testid="hide-nav"
                 aria-label="Hide menu (focus mode)"
                 title="Hide menu"
@@ -134,7 +137,15 @@ function SideNav({
  * Focus mode's stand-in for the rail: a button to bring the menu back and the bell, pinned to the
  * top-left corner over the page so nothing else takes up room.
  */
-function FocusBar({ onShow, onOpenNotifications }: { onShow: () => void; onOpenNotifications: () => void }) {
+function FocusBar({
+  onShow,
+  onOpenNotifications,
+  showRef
+}: {
+  onShow: () => void;
+  onOpenNotifications: () => void;
+  showRef: RefObject<HTMLButtonElement | null>;
+}) {
   return (
     <div
       data-testid="focus-bar"
@@ -142,6 +153,7 @@ function FocusBar({ onShow, onOpenNotifications }: { onShow: () => void; onOpenN
     >
       <button
         type="button"
+        ref={showRef}
         data-testid="show-nav"
         aria-label="Show menu"
         title="Show menu"
@@ -181,6 +193,19 @@ export function AppLayout() {
   // A phone's nav is already just a top bar, so focus mode is for wide screens.
   const phone = usePhoneLayout();
   const focused = focus && !phone;
+  // Each toggle unmounts the button you pressed, so keyboard focus moves to its counterpart.
+  const hideRef = useRef<HTMLButtonElement>(null);
+  const showRef = useRef<HTMLButtonElement>(null);
+  const toggled = useRef(false);
+  useEffect(() => {
+    if (!toggled.current) return;
+    toggled.current = false;
+    (focused ? showRef : hideRef).current?.focus();
+  }, [focused]);
+  const toggleFocus = (on: boolean) => {
+    toggled.current = true;
+    setFocus(on);
+  };
 
   return (
     <NotificationsProvider>
@@ -188,9 +213,17 @@ export function AppLayout() {
         <PageTitle badge={badge} />
         <div className="relative flex min-h-screen flex-col bg-background text-foreground sm:flex-row">
           {focused ? (
-            <FocusBar onShow={() => setFocus(false)} onOpenNotifications={() => setPanelOpen(true)} />
+            <FocusBar
+              onShow={() => toggleFocus(false)}
+              onOpenNotifications={() => setPanelOpen(true)}
+              showRef={showRef}
+            />
           ) : (
-            <SideNav onOpenNotifications={() => setPanelOpen(true)} onHide={() => setFocus(true)} />
+            <SideNav
+              onOpenNotifications={() => setPanelOpen(true)}
+              onHide={() => toggleFocus(true)}
+              hideRef={hideRef}
+            />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
             {panelOpen ? <NotificationPanel onClose={() => setPanelOpen(false)} /> : null}

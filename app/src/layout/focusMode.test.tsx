@@ -26,6 +26,17 @@ describe('focus mode', () => {
     expect(readFocusMode()).toBe(false);
   });
 
+  it('hands keyboard focus to the counterpart button on each toggle', async () => {
+    signInAs(ALICE);
+    renderApp('/leagues/L1/home');
+    const user = userEvent.setup();
+    (await screen.findByRole('button', { name: 'Hide menu (focus mode)' })).focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Show menu' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Hide menu (focus mode)' })).toHaveFocus();
+  });
+
   it('is remembered across visits', async () => {
     localStorage.setItem(FOCUS_MODE_KEY, 'on');
     signInAs(ALICE);
