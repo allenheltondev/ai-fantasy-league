@@ -115,18 +115,15 @@ export const PlayersIcon = () => (
   </Icon>
 );
 
-/** A rail beside the page, with an arrow folding it away (focus mode on). */
-export const HideNavIcon = () => (
+/** A chevron pointing the way the rail will fold: in to icons only, or back out to full. */
+export const CollapseNavIcon = () => (
   <Icon>
-    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
-    <path d="M9 4.5v15M15.5 9.5 13 12l2.5 2.5" />
+    <path d="m14.5 7-5 5 5 5" />
   </Icon>
 );
 
-/** The same rail, with the arrow bringing it back (focus mode off). */
-export const ShowNavIcon = () => (
+export const ExpandNavIcon = () => (
   <Icon>
-    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
-    <path d="M9 4.5v15M13 9.5l2.5 2.5-2.5 2.5" />
+    <path d="m9.5 7 5 5-5 5" />
   </Icon>
 );
