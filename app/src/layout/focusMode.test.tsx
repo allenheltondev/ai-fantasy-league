@@ -11,38 +11,40 @@ const sideNav = () => document.querySelector('.app-nav');
 describe('focus mode', () => {
   afterEach(() => localStorage.removeItem(FOCUS_MODE_KEY));
 
-  it('folds the side nav away, keeps the bell in reach, and brings the nav back', async () => {
+  it('folds the rail to icons only, keeping the links and bell, and unfolds it', async () => {
     signInAs(ALICE);
     renderApp('/leagues/L1/draft');
-    await userEvent.click(await screen.findByRole('button', { name: 'Hide menu (focus mode)' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Collapse menu' }));
 
-    expect(sideNav()).toBeNull();
-    expect(screen.getByTestId('focus-bar')).toContainElement(screen.getByTestId('notification-bell'));
+    expect(sideNav()).toHaveClass('app-nav-rail-collapsed');
+    expect(sideNav()).toContainElement(screen.getByTestId('notification-bell'));
+    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('title', 'Home');
     expect(readFocusMode()).toBe(true);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Show menu' }));
-    expect(sideNav()).not.toBeNull();
-    expect(screen.queryByTestId('focus-bar')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Expand menu' }));
+    expect(sideNav()).not.toHaveClass('app-nav-rail-collapsed');
+    expect(screen.getByRole('link', { name: 'Home' })).not.toHaveAttribute('title');
     expect(readFocusMode()).toBe(false);
   });
 
-  it('hands keyboard focus to the counterpart button on each toggle', async () => {
+  it('keeps keyboard focus on the toggle as it flips', async () => {
     signInAs(ALICE);
     renderApp('/leagues/L1/home');
     const user = userEvent.setup();
-    (await screen.findByRole('button', { name: 'Hide menu (focus mode)' })).focus();
+    const toggle = await screen.findByRole('button', { name: 'Collapse menu' });
+    toggle.focus();
     await user.keyboard('{Enter}');
-    expect(screen.getByRole('button', { name: 'Show menu' })).toHaveFocus();
-    await user.keyboard('{Enter}');
-    expect(screen.getByRole('button', { name: 'Hide menu (focus mode)' })).toHaveFocus();
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAccessibleName('Expand menu');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('is remembered across visits', async () => {
     localStorage.setItem(FOCUS_MODE_KEY, 'on');
     signInAs(ALICE);
     renderApp('/leagues/L1/home');
-    expect(await screen.findByTestId('focus-bar')).toBeInTheDocument();
-    expect(sideNav()).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Expand menu' })).toBeInTheDocument();
+    expect(sideNav()).toHaveClass('app-nav-rail-collapsed');
   });
 
   it('does not apply on a phone, where the nav is already a top bar', async () => {
@@ -58,9 +60,8 @@ describe('focus mode', () => {
       signInAs(ALICE);
       renderApp('/leagues/L1/home');
       expect(await screen.findByTestId('notification-bell')).toBeInTheDocument();
-      expect(sideNav()).not.toBeNull();
-      expect(screen.queryByTestId('focus-bar')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('hide-nav')).not.toBeInTheDocument();
+      expect(sideNav()).not.toHaveClass('app-nav-rail-collapsed');
+      expect(screen.queryByTestId('nav-toggle')).not.toBeInTheDocument();
     } finally {
       window.matchMedia = original;
     }

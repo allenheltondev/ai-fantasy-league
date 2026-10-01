@@ -276,3 +276,125 @@ body {
   color: rgb(var(--foreground));
   box-shadow: 0 1px 2px rgb(14 34 51 / 0.1);
 }
+
+/*
+ * The side rail (#178) and focus mode's folded rail: icons only, each link a square target with
+ * its badge on the icon's corner. AppNav renders labels as bare text, so they fold to font-size 0
+ * (still read out by screen readers). Wide screens only; a phone's rail is a top bar.
+ */
+@media (min-width: 641px) {
+  .nav-rail .app-nav-side {
+    height: 100%;
+    transition:
+      width 0.18s ease,
+      flex-basis 0.18s ease;
+  }
+  .app-nav-side.app-nav-rail-collapsed {
+    width: 4.5rem;
+    flex-basis: 4.5rem;
+  }
+  .app-nav-rail-collapsed .app-nav-inner {
+    align-items: center;
+    padding-inline: 0.75rem;
+  }
+  .app-nav-rail-collapsed .app-nav-brand {
+    padding-inline: 0;
+  }
+  .app-nav-rail-collapsed .app-nav-brand-name {
+    display: none;
+  }
+  .app-nav-rail-collapsed .app-nav-collapse,
+  .app-nav-rail-collapsed .app-nav-links,
+  .app-nav-rail-collapsed .app-nav-section {
+    align-items: center;
+  }
+  /* A section's heading becomes a short rule between its icons. */
+  .app-nav-rail-collapsed .app-nav-section-title {
+    width: 1.5rem;
+    height: 1px;
+    margin: 0 auto 0.5rem;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+    background: rgb(var(--border));
+  }
+  .app-nav-rail-collapsed .app-nav-link {
+    position: relative;
+    width: 2.75rem;
+    min-height: 2.75rem;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    font-size: 0;
+  }
+  .app-nav-rail-collapsed .app-nav-link-badge {
+    position: absolute;
+    top: 0.125rem;
+    right: 0.125rem;
+    min-width: 1rem;
+    height: 1rem;
+    margin: 0;
+    padding: 0 0.25rem;
+    font-size: 0.625rem;
+    box-shadow: 0 0 0 2px rgb(var(--surface));
+  }
+  .app-nav-rail-collapsed .app-nav-actions {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  /* The fold toggle: a small round button on the rail's edge, level with the brand. */
+  .nav-rail-toggle {
+    position: absolute;
+    top: 1.75rem;
+    right: -0.75rem;
+    z-index: 1;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgb(var(--border));
+    border-radius: 9999px;
+    background: rgb(var(--surface));
+    color: rgb(var(--muted-foreground));
+    box-shadow: 0 1px 3px rgb(14 34 51 / 0.15);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.15s ease,
+      color 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .nav-rail-toggle svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+  .nav-rail-toggle:hover {
+    background: rgb(var(--muted));
+    color: rgb(var(--primary-700));
+  }
+  .nav-rail:hover .nav-rail-toggle,
+  .nav-rail-toggle:focus-visible {
+    opacity: 1;
+  }
+  .nav-rail-toggle:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px rgb(var(--surface)),
+      0 0 0 4px rgb(var(--ring));
+  }
+}
+/* Without a hover (a tablet), the toggle stays in view. */
+@media (min-width: 641px) and (hover: none) {
+  .nav-rail-toggle {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-rail .app-nav-side,
+  .nav-rail-toggle {
+    transition: none;
+  }
+}
