@@ -6,7 +6,13 @@ import { ScriptedModelClient, type FakeScript } from '../src/fake-model.js';
 import { NAMING_COOLDOWN, routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
-import { NAMING_ACTIONS, namingOutcome, scriptedName, type NamingPrep } from '../src/tasks/team-identity.js';
+import {
+  NAMING_ACTIONS,
+  fallbackRename,
+  namingOutcome,
+  scriptedName,
+  type NamingPrep
+} from '../src/tasks/team-identity.js';
 import type { TaskContext } from '../src/tasks/kinds.js';
 import { createRegistry, operations } from '@fantasy/server';
 import { AGENT_TEAM, LEAGUE_ID, START, setup, type Setup } from './support.js';
@@ -105,23 +111,42 @@ describe('team_identity task', () => {
     ]);
   });
 
-  it('gives up cleanly after a second refusal, keeping its name and saying nothing', async () => {
+  it('takes a name in its style after a second refusal, never keeping the placeholder', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, NERD);
     const model = scripted([rename('Team 3'), rename('Team 99'), rename('Third Time Lucky')], {
       summary: 'Tried.',
       teamName: 'Team 99',
-      message: 'Behold!'
+      message: 'Behold Team 99!'
     });
     const record = await runAgentAction(s.deps(model), naming());
     const results = model.transcript[0]?.results as { error?: { code: string; details?: unknown } }[];
     expect(results.map((r) => r.error?.code)).toEqual(['CONFLICT', 'INVALID_INPUT', 'FORBIDDEN']);
     expect(results[2]?.error?.details).toEqual({ actionsPerTrigger: NAMING_ACTIONS });
+    expect(record).toMatchObject({ status: 'completed', finalAction: 'rename_team' });
+    expect(record.reasoningSummary).toMatch(
+      /^Kept "Team 2": "Team 99" was not accepted\. Took "Regression to the Mean Machine" instead\. Chat: /
+    );
+    expect(await team(s)).toMatchObject({ name: 'Regression to the Mean Machine', nameSetBy: 'agent' });
+    // The model's line was about a name that did not take: the announcement names the one that did.
+    expect((await agentPosts(s)).map((m) => m.text)).toEqual([
+      expect.stringMatching(/Say hello to Regression to the Mean Machine\.$/)
+    ]);
+    expect(s.logs.some((l) => l.includes('agent team named by fallback'))).toBe(true);
+  });
+
+  it('keeps a placeholder only when the fallback is refused too', async () => {
+    const s = await setup();
+    await s.seat(AGENT_TEAM, NERD);
+    const model = scripted([], { summary: 'Skipped it.', message: '' });
+    const deps = {
+      ...s.deps(model),
+      registry: createRegistry(operations.filter((op) => op.name !== 'rename_team'))
+    };
+    const record = await runAgentAction(deps, naming());
     expect(record).toMatchObject({ status: 'completed', finalAction: 'none' });
-    expect(record.reasoningSummary).toBe('Kept "Team 2": "Team 99" was not accepted.');
     expect(await team(s)).toMatchObject({ name: 'Team 2', nameSetBy: 'default' });
-    expect(await agentPosts(s)).toEqual([]);
-    expect(s.logs.some((l) => l.includes('agent team name kept'))).toBe(true);
+    expect(s.logs.some((l) => l.includes('agent team kept a placeholder name'))).toBe(true);
   });
 
   it('never overwrites a name the commissioner locked, nor names a team its seat does not name', async () => {
@@ -178,8 +203,11 @@ describe('team_identity task', () => {
       s.deps(new ScriptedModelClient(), { killSwitch: { engaged: async () => true } }),
       naming({}, 'n5', 'team-3')
     );
-    expect(off).toMatchObject({ status: 'fallback', finalAction: 'none' });
-    expect((await team(s, 'team-3')).name).toBe('Team 3');
+    // No model, still no placeholder: a name in its style, without an announcement.
+    expect(off).toMatchObject({ status: 'fallback', finalAction: 'rename_team' });
+    expect(off.reasoningSummary).toMatch(/No announcement \(no model decision\)\.$/);
+    expect((await team(s, 'team-3')).nameSetBy).toBe('agent');
+    expect((await agentPosts(s)).length).toBe(before);
   });
 
   it('rebrands a real name only at a moment that calls for one', async () => {
@@ -269,6 +297,46 @@ describe('team_identity edge cases', () => {
   });
 });
 
+describe('fallbackRename', () => {
+  const nerd = PERSONALITIES.find((p) => p.id === 'stats-nerd')!;
+  const ctxWith = (codes: (string | null)[], calls: unknown[]) =>
+    ({
+      principal: { teamId: AGENT_TEAM },
+      config: { name: 'Marcus Hale', personality: nerd },
+      tools: {
+        call: async (_tool: string, args: unknown) => {
+          calls.push(args);
+          const code = codes.shift() ?? null;
+          return code === null ? { data: {} } : { error: { code, message: 'no', fix: 'no' } };
+        }
+      },
+      log: { info: () => {}, warn: () => {} }
+    }) as unknown as TaskContext;
+  const prep = (occasion: NamingPrep['occasion']): NamingPrep => ({
+    current: 'Team 2',
+    occasion,
+    others: [],
+    highlights: []
+  });
+
+  it('tries the next name when another team took one meanwhile, and stops at any other refusal', async () => {
+    const calls: unknown[] = [];
+    expect(await fallbackRename(ctxWith(['CONFLICT', null], calls), prep('placeholder'))).toBe(
+      nerd.teamNameIdeas[0]
+    );
+    expect(calls).toHaveLength(2);
+    const refused: unknown[] = [];
+    expect(await fallbackRename(ctxWith(['FORBIDDEN'], refused), prep('placeholder'))).toBeNull();
+    expect(refused).toHaveLength(1);
+  });
+
+  it('leaves a real name alone: a rebrand that did not take keeps the name', async () => {
+    const calls: unknown[] = [];
+    expect(await fallbackRename(ctxWith([], calls), prep('losing_streak'))).toBeNull();
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('team_identity quiet paths', () => {
   it('renames without a word when the model has nothing to say', async () => {
     const s = await setup();
@@ -279,7 +347,7 @@ describe('team_identity quiet paths', () => {
     expect(await agentPosts(s)).toEqual([]);
   });
 
-  it('keeps its name when every name in its style is taken or too close to a rival', async () => {
+  it('takes a numbered name in its style when every one is taken or too close to a rival', async () => {
     const s = await setup();
     await s.seat(AGENT_TEAM, NERD);
     await s.seat('team-3', { ...ZEN, name: 'Menu' });
@@ -291,8 +359,9 @@ describe('team_identity quiet paths', () => {
     for (const [id, name] of Object.entries(taken))
       await s.repos.teams.update({ ...(await team(s, id)), name });
     const record = await runAgentAction(s.deps(new ScriptedModelClient()), naming());
-    expect(record).toMatchObject({ status: 'completed', finalAction: 'none' });
-    expect(record.reasoningSummary).toBe('Kept "Team 2".');
+    expect(record).toMatchObject({ status: 'completed', finalAction: 'rename_team' });
+    expect(record.reasoningSummary).toMatch(/^Kept "Team 2"\. Took "\D+ 2" instead\./);
+    expect((await team(s)).name).toMatch(/^\D+ 2$/);
   });
 });
 

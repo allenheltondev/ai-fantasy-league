@@ -28,7 +28,7 @@ import { defineTaskKind, type TaskContext, type TaskOutcome } from './kinds.js';
 import { TaskUnavailableError, lineupTask } from './lineup.js';
 import {
   NAMING_ACTIONS,
-  namingOutcome,
+  namedOrFallback,
   namingSection,
   placeholderNaming,
   scriptedAnnouncement,
@@ -284,10 +284,7 @@ async function kickoff(
   prep: KickoffPrep,
   decision: KickoffDecision | null
 ): Promise<TaskOutcome> {
-  const named =
-    decision === null || prep.naming === null
-      ? null
-      : await namingOutcome(ctx, prep.naming, decision.teamName);
+  const named = prep.naming === null ? null : await namedOrFallback(ctx, prep.naming, decision?.teamName);
   const lineup = await firstLineup(ctx, payload.week);
   const chat: TaskOutcome =
     prep.chat === null
