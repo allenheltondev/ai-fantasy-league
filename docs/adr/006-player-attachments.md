@@ -28,6 +28,15 @@ The override rule: when the incoming players can fill an active agenda goal this
 
 Trade prompts name only held, non-waived attachments on the players the decision would send, as evidence ("you drafted him in round 1 and still believe in him"), never the premium. The agenda need that waives one is not named, since that model writes to the other manager (ADR 004). The visibility filter treats seals as holding. Chat tasks get no attachment context in this slice. No model call is added; a failure to read or write attachments is logged and the decision proceeds without them.
 
+## Shipped versus validated (#248)
+
+Shipped: the attachment state, the capped premium, and the need override. Validated on a full scripted season (five matched seeds, [season-calibration.md](../evaluations/season-calibration.md)):
+- The premium touched 672 trade decisions and raised the bar 617 times; a need waived it 55 times.
+- Attachments turn over rather than hoard: 239 departed and 61 were held at the end, never for a player off the roster.
+- Switching them off did not cost points (+14.8 ± 27.5, inside the spread).
+
+So the premium is a bounded preference with no measurable harm, not a performance feature. Revisions ran 430 down to 19 up on the archive's synthesized projections, which keeps outcome-based confidence deferred. The constants are unchanged.
+
 ## Deferred
 
 Waiver-pickup sources, other preference types (belief in upside, disappointment, willingness to move), chat and check-in conversation use of revisions, outcome-based confidence beyond week results, and the multi-seed simulation evaluation of personality differentiation and hoarding (#211) remain open. The constants are calibration choices to revisit with that evaluation.

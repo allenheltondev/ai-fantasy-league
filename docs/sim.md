@@ -249,3 +249,13 @@ The same run feeds the opt-in live-model evaluation: see [agent-eval.md](agent-e
 `buildWorld` (`src/acceptance/world.ts`) is a small league the scenario controls completely: four teams (a person on team-1, the agent under test on team-2), fixed rosters and projections, week 5, and the league's real operations, handlers, and agent router and runner on one `EventLoop` and the simulated clock. `runTradeInterestScenario({ config })` plays the epic's first acceptance scenario over six days (an authoritative injury and one RB goal, a trade pitched in a DM, the look, redelivery, a withdrawn offer, a second injury and the reconsideration, the need satisfied, and later conversation in the DM and a league room), and `checkAcceptance(run)` checks it: `one_objective`, `commitment_from_pitch`, `accurate_decisions`, `linked_once`, `reconsidered`, `goal_closed`, `audience_recall`. `src/acceptance/*.test.ts` hard-asserts it for a balanced, a cautious, and a trade-happy manager (which must choose differently) and runs the failure variants.
 
 `runBaseline` compares the full runtime with one part of the new agent state switched off at a time (`@fantasy/agents` `AGENT_ABLATIONS`: `no_agenda_commitments`, `no_situation`, `no_attachments`, `no_social_acts`, passed as `replayLeague`'s `ablations`), over the season scenario and the acceptance scenario, with the scripted model. CI runs every configuration on two seeds (`src/eval/baseline.<config>.test.ts`) and asserts only invariants; `npm run sim:baseline -w @fantasy/sim` writes the report. Results: [evaluations/epic-219-baseline.md](evaluations/epic-219-baseline.md).
+## Season calibration (`src/eval/calibration.ts`, #248)
+
+`npm run sim:calibrate -w @fantasy/sim` replays the full 2025 season (built with `sim:archive`) for `full`, `no_situation`, and `no_attachments` on matched seeds with the scripted model. It reports:
+- situational exposure, read from the runner's `agent situation` log lines through the replay's `observe` hook;
+- attachment use, from `agent attachment adjustment` lines and the end-of-season state;
+- matched decision and outcome changes;
+- trade scouting by archetype;
+- integrity: no refused action, hindsight read, or stale attachment.
+
+Findings are in [evaluations/season-calibration.md](evaluations/season-calibration.md).

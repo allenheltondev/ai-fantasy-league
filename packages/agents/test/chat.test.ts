@@ -196,20 +196,22 @@ describe('chat_reply with the fake model', () => {
     expect(await s.agentPosts()).toHaveLength(1);
   });
 
-  it('knows when a message was answered: a reply to it, or in a DM anything written after it', () => {
+  it('knows when a message was answered: a reply to it, or one naming it, never anything else (#215)', () => {
     const target = human();
     const mine = { ...agentMessage(0), createdAt: '2026-10-04T15:00:00.000Z' };
     const theirs = agentMessage(0, 'team-3');
     // Newest first, like get_chat.
-    expect(alreadyAnswered([{ ...mine, replyToId: target.id }, target], target, AGENT_TEAM, false)).toBe(
-      true
-    );
-    expect(alreadyAnswered([mine, target], target, AGENT_TEAM, false)).toBe(false);
-    expect(alreadyAnswered([mine, target], target, AGENT_TEAM, true)).toBe(true);
-    expect(alreadyAnswered([target, mine], target, AGENT_TEAM, true)).toBe(false);
-    expect(alreadyAnswered([{ ...theirs, replyToId: target.id }, target], target, AGENT_TEAM, true)).toBe(
-      false
-    );
+    expect(alreadyAnswered([{ ...mine, replyToId: target.id }, target], target, AGENT_TEAM)).toBe(true);
+    expect(
+      alreadyAnswered(
+        [{ ...mine, replyToId: 'm-other', answersMessageIds: [target.id] }, target],
+        target,
+        AGENT_TEAM
+      )
+    ).toBe(true);
+    // An unrelated line of its own, in a DM or a room, answers nothing.
+    expect(alreadyAnswered([mine, target], target, AGENT_TEAM)).toBe(false);
+    expect(alreadyAnswered([{ ...theirs, replyToId: target.id }, target], target, AGENT_TEAM)).toBe(false);
   });
 
   it('stays quiet without a model and skips unknown messages', async () => {

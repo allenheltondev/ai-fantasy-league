@@ -350,14 +350,24 @@ export async function runAgentAction(
         owner: request.taskId,
         now: clock.now(),
         windowMs
-      })
+      }),
+    releaseOnce: async (name) => {
+      await agents.releaseTrigger(leagueId, `${seat.agentId}#once#${name}`, request.taskId);
+    }
   };
 
   // One read of the stakes feeds both the deterministic levers and the prompt (#217).
   if (!off.has('no_situation')) ctx.situation = await readSituation(services, ctx);
   if (ctx.situation !== undefined) {
-    const { urgency, basis, reasons, sinceWeek, previous, pending } = ctx.situation;
+    const { urgency, basis, reasons, sinceWeek, previous, pending, week, throughWeek, pressure } =
+      ctx.situation;
     log.info('agent situation', {
+      week,
+      throughWeek,
+      // Positions short or thin (#248 counts roster-pressure exposure).
+      pressure: Object.entries(pressure)
+        .filter(([, p]) => p !== 'covered')
+        .map(([position, p]) => `${position}:${p}`),
       urgency,
       basis,
       reasons,

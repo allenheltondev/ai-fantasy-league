@@ -1,0 +1,2682 @@
+{
+  "seeds": [
+    "cal-1",
+    "cal-2",
+    "cal-3",
+    "cal-4",
+    "cal-5"
+  ],
+  "weeks": 17,
+  "configs": [
+    "full",
+    "no_situation",
+    "no_attachments"
+  ],
+  "runs": [
+    {
+      "config": "full",
+      "seed": "cal-1",
+      "weeks": 17,
+      "season": {
+        "config": "full",
+        "seed": "cal-1",
+        "agents": 7,
+        "adds": 423,
+        "drops": 423,
+        "tradesProcessed": 21,
+        "invalidActions": 0,
+        "offersSent": 54,
+        "offersAccepted": 16,
+        "agentMessages": 754,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 21,
+        "modelCalls": 2744,
+        "inputTokens": 4498293,
+        "outputTokens": 110744,
+        "costUsd": 8.604619,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 522,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "trade_happy": {
+            "agents": 1,
+            "offers": 13,
+            "adds": 54,
+            "messages": 145
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 10,
+            "adds": 54,
+            "messages": 80
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 58,
+            "messages": 165
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 32,
+            "messages": 67
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 60,
+            "messages": 132
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 53,
+            "messages": 73
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 11,
+            "adds": 112,
+            "messages": 92
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4331,
+        "byUrgency": {
+          "baseline": 1123,
+          "clinched": 438,
+          "contender": 961,
+          "bubble": 648,
+          "long_shot": 379,
+          "eliminated": 378,
+          "playoff_alive": 404
+        },
+        "agentWeeks": {
+          "baseline": 30,
+          "clinched": 13,
+          "contender": 26,
+          "bubble": 17,
+          "long_shot": 10,
+          "eliminated": 11,
+          "playoff_alive": 12
+        },
+        "byBasis": {
+          "none": 1123,
+          "heuristic": 1988,
+          "exact": 1220
+        },
+        "reasons": {
+          "early_season": 1123,
+          "awaiting_confirmation": 588,
+          "in_playoff_position": 1416,
+          "thin_cushion": 455,
+          "comfortable_cushion": 961,
+          "outside_playoff_position": 572,
+          "within_reach": 193,
+          "far_behind": 379,
+          "clinched": 438,
+          "final_stretch": 69,
+          "eliminated": 70,
+          "playoff_alive": 404,
+          "playoff_out": 308
+        },
+        "transitions": 28,
+        "short": 928,
+        "thin": 4323,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 133,
+        "byUse": {
+          "scout": 123,
+          "answer": 10
+        },
+        "raised": 123,
+        "overrides": 10,
+        "meanAdjustment": 1.43,
+        "held": 17,
+        "departed": 42,
+        "drafted": 35,
+        "tradedFor": 26,
+        "revisedDown": 85,
+        "revisedUp": 6,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1485.25,
+        "wins": 7.43,
+        "agentChampion": true
+      },
+      "scouting": {
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 266,
+          "offers": 13
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 182,
+          "offers": 10
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 230,
+          "offers": 8
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 204,
+          "offers": 4
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 185,
+          "offers": 3
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 174,
+          "offers": 5
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 203,
+          "offers": 11
+        }
+      }
+    },
+    {
+      "config": "no_situation",
+      "seed": "cal-1",
+      "weeks": 17,
+      "season": {
+        "config": "no_situation",
+        "seed": "cal-1",
+        "agents": 7,
+        "adds": 520,
+        "drops": 520,
+        "tradesProcessed": 20,
+        "invalidActions": 0,
+        "offersSent": 63,
+        "offersAccepted": 16,
+        "agentMessages": 710,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 21,
+        "modelCalls": 2780,
+        "inputTokens": 4278662,
+        "outputTokens": 109886,
+        "costUsd": 7.905447,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 492,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "trade_happy": {
+            "agents": 1,
+            "offers": 12,
+            "adds": 58,
+            "messages": 129
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 14,
+            "adds": 51,
+            "messages": 82
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 7,
+            "adds": 70,
+            "messages": 157
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 11,
+            "adds": 56,
+            "messages": 76
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 115,
+            "messages": 118
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 95,
+            "messages": 73
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 75,
+            "messages": 75
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 0,
+        "byUrgency": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "agentWeeks": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "byBasis": {},
+        "reasons": {},
+        "transitions": 0,
+        "short": 0,
+        "thin": 0,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 100,
+        "byUse": {
+          "scout": 85,
+          "answer": 15
+        },
+        "raised": 82,
+        "overrides": 18,
+        "meanAdjustment": 1.55,
+        "held": 7,
+        "departed": 56,
+        "drafted": 35,
+        "tradedFor": 28,
+        "revisedDown": 92,
+        "revisedUp": 3,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1441.04,
+        "wins": 7.57,
+        "agentChampion": true
+      },
+      "scouting": {
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 286,
+          "offers": 12
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 175,
+          "offers": 14
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 230,
+          "offers": 7
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 206,
+          "offers": 11
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 203,
+          "offers": 6
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 178,
+          "offers": 5
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 183,
+          "offers": 8
+        }
+      }
+    },
+    {
+      "config": "no_attachments",
+      "seed": "cal-1",
+      "weeks": 17,
+      "season": {
+        "config": "no_attachments",
+        "seed": "cal-1",
+        "agents": 7,
+        "adds": 450,
+        "drops": 450,
+        "tradesProcessed": 17,
+        "invalidActions": 0,
+        "offersSent": 56,
+        "offersAccepted": 13,
+        "agentMessages": 751,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 21,
+        "modelCalls": 2781,
+        "inputTokens": 4464525,
+        "outputTokens": 102122,
+        "costUsd": 8.027728,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 540,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "trade_happy": {
+            "agents": 1,
+            "offers": 12,
+            "adds": 45,
+            "messages": 154
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 13,
+            "adds": 51,
+            "messages": 83
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 10,
+            "adds": 57,
+            "messages": 167
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 52,
+            "messages": 68
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 84,
+            "messages": 124
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 73,
+            "messages": 68
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 88,
+            "messages": 87
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4343,
+        "byUrgency": {
+          "baseline": 1175,
+          "clinched": 512,
+          "contender": 985,
+          "bubble": 777,
+          "long_shot": 188,
+          "eliminated": 308,
+          "playoff_alive": 398
+        },
+        "agentWeeks": {
+          "baseline": 31,
+          "clinched": 15,
+          "contender": 26,
+          "bubble": 21,
+          "long_shot": 5,
+          "eliminated": 9,
+          "playoff_alive": 12
+        },
+        "byBasis": {
+          "none": 1175,
+          "heuristic": 1950,
+          "exact": 1218
+        },
+        "reasons": {
+          "early_season": 1175,
+          "awaiting_confirmation": 718,
+          "outside_playoff_position": 561,
+          "within_reach": 373,
+          "in_playoff_position": 1389,
+          "comfortable_cushion": 985,
+          "thin_cushion": 404,
+          "far_behind": 188,
+          "clinched": 512,
+          "final_stretch": 139,
+          "playoff_alive": 398,
+          "playoff_out": 308
+        },
+        "transitions": 27,
+        "short": 756,
+        "thin": 4280,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 0,
+        "byUse": {},
+        "raised": 0,
+        "overrides": 0,
+        "meanAdjustment": 0,
+        "held": 35,
+        "departed": 5,
+        "drafted": 35,
+        "tradedFor": 5,
+        "revisedDown": 5,
+        "revisedUp": 0,
+        "staleHeld": 27
+      },
+      "outcomes": {
+        "pointsFor": 1467.59,
+        "wins": 7.43,
+        "agentChampion": true
+      },
+      "scouting": {
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 261,
+          "offers": 12
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 175,
+          "offers": 13
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 234,
+          "offers": 10
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 197,
+          "offers": 6
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 200,
+          "offers": 5
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 167,
+          "offers": 4
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 205,
+          "offers": 6
+        }
+      }
+    },
+    {
+      "config": "full",
+      "seed": "cal-2",
+      "weeks": 17,
+      "season": {
+        "config": "full",
+        "seed": "cal-2",
+        "agents": 7,
+        "adds": 458,
+        "drops": 458,
+        "tradesProcessed": 24,
+        "invalidActions": 0,
+        "offersSent": 64,
+        "offersAccepted": 20,
+        "agentMessages": 626,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 16,
+        "modelCalls": 2690,
+        "inputTokens": 4166361,
+        "outputTokens": 103306,
+        "costUsd": 5.050921,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 433,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 64,
+            "messages": 82
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 78,
+            "messages": 56
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 10,
+            "adds": 85,
+            "messages": 58
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 14,
+            "adds": 72,
+            "messages": 97
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 11,
+            "adds": 55,
+            "messages": 95
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 21,
+            "adds": 43,
+            "messages": 170
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 61,
+            "messages": 68
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4286,
+        "byUrgency": {
+          "baseline": 1008,
+          "clinched": 277,
+          "contender": 1243,
+          "bubble": 705,
+          "long_shot": 217,
+          "eliminated": 473,
+          "playoff_alive": 363
+        },
+        "agentWeeks": {
+          "baseline": 29,
+          "clinched": 8,
+          "contender": 33,
+          "bubble": 19,
+          "long_shot": 6,
+          "eliminated": 14,
+          "playoff_alive": 11
+        },
+        "byBasis": {
+          "none": 1008,
+          "heuristic": 2165,
+          "exact": 1113
+        },
+        "reasons": {
+          "early_season": 1008,
+          "awaiting_confirmation": 568,
+          "in_playoff_position": 1580,
+          "comfortable_cushion": 1243,
+          "thin_cushion": 337,
+          "outside_playoff_position": 585,
+          "within_reach": 368,
+          "far_behind": 217,
+          "eliminated": 136,
+          "clinched": 277,
+          "final_stretch": 266,
+          "playoff_alive": 363,
+          "playoff_out": 337
+        },
+        "transitions": 25,
+        "short": 622,
+        "thin": 4283,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 168,
+        "byUse": {
+          "scout": 147,
+          "answer": 21
+        },
+        "raised": 152,
+        "overrides": 16,
+        "meanAdjustment": 1.61,
+        "held": 13,
+        "departed": 55,
+        "drafted": 33,
+        "tradedFor": 35,
+        "revisedDown": 90,
+        "revisedUp": 4,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1459.6,
+        "wins": 7.14,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 176,
+          "offers": 2
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 177,
+          "offers": 4
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 181,
+          "offers": 10
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 208,
+          "offers": 14
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 185,
+          "offers": 11
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 275,
+          "offers": 21
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 189,
+          "offers": 2
+        }
+      }
+    },
+    {
+      "config": "no_situation",
+      "seed": "cal-2",
+      "weeks": 17,
+      "season": {
+        "config": "no_situation",
+        "seed": "cal-2",
+        "agents": 7,
+        "adds": 489,
+        "drops": 489,
+        "tradesProcessed": 17,
+        "invalidActions": 0,
+        "offersSent": 63,
+        "offersAccepted": 13,
+        "agentMessages": 657,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 17,
+        "modelCalls": 2727,
+        "inputTokens": 4073500,
+        "outputTokens": 105254,
+        "costUsd": 4.776268,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 455,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 68,
+            "messages": 85
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 7,
+            "adds": 92,
+            "messages": 65
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 9,
+            "adds": 75,
+            "messages": 70
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 13,
+            "adds": 90,
+            "messages": 90
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 11,
+            "adds": 47,
+            "messages": 94
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 19,
+            "adds": 64,
+            "messages": 171
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 53,
+            "messages": 82
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 0,
+        "byUrgency": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "agentWeeks": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "byBasis": {},
+        "reasons": {},
+        "transitions": 0,
+        "short": 0,
+        "thin": 0,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 176,
+        "byUse": {
+          "scout": 157,
+          "answer": 19
+        },
+        "raised": 157,
+        "overrides": 19,
+        "meanAdjustment": 1.61,
+        "held": 11,
+        "departed": 47,
+        "drafted": 34,
+        "tradedFor": 24,
+        "revisedDown": 82,
+        "revisedUp": 2,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1409.74,
+        "wins": 7.14,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 180,
+          "offers": 2
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 187,
+          "offers": 7
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 173,
+          "offers": 9
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 197,
+          "offers": 13
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 191,
+          "offers": 11
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 277,
+          "offers": 19
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 180,
+          "offers": 2
+        }
+      }
+    },
+    {
+      "config": "no_attachments",
+      "seed": "cal-2",
+      "weeks": 17,
+      "season": {
+        "config": "no_attachments",
+        "seed": "cal-2",
+        "agents": 7,
+        "adds": 442,
+        "drops": 442,
+        "tradesProcessed": 17,
+        "invalidActions": 0,
+        "offersSent": 43,
+        "offersAccepted": 14,
+        "agentMessages": 614,
+        "maxAgentPerDay": 7,
+        "leagueMaxPerDay": 17,
+        "modelCalls": 2695,
+        "inputTokens": 4217515,
+        "outputTokens": 94156,
+        "costUsd": 5.038627,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 423,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 51,
+            "messages": 81
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 70,
+            "messages": 72
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 79,
+            "messages": 49
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 56,
+            "messages": 96
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 7,
+            "adds": 74,
+            "messages": 76
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 13,
+            "adds": 57,
+            "messages": 166
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 55,
+            "messages": 74
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4256,
+        "byUrgency": {
+          "baseline": 1035,
+          "clinched": 272,
+          "contender": 1277,
+          "bubble": 731,
+          "long_shot": 242,
+          "eliminated": 308,
+          "playoff_alive": 391
+        },
+        "agentWeeks": {
+          "baseline": 29,
+          "clinched": 8,
+          "contender": 34,
+          "bubble": 20,
+          "long_shot": 7,
+          "eliminated": 9,
+          "playoff_alive": 12
+        },
+        "byBasis": {
+          "none": 1035,
+          "heuristic": 2250,
+          "exact": 971
+        },
+        "reasons": {
+          "early_season": 1035,
+          "awaiting_confirmation": 538,
+          "outside_playoff_position": 687,
+          "within_reach": 445,
+          "in_playoff_position": 1563,
+          "comfortable_cushion": 1277,
+          "thin_cushion": 286,
+          "far_behind": 242,
+          "clinched": 272,
+          "final_stretch": 272,
+          "playoff_alive": 391,
+          "playoff_out": 308
+        },
+        "transitions": 23,
+        "short": 1006,
+        "thin": 4195,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 0,
+        "byUse": {},
+        "raised": 0,
+        "overrides": 0,
+        "meanAdjustment": 0,
+        "held": 35,
+        "departed": 9,
+        "drafted": 35,
+        "tradedFor": 9,
+        "revisedDown": 9,
+        "revisedUp": 0,
+        "staleHeld": 27
+      },
+      "outcomes": {
+        "pointsFor": 1469.03,
+        "wins": 7.29,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 169,
+          "offers": 2
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 179,
+          "offers": 5
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 188,
+          "offers": 8
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 211,
+          "offers": 5
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 183,
+          "offers": 7
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 271,
+          "offers": 13
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 186,
+          "offers": 3
+        }
+      }
+    },
+    {
+      "config": "full",
+      "seed": "cal-3",
+      "weeks": 17,
+      "season": {
+        "config": "full",
+        "seed": "cal-3",
+        "agents": 7,
+        "adds": 496,
+        "drops": 496,
+        "tradesProcessed": 15,
+        "invalidActions": 0,
+        "offersSent": 54,
+        "offersAccepted": 11,
+        "agentMessages": 593,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 22,
+        "modelCalls": 2654,
+        "inputTokens": 4102776,
+        "outputTokens": 92863,
+        "costUsd": 4.391271,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 381,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 1,
+            "adds": 70,
+            "messages": 84
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 60,
+            "messages": 142
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 18,
+            "adds": 80,
+            "messages": 60
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 76,
+            "messages": 65
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 67,
+            "messages": 90
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 81,
+            "messages": 94
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 12,
+            "adds": 62,
+            "messages": 58
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4251,
+        "byUrgency": {
+          "baseline": 1019,
+          "clinched": 180,
+          "contender": 573,
+          "bubble": 1571,
+          "long_shot": 118,
+          "eliminated": 389,
+          "playoff_alive": 401
+        },
+        "agentWeeks": {
+          "baseline": 29,
+          "clinched": 6,
+          "contender": 16,
+          "bubble": 43,
+          "long_shot": 3,
+          "eliminated": 11,
+          "playoff_alive": 12
+        },
+        "byBasis": {
+          "none": 1019,
+          "heuristic": 2262,
+          "exact": 970
+        },
+        "reasons": {
+          "early_season": 1019,
+          "awaiting_confirmation": 761,
+          "outside_playoff_position": 493,
+          "within_reach": 375,
+          "in_playoff_position": 1769,
+          "thin_cushion": 1196,
+          "comfortable_cushion": 573,
+          "far_behind": 118,
+          "final_stretch": 226,
+          "eliminated": 75,
+          "clinched": 180,
+          "playoff_out": 314,
+          "playoff_alive": 401
+        },
+        "transitions": 31,
+        "short": 803,
+        "thin": 4226,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 152,
+        "byUse": {
+          "scout": 139,
+          "answer": 13
+        },
+        "raised": 149,
+        "overrides": 3,
+        "meanAdjustment": 1.28,
+        "held": 9,
+        "departed": 47,
+        "drafted": 35,
+        "tradedFor": 21,
+        "revisedDown": 81,
+        "revisedUp": 1,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1430.16,
+        "wins": 7.14,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 168,
+          "offers": 1
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 233,
+          "offers": 2
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 243,
+          "offers": 18
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 184,
+          "offers": 5
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 203,
+          "offers": 8
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 218,
+          "offers": 8
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 193,
+          "offers": 12
+        }
+      }
+    },
+    {
+      "config": "no_situation",
+      "seed": "cal-3",
+      "weeks": 17,
+      "season": {
+        "config": "no_situation",
+        "seed": "cal-3",
+        "agents": 7,
+        "adds": 457,
+        "drops": 457,
+        "tradesProcessed": 15,
+        "invalidActions": 0,
+        "offersSent": 44,
+        "offersAccepted": 11,
+        "agentMessages": 582,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 22,
+        "modelCalls": 2635,
+        "inputTokens": 3967068,
+        "outputTokens": 91276,
+        "costUsd": 4.420614,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 383,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 86,
+            "messages": 73
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 75,
+            "messages": 145
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 13,
+            "adds": 54,
+            "messages": 70
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 59,
+            "messages": 61
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 58,
+            "messages": 78
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 63,
+            "messages": 89
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 9,
+            "adds": 62,
+            "messages": 66
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 0,
+        "byUrgency": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "agentWeeks": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "byBasis": {},
+        "reasons": {},
+        "transitions": 0,
+        "short": 0,
+        "thin": 0,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 125,
+        "byUse": {
+          "scout": 114,
+          "answer": 11
+        },
+        "raised": 121,
+        "overrides": 4,
+        "meanAdjustment": 1.32,
+        "held": 13,
+        "departed": 43,
+        "drafted": 35,
+        "tradedFor": 21,
+        "revisedDown": 86,
+        "revisedUp": 2,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1414.54,
+        "wins": 7.57,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 170,
+          "offers": 2
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 227,
+          "offers": 2
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 236,
+          "offers": 13
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 166,
+          "offers": 6
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 186,
+          "offers": 6
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 211,
+          "offers": 6
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 181,
+          "offers": 9
+        }
+      }
+    },
+    {
+      "config": "no_attachments",
+      "seed": "cal-3",
+      "weeks": 17,
+      "season": {
+        "config": "no_attachments",
+        "seed": "cal-3",
+        "agents": 7,
+        "adds": 448,
+        "drops": 448,
+        "tradesProcessed": 19,
+        "invalidActions": 0,
+        "offersSent": 57,
+        "offersAccepted": 15,
+        "agentMessages": 567,
+        "maxAgentPerDay": 5,
+        "leagueMaxPerDay": 18,
+        "modelCalls": 2595,
+        "inputTokens": 4050391,
+        "outputTokens": 90760,
+        "costUsd": 4.504895,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 356,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 75,
+            "messages": 73
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 65,
+            "messages": 139
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 14,
+            "adds": 62,
+            "messages": 56
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 9,
+            "adds": 65,
+            "messages": 62
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 70,
+            "messages": 76
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 10,
+            "adds": 66,
+            "messages": 91
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 9,
+            "adds": 45,
+            "messages": 70
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4249,
+        "byUrgency": {
+          "baseline": 1177,
+          "clinched": 313,
+          "contender": 576,
+          "bubble": 1386,
+          "long_shot": 65,
+          "eliminated": 337,
+          "playoff_alive": 395
+        },
+        "agentWeeks": {
+          "baseline": 33,
+          "clinched": 10,
+          "contender": 18,
+          "bubble": 39,
+          "long_shot": 2,
+          "eliminated": 10,
+          "playoff_alive": 12
+        },
+        "byBasis": {
+          "none": 1177,
+          "heuristic": 2027,
+          "exact": 1045
+        },
+        "reasons": {
+          "early_season": 1177,
+          "awaiting_confirmation": 758,
+          "outside_playoff_position": 402,
+          "within_reach": 337,
+          "in_playoff_position": 1625,
+          "comfortable_cushion": 576,
+          "thin_cushion": 1049,
+          "far_behind": 65,
+          "clinched": 313,
+          "final_stretch": 170,
+          "eliminated": 31,
+          "playoff_alive": 395,
+          "playoff_out": 306
+        },
+        "transitions": 34,
+        "short": 659,
+        "thin": 4221,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 0,
+        "byUse": {},
+        "raised": 0,
+        "overrides": 0,
+        "meanAdjustment": 0,
+        "held": 35,
+        "departed": 4,
+        "drafted": 35,
+        "tradedFor": 4,
+        "revisedDown": 4,
+        "revisedUp": 0,
+        "staleHeld": 29
+      },
+      "outcomes": {
+        "pointsFor": 1495.7,
+        "wins": 7.29,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 158,
+          "offers": 5
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 221,
+          "offers": 2
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 247,
+          "offers": 14
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 176,
+          "offers": 9
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 198,
+          "offers": 8
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 216,
+          "offers": 10
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 167,
+          "offers": 9
+        }
+      }
+    },
+    {
+      "config": "full",
+      "seed": "cal-4",
+      "weeks": 17,
+      "season": {
+        "config": "full",
+        "seed": "cal-4",
+        "agents": 7,
+        "adds": 441,
+        "drops": 441,
+        "tradesProcessed": 18,
+        "invalidActions": 0,
+        "offersSent": 50,
+        "offersAccepted": 15,
+        "agentMessages": 456,
+        "maxAgentPerDay": 4,
+        "leagueMaxPerDay": 16,
+        "modelCalls": 2562,
+        "inputTokens": 3992706,
+        "outputTokens": 83563,
+        "costUsd": 4.810999,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 276,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 44,
+            "messages": 61
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 56,
+            "messages": 75
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 60,
+            "messages": 47
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 12,
+            "adds": 93,
+            "messages": 103
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 18,
+            "adds": 50,
+            "messages": 76
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 72,
+            "messages": 60
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 66,
+            "messages": 34
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4225,
+        "byUrgency": {
+          "baseline": 1038,
+          "clinched": 175,
+          "contender": 841,
+          "bubble": 1404,
+          "long_shot": 69,
+          "eliminated": 338,
+          "playoff_alive": 360
+        },
+        "agentWeeks": {
+          "baseline": 29,
+          "clinched": 6,
+          "contender": 25,
+          "bubble": 39,
+          "long_shot": 2,
+          "eliminated": 10,
+          "playoff_alive": 11
+        },
+        "byBasis": {
+          "none": 1038,
+          "heuristic": 2314,
+          "exact": 873
+        },
+        "reasons": {
+          "early_season": 1038,
+          "awaiting_confirmation": 665,
+          "in_playoff_position": 1584,
+          "thin_cushion": 743,
+          "outside_playoff_position": 730,
+          "within_reach": 661,
+          "comfortable_cushion": 841,
+          "clinched": 175,
+          "final_stretch": 311,
+          "far_behind": 69,
+          "playoff_out": 338,
+          "playoff_alive": 360
+        },
+        "transitions": 32,
+        "short": 607,
+        "thin": 4140,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 119,
+        "byUse": {
+          "scout": 102,
+          "answer": 17
+        },
+        "raised": 108,
+        "overrides": 11,
+        "meanAdjustment": 1.47,
+        "held": 8,
+        "departed": 51,
+        "drafted": 34,
+        "tradedFor": 25,
+        "revisedDown": 88,
+        "revisedUp": 3,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1454.03,
+        "wins": 7,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 166,
+          "offers": 3
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 170,
+          "offers": 2
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 180,
+          "offers": 3
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 222,
+          "offers": 12
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 238,
+          "offers": 18
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 174,
+          "offers": 4
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 161,
+          "offers": 8
+        }
+      }
+    },
+    {
+      "config": "no_situation",
+      "seed": "cal-4",
+      "weeks": 17,
+      "season": {
+        "config": "no_situation",
+        "seed": "cal-4",
+        "agents": 7,
+        "adds": 483,
+        "drops": 483,
+        "tradesProcessed": 10,
+        "invalidActions": 0,
+        "offersSent": 45,
+        "offersAccepted": 8,
+        "agentMessages": 479,
+        "maxAgentPerDay": 5,
+        "leagueMaxPerDay": 17,
+        "modelCalls": 2595,
+        "inputTokens": 3924054,
+        "outputTokens": 85242,
+        "costUsd": 4.812081,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 313,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 31,
+            "messages": 62
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 1,
+            "adds": 79,
+            "messages": 74
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 79,
+            "messages": 58
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 12,
+            "adds": 54,
+            "messages": 100
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 15,
+            "adds": 64,
+            "messages": 78
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 101,
+            "messages": 71
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 75,
+            "messages": 36
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 0,
+        "byUrgency": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "agentWeeks": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "byBasis": {},
+        "reasons": {},
+        "transitions": 0,
+        "short": 0,
+        "thin": 0,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 104,
+        "byUse": {
+          "scout": 88,
+          "answer": 16
+        },
+        "raised": 94,
+        "overrides": 10,
+        "meanAdjustment": 1.51,
+        "held": 9,
+        "departed": 40,
+        "drafted": 35,
+        "tradedFor": 14,
+        "revisedDown": 77,
+        "revisedUp": 3,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1440.37,
+        "wins": 6.71,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 165,
+          "offers": 5
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 179,
+          "offers": 1
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 191,
+          "offers": 3
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 191,
+          "offers": 12
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 231,
+          "offers": 15
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 190,
+          "offers": 6
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 171,
+          "offers": 3
+        }
+      }
+    },
+    {
+      "config": "no_attachments",
+      "seed": "cal-4",
+      "weeks": 17,
+      "season": {
+        "config": "no_attachments",
+        "seed": "cal-4",
+        "agents": 7,
+        "adds": 426,
+        "drops": 426,
+        "tradesProcessed": 18,
+        "invalidActions": 0,
+        "offersSent": 44,
+        "offersAccepted": 15,
+        "agentMessages": 453,
+        "maxAgentPerDay": 6,
+        "leagueMaxPerDay": 15,
+        "modelCalls": 2535,
+        "inputTokens": 3926541,
+        "outputTokens": 81868,
+        "costUsd": 4.583362,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 281,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 42,
+            "messages": 62
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 1,
+            "adds": 58,
+            "messages": 74
+          },
+          "contrarian": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 69,
+            "messages": 50
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 10,
+            "adds": 65,
+            "messages": 100
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 16,
+            "adds": 56,
+            "messages": 70
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 73,
+            "messages": 60
+          },
+          "zero_rb": {
+            "agents": 1,
+            "offers": 7,
+            "adds": 63,
+            "messages": 37
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4215,
+        "byUrgency": {
+          "baseline": 1038,
+          "clinched": 165,
+          "contender": 634,
+          "bubble": 1574,
+          "long_shot": 66,
+          "eliminated": 375,
+          "playoff_alive": 363
+        },
+        "agentWeeks": {
+          "baseline": 29,
+          "clinched": 5,
+          "contender": 19,
+          "bubble": 44,
+          "long_shot": 2,
+          "eliminated": 11,
+          "playoff_alive": 11
+        },
+        "byBasis": {
+          "none": 1038,
+          "heuristic": 2274,
+          "exact": 903
+        },
+        "reasons": {
+          "early_season": 1038,
+          "awaiting_confirmation": 697,
+          "in_playoff_position": 1586,
+          "thin_cushion": 952,
+          "outside_playoff_position": 688,
+          "within_reach": 622,
+          "comfortable_cushion": 634,
+          "far_behind": 66,
+          "final_stretch": 281,
+          "clinched": 165,
+          "eliminated": 34,
+          "playoff_out": 341,
+          "playoff_alive": 363
+        },
+        "transitions": 32,
+        "short": 811,
+        "thin": 4193,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 0,
+        "byUse": {},
+        "raised": 0,
+        "overrides": 0,
+        "meanAdjustment": 0,
+        "held": 35,
+        "departed": 8,
+        "drafted": 35,
+        "tradedFor": 8,
+        "revisedDown": 8,
+        "revisedUp": 0,
+        "staleHeld": 25
+      },
+      "outcomes": {
+        "pointsFor": 1457.31,
+        "wins": 7,
+        "agentChampion": true
+      },
+      "scouting": {
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 177,
+          "offers": 3
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 178,
+          "offers": 1
+        },
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 177,
+          "offers": 4
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 213,
+          "offers": 10
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 252,
+          "offers": 16
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 183,
+          "offers": 3
+        },
+        "zero_rb": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 167,
+          "offers": 7
+        }
+      }
+    },
+    {
+      "config": "full",
+      "seed": "cal-5",
+      "weeks": 17,
+      "season": {
+        "config": "full",
+        "seed": "cal-5",
+        "agents": 7,
+        "adds": 492,
+        "drops": 492,
+        "tradesProcessed": 15,
+        "invalidActions": 0,
+        "offersSent": 48,
+        "offersAccepted": 12,
+        "agentMessages": 556,
+        "maxAgentPerDay": 5,
+        "leagueMaxPerDay": 19,
+        "modelCalls": 2640,
+        "inputTokens": 4146058,
+        "outputTokens": 89551,
+        "costUsd": 5.644864,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 389,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "contrarian": {
+            "agents": 1,
+            "offers": 6,
+            "adds": 48,
+            "messages": 85
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 7,
+            "adds": 54,
+            "messages": 51
+          },
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 72,
+            "messages": 68
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 75,
+            "messages": 105
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 11,
+            "adds": 70,
+            "messages": 77
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 15,
+            "adds": 112,
+            "messages": 89
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 61,
+            "messages": 81
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4272,
+        "byUrgency": {
+          "baseline": 1040,
+          "clinched": 101,
+          "contender": 331,
+          "bubble": 1874,
+          "long_shot": 223,
+          "eliminated": 373,
+          "playoff_alive": 330
+        },
+        "agentWeeks": {
+          "baseline": 29,
+          "clinched": 3,
+          "contender": 9,
+          "bubble": 51,
+          "long_shot": 6,
+          "eliminated": 11,
+          "playoff_alive": 10
+        },
+        "byBasis": {
+          "none": 1040,
+          "heuristic": 2428,
+          "exact": 804
+        },
+        "reasons": {
+          "early_season": 1040,
+          "awaiting_confirmation": 500,
+          "outside_playoff_position": 735,
+          "within_reach": 512,
+          "in_playoff_position": 1693,
+          "thin_cushion": 1362,
+          "comfortable_cushion": 331,
+          "far_behind": 223,
+          "final_stretch": 381,
+          "clinched": 101,
+          "playoff_alive": 330,
+          "playoff_out": 373
+        },
+        "transitions": 23,
+        "short": 1275,
+        "thin": 4226,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 100,
+        "byUse": {
+          "scout": 88,
+          "answer": 12
+        },
+        "raised": 85,
+        "overrides": 15,
+        "meanAdjustment": 1.62,
+        "held": 14,
+        "departed": 44,
+        "drafted": 35,
+        "tradedFor": 24,
+        "revisedDown": 86,
+        "revisedUp": 5,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1394.09,
+        "wins": 6.43,
+        "agentChampion": true
+      },
+      "scouting": {
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 202,
+          "offers": 6
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 179,
+          "offers": 7
+        },
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 166,
+          "offers": 4
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 214,
+          "offers": 2
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 196,
+          "offers": 11
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 276,
+          "offers": 15
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 164,
+          "offers": 3
+        }
+      }
+    },
+    {
+      "config": "no_situation",
+      "seed": "cal-5",
+      "weeks": 17,
+      "season": {
+        "config": "no_situation",
+        "seed": "cal-5",
+        "agents": 7,
+        "adds": 476,
+        "drops": 476,
+        "tradesProcessed": 17,
+        "invalidActions": 0,
+        "offersSent": 51,
+        "offersAccepted": 14,
+        "agentMessages": 554,
+        "maxAgentPerDay": 5,
+        "leagueMaxPerDay": 16,
+        "modelCalls": 2629,
+        "inputTokens": 3985026,
+        "outputTokens": 90030,
+        "costUsd": 5.558717,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 366,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "contrarian": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 60,
+            "messages": 65
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 8,
+            "adds": 52,
+            "messages": 65
+          },
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 68,
+            "messages": 57
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 81,
+            "messages": 125
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 14,
+            "adds": 78,
+            "messages": 71
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 14,
+            "adds": 74,
+            "messages": 89
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 63,
+            "messages": 82
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 0,
+        "byUrgency": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "agentWeeks": {
+          "baseline": 0,
+          "clinched": 0,
+          "contender": 0,
+          "bubble": 0,
+          "long_shot": 0,
+          "eliminated": 0,
+          "playoff_alive": 0
+        },
+        "byBasis": {},
+        "reasons": {},
+        "transitions": 0,
+        "short": 0,
+        "thin": 0,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 98,
+        "byUse": {
+          "scout": 83,
+          "answer": 15
+        },
+        "raised": 82,
+        "overrides": 16,
+        "meanAdjustment": 1.58,
+        "held": 13,
+        "departed": 48,
+        "drafted": 35,
+        "tradedFor": 26,
+        "revisedDown": 90,
+        "revisedUp": 4,
+        "staleHeld": 0
+      },
+      "outcomes": {
+        "pointsFor": 1388.11,
+        "wins": 6.29,
+        "agentChampion": true
+      },
+      "scouting": {
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 192,
+          "offers": 4
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 163,
+          "offers": 8
+        },
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 162,
+          "offers": 4
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 222,
+          "offers": 3
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 181,
+          "offers": 14
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 263,
+          "offers": 14
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 163,
+          "offers": 4
+        }
+      }
+    },
+    {
+      "config": "no_attachments",
+      "seed": "cal-5",
+      "weeks": 17,
+      "season": {
+        "config": "no_attachments",
+        "seed": "cal-5",
+        "agents": 7,
+        "adds": 481,
+        "drops": 481,
+        "tradesProcessed": 10,
+        "invalidActions": 0,
+        "offersSent": 44,
+        "offersAccepted": 7,
+        "agentMessages": 564,
+        "maxAgentPerDay": 5,
+        "leagueMaxPerDay": 15,
+        "modelCalls": 2634,
+        "inputTokens": 4107294,
+        "outputTokens": 90347,
+        "costUsd": 5.728885,
+        "questions": 3,
+        "unansweredQuestions": 0,
+        "repeatedLines": 381,
+        "duplicateReplies": 0,
+        "duplicateOffers": 0,
+        "violations": 0,
+        "loopFailures": 0,
+        "byArchetype": {
+          "contrarian": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 48,
+            "messages": 74
+          },
+          "balanced": {
+            "agents": 1,
+            "offers": 5,
+            "adds": 57,
+            "messages": 54
+          },
+          "gut_feel_homer": {
+            "agents": 1,
+            "offers": 4,
+            "adds": 57,
+            "messages": 66
+          },
+          "waiver_hawk": {
+            "agents": 1,
+            "offers": 2,
+            "adds": 68,
+            "messages": 125
+          },
+          "win_now": {
+            "agents": 1,
+            "offers": 12,
+            "adds": 87,
+            "messages": 69
+          },
+          "trade_happy": {
+            "agents": 1,
+            "offers": 15,
+            "adds": 95,
+            "messages": 88
+          },
+          "analytics_only": {
+            "agents": 1,
+            "offers": 3,
+            "adds": 69,
+            "messages": 88
+          }
+        }
+      },
+      "exposure": {
+        "tasks": 4227,
+        "byUrgency": {
+          "baseline": 1078,
+          "clinched": 234,
+          "contender": 371,
+          "bubble": 1591,
+          "long_shot": 250,
+          "eliminated": 409,
+          "playoff_alive": 294
+        },
+        "agentWeeks": {
+          "baseline": 30,
+          "clinched": 7,
+          "contender": 11,
+          "bubble": 44,
+          "long_shot": 7,
+          "eliminated": 12,
+          "playoff_alive": 9
+        },
+        "byBasis": {
+          "none": 1078,
+          "heuristic": 2212,
+          "exact": 937
+        },
+        "reasons": {
+          "early_season": 1078,
+          "awaiting_confirmation": 668,
+          "outside_playoff_position": 720,
+          "within_reach": 470,
+          "in_playoff_position": 1492,
+          "thin_cushion": 1121,
+          "far_behind": 250,
+          "comfortable_cushion": 371,
+          "clinched": 234,
+          "final_stretch": 274,
+          "playoff_alive": 294,
+          "playoff_out": 409
+        },
+        "transitions": 30,
+        "short": 1183,
+        "thin": 4176,
+        "hindsight": 0
+      },
+      "attachments": {
+        "adjustments": 0,
+        "byUse": {},
+        "raised": 0,
+        "overrides": 0,
+        "meanAdjustment": 0,
+        "held": 35,
+        "departed": 2,
+        "drafted": 35,
+        "tradedFor": 2,
+        "revisedDown": 2,
+        "revisedUp": 0,
+        "staleHeld": 24
+      },
+      "outcomes": {
+        "pointsFor": 1407.57,
+        "wins": 6.57,
+        "agentChampion": true
+      },
+      "scouting": {
+        "contrarian": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 190,
+          "offers": 3
+        },
+        "balanced": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 176,
+          "offers": 5
+        },
+        "gut_feel_homer": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 150,
+          "offers": 4
+        },
+        "waiver_hawk": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 213,
+          "offers": 2
+        },
+        "win_now": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 215,
+          "offers": 12
+        },
+        "trade_happy": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 271,
+          "offers": 15
+        },
+        "analytics_only": {
+          "agents": 1,
+          "checkIns": 357,
+          "shopped": 167,
+          "offers": 3
+        }
+      }
+    }
+  ]
+}

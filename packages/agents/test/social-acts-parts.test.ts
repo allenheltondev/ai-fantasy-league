@@ -181,6 +181,7 @@ const newRun = (): Run => ({
   lineupNeeded: false,
   added: false,
   waiverClaims: [],
+  released: [],
   trades: [],
   memory: []
 });
@@ -213,7 +214,7 @@ describe('lookOpportunities', () => {
     ]);
     expect(found.answer?.replyToId).toBe('q-old');
     expect(found.followUps).toEqual([
-      { kind: 'chat_reply', payload: { messageId: 'q-old', roomId: 'league' } }
+      { kind: 'chat_reply', payload: { messageId: 'q-old', roomId: 'league', coalesce: true } }
     ]);
     expect(book().acts).toMatchObject([
       { act: 'answer_question', outcome: 'handed_on', topic: 'answer:q-old' }

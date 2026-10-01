@@ -4,7 +4,8 @@ import {
   dmRoomId,
   relationshipsFrom,
   type AgentLeagueMemory,
-  type Bond
+  type Bond,
+  type PlayerAttachments
 } from '@fantasy/core';
 import {
   ScriptedModelClient,
@@ -92,6 +93,8 @@ export interface ScenarioOptions {
   /** Agent state switched off (the baseline's ablations); none by default. */
   ablations?: LeagueReplayOptions['ablations'];
   log?: (line: string) => void;
+  /** Every structured log line of the replay (`replayLeague`'s `observe`). */
+  observe?: LeagueReplayOptions['observe'];
 }
 
 /** Everything a scenario check or rubric reads, captured when the season ends. */
@@ -101,6 +104,9 @@ export interface ScenarioRun {
   probes: Probe[];
   snapshots: BondSnapshot[];
   memories: Record<string, AgentLeagueMemory>;
+  /** Each agent team's player attachments (#216) at the end, and its roster then. */
+  attachments: Record<string, PlayerAttachments>;
+  rosters: Record<string, string[]>;
   /** Final matchup scores by team and week (what memory must match). */
   results: {
     teamId: string;
@@ -306,8 +312,15 @@ export async function runSeasonScenario(options: ScenarioOptions): Promise<Scena
       /* v8 ignore next -- the replay created the league before any inspection */
       if (league === null) throw new Error('The replay has no league.');
       const memories: Record<string, AgentLeagueMemory> = {};
-      for (const seat of await repos.agents.listSeats(league.id))
+      const attachments: Record<string, PlayerAttachments> = {};
+      const teams = await repos.teams.list(league.id);
+      for (const seat of await repos.agents.listSeats(league.id)) {
         memories[seat.teamId] = await repos.agents.getMemory(league.id, seat.agentId);
+        const team = teams.find((t) => t.id === seat.teamId);
+        /* v8 ignore next -- every seat has its team */
+        const tenure = team?.occupiedSince ?? team?.createdAt ?? '';
+        attachments[seat.teamId] = await repos.agents.getAttachments(league.id, seat.agentId, tenure);
+      }
       const results: ScenarioRun['results'] = [];
       for (const m of await repos.schedule.listMatchups(league.id)) {
         if (m.status !== 'final' || m.homeScore === null || m.awayScore === null) continue;
@@ -330,6 +343,8 @@ export async function runSeasonScenario(options: ScenarioOptions): Promise<Scena
       }
       box.captured = {
         memories,
+        attachments,
+        rosters: Object.fromEntries(teams.map((t) => [t.id, [...t.roster]])),
         results,
         teamNames: Object.fromEntries((await repos.teams.list(league.id)).map((t) => [t.id, t.name])),
         trades: await repos.trades.list(league.id),
@@ -337,7 +352,8 @@ export async function runSeasonScenario(options: ScenarioOptions): Promise<Scena
         chat: await leagueChat(world.services, league)
       };
     },
-    ...(options.log === undefined ? {} : { log: options.log })
+    ...(options.log === undefined ? {} : { log: options.log }),
+    ...(options.observe === undefined ? {} : { observe: options.observe })
   });
   /* v8 ignore next -- inspect always runs before the report */
   if (box.captured === undefined) throw new Error('The replay never reached inspection.');
