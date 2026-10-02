@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { StatusBadge } from '@readysetcloud/ui';
-import type { MatchupData, MatchupLineup, MatchupSide, RedZoneTeam, RosterEntry } from '../../api/types';
+import type {
+  MatchupData,
+  MatchupLineup,
+  MatchupOutlook,
+  MatchupSide,
+  RedZoneTeam,
+  RosterEntry
+} from '../../api/types';
 import { ManagerTag } from '../../components/AgentAvatar';
 import { AnimatedNumber, DeltaFloater } from '../../motion/AnimatedNumber';
 import { usePrefersReducedMotion } from '../../motion/reducedMotion';
@@ -125,12 +132,15 @@ export function ScoreBar({
   week,
   matchup,
   lineups,
-  leader
+  leader,
+  outlook = null
 }: {
   week: number;
   matchup: Matchup;
   lineups: { home: MatchupLineup; away: MatchupLineup };
   leader: string | null;
+  /** Your outlook: its win probability shows under the scores. */
+  outlook?: MatchupOutlook | null;
 }) {
   const { home, away } = matchup;
   const said = useThrottledAnnouncement(
@@ -166,10 +176,50 @@ export function ScoreBar({
           leading={leader === away.teamId}
           trailing={leader === home.teamId}
         />
+        <WinOdds home={home} away={away} outlook={outlook} />
       </div>
       <p role="status" aria-live="polite" className="sr-only" data-testid="score-announcer">
         {said}
       </p>
+    </div>
+  );
+}
+
+const percent = (p: number) => `${Math.round(p * 100)}%`;
+
+/** The predicted win probability as a split bar across the bottom of the score bar (home left). */
+function WinOdds({
+  home,
+  away,
+  outlook
+}: {
+  home: MatchupSide;
+  away: MatchupSide;
+  outlook: MatchupOutlook | null;
+}) {
+  if (outlook === null || outlook.opponent === null) return null;
+  const sides = [outlook.you, outlook.opponent];
+  const homeOdds = sides.find((t) => t.teamId === home.teamId)?.winProbability ?? null;
+  const awayOdds = sides.find((t) => t.teamId === away.teamId)?.winProbability ?? null;
+  if (homeOdds === null || awayOdds === null) return null;
+  return (
+    <div className="col-span-3 mt-1 border-t border-border pt-2" data-testid="win-probability">
+      <div className="flex items-center justify-between text-sm font-semibold">
+        <span data-testid="win-probability-home">{percent(homeOdds)}</span>
+        <span className="text-xs font-normal text-muted-foreground">Win probability</span>
+        <span data-testid="win-probability-away">{percent(awayOdds)}</span>
+      </div>
+      {/* The bar eases to each new probability as live scores move it. */}
+      <div aria-hidden="true" className="mt-1 flex h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          data-testid="win-probability-bar"
+          className="h-full bg-primary-500 transition-[width] duration-700 ease-out"
+          style={{ width: percent(homeOdds) }}
+        />
+      </div>
+      <span className="sr-only">
+        {home.teamName} {percent(homeOdds)} to win, {away.teamName} {percent(awayOdds)}.
+      </span>
     </div>
   );
 }

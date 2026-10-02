@@ -2,7 +2,7 @@ import { act, render, renderHook, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MatchupData, MatchupLineup, PlayerGame, RosterEntry } from '../../api/types';
+import type { MatchupData, MatchupLineup, MatchupOutlook, PlayerGame, RosterEntry } from '../../api/types';
 import { mockReducedMotion } from '../../test/reducedMotion';
 import { HeadToHead, pairBySlot, ScoreBar, shortName, useThrottledAnnouncement } from './MatchupBoard';
 
@@ -318,6 +318,35 @@ describe('HeadToHead', () => {
 });
 
 describe('ScoreBar', () => {
+  it('shows the predicted win probability in the header, home side first', () => {
+    const d = data();
+    const team = (teamId: string, winProbability: number) => ({
+      teamId,
+      teamName: teamId,
+      currentPoints: 0,
+      projectedPoints: 100,
+      remainingPoints: 100,
+      playersYetToPlay: 0,
+      playersInProgress: 0,
+      winProbability
+    });
+    const outlook = {
+      week: 4,
+      teamId: d.matchup.away.teamId,
+      status: 'in_progress',
+      you: team(d.matchup.away.teamId, 0.3),
+      opponent: team(d.matchup.home.teamId, 0.7)
+    } as unknown as MatchupOutlook;
+    render(
+      <MemoryRouter>
+        <ScoreBar week={4} matchup={d.matchup} lineups={d.lineups} leader={null} outlook={outlook} />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('win-probability-home')).toHaveTextContent('70%');
+    expect(screen.getByTestId('win-probability-away')).toHaveTextContent('30%');
+    expect(screen.getByTestId('win-probability-bar')).toHaveStyle({ width: '70%' });
+  });
+
   function renderBar(d = data(), leader: string | null = 'team-1') {
     return render(
       <MemoryRouter>
