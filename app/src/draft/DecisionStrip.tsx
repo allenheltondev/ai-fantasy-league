@@ -92,6 +92,18 @@ export function DecisionStrip({
               : available[0]
                 ? `At timeout: try ${available[0].name} if available and roster-eligible, then the next eligible queued player.`
                 : 'At timeout: autopick chooses an available player that keeps your roster valid.'}
+        {queue.ready && !queue.saving && queue.error !== null && (
+          <>
+            {' '}
+            <button
+              type="button"
+              className="min-h-11 font-medium text-primary-800 underline md:min-h-0"
+              onClick={queue.retry}
+            >
+              Retry save
+            </button>
+          </>
+        )}
       </p>
     </section>
   );

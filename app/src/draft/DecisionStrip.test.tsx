@@ -30,6 +30,7 @@ const queue: DraftQueue = {
   saving: false,
   error: null,
   has: (id) => ['a', 'b'].includes(id),
+  retry: vi.fn(),
   add: vi.fn(),
   remove: vi.fn(),
   move: vi.fn()
@@ -70,6 +71,10 @@ describe('persistent draft decision context', () => {
     expect(screen.getByTestId('autopick-plan')).toHaveTextContent('last saved order');
     view.rerender(<DecisionStrip {...p} queue={{ ...queue, error: 'offline' }} />);
     expect(screen.getByTestId('autopick-plan')).toHaveTextContent('could not be saved');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry save' }));
+    expect(queue.retry).toHaveBeenCalled();
+    view.rerender(<DecisionStrip {...p} queue={{ ...queue, error: 'offline', saving: true }} />);
+    expect(screen.queryByRole('button', { name: 'Retry save' })).toBeNull();
     view.rerender(<DecisionStrip {...p} queue={{ ...queue, players: [] }} />);
     expect(screen.getByTestId('autopick-plan')).toHaveTextContent('autopick chooses an available player');
   });

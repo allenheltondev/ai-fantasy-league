@@ -5,6 +5,7 @@ import type { Manager } from '../api/types';
 import { ManagerTag } from '../components/AgentAvatar';
 import type { PlayerRef } from './board';
 import type { DraftQueue } from './queue';
+import { QueueAlert } from './Panels';
 
 /** `check_in_draft_lobby` (packages/server/src/operations/draft/lobby.ts). */
 export interface LobbyTeam {
@@ -239,11 +240,7 @@ export function DraftLobby({
             <CardTitle>Your queue</CardTitle>
           </CardHeader>
           <CardBody className="space-y-3">
-            {queue.error !== null && (
-              <Alert variant="error" role="alert">
-                {queue.error}
-              </Alert>
-            )}
+            <QueueAlert queue={queue} />
             {queue.players.length === 0 ? (
               <p className="text-muted-foreground">
                 Line up the players you want. If your clock runs out, autopick takes the first one still

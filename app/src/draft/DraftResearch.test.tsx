@@ -102,6 +102,36 @@ describe('draft research decisions', () => {
     expect(screen.getByLabelText('Notes for Test Receiver')).toHaveValue('My private sleeper');
   });
 
+  it('keeps private notes to the account that wrote them when another manager signs in here', async () => {
+    const signInAs = (sub: string) => {
+      const part = (value: object) => btoa(JSON.stringify(value)).replace(/=+$/, '');
+      localStorage.setItem(
+        'rsc:auth',
+        JSON.stringify({
+          idToken: `${part({ alg: 'none' })}.${part({ sub })}.sig`,
+          refreshToken: 'refresh',
+          expiresAt: 4_102_444_800_000
+        })
+      );
+    };
+    const api = vi.fn(async () => response(card)) as unknown as ApiFetch;
+    signInAs('manager-a');
+    const first = render(<DraftResearch {...props(api)} />);
+    fireEvent.change(screen.getByLabelText('Notes for Test Receiver'), {
+      target: { value: 'Fade him in the playoffs' }
+    });
+    first.unmount();
+
+    signInAs('manager-b');
+    const second = render(<DraftResearch {...props(api)} />);
+    expect(screen.getByLabelText('Notes for Test Receiver')).toHaveValue('');
+    second.unmount();
+
+    signInAs('manager-a');
+    render(<DraftResearch {...props(api)} />);
+    expect(screen.getByLabelText('Notes for Test Receiver')).toHaveValue('Fade him in the playoffs');
+  });
+
   it('retries failed research without blocking the pick, and distinguishes missing data from zero', async () => {
     const user = userEvent.setup();
     const fetch = vi

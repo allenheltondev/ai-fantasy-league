@@ -66,6 +66,8 @@ export interface DraftQueue {
   /** Why the last load or save failed, or null. */
   error: string | null;
   has(playerId: string): boolean;
+  /** After a failure: saves the queue on screen as it is, or loads it again if it never loaded. */
+  retry(): void;
   add(player: PlayerRef): void;
   remove(playerId: string): void;
   move(playerId: string, delta: number): void;
@@ -78,6 +80,7 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
+  const [attempt, setAttempt] = useState(0);
   const path = `/leagues/${leagueId}/draft/queue`;
   // Saves run one at a time, in order, so the last change always wins on the server.
   const saving = useRef<Promise<void>>(Promise.resolve());
@@ -128,7 +131,7 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
     return () => {
       cancelled = true;
     };
-  }, [api, path, leagueId]);
+  }, [api, path, leagueId, attempt]);
 
   const update = (change: (current: PlayerRef[]) => PlayerRef[]) => {
     if (!ready) return;
@@ -144,6 +147,7 @@ export function useDraftQueue(leagueId: string, api: ApiFetch): DraftQueue {
     saving: pending > 0,
     error,
     has: (playerId) => players.some((p) => p.id === playerId),
+    retry: () => (ready ? save(players) : setAttempt((n) => n + 1)),
     add: (player) => update((q) => (q.some((p) => p.id === player.id) ? q : [...q, player])),
     remove: (playerId) => update((q) => q.filter((p) => p.id !== playerId)),
     move: (playerId, delta) =>

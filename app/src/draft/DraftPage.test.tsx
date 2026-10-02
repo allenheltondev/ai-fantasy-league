@@ -1284,38 +1284,46 @@ describe('draft workspace continuity', () => {
   });
 
   it.each([
-    ['a phone', false],
-    ['a collapsed desktop conversation', true]
-  ])('counts only messages that arrive while the chat is hidden on %s, not its history', async (_, wide) => {
-    const width = mockWidth(wide);
-    try {
-      const user = userEvent.setup();
-      const { api } = researchApi();
-      const { chat, list } = fakeChat();
-      const [history] = (await list()).messages;
-      const later = { ...history!, id: 'm2', text: 'Trade you a third for that pick?' };
-      let messages = [history!];
-      list.mockImplementation(async () => ({ messages, nextCursor: null }));
-      vi.mocked(chat.realtime).mockResolvedValue({
-        ...(await chat.realtime('L1')),
-        pollIntervalSeconds: 0.05
-      });
-      renderDraft(api, 60_000, undefined, { chat });
-      const chatTab = await screen.findByRole('tab', { name: 'Chat' });
-      await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
-      expect(chatTab).toHaveTextContent(/^Chat$/);
-      const toggle = wide ? screen.getByRole('button', { name: /^Around the room/ }) : null;
-      if (toggle) await user.click(toggle);
-      messages = [history!, later];
-      await waitFor(() => expect(chatTab).toHaveTextContent('Chat (1)'));
-      if (toggle) expect(toggle).toHaveTextContent('Around the room · 1 new');
-      await user.click(chatTab);
-      expect(await screen.findByText('Trade you a third for that pick?')).toBeInTheDocument();
-      expect(chatTab).toHaveTextContent(/^Chat$/);
-    } finally {
-      width.restore();
+    ['a phone', false, false],
+    ['a collapsed desktop conversation', true, false],
+    ['a phone whose first history read failed', false, true]
+  ])(
+    'counts only messages that arrive while the chat is hidden on %s, not its history',
+    async (_, wide, failFirst) => {
+      const width = mockWidth(wide);
+      try {
+        const user = userEvent.setup();
+        const { api } = researchApi();
+        const { chat, list } = fakeChat();
+        const [history] = (await list()).messages;
+        const later = { ...history!, id: 'm2', text: 'Trade you a third for that pick?' };
+        let messages = [history!];
+        list.mockImplementation(async () => ({ messages, nextCursor: null }));
+        // The first read fails; the room still starts polling, and the first poll brings the history.
+        if (failFirst) list.mockRejectedValueOnce(new Error('offline'));
+        vi.mocked(chat.realtime).mockResolvedValue({
+          ...(await chat.realtime('L1')),
+          pollIntervalSeconds: 0.05
+        });
+        renderDraft(api, 60_000, undefined, { chat });
+        const chatTab = await screen.findByRole('tab', { name: 'Chat' });
+        await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+        // The history is in the (hidden) conversation before its unread count is checked.
+        await screen.findByText('Chase is mine next round.');
+        expect(chatTab).toHaveTextContent(/^Chat$/);
+        const toggle = wide ? screen.getByRole('button', { name: /^Around the room/ }) : null;
+        if (toggle) await user.click(toggle);
+        messages = [history!, later];
+        await waitFor(() => expect(chatTab).toHaveTextContent('Chat (1)'));
+        if (toggle) expect(toggle).toHaveTextContent('Around the room · 1 new');
+        await user.click(chatTab);
+        expect(await screen.findByText('Trade you a third for that pick?')).toBeInTheDocument();
+        expect(chatTab).toHaveTextContent(/^Chat$/);
+      } finally {
+        width.restore();
+      }
     }
-  });
+  );
 
   it('starts in Essentials if device storage cannot be read', async () => {
     const block = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {

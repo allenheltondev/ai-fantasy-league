@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@readysetcloud/ui';
+import { claims } from '@readysetcloud/ui/auth';
 import type { ApiFetch } from '../api';
 import { PlayerHeadshot } from '../players/PlayerHeadshot';
 import { InjuryBadge } from './BestAvailableTable';
@@ -215,13 +216,19 @@ function ResearchColumn({
             </details>
           </>
         )}
-        <PrivateNote storageKey={`fantasy:draft-note:${leagueId}:${player.id}`} playerName={player.name} />
+        <PrivateNote noteId={`${leagueId}:${player.id}`} playerName={player.name} />
       </div>
     </article>
   );
 }
 
-function PrivateNote({ storageKey, playerName }: { storageKey: string; playerName: string }) {
+/**
+ * A note kept in this browser for one league and player. Scoped to the signed-in account, so another
+ * manager who signs in on the same device never sees it.
+ */
+function PrivateNote({ noteId, playerName }: { noteId: string; playerName: string }) {
+  const storageKey = `fantasy:draft-note:${claims().sub ?? 'signed-out'}:${noteId}`;
+  const inputId = `draft-note-${noteId}`;
   const [note, setNote] = useState(() => {
     try {
       return localStorage.getItem(storageKey) ?? '';
@@ -233,11 +240,11 @@ function PrivateNote({ storageKey, playerName }: { storageKey: string; playerNam
   return (
     <details className="border-t border-border pt-3" open={note.length > 0 ? true : undefined}>
       <summary className="cursor-pointer font-medium">Private notes</summary>
-      <label className="sr-only" htmlFor={storageKey}>
+      <label className="sr-only" htmlFor={inputId}>
         Notes for {playerName}
       </label>
       <textarea
-        id={storageKey}
+        id={inputId}
         value={note}
         maxLength={2000}
         rows={3}

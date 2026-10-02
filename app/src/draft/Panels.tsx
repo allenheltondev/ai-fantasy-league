@@ -92,6 +92,26 @@ export function RosterPanel({ board, onOpen }: { board: DraftBoard; onOpen(playe
   );
 }
 
+/** Why the queue failed to load or save, with a way to try again without changing it. */
+export function QueueAlert({ queue }: { queue: DraftQueue }) {
+  if (queue.error === null) return null;
+  return (
+    <Alert variant="error" role="alert">
+      <span className="flex flex-wrap items-center justify-between gap-2">
+        {queue.error}
+        <button
+          type="button"
+          className="min-h-11 font-medium underline md:min-h-8"
+          disabled={queue.saving}
+          onClick={queue.retry}
+        >
+          {queue.ready ? 'Retry save' : 'Retry'}
+        </button>
+      </span>
+    </Alert>
+  );
+}
+
 /**
  * Your queue, compact. Empty, it is one quiet line; the pick clock's autopick takes the first queued
  * player still available.
@@ -114,11 +134,7 @@ export function QueuePanel({
   const queued = queue.players.filter((p) => !drafted.has(p.id));
   return (
     <div className="space-y-2 text-sm">
-      {queue.error !== null && (
-        <Alert variant="error" role="alert">
-          {queue.error}
-        </Alert>
-      )}
+      <QueueAlert queue={queue} />
       {queued.length === 0 ? (
         <p className="px-2 py-1 text-xs text-muted-foreground" data-testid="queue-hint">
           Queue players with ＋ to line up your picks. Autopick takes the first one left.

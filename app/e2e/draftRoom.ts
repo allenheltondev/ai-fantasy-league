@@ -141,10 +141,10 @@ export function researchApi(page: Page) {
     })
   );
   // The server-side draft queue (#134): starts empty; a PUT stores the order and echoes it back.
-  // Set `queue.failSaves` to have every PUT fail, as an outage would.
+  // Set `queue.failSaves` to have every PUT fail, as an outage would; `queue.saved()` is what the server holds.
   let queued: string[] = [];
   const known = [LAMB, CHASE, CMC];
-  const queue = { failSaves: false };
+  const queue = { failSaves: false, saved: () => queued };
   void page.route('**/api/v1/leagues/L1/draft/queue', async (route) => {
     if (route.request().method() === 'PUT' && queue.failSaves) {
       return route.fulfill({

@@ -43,6 +43,7 @@ function fakeQueue(players: DraftQueue['players'] = []): DraftQueue {
     saving: false,
     error: null,
     has: (id) => players.some((p) => p.id === id),
+    retry: vi.fn(),
     add: vi.fn(),
     remove: vi.fn(),
     move: vi.fn()
@@ -190,6 +191,8 @@ describe('DraftLobby', () => {
     renderLobby(api, { queue });
     expect(await screen.findByText(/Line up the players you want/)).toBeInTheDocument();
     expect(screen.getByText('Could not save your queue.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry save' }));
+    expect(queue.retry).toHaveBeenCalled();
     await user.click(await screen.findByRole('button', { name: "Queue Ja'Marr Chase" }));
     expect(queue.add).toHaveBeenCalledWith(chase);
   });

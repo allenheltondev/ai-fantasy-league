@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LAMB, researchApi, signIn } from './draftRoom';
+import { researchApi, signIn } from './draftRoom';
 
 /**
  * The draft workspace's recovery and accessibility contracts: tabs work from the keyboard, a
@@ -92,9 +92,8 @@ test('on a phone, the chat history it opened with is not counted as unread', asy
   await expect(chatTab).toHaveText('Chat');
 });
 
-test('a queue that cannot be saved says so, and the next good save recovers', async ({ page }) => {
-  const { board, queue } = researchApi(page);
-  board.bestAvailable.push({ ...board.bestAvailable[0]!, player: LAMB, rank: 2 });
+test('a queue that cannot be saved says so, and a retry saves that same queue', async ({ page }) => {
+  const { queue } = researchApi(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/leagues/L1/draft');
   const plan = page.getByTestId('autopick-plan');
@@ -102,14 +101,18 @@ test('a queue that cannot be saved says so, and the next good save recovers', as
 
   queue.failSaves = true;
   await page.getByRole('button', { name: "Queue Ja'Marr Chase", exact: true }).click();
-  await expect(plan).toHaveText('Queue changes could not be saved. Autopick uses your last saved queue.');
-  // The change stays on screen so it can be retried.
+  await expect(plan).toContainText('Queue changes could not be saved. Autopick uses your last saved queue.');
+  // The queue on screen keeps him, so there is nothing to change; retry sends it as it is.
   await expect(page.getByRole('tab', { name: 'Queue' })).toHaveText('Queue (1)');
+  await expect(page.getByRole('alert')).toContainText('The draft queue is unavailable.');
+  await plan.getByRole('button', { name: 'Retry save' }).click();
+  await expect(plan).toContainText('could not be saved');
 
   queue.failSaves = false;
-  await page.getByRole('button', { name: 'Queue CeeDee Lamb', exact: true }).click();
+  await plan.getByRole('button', { name: 'Retry save' }).click();
   await expect(plan).toContainText("At timeout: try Ja'Marr Chase if available");
-  await expect(page.getByRole('tab', { name: 'Queue' })).toHaveText('Queue (2)');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(queue.saved()).toEqual(['fx-chase']);
 });
 
 for (const width of [320, 390]) {

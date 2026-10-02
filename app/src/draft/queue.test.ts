@@ -109,6 +109,27 @@ describe('draft queue', () => {
     await waitFor(() => expect(loaded.result.current.error).toBe('Could not save your queue.'));
   });
 
+  it('retries the queue on screen after a failed save, and reloads after a failed load', async () => {
+    const s = server();
+    s.fail.GET = 'network';
+    const { result } = renderHook(() => useDraftQueue('L1', s.api));
+    await waitFor(() => expect(result.current.error).toBe('Could not load your queue.'));
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.error).toBeNull();
+    // One player queued, and that one save fails: the screen keeps him, the server does not.
+    s.fail.PUT = 'api';
+    act(() => result.current.add(chase));
+    await waitFor(() => expect(result.current.error).toMatch(/do not manage a team/));
+    expect(result.current.players).toEqual([chase]);
+    expect(s.ids()).toEqual([]);
+    // Retrying sends that same queue, unchanged.
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.error).toBeNull());
+    expect(s.ids()).toEqual(['fx-chase']);
+    expect(s.calls.at(-1)?.request).toEqual({ method: 'PUT', body: { playerIds: ['fx-chase'] } });
+  });
+
   it('reports saving until every queued change settles, including one that fails', async () => {
     const s = server(['fx-lamb']);
     const held: (() => void)[] = [];

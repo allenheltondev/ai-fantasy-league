@@ -8,6 +8,8 @@ export interface LeagueChat {
   messages: ChatMessage[];
   teams: ChatTeam[];
   status: ChatStatus;
+  /** True once a history read has succeeded; a failed first load stays false until a later one works. */
+  loaded: boolean;
   /** Seconds between refreshes while polling. */
   pollSeconds: number;
   send(text: string): Promise<void>;
@@ -40,6 +42,7 @@ export function useLeagueChat(
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [teams, setTeams] = useState<ChatTeam[]>([]);
   const [status, setStatus] = useState<ChatStatus>('loading');
+  const [loaded, setLoaded] = useState(false);
   const [pollSeconds, setPollSeconds] = useState(DEFAULT_POLL_SECONDS);
   const add = useCallback(
     (incoming: readonly ChatMessage[]) => setMessages((current) => mergeMessages(current, incoming)),
@@ -53,7 +56,10 @@ export function useLeagueChat(
     const later = (ms: number, run: () => void) => timers.push(setTimeout(run, ms));
     const chat = api;
 
-    const refresh = async () => add((await chat.list(leagueId, { limit: PAGE, roomId })).messages);
+    const refresh = async () => {
+      add((await chat.list(leagueId, { limit: PAGE, roomId })).messages);
+      setLoaded(true);
+    };
     const disconnect = () => {
       close?.();
       close = null;
@@ -131,5 +137,5 @@ export function useLeagueChat(
     [leagueId, roomId, api, add]
   );
 
-  return { messages, teams, status, pollSeconds, send };
+  return { messages, teams, status, loaded, pollSeconds, send };
 }
