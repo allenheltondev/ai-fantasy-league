@@ -445,7 +445,7 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByTestId('queue-hint')).toBeVisible();
       await expectFits(page, 'draft: queue');
       await roomTabs.getByRole('tab', { name: 'Roster' }).tap();
-      await expect(page.getByTestId('roster-needs')).toContainText('Need:');
+      await expect(page.getByTestId('roster-needs')).toContainText('Open starters:');
       await expectFits(page, 'draft: roster');
       await roomTabs.getByRole('tab', { name: 'Board' }).tap();
       await expect(page.getByRole('table', { name: 'Draft board' })).toBeVisible();

@@ -19,7 +19,7 @@ function Name({ player, onOpen }: { player: PlayerRef; onOpen(player: PlayerRef)
 
 /**
  * Your roster at a glance: every starting seat, filled or empty, then the bench spots, with what you
- * still need ("Need: 1 TE, 1 DEF, 1 K"). Falls back to a plain list of your players when the server
+ * still need ("Open starters: 1 TE, 1 DEF, 1 K"). Falls back to a plain list of your players when the server
  * does not lay the roster out.
  */
 export function RosterPanel({ board, onOpen }: { board: DraftBoard; onOpen(player: PlayerRef): void }) {

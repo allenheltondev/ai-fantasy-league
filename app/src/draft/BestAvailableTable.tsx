@@ -258,7 +258,7 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
                     {props.onCompare && (
                       <button
                         type="button"
-                        className="mt-1 min-h-8 text-xs font-medium text-primary-800 sm:hidden"
+                        className="min-h-11 text-xs font-medium text-primary-800 sm:hidden"
                         aria-label={`Compare ${player.name}`}
                         aria-pressed={props.compared?.has(player.id) ?? false}
                         disabled={!props.compared?.has(player.id) && (props.compared?.size ?? 0) >= 3}
