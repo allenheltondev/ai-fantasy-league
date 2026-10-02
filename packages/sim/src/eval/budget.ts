@@ -2,6 +2,7 @@ import { MODEL_CATALOG, estimateCostUsd } from '@fantasy/core';
 import {
   ModelUnavailableError,
   estimateTokens,
+  runUsageOf,
   type ModelClient,
   type ModelRunRequest,
   type ModelRunResult
@@ -44,7 +45,8 @@ export class BudgetExhaustedError extends ModelUnavailableError {
  * read on every tool-loop turn, up to four, plus the full response limit, at the catalog price);
  * a call that would take spend past the cap is refused (`BudgetExhaustedError`, so the agent's
  * deterministic fallback decides instead). After the call the reservation is replaced by the
- * usage the model reported. Spend therefore stays under the cap unless a model reports more usage
+ * usage the model reported, for a failed call too (its reported usage, or one prompt read plus the
+ * full response limit when it reported none). Spend therefore stays under the cap unless a model reports more usage
  * than the worst case (for example more than four tool-loop turns).
  */
 export class BudgetedModel implements ModelClient {
@@ -63,6 +65,14 @@ export class BudgetedModel implements ModelClient {
 
   get exhausted(): boolean {
     return this.refused > 0;
+  }
+
+  /** What a failed call that reported no usage is charged: one prompt read and the full response limit. */
+  static failedCall(request: Pick<ModelRunRequest<unknown>, 'systemPrompt' | 'input' | 'maxTokens'>) {
+    return {
+      inputTokens: estimateTokens(request.systemPrompt + request.input),
+      outputTokens: request.maxTokens
+    };
   }
 
   /** The worst case of one call, in dollars. */
@@ -92,6 +102,14 @@ export class BudgetedModel implements ModelClient {
       const result = await this.inner.run(request);
       this.spentUsd += estimateCostUsd(request.modelId, result.usage);
       return result;
+    } catch (error) {
+      // A failed call can still be billed (#247 review): charge what it reported, as the runtime's
+      // ledger does, or, when it reported nothing, one prompt read plus the full response limit.
+      this.spentUsd += estimateCostUsd(
+        request.modelId,
+        runUsageOf(error) ?? BudgetedModel.failedCall(request)
+      );
+      throw error;
     } finally {
       this.#reserved -= reserve;
     }
@@ -104,6 +122,8 @@ export class BudgetedModel implements ModelClient {
  */
 export class PinnedModel implements ModelClient {
   readonly bedrockId: string;
+  readonly #thinkingBudget: boolean;
+  readonly #adaptiveThinking: boolean;
 
   constructor(
     readonly inner: ModelClient,
@@ -115,13 +135,32 @@ export class PinnedModel implements ModelClient {
         `Unknown model ${modelKey}. Use one of: ${MODEL_CATALOG.map((m) => m.key).join(', ')}.`
       );
     this.bedrockId = model.bedrockId;
+    this.#thinkingBudget = model.thinkingBudget === true;
+    this.#adaptiveThinking = model.adaptiveThinking === true;
   }
 
   get name(): string {
     return this.inner.name;
   }
 
+  /**
+   * The request as the pinned model takes it: its id, and only the thinking options it accepts. A
+   * seat on a Claude tier asks for thinking the pinned model may reject (#247: Nova refused
+   * `output_config`, so half the calls of a pinned run fell back).
+   */
+  pin<T>(request: ModelRunRequest<T>): ModelRunRequest<T> {
+    const { thinkingBudgetTokens, thinkingEffort, ...rest } = request;
+    return {
+      ...rest,
+      modelId: this.bedrockId,
+      ...(this.#adaptiveThinking && thinkingEffort !== undefined ? { thinkingEffort } : {}),
+      ...(this.#thinkingBudget && !this.#adaptiveThinking && thinkingBudgetTokens !== undefined
+        ? { thinkingBudgetTokens }
+        : {})
+    };
+  }
+
   run<T>(request: ModelRunRequest<T>): Promise<ModelRunResult<T>> {
-    return this.inner.run({ ...request, modelId: this.bedrockId });
+    return this.inner.run(this.pin(request));
   }
 }

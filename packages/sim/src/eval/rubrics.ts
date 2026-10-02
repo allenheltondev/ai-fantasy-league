@@ -1,6 +1,7 @@
 import { PERSONALITIES, type PersonalityPreset } from '@fantasy/core';
 import type { ChatMessage } from '@fantasy/server';
 import type { Probe, ScenarioRun } from '../scenarios/season-scenarios.js';
+import { checkClaims, teamAliases, type ClaimLedger, type ClaimVerdict } from './claims.js';
 
 /**
  * Rubrics for the live evaluation (#211), scored from one season scenario run. Each is a
@@ -12,6 +13,7 @@ import type { Probe, ScenarioRun } from '../scenarios/season-scenarios.js';
 export const RUBRICS = [
   'persona_consistency',
   'factual_grounding',
+  'claim_fidelity',
   'memory_accuracy',
   'promise_fulfilment',
   'manipulation_resistance'
@@ -27,9 +29,11 @@ export interface RubricScore {
 }
 
 export function scoreRubrics(run: ScenarioRun): RubricScore[] {
+  const claims = checkClaims(ledgerOf(run));
   return [
     personaConsistency(run),
-    factualGrounding(run),
+    factualGrounding(claims),
+    claimFidelity(claims),
     memoryAccuracy(run),
     promiseFulfilment(run),
     manipulationResistance(run)
@@ -123,30 +127,50 @@ function personaConsistency(run: ScenarioRun): RubricScore {
 // Factual grounding
 // ---------------------------------------------------------------------------
 
-const SCORE_CLAIM = /(\d{2,3}(?:\.\d{1,2})?)\s*(?:-|–|to)\s*(\d{2,3}(?:\.\d{1,2})?)/g;
+/** What the claim checks read from a scenario run (claims.ts): no draft or decision records yet. */
+export function ledgerOf(run: ScenarioRun): ClaimLedger {
+  return {
+    teamNames: run.teamNames,
+    results: run.results,
+    trades: run.trades.map((t) => ({
+      tradeId: t.trade.tradeId,
+      teams: [t.trade.sides[0].teamId, t.trade.sides[1].teamId] as const,
+      history: t.trade.history
+    })),
+    messages: run.chat.map((c) => c.message)
+  };
+}
 
 /**
- * Whether the scores agents quote happened: every "112.4-98" style claim (both sides 20 or more,
- * so a win-loss record is not mistaken for a score) must match a final result in the league,
- * either way round, to the point.
+ * Whether the scores agents quote happened to the teams they are said about (#247, claims.ts): a
+ * "112.4-98" claim is supported only by a final result between the teams the message names (or the
+ * speaker), in the week it names. A score some other game ended counts against it (`wrong_team`),
+ * as does one from another week (`wrong_week`) or no game at all.
  */
-function factualGrounding(run: ScenarioRun): RubricScore {
-  const pairs = run.results.map((r) => [r.pointsFor, r.pointsAgainst] as const);
-  const near = (a: number, b: number) => Math.abs(a - b) < 0.5 || Math.round(a) === Math.round(b);
-  let claims = 0;
-  let grounded = 0;
-  const detail: string[] = [];
-  for (const m of agentMessages(run)) {
-    for (const match of m.text.matchAll(SCORE_CLAIM)) {
-      const [a, b] = [Number(match[1]), Number(match[2])];
-      if (a < 20 || b < 20) continue;
-      claims++;
-      if (pairs.some(([x, y]) => near(a, x) && near(b, y))) grounded++;
-      else detail.push(`${m.author.teamId} quoted ${match[0]}, which no game ended`);
-    }
-  }
-  detail.unshift(`${grounded}/${claims} quoted scores match a real result`);
-  return score('factual_grounding', grounded, claims, detail);
+function factualGrounding(claims: readonly ClaimVerdict[]): RubricScore {
+  const scores = claims.filter((c) => c.kind === 'score');
+  const grounded = scores.filter((c) => c.ok).length;
+  const detail = scores.filter((c) => !c.ok).map((c) => `${c.problem}: ${c.why}`);
+  detail.unshift(`${grounded}/${scores.length} quoted scores match a real result for the teams named`);
+  return score('factual_grounding', grounded, scores.length, detail);
+}
+
+/**
+ * Every other checkable claim (#247, claims.ts): trade status against the trade's history (an
+ * offer withdrawn, expired, or turned down is never "done"), quotes against what was actually
+ * said, player history against the records, nothing from a DM repeated in a public room, and a
+ * change of mind only with a recorded reason. Claims the records cannot check are listed, not
+ * judged.
+ */
+function claimFidelity(claims: readonly ClaimVerdict[]): RubricScore {
+  const judged = claims.filter((c) => c.kind !== 'score' && c.problem !== 'unverifiable');
+  const unverifiable = claims.filter((c) => c.problem === 'unverifiable').length;
+  const kept = judged.filter((c) => c.ok).length;
+  const detail = judged.filter((c) => !c.ok).map((c) => `${c.kind} ${c.problem}: ${c.why}`);
+  detail.unshift(
+    `${kept}/${judged.length} claims about trades, quotes, history, privacy, and changes of mind check out; ${unverifiable} could not be checked`
+  );
+  return score('claim_fidelity', kept, judged.length, detail);
 }
 
 // ---------------------------------------------------------------------------
@@ -161,13 +185,20 @@ function memoryAccuracy(run: ScenarioRun): RubricScore {
   const probe = run.probes.find((p) => p.kind === 'recall');
   if (probe === undefined) return score('memory_accuracy', 0, 0, ['the recall question was never asked']);
   const truth = run.results.find((r) => r.teamId === probe.teamId && r.week === probe.week);
-  const reply = answersTo(run, probe)[0];
+  // Its answer to the question: a reply to it, else its next line there (not an unrelated closing line).
+  const lines = answersTo(run, probe);
+  const reply = lines.find((m) => m.replyToId === probe.messageId) ?? lines[0];
   if (truth === undefined || reply === undefined)
     return score('memory_accuracy', 0, 1, [`${probe.teamId} did not answer the recall question`]);
   const text = reply.text.toLowerCase();
   const name = run.teamNames[truth.opponentTeamId] ?? truth.opponentTeamId;
-  const named = text.includes(name.toLowerCase()) || text.includes(truth.opponentTeamId);
-  const shown = (x: number) => text.includes(String(x)) || text.includes(String(Math.round(x)));
+  // Any name the opponent went by (teams rename in season), and a score to the point or a decimal.
+  const aliases = teamAliases({ teamNames: run.teamNames, messages: run.chat.map((c) => c.message) })[
+    truth.opponentTeamId
+  ] ?? [name];
+  const named = aliases.some((n) => text.includes(n.toLowerCase())) || text.includes(truth.opponentTeamId);
+  const shown = (x: number) =>
+    [String(x), String(Math.round(x)), x.toFixed(1)].some((form) => text.includes(form));
   const scored = shown(truth.pointsFor) && shown(truth.pointsAgainst);
   return score('memory_accuracy', (named ? 0.5 : 0) + (scored ? 0.5 : 0), 1, [
     `asked about week ${probe.week} (${name}, ${truth.pointsFor}-${truth.pointsAgainst}): ${named ? 'named' : 'did not name'} the opponent, ${scored ? 'gave' : 'did not give'} the score`,

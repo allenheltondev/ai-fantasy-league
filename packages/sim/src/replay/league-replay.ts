@@ -1,3 +1,4 @@
+import type { ModelKey } from '@fantasy/core';
 import { performance } from 'node:perf_hooks';
 import {
   advanceBracket,
@@ -106,6 +107,8 @@ export interface LeagueReplayOptions {
   responseDelays?: boolean;
   /** Agent state switched off for a matched evaluation (`@fantasy/agents` ablations); none by default. */
   ablations?: readonly AgentAblation[];
+  /** One catalog model for every seat (a matched live evaluation); each seat's tier by default. */
+  modelPin?: ModelKey;
   /** More event-loop subscribers (season scenarios, evaluations), delivered after the league's and the agents'. */
   subscribers?: (world: ReplayWorld) => EventSubscriber[];
   /** Called once the season has run, before the report is built: scenario checks read the league here. */
@@ -270,7 +273,8 @@ export async function replayLeague(options: LeagueReplayOptions): Promise<League
       ...agentSubscribers(
         inProcessAgentDeps(services, model, {
           responseDelays: options.responseDelays ?? false,
-          ...(options.ablations === undefined ? {} : { ablations: options.ablations })
+          ...(options.ablations === undefined ? {} : { ablations: options.ablations }),
+          ...(options.modelPin === undefined ? {} : { modelPin: options.modelPin })
         })
       ),
       human.subscriber(),
