@@ -1283,8 +1283,11 @@ describe('draft workspace continuity', () => {
     expect(screen.getByTestId('pick-clock')).toBeInTheDocument();
   });
 
-  it('counts only messages that arrive while the chat is hidden, not the history it opened with', async () => {
-    const width = mockWidth(false);
+  it.each([
+    ['a phone', false],
+    ['a collapsed desktop conversation', true]
+  ])('counts only messages that arrive while the chat is hidden on %s, not its history', async (_, wide) => {
+    const width = mockWidth(wide);
     try {
       const user = userEvent.setup();
       const { api } = researchApi();
@@ -1301,8 +1304,11 @@ describe('draft workspace continuity', () => {
       const chatTab = await screen.findByRole('tab', { name: 'Chat' });
       await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
       expect(chatTab).toHaveTextContent(/^Chat$/);
+      const toggle = wide ? screen.getByRole('button', { name: /^Around the room/ }) : null;
+      if (toggle) await user.click(toggle);
       messages = [history!, later];
       await waitFor(() => expect(chatTab).toHaveTextContent('Chat (1)'));
+      if (toggle) expect(toggle).toHaveTextContent('Around the room · 1 new');
       await user.click(chatTab);
       expect(await screen.findByText('Trade you a third for that pick?')).toBeInTheDocument();
       expect(chatTab).toHaveTextContent(/^Chat$/);

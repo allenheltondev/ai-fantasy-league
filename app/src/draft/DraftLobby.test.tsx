@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiFetch, type ApiRequest } from '../api/client';
@@ -62,7 +62,12 @@ function fakeApi(handler: (path: string, request: ApiRequest) => unknown) {
 
 function renderLobby(
   api: ApiFetch,
-  props: { queue?: DraftQueue; onStarted?: () => void; now?: () => number } = {}
+  props: {
+    queue?: DraftQueue;
+    onStarted?: () => void;
+    now?: () => number;
+    onResearch?: (player: DraftQueue['players'][number]) => void;
+  } = {}
 ) {
   render(
     <DraftLobby
@@ -72,6 +77,7 @@ function renderLobby(
       now={props.now ?? (() => NOW)}
       refresh={0}
       onStarted={props.onStarted ?? (() => undefined)}
+      onResearch={props.onResearch}
     />
   );
 }
@@ -160,6 +166,21 @@ describe('DraftLobby', () => {
     expect(queue.remove).toHaveBeenCalledWith('fx-chase');
     await user.type(screen.getByLabelText('Find players'), 'lamb');
     await waitFor(() => expect(calls.at(-1)?.request).toEqual({ query: { q: 'lamb', limit: 10 } }));
+  });
+
+  it('opens research from a queued name, and ignores the click without a research desk', async () => {
+    const user = userEvent.setup();
+    const onResearch = vi.fn();
+    const { api } = fakeApi(() => lobby());
+    renderLobby(api, { queue: fakeQueue([chase]), onResearch });
+    const list = within(await screen.findByRole('list', { name: 'Your queue' }));
+    await user.click(list.getByRole('button', { name: "Ja'Marr Chase" }));
+    expect(onResearch).toHaveBeenCalledWith(chase);
+    cleanup();
+    renderLobby(api, { queue: fakeQueue([chase]) });
+    const plain = within(await screen.findByRole('list', { name: 'Your queue' }));
+    await user.click(plain.getByRole('button', { name: "Ja'Marr Chase" }));
+    expect(plain.getByRole('button', { name: "Ja'Marr Chase" })).toBeInTheDocument();
   });
 
   it('adds a found player to an empty queue, and shows queue errors', async () => {
