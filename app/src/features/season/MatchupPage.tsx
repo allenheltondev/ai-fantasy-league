@@ -14,7 +14,7 @@ import {
 import { useCelebrateOnce } from '../../motion/celebration';
 import { Confetti } from '../../motion/Confetti';
 import { LoadingSkeleton } from '../../motion/decor';
-import { MatchupOutlookPanel } from './MatchupOutlookPanel';
+import { MatchupOutlookPanel, OutlookLoader, OutlookView } from './MatchupOutlookPanel';
 import { NflGamesStrip } from './NflGamesStrip';
 import { mergeEntries, ScoringLog } from './ScoringLog';
 import { HeadToHead, ScoreBar } from './MatchupBoard';
@@ -45,8 +45,8 @@ export const MATCHUP_EVENTS = [
 ] as const;
 
 /**
- * The Matchup section (#58, #193): a sticky score bar, the two lineups head to head by slot with
- * each player's game, then the outlook, the scoring log, and the week's NFL games.
+ * The Matchup section (#58, #193): a sticky score bar with the win probability, the two lineups head to head by slot with
+ * each player's game, then your lineup advice, the scoring log, and the week's NFL games.
  */
 export function MatchupPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
@@ -117,6 +117,7 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
       </div>
     );
   } else {
+    const data = loaded.data;
     const { matchup, lineups } = loaded.data;
     const leader = leadingTeam(matchup);
     const own = viewTeam === undefined;
@@ -129,22 +130,35 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
           : null;
     body = (
       <div className="space-y-4">
-        <ScoreBar week={loaded.data.week} matchup={matchup} lineups={lineups} leader={leader} />
-        {own && <WinCelebration leagueId={leagueId} data={loaded.data} />}
-        <HeadToHead
-          matchup={matchup}
-          lineups={lineups}
-          yourSide={yourSide}
-          editLineup={yourSide === null || matchup.status === 'final' ? null : teamPath(leagueId, 'lineup')}
-          redZone={redZone}
-        />
-        {own && (
-          <MatchupOutlookPanel
-            leagueId={leagueId}
-            pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
-            version={outlookVersion}
-          />
-        )}
+        <OutlookLoader
+          leagueId={leagueId}
+          pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
+          version={outlookVersion}
+          enabled={own}
+        >
+          {(outlook) => (
+            <>
+              <ScoreBar
+                week={data.week}
+                matchup={matchup}
+                lineups={lineups}
+                leader={leader}
+                outlook={outlook}
+              />
+              {own && <WinCelebration leagueId={leagueId} data={data} />}
+              <HeadToHead
+                matchup={matchup}
+                lineups={lineups}
+                yourSide={yourSide}
+                editLineup={
+                  yourSide === null || matchup.status === 'final' ? null : teamPath(leagueId, 'lineup')
+                }
+                redZone={redZone}
+              />
+              {outlook !== null && <OutlookView outlook={outlook} odds={false} />}
+            </>
+          )}
+        </OutlookLoader>
         <ScoringLog
           leagueId={leagueId}
           matchupId={matchup.id}
