@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
-import type { MatchupData, ScoringLogEntry } from '../../api/types';
+import type { MatchupData, RedZoneTeam, ScoringLogEntry } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import {
@@ -20,6 +20,8 @@ import { mergeEntries, ScoringLog } from './ScoringLog';
 import { HeadToHead, ScoreBar } from './MatchupBoard';
 import { isStarter } from './slots';
 import { teamPath } from '../../routes/leagueRoutes';
+
+const NO_RED_ZONE: readonly RedZoneTeam[] = [];
 
 /** How often live scores refresh without realtime. The server recomputes them on every read. */
 export const MATCHUP_POLL_MS = 30_000;
@@ -90,7 +92,12 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
     leagueId,
     live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS
   );
-  const redZone = nfl.data?.redZone ?? [];
+  // Stable identities across refreshes, so the memoized children only recompute when the data changes.
+  const redZone = useMemo(() => nfl.data?.redZone ?? NO_RED_ZONE, [nfl.data]);
+  const pushedEntries = useMemo(() => {
+    const matchupId = loaded.data?.matchup?.id;
+    return mergeEntries(...pushed.filter((p) => p.matchupId === matchupId).map((p) => p.entries));
+  }, [pushed, loaded.data?.matchup?.id]);
 
   let body;
   if (loaded.data === null) {
@@ -166,7 +173,7 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
           teamId={viewTeam}
           sides={[matchup.home, matchup.away]}
           redZone={redZone}
-          pushed={mergeEntries(...pushed.filter((p) => p.matchupId === matchup.id).map((p) => p.entries))}
+          pushed={pushedEntries}
           version={logVersion}
           pollMs={live === 'live' ? MATCHUP_LIVE_POLL_MS : MATCHUP_POLL_MS}
         />

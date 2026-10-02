@@ -230,6 +230,8 @@ describe('HeadToHead', () => {
     expect(brown).toHaveClass('h2h-redzone', 'h2h-edge-end', 'h2h-pulse');
     expect(within(brown).getByTestId('red-zone-chip')).toHaveTextContent('Red zone·2nd & 4 at DAL 7');
     expect(within(brown).queryByTestId('ball-mark')).toBeNull();
+    // On the away side the marker line is right-aligned with the player, as the old inline chip was.
+    expect(within(brown).getByTestId('context-marker')).toHaveClass('justify-end');
     // A kicker scores from the drive too.
     expect(cell('elliott')).toHaveClass('h2h-redzone');
   });

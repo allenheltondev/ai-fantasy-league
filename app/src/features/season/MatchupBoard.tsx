@@ -263,7 +263,7 @@ export function redZoneOf(entry: RosterEntry, drives: readonly RedZoneTeam[]): R
 }
 
 /** The game line: when, against whom, the score, the ball and the red zone, or why he scores nothing. */
-function ContextLine({ entry, zone }: { entry: RosterEntry; zone: RedZoneTeam | null }) {
+function ContextLine({ entry, zone, side }: { entry: RosterEntry; zone: RedZoneTeam | null; side: Side }) {
   const game = gameOf(entry);
   if (game.state === 'bye') {
     return (
@@ -295,18 +295,26 @@ function ContextLine({ entry, zone }: { entry: RosterEntry; zone: RedZoneTeam | 
   if (game.state === 'live') {
     const score = scoreLine(game, false);
     return (
-      <span className="inline-flex flex-wrap items-center gap-x-1">
-        <span className="font-semibold text-success-700">
-          {periodLabel(game.period, game.clock) ?? 'Live'}
+      <>
+        <span className="inline-flex flex-wrap items-center gap-x-1">
+          <span className="font-semibold text-success-700">
+            {periodLabel(game.period, game.clock) ?? 'Live'}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="whitespace-nowrap">
+            {versus(game)}
+            {score === null ? '' : ` ${score}`}
+          </span>
         </span>
-        <span aria-hidden="true">·</span>
-        <span className="whitespace-nowrap">
-          {versus(game)}
-          {score === null ? '' : ` ${score}`}
+        {/* A fixed-height line of its own, so the ball or the red zone coming and going never resizes the row. */}
+        <span
+          data-testid="context-marker"
+          className={`flex h-[1.375rem] items-center ${side === 'away' ? 'justify-end' : 'justify-start'}`}
+        >
+          {game.possession && zone === null && <BallMark />}
+          {zone !== null && <RedZoneChip className="" compact zone={zone} />}
         </span>
-        {game.possession && zone === null && <BallMark />}
-        {zone !== null && <RedZoneChip className="" compact zone={zone} />}
-      </span>
+      </>
     );
   }
   // Upcoming: the kickoff, then the opponent; each part stays whole when the cell wraps.
@@ -368,7 +376,7 @@ function PlayerCell({
         {entry.player.position} · {entry.player.team ?? 'FA'}
       </span>
       <span className="mt-0.5 block text-xs" data-testid="game-context">
-        <ContextLine entry={entry} zone={zone} />
+        <ContextLine entry={entry} zone={zone} side={side} />
       </span>
       {entry.statLine && (
         <span

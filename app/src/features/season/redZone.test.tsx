@@ -192,6 +192,21 @@ describe('the NFL games strip', () => {
     expect(within(card).getByRole('img', { name: 'WAS ball, 1 yard from the end zone' })).toBeInTheDocument();
   });
 
+  it('keeps a live card the same shape as the ball and red zone come and go', () => {
+    const shape = (card: HTMLElement) => ({
+      line: within(card).getByTestId('live-line').className,
+      slot: within(card).getByTestId('field-slot').className
+    });
+    const { rerender } = render(<GameCard game={game('PHI', 'DAL')} reducedMotion />);
+    const quiet = shape(screen.getByRole('article', { name: 'DAL at PHI' }));
+    expect(within(screen.getByRole('article')).queryByTestId('field-bar')).toBeNull();
+    rerender(<GameCard game={RED} reducedMotion />);
+    expect(within(screen.getByRole('article')).getByTestId('field-bar')).toBeInTheDocument();
+    expect(shape(screen.getByRole('article'))).toEqual(quiet);
+    rerender(<GameCard game={DRIVING} reducedMotion />);
+    expect(shape(screen.getByRole('article'))).toEqual(quiet);
+  });
+
   it('shows pregame and final games without a ball', () => {
     render(
       <>
@@ -203,6 +218,7 @@ describe('the NFL games strip', () => {
     expect(pregame).toHaveAttribute('data-state', 'pre');
     expect(within(pregame).queryByText('has the ball')).not.toBeInTheDocument();
     expect(within(pregame).queryByTestId('field-bar')).not.toBeInTheDocument();
+    expect(within(pregame).queryByTestId('field-slot')).not.toBeInTheDocument();
     const final = screen.getByRole('article', { name: 'KC at TBD' });
     expect(within(final).getByTestId('game-status')).toHaveTextContent('Final');
     expect(final).toHaveTextContent('27');

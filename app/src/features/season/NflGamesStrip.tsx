@@ -83,23 +83,34 @@ export function GameCard({ game, reducedMotion }: { game: NflGame; reducedMotion
       <p className="mt-1 text-xs text-muted-foreground" data-testid="game-status">
         {gameStatus(game)}
       </p>
-      {live && game.downDistance !== null && !game.isRedZone && (
-        <p className="text-xs" data-testid="down-distance">
-          {game.downDistance}
-        </p>
-      )}
-      {game.isRedZone && game.possessionTeam !== null && (
-        <RedZoneChip
-          className="mt-1"
-          zone={{
-            team: game.possessionTeam,
-            downDistance: game.downDistance,
-            fieldPosition: game.fieldPosition
-          }}
-        />
-      )}
-      {live && game.possessionTeam !== null && game.yardsToGoal !== null && (
-        <FieldBar offense={game.possessionTeam} yardsToGoal={game.yardsToGoal} />
+      {/* A live card keeps this line's height whether it shows the down, the red-zone chip or nothing, so cards never resize. */}
+      <div
+        data-testid={live ? 'live-line' : undefined}
+        className={live ? 'mt-1 flex h-[1.375rem] items-center' : undefined}
+      >
+        {live && game.downDistance !== null && !game.isRedZone && (
+          <p className="text-xs" data-testid="down-distance">
+            {game.downDistance}
+          </p>
+        )}
+        {game.isRedZone && game.possessionTeam !== null && (
+          <RedZoneChip
+            className=""
+            zone={{
+              team: game.possessionTeam,
+              downDistance: game.downDistance,
+              fieldPosition: game.fieldPosition
+            }}
+          />
+        )}
+      </div>
+      {/* The field bar's slot is kept while a live feed update adds or drops the ball's position. */}
+      {live && (
+        <div data-testid="field-slot" className="mt-2 h-2">
+          {game.possessionTeam !== null && game.yardsToGoal !== null && (
+            <FieldBar offense={game.possessionTeam} yardsToGoal={game.yardsToGoal} />
+          )}
+        </div>
       )}
     </article>
   );
@@ -150,7 +161,7 @@ function FieldBar({ offense, yardsToGoal }: { offense: string; yardsToGoal: numb
       role="img"
       aria-label={`${offense} ball, ${yardsToGoal} ${yardsToGoal === 1 ? 'yard' : 'yards'} from the end zone`}
       data-testid="field-bar"
-      className="relative mt-2 h-2 rounded-full bg-muted"
+      className="relative h-2 rounded-full bg-muted"
     >
       <div className="absolute inset-y-0 right-0 w-1/5 rounded-r-full bg-error-500/25" />
       <div
