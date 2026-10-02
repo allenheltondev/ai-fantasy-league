@@ -2,10 +2,12 @@
 
 This is the opt-in live-model evaluation #247 asks for. It runs the season scenario with every seat on Amazon Nova Lite, under matched conditions on two seeds. It reports the scores, the claim checks, a review of the transcripts, and what went wrong with the harness on the way. Read it next to the deterministic evidence: [epic-219-baseline.md](epic-219-baseline.md) for the scripted baseline, and [season-calibration.md](season-calibration.md) for the long-season run.
 
-Reproduce (about 6 hours, about $5.50 at Nova Lite prices):
+> **Not a hard-capped run.** The committed run predates the budget fix from the #262 review, which charges failed calls. It ran with a $6 cap, but that cap counted successful calls only. Under the corrected accounting its spend could have reached about $6.90 (the recorded $5.43 plus up to about $0.25 for each of six live runs), past the cap. Later samples could then have been cut short or skipped, and the matched sample set would have differed. Its sample completion therefore sits outside the corrected budget design. Read it as the first clean measurement of the model (the harness problems below are fixed), not as the clean, hard-capped evaluation. A rerun under the fixed budget is that evaluation.
+
+Reproduce under the fixed budget (about 6 hours, about $7 at Nova Lite prices, failed calls included; a cap below about $8 may cut the last samples short):
 
 ```sh
-FANTASY_LIVE_EVAL=1 npm run sim:eval -w @fantasy/sim -- --budget-usd 6 --model nova-lite \
+FANTASY_LIVE_EVAL=1 npm run sim:eval -w @fantasy/sim -- --budget-usd 8 --model nova-lite \
   --seeds eval-1,eval-2 --conditions full,no_agenda_commitments,persona_only,deterministic \
   --report nova-lite.json --markdown nova-lite.md --transcripts nova-lite-transcripts.md
 ```
@@ -20,8 +22,8 @@ The results are in [live-2026-09-30/](live-2026-09-30/): the report (`nova-lite.
   - `no_agenda_commitments`: no #214 agenda and no #215 commitments.
   - `persona_only`: no memory, and no strategy or difficulty guidance in the prompt.
   - `deterministic`: the scripted policy, with no model.
-- **Samples.** Two seeds per condition, all completed; no run was cut short by the budget.
-- **Spend.** $5.43 for this run, at Nova Lite prices for the model that actually ran. That figure counts successful calls only. Failed calls can be billed too, and the budget now charges them (their reported usage, or one prompt read plus the response limit). By the runs' token counts, 48–90 failed calls add at most about $0.25 a run. Three earlier attempts were invalid or stopped (below) and cost at most about $9.70 together. #247's total is about $15.
+- **Samples.** Two seeds per condition, all completed under the budget accounting it ran with, which did not charge failed calls (see the note at the top). They are not a sample set produced under the corrected hard cap.
+- **Spend.** $5.43 recorded for this run, at Nova Lite prices for the model that actually ran. That figure counts successful calls only. Failed calls can be billed too, and the budget now charges them (their reported usage, or one prompt read plus the response limit). By the runs' token counts, 48–90 failed calls add at most about $0.25 a run. Three earlier attempts were invalid or stopped (below) and cost at most about $9.70 together. #247's total is about $15.
 - **Fallback.** The deterministic policy decided 10–14% of tasks in each live run. The model errors account for those fallbacks one for one: 48–90 failed calls per run out of 531–560. The failures are genuine Nova Lite errors; this run did not record their kinds (see limitations).
 
 ## Harness problems found and fixed first
