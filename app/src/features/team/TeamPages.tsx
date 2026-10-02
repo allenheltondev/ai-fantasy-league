@@ -17,6 +17,7 @@ import { isStarter, statusLabel } from '../season/slots';
 import { TeamAchievements } from '../season/TeamAchievements';
 import { PlayerHeadshot } from '../../players/PlayerHeadshot';
 import { PlayerLink } from '../../players/PlayerLink';
+import { NflTeamLink } from '../../players/NflTeamLink';
 
 /** Who plays a team: the AI manager, the person, or nobody yet. */
 export function managerOf(team: Pick<LeagueTeam, 'manager' | 'ownerName'>): string {
@@ -367,7 +368,7 @@ function ReadOnlyLineup({ leagueId, teamId }: { leagueId: string; teamId: string
                       <PlayerHeadshot player={entry.player} size={24} />
                       <PlayerLink player={entry.player} />
                       <span className="text-xs text-muted-foreground">
-                        {entry.player.position} · {entry.player.team ?? 'FA'}
+                        {entry.player.position} · <NflTeamLink team={entry.player.team} leagueId={leagueId} />
                       </span>
                       {note !== null && <StatusBadge tone="warning">{note}</StatusBadge>}
                     </span>

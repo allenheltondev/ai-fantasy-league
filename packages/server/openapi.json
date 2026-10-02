@@ -38252,6 +38252,439 @@
         "x-mutation": false
       }
     },
+    "/api/v1/nfl-teams/{team}/depth-chart": {
+      "get": {
+        "operationId": "get_nfl_depth_chart",
+        "summary": "An NFL team’s depth chart at the fantasy positions",
+        "description": "Returns one NFL team’s depth chart for QB, RB, FB, WR (left, right, and slot), TE, and K, as Sleeper publishes it and the player sync stores it twice a day. Each slot lists its players starter first (`depth: 1`), with jersey number and injury designation. `others` lists the team’s remaining players at those positions who are not on the depth chart (injured reserve, practice squad, or new signings), best-ranked first. Use it to see who starts and who backs him up: a handcuff, the next man up after an injury, or a receiver’s role.",
+        "tags": [
+          "research",
+          "players"
+        ],
+        "parameters": [
+          {
+            "name": "team",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ARI",
+                "ATL",
+                "BAL",
+                "BUF",
+                "CAR",
+                "CHI",
+                "CIN",
+                "CLE",
+                "DAL",
+                "DEN",
+                "DET",
+                "GB",
+                "HOU",
+                "IND",
+                "JAX",
+                "KC",
+                "LAC",
+                "LAR",
+                "LV",
+                "MIA",
+                "MIN",
+                "NE",
+                "NO",
+                "NYG",
+                "NYJ",
+                "PHI",
+                "PIT",
+                "SEA",
+                "SF",
+                "TB",
+                "TEN",
+                "WAS"
+              ]
+            },
+            "description": "NFL team abbreviation, e.g. \"KC\"."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "team": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "ARI",
+                                "ATL",
+                                "BAL",
+                                "BUF",
+                                "CAR",
+                                "CHI",
+                                "CIN",
+                                "CLE",
+                                "DAL",
+                                "DEN",
+                                "DET",
+                                "GB",
+                                "HOU",
+                                "IND",
+                                "JAX",
+                                "KC",
+                                "LAC",
+                                "LAR",
+                                "LV",
+                                "MIA",
+                                "MIN",
+                                "NE",
+                                "NO",
+                                "NYG",
+                                "NYJ",
+                                "PHI",
+                                "PIT",
+                                "SEA",
+                                "SF",
+                                "TB",
+                                "TEN",
+                                "WAS"
+                              ]
+                            },
+                            "city": {
+                              "type": "string"
+                            },
+                            "nickname": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "city",
+                            "nickname"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "slots": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "slot": {
+                                "type": "string",
+                                "description": "Sleeper’s depth chart slot, e.g. \"QB\" or \"LWR\"."
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "The slot’s display name, e.g. \"WR (left)\"."
+                              },
+                              "players": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "description": "Full display name."
+                                    },
+                                    "team": {
+                                      "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "position": {
+                                      "type": "string",
+                                      "enum": [
+                                        "QB",
+                                        "RB",
+                                        "WR",
+                                        "TE",
+                                        "K",
+                                        "DEF"
+                                      ],
+                                      "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                    },
+                                    "depth": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "Place on the depth chart at his slot: 1 is the starter. Null when he is not on it."
+                                    },
+                                    "number": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "Jersey number, or null when unknown."
+                                    },
+                                    "injuryStatus": {
+                                      "description": "Injury designation such as \"Questionable\", or null.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name",
+                                    "team",
+                                    "position",
+                                    "depth",
+                                    "number",
+                                    "injuryStatus"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "slot",
+                              "label",
+                              "players"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Depth chart slots in reading order: QB, RB, FB, WR, TE, then K."
+                        },
+                        "others": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "description": "Stable player id. Pass it back as `playerId` to avoid name ambiguity."
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "Full display name."
+                              },
+                              "team": {
+                                "description": "NFL team abbreviation (e.g. \"SF\"), or null for a free agent.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "position": {
+                                "type": "string",
+                                "enum": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                              },
+                              "depth": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Place on the depth chart at his slot: 1 is the starter. Null when he is not on it."
+                              },
+                              "number": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Jersey number, or null when unknown."
+                              },
+                              "injuryStatus": {
+                                "description": "Injury designation such as \"Questionable\", or null.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "team",
+                              "position",
+                              "depth",
+                              "number",
+                              "injuryStatus"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Players on the team not on the depth chart."
+                        }
+                      },
+                      "required": [
+                        "team",
+                        "slots",
+                        "others"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/notifications": {
       "get": {
         "operationId": "get_notification_summary",

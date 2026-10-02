@@ -21,6 +21,7 @@ describe('pageName (#212)', () => {
     ['/leagues/L1/team/teams', 'Other teams'],
     ['/leagues/L1/team', 'Lineup'],
     ['/leagues/L1/league/players', 'Players'],
+    ['/leagues/L1/league/players/nfl', 'Players'],
     ['/leagues/L1/league/draft', 'League info'],
     ['/leagues/L1/league/history', 'League info'],
     ['/leagues/L1/league', 'Scoreboard'],
@@ -44,6 +45,13 @@ describe('pageName (#212)', () => {
     // Before the teams load, or for a team that isn't there.
     expect(pageName('/leagues/L1/team/teams/team-9', { teams: TEAMS }).title).toBe('Other teams');
     expect(pageName('/leagues/L1/team/teams/team-4').title).toBe('Other teams');
+  });
+
+  it("names an NFL team's tab after its depth chart, under the Players heading", () => {
+    expect(pageName('/leagues/L1/league/players/nfl/kc')).toEqual({
+      heading: 'Players',
+      title: 'KC depth chart'
+    });
   });
 
   it('decodes ids in the path', () => {

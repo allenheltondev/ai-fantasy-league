@@ -3,6 +3,7 @@ import { Button, Drawer } from '@readysetcloud/ui';
 import { ApiError, type ApiFetch } from '../api';
 import type { PlayerRef } from './board';
 import { InjuryBadge } from './BestAvailableTable';
+import { NflTeamLink } from '../players/NflTeamLink';
 import { PlayerHeadshot, TeamLogo } from '../players/PlayerHeadshot';
 import { fmt, STAT_NAMES, type PlayerCardData } from './research';
 import { RecentGames } from './RecentGames';
@@ -104,7 +105,7 @@ export function PlayerCard(props: PlayerCardProps) {
           <PlayerHeadshot player={player} size={64} eager />
           <p className="flex flex-wrap items-center gap-x-1 text-muted-foreground">
             {player.position} · <TeamLogo team={player.team} size={18} eager />
-            {player.team ?? 'FA'}
+            <NflTeamLink team={player.team} leagueId={leagueId} onClick={props.onClose} />
             {card !== null && (
               <>
                 {' '}

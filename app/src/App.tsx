@@ -11,6 +11,7 @@ import { JoinPage } from './features/join/JoinPage';
 import { PlayoffsPage, ScoreboardPage, TransactionsPage } from './features/league/LeaguePages';
 import { RosterWorkspace } from './features/moves/RosterWorkspace';
 import { PlayersPage } from './features/players/PlayersPage';
+import { NflTeamPage } from './features/players/NflTeamPage';
 import { MatchupPage } from './features/season/MatchupPage';
 import { RosterPage } from './features/season/RosterPage';
 import { StandingsPage } from './features/season/StandingsPage';
@@ -79,6 +80,7 @@ export function App({ api = leagueApi }: { api?: LeagueApi }) {
                 <Route path="standings" element={<StandingsPage />} />
                 <Route path="playoffs" element={<PlayoffsPage />} />
                 <Route path="players" element={<PlayersPage />} />
+                <Route path="players/nfl/:team" element={<NflTeamPage />} />
                 <Route path="transactions" element={<TransactionsPage />} />
                 {/* History and the draft's results are League info views. */}
                 <Route path="history" element={<Navigate to="../../settings?view=history" replace />} />
