@@ -84,7 +84,10 @@ export function GameCard({ game, reducedMotion }: { game: NflGame; reducedMotion
         {gameStatus(game)}
       </p>
       {/* A live card keeps this line's height whether it shows the down, the red-zone chip or nothing, so cards never resize. */}
-      <div className={live ? 'mt-1 flex h-[1.375rem] items-center' : undefined}>
+      <div
+        data-testid={live ? 'live-line' : undefined}
+        className={live ? 'mt-1 flex h-[1.375rem] items-center' : undefined}
+      >
         {live && game.downDistance !== null && !game.isRedZone && (
           <p className="text-xs" data-testid="down-distance">
             {game.downDistance}
@@ -101,8 +104,13 @@ export function GameCard({ game, reducedMotion }: { game: NflGame; reducedMotion
           />
         )}
       </div>
-      {live && game.possessionTeam !== null && game.yardsToGoal !== null && (
-        <FieldBar offense={game.possessionTeam} yardsToGoal={game.yardsToGoal} />
+      {/* The field bar's slot is kept while a live feed update adds or drops the ball's position. */}
+      {live && (
+        <div data-testid="field-slot" className="mt-2 h-2">
+          {game.possessionTeam !== null && game.yardsToGoal !== null && (
+            <FieldBar offense={game.possessionTeam} yardsToGoal={game.yardsToGoal} />
+          )}
+        </div>
       )}
     </article>
   );
@@ -153,7 +161,7 @@ function FieldBar({ offense, yardsToGoal }: { offense: string; yardsToGoal: numb
       role="img"
       aria-label={`${offense} ball, ${yardsToGoal} ${yardsToGoal === 1 ? 'yard' : 'yards'} from the end zone`}
       data-testid="field-bar"
-      className="relative mt-2 h-2 rounded-full bg-muted"
+      className="relative h-2 rounded-full bg-muted"
     >
       <div className="absolute inset-y-0 right-0 w-1/5 rounded-r-full bg-error-500/25" />
       <div
