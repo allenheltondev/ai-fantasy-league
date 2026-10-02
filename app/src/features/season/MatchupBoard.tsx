@@ -295,18 +295,23 @@ function ContextLine({ entry, zone }: { entry: RosterEntry; zone: RedZoneTeam | 
   if (game.state === 'live') {
     const score = scoreLine(game, false);
     return (
-      <span className="inline-flex flex-wrap items-center gap-x-1">
-        <span className="font-semibold text-success-700">
-          {periodLabel(game.period, game.clock) ?? 'Live'}
+      <>
+        <span className="inline-flex flex-wrap items-center gap-x-1">
+          <span className="font-semibold text-success-700">
+            {periodLabel(game.period, game.clock) ?? 'Live'}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="whitespace-nowrap">
+            {versus(game)}
+            {score === null ? '' : ` ${score}`}
+          </span>
         </span>
-        <span aria-hidden="true">·</span>
-        <span className="whitespace-nowrap">
-          {versus(game)}
-          {score === null ? '' : ` ${score}`}
+        {/* A fixed-height line of its own, so the ball or the red zone coming and going never resizes the row. */}
+        <span className="flex h-[1.375rem] items-center">
+          {game.possession && zone === null && <BallMark />}
+          {zone !== null && <RedZoneChip className="" compact zone={zone} />}
         </span>
-        {game.possession && zone === null && <BallMark />}
-        {zone !== null && <RedZoneChip className="" compact zone={zone} />}
-      </span>
+      </>
     );
   }
   // Upcoming: the kickoff, then the opponent; each part stays whole when the cell wraps.

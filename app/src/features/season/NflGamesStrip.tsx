@@ -83,21 +83,24 @@ export function GameCard({ game, reducedMotion }: { game: NflGame; reducedMotion
       <p className="mt-1 text-xs text-muted-foreground" data-testid="game-status">
         {gameStatus(game)}
       </p>
-      {live && game.downDistance !== null && !game.isRedZone && (
-        <p className="text-xs" data-testid="down-distance">
-          {game.downDistance}
-        </p>
-      )}
-      {game.isRedZone && game.possessionTeam !== null && (
-        <RedZoneChip
-          className="mt-1"
-          zone={{
-            team: game.possessionTeam,
-            downDistance: game.downDistance,
-            fieldPosition: game.fieldPosition
-          }}
-        />
-      )}
+      {/* A live card keeps this line's height whether it shows the down, the red-zone chip or nothing, so cards never resize. */}
+      <div className={live ? 'mt-1 flex h-[1.375rem] items-center' : undefined}>
+        {live && game.downDistance !== null && !game.isRedZone && (
+          <p className="text-xs" data-testid="down-distance">
+            {game.downDistance}
+          </p>
+        )}
+        {game.isRedZone && game.possessionTeam !== null && (
+          <RedZoneChip
+            className=""
+            zone={{
+              team: game.possessionTeam,
+              downDistance: game.downDistance,
+              fieldPosition: game.fieldPosition
+            }}
+          />
+        )}
+      </div>
       {live && game.possessionTeam !== null && game.yardsToGoal !== null && (
         <FieldBar offense={game.possessionTeam} yardsToGoal={game.yardsToGoal} />
       )}
