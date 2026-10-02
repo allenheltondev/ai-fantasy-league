@@ -2,12 +2,15 @@ import {
   DEFAULT_ROOM_ID,
   SOCIAL_ACT_LIMITS,
   SOCIAL_LIMITS,
+  PlayerStatusSchema,
+  WILL_NOT_PLAY_STATUSES,
   ambientOpportunities,
   ambientTurn,
   askOpportunities,
   checkSocialAct,
   dmRoomId,
   emptySocialActs,
+  hashString,
   lastWordIsMine,
   pendingQuestions,
   questionOpportunities,
@@ -232,18 +235,55 @@ async function settleHistory(
   }
 }
 
-/** The people the agent may ask something (#218), with players of theirs its trade look found. */
-async function askPartners(ctx: TaskContext, trade: ProposalPrep | null): Promise<AskPartner[]> {
+/** People whose rosters a check-in reads for a question, at most (#218). */
+export const ASK_ROSTERS = 4;
+
+const RosterSchema = z.object({
+  players: z.array(
+    z.object({
+      player: z.object({ id: z.string(), name: z.string(), position: z.string() }),
+      slot: z.string(),
+      status: PlayerStatusSchema,
+      onBye: z.boolean(),
+      locked: z.boolean()
+    })
+  )
+});
+
+/**
+ * The people the agent may ask something (#218): players of theirs its trade look found first,
+ * then, when a goal is active, their bench players who could start this week (read from up to `ASK_ROSTERS` rosters in a
+ * seeded order). A question is only a question: the look its answer leads to keeps every floor.
+ */
+async function askPartners(
+  ctx: TaskContext,
+  trade: ProposalPrep | null,
+  benches: boolean,
+  seed: string
+): Promise<AskPartner[]> {
   const self = ctx.principal.teamId;
-  const teams = data(await ctx.tools.call('get_league', {}), TeamsSchema)?.teams ?? [];
-  return teams
+  const teams = (data(await ctx.tools.call('get_league', {}), TeamsSchema)?.teams ?? [])
     .filter((t) => t.id !== self && t.seatType !== 'agent' && t.ownerName !== null)
-    .map((t) => ({
-      teamId: t.id,
-      teamName: t.name,
-      roomId: dmRoomId(self, t.id),
-      players: (trade?.candidates ?? []).filter((c) => c.team.id === t.id).map((c) => c.receive)
-    }));
+    .sort(
+      (a, b) => hashString(`${seed}:${a.id}`) - hashString(`${seed}:${b.id}`) || a.id.localeCompare(b.id)
+    );
+  const out: AskPartner[] = [];
+  for (const [i, t] of teams.entries()) {
+    const pitched = (trade?.candidates ?? []).filter((c) => c.team.id === t.id).map((c) => c.receive);
+    const bench =
+      !benches || i >= ASK_ROSTERS
+        ? []
+        : (data(await ctx.tools.call('get_roster', { teamId: t.id }), RosterSchema)?.players ?? [])
+            // Only a back who could start this week fills an `insufficient_available_starters` goal
+            // (#247 review): not Out or on IR, not on bye, not locked on the bench.
+            .filter(
+              (p) => p.slot === 'BN' && !p.onBye && !p.locked && !WILL_NOT_PLAY_STATUSES.includes(p.status)
+            )
+            .map((p) => p.player);
+    const players = [...pitched, ...bench.filter((b) => !pitched.some((p) => p.id === b.id))];
+    out.push({ teamId: t.id, teamName: t.name, roomId: dmRoomId(self, t.id), players });
+  }
+  return out;
 }
 
 /** This week's matchup room, its opponent, and the opponent's starters by name. */
@@ -311,16 +351,15 @@ export async function lookOpportunities(
     // A question to a person whose answer can move a goal or a declined pitch (#218); the league
     // is read for people to ask only when there is something to ask about.
     const goals = ctx.agenda?.goals ?? [];
-    const worthAsking =
-      (goals.some((g) => g.status === 'active') && (input.trade?.candidates.length ?? 0) > 0) ||
-      (commitments?.commitments ?? []).some((c) => c.status === 'declined');
+    const needs = goals.some((g) => g.status === 'active');
+    const worthAsking = needs || (commitments?.commitments ?? []).some((c) => c.status === 'declined');
     const asks = worthAsking
       ? askOpportunities({
           self,
           now,
           goals,
           commitments,
-          partners: await askPartners(ctx, input.trade ?? null),
+          partners: await askPartners(ctx, input.trade ?? null, needs, input.seed),
           history
         })
       : { candidates: [], evidence: [] };

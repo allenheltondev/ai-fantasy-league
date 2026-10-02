@@ -92,6 +92,7 @@ export interface ScenarioOptions {
   jobCadences?: LeagueReplayOptions['jobCadences'];
   /** Agent state switched off (the baseline's ablations); none by default. */
   ablations?: LeagueReplayOptions['ablations'];
+  modelPin?: LeagueReplayOptions['modelPin'];
   log?: (line: string) => void;
   /** Every structured log line of the replay (`replayLeague`'s `observe`). */
   observe?: LeagueReplayOptions['observe'];
@@ -302,6 +303,7 @@ export async function runSeasonScenario(options: ScenarioOptions): Promise<Scena
     responseDelays: options.responseDelays ?? true,
     ...(options.jobCadences === undefined ? {} : { jobCadences: options.jobCadences }),
     ...(options.ablations === undefined ? {} : { ablations: options.ablations }),
+    ...(options.modelPin === undefined ? {} : { modelPin: options.modelPin }),
     subscribers: (world) => {
       model.clock = world.services.clock;
       return scenarioHuman(world, options.seed, probes, snapshots);

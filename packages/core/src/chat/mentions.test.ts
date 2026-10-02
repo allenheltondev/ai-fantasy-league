@@ -49,7 +49,9 @@ describe('findMentions', () => {
     const plain = fc.stringMatching(/^[a-z ,.!?]{0,20}$/);
     fc.assert(
       fc.property(fc.array(fc.tuple(plain, fc.constantFrom(...TEAMS)), { maxLength: 6 }), (pieces) => {
-        const text = pieces.map(([before, team]) => `${before} @${team.names[0]} `).join('');
+        // A period closes each mention, so the next piece's text can't extend it into a longer
+        // name ("@Big Tuna" then "fc..." reads as "@Big Tuna fc").
+        const text = pieces.map(([before, team]) => `${before} @${team.names[0]}. `).join('');
         expect(mentionedTeamIds(text, TEAMS)).toEqual([...new Set(pieces.map(([, team]) => team.teamId))]);
       })
     );

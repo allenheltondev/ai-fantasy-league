@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { MANIPULATION_PROBES } from '@fantasy/core';
-import { ScriptedModelClient, type ModelClient, type ModelRunRequest } from '@fantasy/agents';
+import { MANIPULATION_PROBES, estimateCostUsd } from '@fantasy/core';
+import { ScriptedModelClient, withRunUsage, type ModelClient, type ModelRunRequest } from '@fantasy/agents';
 import { fixtureArchive } from '../../test/helpers.js';
 import {
   BudgetExhaustedError,
@@ -16,6 +16,7 @@ import {
   latencyOf,
   parseEvalArgs,
   renderEvalReport,
+  renderTranscripts,
   runLiveEval
 } from '../eval/live-eval.js';
 import { RUBRICS, scoreRubrics, type RubricName } from '../eval/rubrics.js';
@@ -453,14 +454,48 @@ describe('live evaluation safety', () => {
     await expect(budget.run(request())).rejects.toBeInstanceOf(BudgetExhaustedError);
     expect(budget.exhausted).toBe(true);
     expect(budget.name).toBe('fake');
-    // A failed call gives its reservation back.
+    // A failed call gives its reservation back but is still charged (#247 review): what it reported,
+    // or one prompt read plus the full response limit when it reported nothing.
     const failing = new BudgetedModel(
+      new ScriptedModelClient({ fail: () => new Error('down') }),
+      reserve * 10
+    );
+    await expect(failing.run(request())).rejects.toThrow('down');
+    expect(failing.spentUsd).toBeCloseTo(
+      estimateCostUsd(request().modelId, BudgetedModel.failedCall(request())),
+      8
+    );
+    expect(failing.spentUsd).toBeLessThan(reserve);
+    const usage = { inputTokens: 12_000, outputTokens: 900, estimated: false };
+    const billed = new BudgetedModel(
+      new ScriptedModelClient({ fail: () => withRunUsage(new Error('cut off'), usage) as Error }),
+      reserve * 10
+    );
+    await expect(billed.run(request())).rejects.toThrow('cut off');
+    expect(billed.spentUsd).toBeCloseTo(estimateCostUsd(request().modelId, usage), 8);
+    // Failures add up against the cap like any spend.
+    const capped = new BudgetedModel(
       new ScriptedModelClient({ fail: () => new Error('down') }),
       reserve * 1.1
     );
-    await expect(failing.run(request())).rejects.toThrow('down');
-    await expect(failing.run(request())).rejects.toThrow('down');
+    await expect(capped.run(request())).rejects.toThrow('down');
+    await expect(capped.run(request())).rejects.toBeInstanceOf(BudgetExhaustedError);
     expect(BudgetedModel.reserve(request({ maxIterations: 0 }))).toBeLessThan(reserve);
+  });
+
+  it('sends a pinned model only the thinking options it takes (#247)', () => {
+    const asked = request({
+      modelId: 'us.anthropic.claude-opus-5',
+      thinkingEffort: 'high',
+      thinkingBudgetTokens: 2048
+    });
+    const nova = new PinnedModel(new ScriptedModelClient(), 'nova-lite').pin(asked);
+    expect(nova.modelId).toBe('us.amazon.nova-lite-v1:0');
+    expect(nova).not.toHaveProperty('thinkingEffort');
+    expect(nova).not.toHaveProperty('thinkingBudgetTokens');
+    const sonnet = new PinnedModel(new ScriptedModelClient(), 'claude-sonnet-5').pin(asked);
+    expect(sonnet).toMatchObject({ thinkingEffort: 'high' });
+    expect(sonnet).not.toHaveProperty('thinkingBudgetTokens');
   });
 
   it('pins every seat to one catalog model', async () => {
@@ -535,7 +570,7 @@ describe('live evaluation harness (no live model)', () => {
           transformed: options.transform!('# What you remember\n- x')
         });
         // A live run spends: the second live call cannot be covered.
-        if (model instanceof BudgetedModel) await model.run(request()).catch(() => undefined);
+        if (!(model instanceof ScriptedModelClient)) await model.run(request()).catch(() => undefined);
         return clone();
       }
     });
@@ -564,6 +599,12 @@ describe('live evaluation harness (no live model)', () => {
     expect(report.spentUsd).toBeGreaterThan(0);
     expect(report.summary.deterministic?.memory_accuracy).toEqual({ mean: 0, n: 2 });
     expect(report.summary.full?.fallbackRate).toBe(full?.fallbackRate);
+    // A run the budget cut short is no live sample (#247): out of the means, counted apart.
+    expect(report.summary.no_memory).toMatchObject({ samples: 0, excluded: 1 });
+    expect(report.summary.full).toMatchObject({ samples: 1, excluded: 0 });
+    expect(full?.claims.score.n).toBeGreaterThan(0);
+    expect(full?.transcript.length).toBe(run.chat.length);
+    expect(renderTranscripts(report)).toContain('## no_memory / s1 (budget ran out: not a live sample)');
     expect(lines.some((l) => l.startsWith('full / s1: persona_consistency'))).toBe(true);
 
     const markdown = renderEvalReport(report);
@@ -571,6 +612,8 @@ describe('live evaluation harness (no live model)', () => {
     expect(markdown).toContain('| deterministic | ');
     expect(markdown).toContain('Skipped (budget spent): full/s2, no_memory/s2.');
     expect(markdown).toContain('**Budget ran out during this run.**');
+    expect(markdown).toContain('| no_memory | 0 (+1 cut short) |');
+    expect(markdown).toContain('Claims supported / judged, by kind');
     expect(
       renderEvalReport({
         ...report,
