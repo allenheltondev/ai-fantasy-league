@@ -105,7 +105,7 @@ export function QueueAlert({ queue }: { queue: DraftQueue }) {
           disabled={queue.saving}
           onClick={queue.retry}
         >
-          {queue.ready ? 'Retry save' : 'Retry'}
+          {queue.ready ? 'Retry save' : 'Retry loading'}
         </button>
       </span>
     </Alert>

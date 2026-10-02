@@ -83,16 +83,18 @@ export function DecisionStrip({
         </p>
       )}
       <p className="mt-1 text-xs text-muted-foreground" data-testid="autopick-plan">
-        {!queue.ready
-          ? 'Loading your saved queue…'
-          : queue.saving
-            ? 'Saving your queue… Autopick uses your last saved order until this finishes.'
-            : queue.error !== null
-              ? 'Queue changes could not be saved. Autopick uses your last saved queue.'
-              : available[0]
-                ? `At timeout: try ${available[0].name} if available and roster-eligible, then the next eligible queued player.`
-                : 'At timeout: autopick chooses an available player that keeps your roster valid.'}
-        {queue.ready && !queue.saving && queue.error !== null && (
+        {!queue.ready && queue.error !== null
+          ? 'Your saved queue could not be loaded. Autopick still uses the queue saved on the server.'
+          : !queue.ready
+            ? 'Loading your saved queue…'
+            : queue.saving
+              ? 'Saving your queue… Autopick uses your last saved order until this finishes.'
+              : queue.error !== null
+                ? 'Queue changes could not be saved. Autopick uses your last saved queue.'
+                : available[0]
+                  ? `At timeout: try ${available[0].name} if available and roster-eligible, then the next eligible queued player.`
+                  : 'At timeout: autopick chooses an available player that keeps your roster valid.'}
+        {!queue.saving && queue.error !== null && (
           <>
             {' '}
             <button
@@ -100,7 +102,7 @@ export function DecisionStrip({
               className="min-h-11 font-medium text-primary-800 underline md:min-h-0"
               onClick={queue.retry}
             >
-              Retry save
+              {queue.ready ? 'Retry save' : 'Retry loading'}
             </button>
           </>
         )}

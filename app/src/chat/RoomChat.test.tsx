@@ -73,3 +73,42 @@ it('counts a live message that beats the first good history read, even when that
   expect(await screen.findByText('Old news')).toBeInTheDocument();
   expect(onUnreadChange).toHaveBeenLastCalledWith(1);
 });
+
+it('keeps the unread count a previous instance carried until the conversation is seen', async () => {
+  const history = [1, 2, 3, 4, 5].map((n) => message(`h${n}`, `Message ${n}`, n));
+  let load!: (page: { messages: ChatMessage[]; nextCursor: null }) => void;
+  const api: ChatApi = {
+    list: vi
+      .fn<ChatApi['list']>()
+      .mockImplementationOnce(() => new Promise((resolve) => (load = resolve)))
+      .mockResolvedValue({ messages: history, nextCursor: null }),
+    post: vi.fn(),
+    rooms: vi.fn(),
+    markRead: vi.fn(async () => undefined),
+    realtime: vi.fn(async () => ({ ...LIVE, enabled: false })),
+    teams: vi.fn(async () => [])
+  };
+  const onUnreadChange = vi.fn();
+  const chat = (visible: boolean) => (
+    <RoomChat
+      leagueId="L1"
+      room={resolveRoom('draft', [], null, [], null)}
+      api={api}
+      connect={async () => () => undefined}
+      onOther={() => undefined}
+      onSeen={() => undefined}
+      panel
+      visible={visible}
+      onUnreadChange={onUnreadChange}
+      unreadAtMount={2}
+    />
+  );
+  const view = render(chat(false));
+  // Before its history arrives, the remounted conversation still reports the carried two.
+  expect(onUnreadChange).toHaveBeenLastCalledWith(2);
+  await act(async () => load({ messages: history, nextCursor: null }));
+  expect(await screen.findByText('Message 5')).toBeInTheDocument();
+  expect(onUnreadChange).toHaveBeenLastCalledWith(2);
+  view.rerender(chat(true));
+  expect(onUnreadChange).toHaveBeenLastCalledWith(0);
+});

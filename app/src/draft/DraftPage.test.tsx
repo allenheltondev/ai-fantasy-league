@@ -974,7 +974,17 @@ describe('draft room on a phone', () => {
     const { api } = fakeApi((path) =>
       path.endsWith('/draft/report-card')
         ? REPORT
-        : board({ status: 'complete', onTheClock: null, yourNextPick: null })
+        : path === '/players/card'
+          ? {
+              player: CMC,
+              scoring: { source: 'league' },
+              bye: 9,
+              injuryStatus: null,
+              lastSeason: null,
+              projection: null,
+              news: []
+            }
+          : board({ status: 'complete', onTheClock: null, yourNextPick: null })
     );
     renderDraft(api);
     expect(await screen.findByTestId('draft-results')).toBeInTheDocument();
@@ -984,6 +994,13 @@ describe('draft room on a phone', () => {
     expect(tabs.queryByRole('tab', { name: 'Players' })).toBeNull();
     await user.click(tabs.getByRole('tab', { name: 'Board' }));
     expect(await screen.findByRole('table', { name: 'Draft board' })).toBeInTheDocument();
+    // A drafted player opens in Research, which holds the first tab, and Back returns to the results.
+    await user.click(within(screen.getByTestId('cell-1')).getByRole('button'));
+    expect(tabs.getByRole('tab', { name: 'Research' })).toHaveAttribute('aria-selected', 'true');
+    expect(tabs.getAllByRole('tab').filter((t) => t.tabIndex === 0)).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: '← Back to results' }));
+    expect(tabs.getByRole('tab', { name: 'Results' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('draft-results')).toBeVisible();
   });
 
   it('is the desktop room where the browser cannot tell the width', async () => {
@@ -1208,6 +1225,24 @@ describe('draft workspace continuity', () => {
     expect(screen.getByLabelText('Message')).toHaveValue('What do you think of Candidate 1?');
     await user.click(screen.getByRole('tab', { name: 'Queue' }));
     await user.click(screen.getByRole('tab', { name: 'Chat' }));
+    expect(screen.getByLabelText('Message')).toHaveValue('What do you think of Candidate 1?');
+  });
+
+  it('puts a research prompt in the composer once, even when the room switches layouts', async () => {
+    width.set(false);
+    const user = userEvent.setup();
+    const { api } = researchApi();
+    renderDraft(api);
+    await user.click(await screen.findByRole('button', { name: 'Candidate 1' }));
+    await user.click(screen.getByRole('button', { name: 'Discuss in chat →' }));
+    expect(screen.getByLabelText('Message')).toHaveValue('What do you think of Candidate 1?');
+    // Rotating to the wide layout remounts the conversation; the prompt it already took stays used.
+    width.set(true);
+    expect(screen.getByTestId('draft-room')).toHaveAttribute('data-layout', 'wide');
+    expect(screen.getByLabelText('Message')).toHaveValue('');
+    // The next share still arrives.
+    await user.click(screen.getByRole('tab', { name: /^Research/ }));
+    await user.click(screen.getByRole('button', { name: 'Discuss in chat →' }));
     expect(screen.getByLabelText('Message')).toHaveValue('What do you think of Candidate 1?');
   });
 

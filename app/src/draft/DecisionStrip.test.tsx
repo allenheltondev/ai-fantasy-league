@@ -67,6 +67,10 @@ describe('persistent draft decision context', () => {
     const p = { board, onOpen: vi.fn() };
     const view = render(<DecisionStrip {...p} queue={{ ...queue, ready: false }} />);
     expect(screen.getByTestId('autopick-plan')).toHaveTextContent('Loading');
+    view.rerender(<DecisionStrip {...p} queue={{ ...queue, ready: false, error: 'offline' }} />);
+    expect(screen.getByTestId('autopick-plan')).toHaveTextContent('could not be loaded');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading' }));
+    expect(queue.retry).toHaveBeenCalledTimes(1);
     view.rerender(<DecisionStrip {...p} queue={{ ...queue, saving: true }} />);
     expect(screen.getByTestId('autopick-plan')).toHaveTextContent('last saved order');
     view.rerender(<DecisionStrip {...p} queue={{ ...queue, error: 'offline' }} />);

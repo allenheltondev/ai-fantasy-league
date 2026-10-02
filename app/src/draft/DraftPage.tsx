@@ -274,7 +274,10 @@ export function DraftPage({
   const [density, setDensity] = useDraftDensity();
   const [chatOpen, setChatOpen] = useState(true);
   const [chatUnread, setChatUnread] = useState(0);
+  // A chat prompt from research, cleared once the composer takes it, so remounting the chat (the room
+  // switches layouts at the wide breakpoint) never inserts it again.
   const [draftMessage, setDraftMessage] = useState<{ id: number; text: string } | null>(null);
+  const draftMessageId = useRef(0);
   const loadVersion = useRef(0);
   const pickLock = useRef(false);
   // Null until you pick a view: players while drafting, the board once it is over.
@@ -483,13 +486,14 @@ export function DraftPage({
   const research = (
     <DraftResearch
       onShare={(players) => {
-        setDraftMessage((previous) => ({
-          id: (previous?.id ?? 0) + 1,
+        draftMessageId.current += 1;
+        setDraftMessage({
+          id: draftMessageId.current,
           text:
             players.length === 1
               ? `What do you think of ${players[0]?.name}?`
               : `Who would you take: ${players.map((p) => p.name).join(' or ')}?`
-        }));
+        });
         setSide('chat');
         setChatOpen(true);
         setPhoneTab('chat');
@@ -683,7 +687,9 @@ export function DraftPage({
       panel
       visible={wide ? side === 'chat' || chatOpen : phoneTab === 'chat'}
       onUnreadChange={setChatUnread}
+      unreadAtMount={chatUnread}
       draftMessage={draftMessage}
+      onDraftMessageUsed={() => setDraftMessage(null)}
       yourTeamId={board.yourTeamId}
     />
   );
@@ -766,8 +772,8 @@ export function DraftPage({
             />
             <div
               id="draft-side"
-              role="tabpanel"
-              aria-labelledby={`draft-side-tab-${side}`}
+              role={side === 'chat' ? undefined : 'tabpanel'}
+              aria-labelledby={side === 'chat' ? undefined : `draft-side-tab-${side}`}
               className={`min-h-0 overflow-y-auto ${side === 'chat' ? 'hidden' : 'flex-1'}`}
             >
               {side === 'roster' ? roster : queuePanel}
@@ -779,6 +785,7 @@ export function DraftPage({
                 type="button"
                 className="flex items-center justify-between py-1 text-left text-xs font-medium"
                 aria-expanded={side === 'chat' || chatOpen}
+                aria-controls="draft-conversation"
                 onClick={() => {
                   if (side === 'chat') setSide('queue');
                   setChatOpen(!(side === 'chat' || chatOpen));
@@ -845,9 +852,9 @@ export function DraftPage({
           <button
             type="button"
             className="text-sm font-medium text-primary-800"
-            onClick={() => setPhoneTab('players')}
+            onClick={() => setPhoneTab(done ? 'results' : 'players')}
           >
-            ← Back to players
+            ← Back to {done ? 'results' : 'players'}
           </button>
         )}
         <div id="draft-phone" role="tabpanel" className="min-w-0">
@@ -866,11 +873,11 @@ export function DraftPage({
           className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
           tabClassName="flex min-h-11 flex-1 items-center justify-center border-t-2 text-xs font-medium"
           tabs={[
-            // After the draft, Results takes the Players tab's place.
-            done
-              ? { value: 'results', label: 'Results', name: 'Results' }
-              : phoneTab === 'research'
-                ? { value: 'research', label: 'Research', name: 'Research' }
+            // Research holds the first tab while it is open; after the draft, Results takes Players' place.
+            phoneTab === 'research'
+              ? { value: 'research', label: 'Research', name: 'Research' }
+              : done
+                ? { value: 'results', label: 'Results', name: 'Results' }
                 : { value: 'players', label: 'Players', name: 'Players' },
             { value: 'queue', label: queueLabel, name: 'Queue' },
             { value: 'roster', label: 'Roster', name: 'Roster' },

@@ -38,7 +38,9 @@ export function RoomChat({
   panel = false,
   visible = true,
   onUnreadChange,
+  unreadAtMount = 0,
   draftMessage,
+  onDraftMessageUsed,
   yourTeamId = null
 }: {
   leagueId: string;
@@ -54,8 +56,15 @@ export function RoomChat({
   /** A mounted draft conversation can be collapsed without losing its composer or subscription. */
   visible?: boolean;
   onUnreadChange?(count: number): void;
+  /**
+   * Unread messages a previous instance of this conversation counted (the draft room remounts it when
+   * it switches layouts): still unread here until the conversation is seen.
+   */
+  unreadAtMount?: number;
   /** Explicit user-requested text to compose; this never sends a message. */
   draftMessage?: { id: number; text: string } | null;
+  /** The composer took `draftMessage`; clear it so a remounted composer does not insert it again. */
+  onDraftMessageUsed?(): void;
   /** The viewer's team: left out of a DM's mentions, since only the other team can be mentioned. */
   yourTeamId?: string | null;
 }) {
@@ -63,6 +72,7 @@ export function RoomChat({
   const listRef = useRef<HTMLOListElement>(null);
   const [following, setFollowing] = useState(true);
   const lastSeenCount = useRef(0);
+  const carried = useRef(unreadAtMount);
   const unread = useRef(onUnreadChange);
   unread.current = onUnreadChange;
   const seen = useRef(onSeen);
@@ -82,13 +92,22 @@ export function RoomChat({
       const list = listRef.current as HTMLOListElement;
       list.scrollTop = list.scrollHeight;
       lastSeenCount.current = chat.messages.length;
+      carried.current = 0;
       seen.current();
     }
+    const fresh = chat.messages.length - lastSeenCount.current;
     if (!baselined.current && historyCount !== null) {
       baselined.current = true;
-      lastSeenCount.current = Math.max(lastSeenCount.current, historyCount);
+      // The carried messages are in that history page; they stay unread.
+      lastSeenCount.current = Math.max(lastSeenCount.current, historyCount - carried.current);
+      carried.current = 0;
     }
-    unread.current?.(Math.max(0, chat.messages.length - lastSeenCount.current));
+    // Until the history arrives, the carried count stands in for the messages it will bring.
+    unread.current?.(
+      baselined.current
+        ? Math.max(0, chat.messages.length - lastSeenCount.current)
+        : carried.current + Math.max(0, fresh)
+    );
   }, [chat.messages.length, visible, following, historyCount]);
 
   // In a DM only the other team can be mentioned.
@@ -156,6 +175,7 @@ export function RoomChat({
       ) : (
         <Composer
           draftMessage={draftMessage}
+          onDraftMessageUsed={onDraftMessageUsed}
           teams={mentionable}
           everyone={chat.teams}
           onSend={chat.send}
@@ -271,6 +291,7 @@ function Composer({
   everyone,
   onSend,
   draftMessage,
+  onDraftMessageUsed,
   placeholder
 }: {
   /** Who can be mentioned here. */
@@ -280,6 +301,7 @@ function Composer({
   onSend(text: string): Promise<void>;
   placeholder: string;
   draftMessage?: { id: number; text: string } | null;
+  onDraftMessageUsed?(): void;
 }) {
   const [text, setText] = useState('');
   const [caret, setCaret] = useState(0);
@@ -290,6 +312,8 @@ function Composer({
   const input = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
   const lastDraftMessage = useRef<number | null>(null);
+  const used = useRef(onDraftMessageUsed);
+  used.current = onDraftMessageUsed;
   useEffect(() => {
     if (!draftMessage || lastDraftMessage.current === draftMessage.id) return;
     lastDraftMessage.current = draftMessage.id;
@@ -298,6 +322,7 @@ function Composer({
     setCaret(next.length);
     setText(next);
     input.current?.focus();
+    used.current?.();
   }, [draftMessage, text]);
   // Where the caret goes after a mention is inserted. Applied in a layout effect, right after React
   // writes the new text and before the next keystroke, so fast typing continues after the mention.
