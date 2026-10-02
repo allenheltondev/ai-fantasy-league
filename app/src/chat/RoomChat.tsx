@@ -36,6 +36,9 @@ export function RoomChat({
   onOther,
   onSeen,
   panel = false,
+  visible = true,
+  onUnreadChange,
+  draftMessage,
   yourTeamId = null
 }: {
   leagueId: string;
@@ -48,22 +51,45 @@ export function RoomChat({
   onSeen(): void;
   /** Fill a side panel (the draft room, #170): a small title, and the messages take the height. */
   panel?: boolean;
+  /** A mounted draft conversation can be collapsed without losing its composer or subscription. */
+  visible?: boolean;
+  onUnreadChange?(count: number): void;
+  /** Explicit user-requested text to compose; this never sends a message. */
+  draftMessage?: { id: number; text: string } | null;
   /** The viewer's team: left out of a DM's mentions, since only the other team can be mentioned. */
   yourTeamId?: string | null;
 }) {
   const chat = useLeagueChat(leagueId, api, connect, room.roomId, onOther);
   const listRef = useRef<HTMLOListElement>(null);
+  const [following, setFollowing] = useState(true);
+  const lastSeenCount = useRef(0);
+  const unread = useRef(onUnreadChange);
+  unread.current = onUnreadChange;
   const seen = useRef(onSeen);
   useEffect(() => {
     seen.current = onSeen;
   }, [onSeen]);
 
-  // Keep the newest message in view, and the room read.
+  // Keep the newest message in view, and the room read. Messages from the first successful history
+  // read are not "new", even while the conversation is collapsed; anything that arrived live before
+  // that read is. A failed first load moves on to polling or live with no history, so this waits for
+  // a read that works rather than for the loading status to end.
+  const history = chat.history;
+  const historyCount = history === null ? null : chat.messages.filter((m) => history.has(m.id)).length;
+  const baselined = useRef(false);
   useEffect(() => {
-    const list = listRef.current as HTMLOListElement;
-    list.scrollTop = list.scrollHeight;
-    seen.current();
-  }, [chat.messages.length]);
+    if (visible && following) {
+      const list = listRef.current as HTMLOListElement;
+      list.scrollTop = list.scrollHeight;
+      lastSeenCount.current = chat.messages.length;
+      seen.current();
+    }
+    if (!baselined.current && historyCount !== null) {
+      baselined.current = true;
+      lastSeenCount.current = Math.max(lastSeenCount.current, historyCount);
+    }
+    unread.current?.(Math.max(0, chat.messages.length - lastSeenCount.current));
+  }, [chat.messages.length, visible, following, historyCount]);
 
   // In a DM only the other team can be mentioned.
   const mentionable = roomMembers(chat.teams, room, yourTeamId);
@@ -94,9 +120,13 @@ export function RoomChat({
       </header>
       <ol
         ref={listRef}
+        onScroll={(event) => {
+          const list = event.currentTarget;
+          setFollowing(list.scrollHeight - list.scrollTop - list.clientHeight < 48);
+        }}
         aria-label="Chat messages"
         className={`flex flex-col gap-2 overflow-y-auto rounded-md border border-border p-3 ${
-          panel ? 'min-h-32 flex-1' : 'max-h-[60vh] min-h-48'
+          panel ? 'min-h-0 flex-1' : 'max-h-[60vh] min-h-48'
         }`}
       >
         {chat.messages.length === 0 && chat.status !== 'loading' ? (
@@ -110,12 +140,22 @@ export function RoomChat({
           <MessageItem key={m.id} message={m} teams={chat.teams} />
         ))}
       </ol>
+      {!following && (
+        <button
+          type="button"
+          className="text-xs font-medium text-primary-800"
+          onClick={() => setFollowing(true)}
+        >
+          Jump to latest messages ↓
+        </button>
+      )}
       {room.archived ? (
         <p className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
           This room is archived: its week is official. Read on, or talk in this week’s rooms.
         </p>
       ) : (
         <Composer
+          draftMessage={draftMessage}
           teams={mentionable}
           everyone={chat.teams}
           onSend={chat.send}
@@ -230,6 +270,7 @@ function Composer({
   teams,
   everyone,
   onSend,
+  draftMessage,
   placeholder
 }: {
   /** Who can be mentioned here. */
@@ -238,6 +279,7 @@ function Composer({
   everyone: readonly ChatTeam[];
   onSend(text: string): Promise<void>;
   placeholder: string;
+  draftMessage?: { id: number; text: string } | null;
 }) {
   const [text, setText] = useState('');
   const [caret, setCaret] = useState(0);
@@ -246,9 +288,19 @@ function Composer({
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const pendingCaret = useRef<number | null>(null);
+  const lastDraftMessage = useRef<number | null>(null);
+  useEffect(() => {
+    if (!draftMessage || lastDraftMessage.current === draftMessage.id) return;
+    lastDraftMessage.current = draftMessage.id;
+    const next = `${text}${text ? '\n' : ''}${draftMessage.text}`.slice(0, MAX_MESSAGE_LENGTH);
+    pendingCaret.current = next.length;
+    setCaret(next.length);
+    setText(next);
+    input.current?.focus();
+  }, [draftMessage, text]);
   // Where the caret goes after a mention is inserted. Applied in a layout effect, right after React
   // writes the new text and before the next keystroke, so fast typing continues after the mention.
-  const pendingCaret = useRef<number | null>(null);
   useLayoutEffect(() => {
     const at = pendingCaret.current;
     if (at === null) return;
@@ -426,9 +478,11 @@ function Composer({
         </ul>
       ) : null}
       <div className="flex items-center justify-between gap-2">
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
+        {error !== null && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
         <span className="text-xs text-muted-foreground">
           {text.length}/{MAX_MESSAGE_LENGTH}
         </span>

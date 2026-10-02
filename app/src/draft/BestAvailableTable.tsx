@@ -3,6 +3,7 @@ import { POSITIONS, type BestAvailableEntry, type PlayerRef, type PositionScarci
 import { PlayerHeadshot } from '../players/PlayerHeadshot';
 import { PositionChip } from './marks';
 import { fmt, type BoardSort } from './research';
+import type { DraftDensity } from './preferences';
 
 export interface BestAvailableTableProps {
   rows: BestAvailableEntry[];
@@ -27,6 +28,9 @@ export interface BestAvailableTableProps {
   likelyGone?: ReadonlySet<string>;
   /** Per position, how many of the top 100 are left (shown on the position chips). */
   scarcity?: readonly PositionScarcity[];
+  density?: DraftDensity;
+  compared?: ReadonlySet<string>;
+  onCompare?(player: PlayerRef): void;
 }
 
 /** Designations that keep a player out: shown in red, the rest in amber. */
@@ -105,6 +109,7 @@ function SortHeader({
  */
 export function BestAvailableTable(props: BestAvailableTableProps) {
   const { rows, sort } = props;
+  const research = props.density !== 'essentials';
   const left = new Map((props.scarcity ?? []).map((s) => [s.position, s]));
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -121,7 +126,7 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
           aria-label="Sort by"
           value={sort}
           onChange={(e) => props.onSort(e.target.value as BoardSort)}
-          className="input w-40 shrink-0 sm:hidden"
+          className="input w-40 shrink-0"
         >
           <option value="rank">Sort: rank</option>
           <option value="projection">Sort: projection</option>
@@ -184,9 +189,18 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
               <th scope="col" title="Bye week" className={`${TH} hidden text-right md:table-cell`}>
                 Bye
               </th>
-              {STATS.map((c) => (
+              {STATS.filter((c) => research || c.sort === 'projection').map((c) => (
                 <SortHeader key={c.label} column={c} sort={sort} onSort={props.onSort} />
               ))}
+              {research && (
+                <th
+                  scope="col"
+                  title="Games played last season"
+                  className={`${TH} hidden text-right xl:table-cell`}
+                >
+                  GP
+                </th>
+              )}
               <th scope="col" className={TH}>
                 <span className="sr-only">Actions</span>
               </th>
@@ -195,7 +209,7 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
           <tbody className="divide-y divide-border">
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-3 py-4 text-center text-muted-foreground">
+                <td colSpan={research ? 10 : 7} className="px-3 py-4 text-center text-muted-foreground">
                   No available players match.
                 </td>
               </tr>
@@ -209,7 +223,7 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
                   <td className="hidden px-2 py-1 text-right font-mono text-xs text-muted-foreground sm:table-cell">
                     {row.rank ?? '—'}
                   </td>
-                  <td className="w-full max-w-0 px-2 py-1">
+                  <td className="w-full min-w-[10rem] px-2 py-1 sm:min-w-[12rem]">
                     <div className="flex min-w-0 items-center gap-1.5">
                       <PlayerHeadshot player={player} size={28} />
                       <span className="sm:hidden">
@@ -217,7 +231,7 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
                       </span>
                       <button
                         type="button"
-                        className="min-w-0 truncate text-left font-medium hover:underline"
+                        className="min-w-0 text-left font-medium hover:underline"
                         onClick={() => props.onOpen(player)}
                       >
                         {player.name}
@@ -237,9 +251,22 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
                       data-testid="compact-stats"
                     >
                       #{row.rank ?? '—'} · {player.team ?? 'FA'}
-                      {row.bye != null && ` · bye ${row.bye}`} · proj {fmt(row.projection?.points)} ·{' '}
-                      {fmt(row.lastSeason?.ppg)} PPG
+                      {row.bye != null && ` · bye ${row.bye}`} · proj {fmt(row.projection?.points)}
+                      {research && ' · '}
+                      {research && `${fmt(row.lastSeason?.ppg)} PPG · ${row.lastSeason?.games ?? '—'} GP`}
                     </div>
+                    {props.onCompare && (
+                      <button
+                        type="button"
+                        className="min-h-11 text-xs font-medium text-primary-800 sm:hidden"
+                        aria-label={`Compare ${player.name}`}
+                        aria-pressed={props.compared?.has(player.id) ?? false}
+                        disabled={!props.compared?.has(player.id) && (props.compared?.size ?? 0) >= 3}
+                        onClick={() => props.onCompare?.(player)}
+                      >
+                        {props.compared?.has(player.id) ? 'Pinned to research ✓' : 'Compare'}
+                      </button>
+                    )}
                   </td>
                   <td className="hidden px-2 py-1 sm:table-cell">
                     <PositionChip position={player.position} />
@@ -249,14 +276,36 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
                   <td className="hidden px-2 py-1 text-right tabular-nums sm:table-cell">
                     {fmt(row.projection?.points)}
                   </td>
-                  <td className="hidden px-2 py-1 text-right tabular-nums sm:table-cell">
-                    {fmt(row.lastSeason?.ppg)}
-                  </td>
-                  <td className="hidden px-2 py-1 text-right tabular-nums xl:table-cell">
-                    {fmt(row.lastSeason?.points)}
-                  </td>
+                  {research && (
+                    <td className="hidden px-2 py-1 text-right tabular-nums sm:table-cell">
+                      {fmt(row.lastSeason?.ppg)}
+                    </td>
+                  )}
+                  {research && (
+                    <td className="hidden px-2 py-1 text-right tabular-nums xl:table-cell">
+                      {fmt(row.lastSeason?.points)}
+                    </td>
+                  )}
+                  {research && (
+                    <td className="hidden px-2 py-1 text-right tabular-nums xl:table-cell">
+                      {row.lastSeason?.games ?? '—'}
+                    </td>
+                  )}
                   <td className="py-1 pl-1 pr-2">
                     <span className="flex justify-end gap-1">
+                      {props.onCompare && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Compare ${player.name}`}
+                          aria-pressed={props.compared?.has(player.id) ?? false}
+                          disabled={!props.compared?.has(player.id) && (props.compared?.size ?? 0) >= 3}
+                          onClick={() => props.onCompare?.(player)}
+                          className="hidden sm:inline-flex lg:min-h-0 lg:px-2 lg:py-0.5"
+                        >
+                          {props.compared?.has(player.id) ? 'Pinned' : 'Compare'}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -292,5 +341,5 @@ export function BestAvailableTable(props: BestAvailableTableProps) {
 
 function scarcityTitle(s: PositionScarcity): string {
   const gone = s.likelyGone > 0 ? `, ${s.likelyGone} likely gone before your pick` : '';
-  return `${s.left} ${s.position} left in the top 100${gone}`;
+  return `${s.left} ${s.position} among the 100 best remaining players (unranked positions count the full pool)${gone}`;
 }

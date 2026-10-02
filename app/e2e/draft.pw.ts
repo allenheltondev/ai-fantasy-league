@@ -34,6 +34,15 @@ function draftApi(
   page: Page,
   options: { pickSeconds?: number; startsAt?: number; allowedActions?: string[] } = {}
 ) {
+  void page.route('**/api/v1/leagues/L1/chat/messages?*', (route) =>
+    route.fulfill({ json: { data: { messages: [], nextCursor: null }, league: null, warnings: [] } })
+  );
+  void page.route('**/api/v1/leagues/L1/chat/rooms/draft/read', (route) =>
+    route.fulfill({ json: { data: {}, league: null, warnings: [] } })
+  );
+  void page.route('**/api/v1/leagues/L1', (route) =>
+    route.fulfill({ json: { data: { teams: [] }, league: null, warnings: [] } })
+  );
   const pickSeconds = options.pickSeconds ?? 90;
   // The draft's status (the commissioner can pause it) and what the caller may do.
   const clock = { status: 'in_progress' };
@@ -356,6 +365,8 @@ test('a finished draft opens on the report card, with the recap and the board', 
   await expect(page.getByRole('table', { name: 'Projected standings' })).toContainText('The Spreadsheet1-0A');
   await page.getByRole('tab', { name: 'Board' }).click();
   await expect(page.getByTestId('cell-1')).toHaveAttribute('title', reason);
+  await page.getByText('Why this pick').click();
+  await expect(page.getByTestId('cell-1')).toContainText(reason);
 });
 
 test('a human on the clock drafts a player from the board', async ({ page }) => {
@@ -373,7 +384,7 @@ test('a human on the clock drafts a player from the board', async ({ page }) => 
   await expect(page.getByTestId('draft-updates')).toHaveText('Refreshing every 3s');
 
   // Line up a queue, then draft from it.
-  await expect(page.getByTestId('queue-hint')).toHaveCount(0);
+  await expect(page.getByTestId('queue-hint')).toHaveCount(1);
   await page.getByRole('button', { name: 'Queue CeeDee Lamb' }).click();
   await page.getByRole('button', { name: "Queue Ja'Marr Chase" }).click();
   await page.getByRole('tab', { name: 'Queue' }).click();
@@ -485,7 +496,7 @@ test('the draft room fits a desktop screen, with the chat a tab away', async ({ 
     const box = await page.getByTestId(id).boundingBox();
     expect(box !== null && box.y + box.height <= 900).toBe(true);
   }
-  await expect(page.getByTestId('roster-needs')).toContainText('Need:');
+  await expect(page.getByRole('region', { name: 'Your next decision' })).toContainText('Open starters:');
 
   await page.getByRole('tab', { name: 'Chat' }).click();
   await expect(page.getByText('Took the best back on the board. Your move.')).toBeVisible();

@@ -19,7 +19,7 @@ function Name({ player, onOpen }: { player: PlayerRef; onOpen(player: PlayerRef)
 
 /**
  * Your roster at a glance: every starting seat, filled or empty, then the bench spots, with what you
- * still need ("Need: 1 TE, 1 DEF, 1 K"). Falls back to a plain list of your players when the server
+ * still need ("Open starters: 1 TE, 1 DEF, 1 K"). Falls back to a plain list of your players when the server
  * does not lay the roster out.
  */
 export function RosterPanel({ board, onOpen }: { board: DraftBoard; onOpen(player: PlayerRef): void }) {
@@ -34,9 +34,9 @@ export function RosterPanel({ board, onOpen }: { board: DraftBoard; onOpen(playe
     <div className="space-y-2 text-sm">
       <p
         data-testid="roster-needs"
-        className={`rounded-md px-2 py-1.5 font-medium ${need === '' ? 'bg-success-50 text-success-800' : 'bg-warning-50 text-warning-800'}`}
+        className={`rounded-md px-2 py-1.5 font-medium ${need === '' ? 'bg-success-50 text-success-800' : 'bg-muted text-foreground'}`}
       >
-        {need === '' ? 'Starting lineup filled.' : `Need: ${need}`}
+        {need === '' ? 'Starting lineup filled.' : `Open starters: ${need}`}
       </p>
       {layout == null ? (
         <ol aria-label="Your roster" className="divide-y divide-border">
@@ -92,6 +92,26 @@ export function RosterPanel({ board, onOpen }: { board: DraftBoard; onOpen(playe
   );
 }
 
+/** Why the queue failed to load or save, with a way to try again without changing it. */
+export function QueueAlert({ queue }: { queue: DraftQueue }) {
+  if (queue.error === null) return null;
+  return (
+    <Alert variant="error" role="alert">
+      <span className="flex flex-wrap items-center justify-between gap-2">
+        {queue.error}
+        <button
+          type="button"
+          className="min-h-11 font-medium underline md:min-h-8"
+          disabled={queue.saving}
+          onClick={queue.retry}
+        >
+          {queue.ready ? 'Retry save' : 'Retry'}
+        </button>
+      </span>
+    </Alert>
+  );
+}
+
 /**
  * Your queue, compact. Empty, it is one quiet line; the pick clock's autopick takes the first queued
  * player still available.
@@ -114,11 +134,7 @@ export function QueuePanel({
   const queued = queue.players.filter((p) => !drafted.has(p.id));
   return (
     <div className="space-y-2 text-sm">
-      {queue.error !== null && (
-        <Alert variant="error" role="alert">
-          {queue.error}
-        </Alert>
-      )}
+      <QueueAlert queue={queue} />
       {queued.length === 0 ? (
         <p className="px-2 py-1 text-xs text-muted-foreground" data-testid="queue-hint">
           Queue players with ＋ to line up your picks. Autopick takes the first one left.

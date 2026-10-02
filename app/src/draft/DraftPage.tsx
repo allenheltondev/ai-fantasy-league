@@ -25,7 +25,9 @@ import { BoardGrid, PickTicker } from './BoardViews';
 import { DepthChart } from './DepthChart';
 import { DraftResults } from './DraftResults';
 import { DraftTopBar } from './DraftTopBar';
-import { PlayerCard } from './PlayerCard';
+import { DraftResearch } from './DraftResearch';
+import { DecisionStrip } from './DecisionStrip';
+import { useDraftDensity } from './preferences';
 import { QueuePanel, RosterPanel } from './Panels';
 import type { BoardSort } from './research';
 import {
@@ -170,9 +172,9 @@ export function spaceBelow(el: HTMLElement): number {
   return below;
 }
 
-type CenterView = 'results' | 'players' | 'board' | 'depth';
+type CenterView = 'results' | 'players' | 'board' | 'depth' | 'research';
 type SideTab = 'roster' | 'queue' | 'chat';
-type PhoneTab = 'results' | 'players' | 'queue' | 'roster' | 'board' | 'chat';
+type PhoneTab = 'results' | 'players' | 'queue' | 'roster' | 'board' | 'chat' | 'research';
 
 /** An accessible tab strip; `panelId` is the id of the panel the tabs control. */
 function Tabs<T extends string>({
@@ -185,7 +187,7 @@ function Tabs<T extends string>({
   tabClassName = ''
 }: {
   label: string;
-  tabs: { value: T; label: ReactNode; name: string }[];
+  tabs: { value: T; label: ReactNode; name: string; controls?: string }[];
   value: T;
   onChange(value: T): void;
   panelId: string;
@@ -203,7 +205,28 @@ function Tabs<T extends string>({
             role="tab"
             id={`${panelId}-tab-${tab.value}`}
             aria-selected={selected}
-            aria-controls={panelId}
+            tabIndex={selected ? 0 : -1}
+            onKeyDown={(event) => {
+              const index = tabs.findIndex((item) => item.value === value);
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tabs.length - 1
+                    : event.key === 'ArrowRight'
+                      ? (index + 1) % tabs.length
+                      : event.key === 'ArrowLeft'
+                        ? (index - 1 + tabs.length) % tabs.length
+                        : null;
+              if (next === null) return;
+              event.preventDefault();
+              const target = tabs[next];
+              if (target) {
+                onChange(target.value);
+                document.getElementById(`${panelId}-tab-${target.value}`)?.focus();
+              }
+            }}
+            aria-controls={tab.controls ?? panelId}
             aria-label={tab.name}
             onClick={() => onChange(tab.value)}
             className={`${tabClassName} ${
@@ -242,13 +265,21 @@ export function DraftPage({
   const [pickError, setPickError] = useState<ApiError | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
   const [clockBusy, setClockBusy] = useState(false);
+  const [clockHeight, setClockHeight] = useState(0);
   const [q, setQ] = useState('');
   const [position, setPosition] = useState('');
   const [sort, setSort] = useState<BoardSort>('rank');
-  const [card, setCard] = useState<PlayerRef | null>(null);
+  const [researchPlayers, setResearchPlayers] = useState<PlayerRef[]>([]);
+  const [researchNotice, setResearchNotice] = useState<string | null>(null);
+  const [density, setDensity] = useDraftDensity();
+  const [chatOpen, setChatOpen] = useState(true);
+  const [chatUnread, setChatUnread] = useState(0);
+  const [draftMessage, setDraftMessage] = useState<{ id: number; text: string } | null>(null);
+  const loadVersion = useRef(0);
+  const pickLock = useRef(false);
   // Null until you pick a view: players while drafting, the board once it is over.
   const [centerChoice, setCenter] = useState<CenterView | null>(null);
-  const [side, setSide] = useState<SideTab>('roster');
+  const [side, setSide] = useState<SideTab>('queue');
   const [phoneChoice, setPhoneTab] = useState<PhoneTab | null>(null);
   const [tick, setTick] = useState(now);
   // Your own pick just went in: a line naming the player (and confetti for your first).
@@ -259,6 +290,7 @@ export function DraftPage({
   const room = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     try {
       const res = await api<DraftBoard>(`/leagues/${leagueId}/draft`, {
         query: {
@@ -268,11 +300,12 @@ export function DraftPage({
           sort: sort === 'rank' ? undefined : sort
         }
       });
+      if (version !== loadVersion.current) return;
       setBoard(res.data);
       setAllowed(res.league?.allowedActions ?? []);
       setLoadError(null);
     } catch (error) {
-      setLoadError(toApiError(error));
+      if (version === loadVersion.current) setLoadError(toApiError(error));
     }
   }, [api, leagueId, q, position, sort]);
 
@@ -326,9 +359,17 @@ export function DraftPage({
     return () => clearTimeout(id);
   }, [turnKey, play]);
 
+  useEffect(() => {
+    if (myPick === null) return;
+    const id = setTimeout(() => setMyPick(null), 6000);
+    return () => clearTimeout(id);
+  }, [myPick]);
+
   const fit = useFitScreen(room, wide && board !== null, board === null ? 0 : 1);
 
   async function draft(playerId: string, overall: number, name: string) {
+    if (pickLock.current) return;
+    pickLock.current = true;
     const before = board?.rosters.find((r) => r.teamId === board.yourTeamId)?.players.length ?? 0;
     setPicking(playerId);
     setPickError(null);
@@ -340,6 +381,7 @@ export function DraftPage({
       setPickError(toApiError(error));
     } finally {
       setPicking(null);
+      pickLock.current = false;
     }
   }
 
@@ -356,6 +398,19 @@ export function DraftPage({
     }
   }
 
+  const setCard = (player: PlayerRef) => {
+    if (!researchPlayers.some((p) => p.id === player.id) && researchPlayers.length === 3) {
+      setResearchNotice(`Three players are pinned. Remove one to make room for ${player.name}.`);
+    } else {
+      setResearchNotice(null);
+      setResearchPlayers((players) =>
+        players.some((p) => p.id === player.id) ? players : [...players, player]
+      );
+    }
+    setCenter('research');
+    setPhoneTab('research');
+  };
+
   if (board === null) {
     return (
       <div data-testid="league-section-draft" className="space-y-4">
@@ -369,6 +424,28 @@ export function DraftPage({
             now={now}
             refresh={lobbyRefresh}
             onStarted={() => void load()}
+            onResearch={setCard}
+            researchNotice={researchNotice}
+            research={
+              researchPlayers.length > 0 ? (
+                <DraftResearch
+                  players={researchPlayers}
+                  api={api}
+                  leagueId={leagueId}
+                  drafted={new Set()}
+                  isQueued={queue.has}
+                  queueReady={queue.ready}
+                  canDraft={false}
+                  picking={null}
+                  onQueue={queue.add}
+                  onDraft={() => undefined}
+                  onRemove={(id) => {
+                    setResearchNotice(null);
+                    setResearchPlayers((players) => players.filter((p) => p.id !== id));
+                  }}
+                />
+              ) : null
+            }
           />
         ) : (
           <ErrorState
@@ -394,10 +471,51 @@ export function DraftPage({
   const queuedCount = queue.players.filter((p) => !drafted.has(p.id)).length;
   const canCommission = allowed.includes('pause_draft') || allowed.includes('resume_draft');
   const onDraft = (player: PlayerRef) => void draft(player.id, current, player.name);
+  const compared = new Set(researchPlayers.map((p) => p.id));
+  const compare = (player: PlayerRef) =>
+    setResearchPlayers((players) =>
+      players.some((p) => p.id === player.id)
+        ? players.filter((p) => p.id !== player.id)
+        : players.length < 3
+          ? [...players, player]
+          : players
+    );
+  const research = (
+    <DraftResearch
+      onShare={(players) => {
+        setDraftMessage((previous) => ({
+          id: (previous?.id ?? 0) + 1,
+          text:
+            players.length === 1
+              ? `What do you think of ${players[0]?.name}?`
+              : `Who would you take: ${players.map((p) => p.name).join(' or ')}?`
+        }));
+        setSide('chat');
+        setChatOpen(true);
+        setPhoneTab('chat');
+      }}
+      players={researchPlayers}
+      api={api}
+      leagueId={leagueId}
+      drafted={drafted}
+      isQueued={queue.has}
+      queueReady={queue.ready}
+      onQueue={queue.add}
+      canDraft={yourTurn && loadError === null}
+      picking={picking}
+      onDraft={onDraft}
+      onRemove={(id) => {
+        setResearchNotice(null);
+        setResearchPlayers((players) => players.filter((p) => p.id !== id));
+      }}
+    />
+  );
+  const decision = <DecisionStrip board={board} queue={queue} onOpen={setCard} />;
 
   const topBar = (
     <DraftTopBar
       board={board}
+      onHeight={setClockHeight}
       seconds={seconds}
       yourTurn={yourTurn}
       live={live === 'live'}
@@ -417,10 +535,26 @@ export function DraftPage({
 
   const alerts = (
     <>
+      {researchNotice !== null && (
+        <p role="status" className="text-sm text-primary-800">
+          {researchNotice}{' '}
+          <button type="button" className="underline" onClick={() => setResearchNotice(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {myPick !== null && (
         <p key={myPick.n} role="status" className="motion-pop text-sm font-semibold text-success-700">
           You drafted {myPick.name}!
         </p>
+      )}
+      {loadError !== null && (
+        <Alert variant="error" role="alert">
+          Updates are delayed. The board may be out of date.{' '}
+          <button type="button" className="underline" onClick={() => void load()}>
+            Refresh now
+          </button>
+        </Alert>
       )}
       {pickError !== null && (
         <Alert variant="error" role="alert">
@@ -433,26 +567,68 @@ export function DraftPage({
   // Positions the teams ahead of you will likely thin out: "TE 5 left in the top 100, 2 likely gone".
   const runs = (board.scarcity ?? []).filter((s) => s.likelyGone > 0);
   const insights = likelyGone.length > 0 && board.yourNextPick !== null && (
-    <div className="space-y-0.5 text-xs text-muted-foreground" data-testid="likely-gone">
-      <p className="truncate">
-        <span className="font-semibold text-foreground">
-          Likely gone before your {yourTurn ? 'next ' : ''}pick:
-        </span>{' '}
+    <details
+      className="rounded-md border border-border bg-surface px-3 py-2 text-xs"
+      data-testid="likely-gone"
+    >
+      <summary className="cursor-pointer font-medium">
+        Before your {yourTurn ? 'following' : 'next'} turn · {likelyGone.length} players may go
+      </summary>
+      <p className="mt-2">
+        <strong>Likely gone before your {yourTurn ? 'next ' : ''}pick:</strong>{' '}
         {likelyGone.map((p) => shortName(p)).join(', ')}
       </p>
       {runs.length > 0 && (
-        <p className="truncate" data-testid="scarcity">
-          <span className="font-semibold text-foreground">Left in the top 100:</span>{' '}
+        <p className="mt-1" data-testid="scarcity">
+          <strong>Among the 100 best remaining:</strong>{' '}
           {runs.map((s) => `${s.left} ${s.position} (${s.likelyGone} likely gone)`).join(' · ')}
         </p>
       )}
-    </div>
+      <p className="mt-2 text-muted-foreground">
+        Estimate based on consensus rank and opponents’ open starting slots. Managers can choose differently.
+        Unranked positions count all remaining players.
+      </p>
+    </details>
   );
 
   const players = (
     <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div
+          role="group"
+          aria-label="Information density"
+          className="inline-flex rounded-md border border-border bg-surface p-0.5"
+        >
+          {(['essentials', 'research'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={density === mode}
+              onClick={() => setDensity(mode)}
+              className={`rounded px-3 py-1 text-xs font-medium ${density === mode ? 'bg-primary-100 text-primary-800' : 'text-muted-foreground'}`}
+            >
+              {mode === 'essentials' ? 'Essentials' : 'Research'}
+            </button>
+          ))}
+        </div>
+        {researchPlayers.length > 0 && (
+          <button
+            type="button"
+            className="text-xs font-medium text-primary-800 hover:underline"
+            onClick={() => {
+              setCenter('research');
+              setPhoneTab('research');
+            }}
+          >
+            Compare {researchPlayers.length} / 3 players →
+          </button>
+        )}
+      </div>
       {insights}
       <BestAvailableTable
+        density={density}
+        compared={compared}
+        onCompare={compare}
         rows={board.bestAvailable}
         sort={sort}
         onSort={setSort}
@@ -463,7 +639,7 @@ export function DraftPage({
         isQueued={queue.has}
         queueReady={queue.ready}
         onQueue={queue.add}
-        canDraft={yourTurn}
+        canDraft={yourTurn && loadError === null}
         picking={picking}
         onDraft={onDraft}
         onOpen={setCard}
@@ -483,16 +659,19 @@ export function DraftPage({
   ) : null;
   const ticker = <PickTicker board={board} arrived={arrived} onOpen={setCard} />;
   const roster = <RosterPanel board={board} onOpen={setCard} />;
-  const queuePanel = (
-    <QueuePanel
-      queue={queue}
-      drafted={drafted}
-      canDraft={yourTurn}
-      picking={picking}
-      onDraft={onDraft}
-      onOpen={setCard}
-    />
-  );
+  const queuePanel =
+    board.yourTeamId === null ? (
+      roster
+    ) : (
+      <QueuePanel
+        queue={queue}
+        drafted={drafted}
+        canDraft={yourTurn && loadError === null}
+        picking={picking}
+        onDraft={onDraft}
+        onOpen={setCard}
+      />
+    );
   const chatPanel = (
     <RoomChat
       leagueId={leagueId}
@@ -502,6 +681,10 @@ export function DraftPage({
       onOther={() => undefined}
       onSeen={() => void chat.markRead(leagueId, 'draft').catch(() => undefined)}
       panel
+      visible={wide ? side === 'chat' || chatOpen : phoneTab === 'chat'}
+      onUnreadChange={setChatUnread}
+      draftMessage={draftMessage}
+      yourTeamId={board.yourTeamId}
     />
   );
   const queueLabel = `Queue${queuedCount > 0 ? ` (${queuedCount})` : ''}`;
@@ -519,6 +702,7 @@ export function DraftPage({
       >
         {topBar}
         {ticker}
+        {decision}
         {alerts}
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_20rem] gap-3 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <section className="flex min-h-0 flex-col gap-2" aria-label="Players and board">
@@ -532,20 +716,30 @@ export function DraftPage({
               tabs={[
                 ...(done ? [{ value: 'results' as const, label: 'Results', name: 'Results' }] : []),
                 { value: 'players', label: 'Players', name: 'Players' },
+                {
+                  value: 'research',
+                  label: `Research${researchPlayers.length ? ` (${researchPlayers.length})` : ''}`,
+                  name: 'Research'
+                },
                 { value: 'board', label: 'Board', name: 'Board' },
                 { value: 'depth', label: 'Depth', name: 'Depth' }
               ]}
             />
-            <div id="draft-center" role="tabpanel" className="min-h-0 flex-1 overflow-hidden">
-              {center === 'results' ? (
-                <div className="h-full overflow-auto">{results}</div>
-              ) : center === 'players' ? (
-                players
-              ) : center === 'board' ? (
-                grid
-              ) : (
-                <div className="h-full overflow-auto">{depth}</div>
-              )}
+            <div
+              id="draft-center"
+              role="tabpanel"
+              aria-labelledby={`draft-center-tab-${center}`}
+              className="min-h-0 flex-1 overflow-hidden"
+            >
+              <div hidden={center !== 'players'} className="h-full">
+                {players}
+              </div>
+              <div hidden={center !== 'research'} className="h-full overflow-auto">
+                {research}
+              </div>
+              {center === 'results' && <div className="h-full overflow-auto">{results}</div>}
+              {center === 'board' && grid}
+              {center === 'depth' && <div className="h-full overflow-auto">{depth}</div>}
             </div>
           </section>
           <aside
@@ -562,11 +756,46 @@ export function DraftPage({
               tabs={[
                 { value: 'roster', label: 'My roster', name: 'My roster' },
                 { value: 'queue', label: queueLabel, name: 'Queue' },
-                { value: 'chat', label: 'Chat', name: 'Chat' }
+                {
+                  value: 'chat',
+                  label: `Chat${chatUnread ? ` (${chatUnread})` : ''}`,
+                  name: 'Chat',
+                  controls: 'draft-conversation'
+                }
               ]}
             />
-            <div id="draft-side" role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
-              {side === 'roster' ? roster : side === 'queue' ? queuePanel : chatPanel}
+            <div
+              id="draft-side"
+              role="tabpanel"
+              aria-labelledby={`draft-side-tab-${side}`}
+              className={`min-h-0 overflow-y-auto ${side === 'chat' ? 'hidden' : 'flex-1'}`}
+            >
+              {side === 'roster' ? roster : queuePanel}
+            </div>
+            <div
+              className={`flex min-h-0 flex-col border-t border-border pt-2 ${side === 'chat' || chatOpen ? 'flex-1' : ''}`}
+            >
+              <button
+                type="button"
+                className="flex items-center justify-between py-1 text-left text-xs font-medium"
+                aria-expanded={side === 'chat' || chatOpen}
+                onClick={() => {
+                  if (side === 'chat') setSide('queue');
+                  setChatOpen(!(side === 'chat' || chatOpen));
+                }}
+              >
+                Around the room{chatUnread > 0 ? ` · ${chatUnread} new` : ''}{' '}
+                <span>{side === 'chat' || chatOpen ? '−' : '+'}</span>
+              </button>
+              <div
+                id="draft-conversation"
+                role={side === 'chat' ? 'tabpanel' : undefined}
+                aria-labelledby="draft-side-tab-chat"
+                hidden={side !== 'chat' && !chatOpen}
+                className="min-h-0 flex-1"
+              >
+                {chatPanel}
+              </div>
             </div>
           </aside>
         </div>
@@ -576,6 +805,7 @@ export function DraftPage({
     const body: Record<PhoneTab, ReactNode> = {
       results,
       players,
+      research,
       queue: queuePanel,
       roster,
       board: (
@@ -601,11 +831,32 @@ export function DraftPage({
       chat: <div className="h-[60vh]">{chatPanel}</div>
     };
     layout = (
-      <div ref={room} data-testid="draft-room" data-layout="phone" className="space-y-3 pb-20">
+      <div
+        ref={room}
+        data-testid="draft-room"
+        data-layout="phone"
+        style={{ '--draft-clock-height': `${clockHeight}px` } as CSSProperties}
+        className="space-y-3 pb-20"
+      >
         <div className="sticky top-0 z-20 bg-background py-1">{topBar}</div>
+        {decision}
         {alerts}
+        {phoneTab === 'research' && (
+          <button
+            type="button"
+            className="text-sm font-medium text-primary-800"
+            onClick={() => setPhoneTab('players')}
+          >
+            ← Back to players
+          </button>
+        )}
         <div id="draft-phone" role="tabpanel" className="min-w-0">
-          {body[phoneTab]}
+          <div hidden={phoneTab !== 'players'}>{players}</div>
+          <div hidden={phoneTab !== 'research'}>{research}</div>
+          <div hidden={phoneTab !== 'chat'} className="h-[60vh]">
+            {chatPanel}
+          </div>
+          {phoneTab !== 'players' && phoneTab !== 'research' && phoneTab !== 'chat' && body[phoneTab]}
         </div>
         <Tabs<PhoneTab>
           label="Draft room"
@@ -618,11 +869,18 @@ export function DraftPage({
             // After the draft, Results takes the Players tab's place.
             done
               ? { value: 'results', label: 'Results', name: 'Results' }
-              : { value: 'players', label: 'Players', name: 'Players' },
+              : phoneTab === 'research'
+                ? { value: 'research', label: 'Research', name: 'Research' }
+                : { value: 'players', label: 'Players', name: 'Players' },
             { value: 'queue', label: queueLabel, name: 'Queue' },
             { value: 'roster', label: 'Roster', name: 'Roster' },
             { value: 'board', label: 'Board', name: 'Board' },
-            { value: 'chat', label: 'Chat', name: 'Chat' }
+            {
+              value: 'chat',
+              label: `Chat${chatUnread ? ` (${chatUnread})` : ''}`,
+              name: 'Chat',
+              controls: 'draft-phone'
+            }
           ]}
         />
       </div>
@@ -634,30 +892,11 @@ export function DraftPage({
       <h2 className="sr-only">Draft room</h2>
       {myPick?.first === true && <Confetti key={myPick.n} size="burst" />}
       {youreUp !== 0 && (
-        <div
-          key={youreUp}
-          role="status"
-          data-testid="youre-up"
-          className="motion-pop pointer-events-none fixed inset-x-0 top-1/3 z-50 mx-auto w-fit rounded-2xl border-2 border-primary-500 bg-surface px-10 py-5 text-4xl font-bold text-primary-800 shadow-lg"
-        >
+        <div key={youreUp} role="status" data-testid="youre-up" className="sr-only">
           You're up!
         </div>
       )}
       {layout}
-      {card !== null && (
-        <PlayerCard
-          api={api}
-          leagueId={leagueId}
-          player={card}
-          onClose={() => setCard(null)}
-          queued={queue.has(card.id)}
-          queueReady={queue.ready}
-          onQueue={queue.add}
-          canDraft={yourTurn && !drafted.has(card.id)}
-          picking={picking === card.id}
-          onDraft={(player) => void draft(player.id, current, player.name).then(() => setCard(null))}
-        />
-      )}
     </div>
   );
 }

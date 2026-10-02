@@ -249,6 +249,12 @@ export function BoardGrid({
                           {pick.player.position} · {pick.player.team ?? 'FA'}
                           {pick.auto ? ' · auto' : ''}
                         </span>
+                        {pick.reason && (
+                          <details className="mt-1 text-xs">
+                            <summary className="cursor-pointer font-medium">Why this pick</summary>
+                            <p className="mt-1 whitespace-normal font-normal">{pick.reason}</p>
+                          </details>
+                        )}
                       </span>
                     </span>
                   </td>

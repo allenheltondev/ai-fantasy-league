@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Button, Card, CardBody, CardHeader, CardTitle, Input, StatusBadge } from '@readysetcloud/ui';
 import { ApiError, type ApiFetch } from '../api';
 import type { Manager } from '../api/types';
 import { ManagerTag } from '../components/AgentAvatar';
 import type { PlayerRef } from './board';
 import type { DraftQueue } from './queue';
+import { QueueAlert } from './Panels';
 
 /** `check_in_draft_lobby` (packages/server/src/operations/draft/lobby.ts). */
 export interface LobbyTeam {
@@ -50,6 +51,9 @@ export interface DraftLobbyProps {
   refresh: number;
   /** The draft may have started (the countdown ran out, or the lobby says so): reload the board. */
   onStarted: () => void;
+  onResearch?(player: PlayerRef): void;
+  research?: ReactNode;
+  researchNotice?: string | null;
   /** How often to check in (the server counts a check-in for 45 seconds). */
   heartbeatMs?: number;
 }
@@ -65,6 +69,9 @@ export function DraftLobby({
   now,
   refresh,
   onStarted,
+  onResearch,
+  research,
+  researchNotice,
   heartbeatMs = 15_000
 }: DraftLobbyProps) {
   const [lobby, setLobby] = useState<DraftLobbyView | null>(null);
@@ -233,11 +240,7 @@ export function DraftLobby({
             <CardTitle>Your queue</CardTitle>
           </CardHeader>
           <CardBody className="space-y-3">
-            {queue.error !== null && (
-              <Alert variant="error" role="alert">
-                {queue.error}
-              </Alert>
-            )}
+            <QueueAlert queue={queue} />
             {queue.players.length === 0 ? (
               <p className="text-muted-foreground">
                 Line up the players you want. If your clock runs out, autopick takes the first one still
@@ -248,7 +251,14 @@ export function DraftLobby({
                 {queue.players.map((player, index) => (
                   <li key={player.id} className="flex items-center justify-between gap-2 py-1">
                     <span>
-                      {index + 1}. {player.name}{' '}
+                      {index + 1}.{' '}
+                      <button
+                        type="button"
+                        className="font-medium hover:underline"
+                        onClick={() => onResearch?.(player)}
+                      >
+                        {player.name}
+                      </button>{' '}
                       <span className="text-muted-foreground">{player.position}</span>
                     </span>
                     <span className="flex gap-1">
@@ -279,7 +289,13 @@ export function DraftLobby({
               {found.map((player) => (
                 <li key={player.id} className="flex items-center justify-between gap-2 py-1">
                   <span>
-                    {player.name}{' '}
+                    <button
+                      type="button"
+                      className="font-medium hover:underline"
+                      onClick={() => onResearch?.(player)}
+                    >
+                      {player.name}
+                    </button>{' '}
                     <span className="text-muted-foreground">
                       {player.position} · {player.team ?? 'FA'}
                     </span>
@@ -299,6 +315,20 @@ export function DraftLobby({
           </CardBody>
         </Card>
       </div>
+      {researchNotice && (
+        <p role="status" className="text-sm text-primary-800">
+          {researchNotice}
+        </p>
+      )}
+      {research && (
+        <section aria-label="Prepare your picks" className="space-y-3">
+          <h2 className="text-lg font-semibold">Your research desk</h2>
+          <p className="text-sm text-muted-foreground">
+            Open up to three players to compare. Your shortlist and research carry into the live draft.
+          </p>
+          {research}
+        </section>
+      )}
     </div>
   );
 }

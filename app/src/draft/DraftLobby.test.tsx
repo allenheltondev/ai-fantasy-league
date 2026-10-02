@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiFetch, type ApiRequest } from '../api/client';
@@ -40,8 +40,10 @@ function fakeQueue(players: DraftQueue['players'] = []): DraftQueue {
   return {
     players,
     ready: true,
+    saving: false,
     error: null,
     has: (id) => players.some((p) => p.id === id),
+    retry: vi.fn(),
     add: vi.fn(),
     remove: vi.fn(),
     move: vi.fn()
@@ -61,7 +63,12 @@ function fakeApi(handler: (path: string, request: ApiRequest) => unknown) {
 
 function renderLobby(
   api: ApiFetch,
-  props: { queue?: DraftQueue; onStarted?: () => void; now?: () => number } = {}
+  props: {
+    queue?: DraftQueue;
+    onStarted?: () => void;
+    now?: () => number;
+    onResearch?: (player: DraftQueue['players'][number]) => void;
+  } = {}
 ) {
   render(
     <DraftLobby
@@ -71,6 +78,7 @@ function renderLobby(
       now={props.now ?? (() => NOW)}
       refresh={0}
       onStarted={props.onStarted ?? (() => undefined)}
+      onResearch={props.onResearch}
     />
   );
 }
@@ -150,7 +158,7 @@ describe('DraftLobby', () => {
     const { api, calls } = fakeApi(() => lobby());
     renderLobby(api, { queue });
     const found = within(await screen.findByRole('list', { name: 'Players to queue' }));
-    expect(await found.findByText(/CeeDee Lamb/)).toHaveTextContent('WR · FA');
+    expect((await found.findByText(/CeeDee Lamb/)).closest('li')).toHaveTextContent('WR · FA');
     expect(found.getByRole('button', { name: "Queue Ja'Marr Chase" })).toBeDisabled();
     const list = within(screen.getByRole('list', { name: 'Your queue' }));
     await user.click(list.getByRole('button', { name: 'Move CeeDee Lamb up' }));
@@ -161,6 +169,21 @@ describe('DraftLobby', () => {
     await waitFor(() => expect(calls.at(-1)?.request).toEqual({ query: { q: 'lamb', limit: 10 } }));
   });
 
+  it('opens research from a queued name, and ignores the click without a research desk', async () => {
+    const user = userEvent.setup();
+    const onResearch = vi.fn();
+    const { api } = fakeApi(() => lobby());
+    renderLobby(api, { queue: fakeQueue([chase]), onResearch });
+    const list = within(await screen.findByRole('list', { name: 'Your queue' }));
+    await user.click(list.getByRole('button', { name: "Ja'Marr Chase" }));
+    expect(onResearch).toHaveBeenCalledWith(chase);
+    cleanup();
+    renderLobby(api, { queue: fakeQueue([chase]) });
+    const plain = within(await screen.findByRole('list', { name: 'Your queue' }));
+    await user.click(plain.getByRole('button', { name: "Ja'Marr Chase" }));
+    expect(plain.getByRole('button', { name: "Ja'Marr Chase" })).toBeInTheDocument();
+  });
+
   it('adds a found player to an empty queue, and shows queue errors', async () => {
     const user = userEvent.setup();
     const queue = { ...fakeQueue(), error: 'Could not save your queue.' };
@@ -168,6 +191,8 @@ describe('DraftLobby', () => {
     renderLobby(api, { queue });
     expect(await screen.findByText(/Line up the players you want/)).toBeInTheDocument();
     expect(screen.getByText('Could not save your queue.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry save' }));
+    expect(queue.retry).toHaveBeenCalled();
     await user.click(await screen.findByRole('button', { name: "Queue Ja'Marr Chase" }));
     expect(queue.add).toHaveBeenCalledWith(chase);
   });

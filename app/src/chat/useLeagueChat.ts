@@ -8,6 +8,11 @@ export interface LeagueChat {
   messages: ChatMessage[];
   teams: ChatTeam[];
   status: ChatStatus;
+  /**
+   * The messages the first successful history read brought, less any that already arrived live: null
+   * until a read succeeds (a failed first load stays null until a later one works).
+   */
+  history: ReadonlySet<string> | null;
   /** Seconds between refreshes while polling. */
   pollSeconds: number;
   send(text: string): Promise<void>;
@@ -40,6 +45,7 @@ export function useLeagueChat(
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [teams, setTeams] = useState<ChatTeam[]>([]);
   const [status, setStatus] = useState<ChatStatus>('loading');
+  const [history, setHistory] = useState<ReadonlySet<string> | null>(null);
   const [pollSeconds, setPollSeconds] = useState(DEFAULT_POLL_SECONDS);
   const add = useCallback(
     (incoming: readonly ChatMessage[]) => setMessages((current) => mergeMessages(current, incoming)),
@@ -53,7 +59,17 @@ export function useLeagueChat(
     const later = (ms: number, run: () => void) => timers.push(setTimeout(run, ms));
     const chat = api;
 
-    const refresh = async () => add((await chat.list(leagueId, { limit: PAGE, roomId })).messages);
+    // Live arrivals before the first successful read are new, even when that read returns them too.
+    let historyRead = false;
+    const liveFirst = new Set<string>();
+    const refresh = async () => {
+      const page = (await chat.list(leagueId, { limit: PAGE, roomId })).messages;
+      add(page);
+      if (!historyRead) {
+        historyRead = true;
+        setHistory(new Set(page.filter((m) => !liveFirst.has(m.id)).map((m) => m.id)));
+      }
+    };
     const disconnect = () => {
       close?.();
       close = null;
@@ -82,8 +98,10 @@ export function useLeagueChat(
         const unsubscribe = await connect(target, {
           // The topics carry every room; this view shows one.
           onChat: (message) => {
-            if ((message.roomId ?? DEFAULT_ROOM_ID) === roomId) add([message]);
-            else other.current?.(message);
+            if ((message.roomId ?? DEFAULT_ROOM_ID) === roomId) {
+              if (!historyRead) liveFirst.add(message.id);
+              add([message]);
+            } else other.current?.(message);
           },
           onError: () => {
             disconnect();
@@ -131,5 +149,5 @@ export function useLeagueChat(
     [leagueId, roomId, api, add]
   );
 
-  return { messages, teams, status, pollSeconds, send };
+  return { messages, teams, status, history, pollSeconds, send };
 }

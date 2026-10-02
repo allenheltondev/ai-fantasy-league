@@ -445,7 +445,7 @@ for (const viewport of VIEWPORTS) {
       await expect(page.getByTestId('queue-hint')).toBeVisible();
       await expectFits(page, 'draft: queue');
       await roomTabs.getByRole('tab', { name: 'Roster' }).tap();
-      await expect(page.getByTestId('roster-needs')).toContainText('Need:');
+      await expect(page.getByTestId('roster-needs')).toContainText('Open starters:');
       await expectFits(page, 'draft: roster');
       await roomTabs.getByRole('tab', { name: 'Board' }).tap();
       await expect(page.getByRole('table', { name: 'Draft board' })).toBeVisible();
@@ -463,14 +463,16 @@ for (const viewport of VIEWPORTS) {
       await expectFits(page, 'league home (drafting)');
       await page.goto(`/leagues/${leagueId}/draft`);
 
-      // Draft research (#136): the best-available table, an open player card, and the depth chart.
+      // Draft research (#136): the best-available table, a player opened in Research, and the depth chart.
       const firstAvailable = page.locator('[data-testid^="available-"]').first();
       await expect(firstAvailable).toBeVisible();
       await firstAvailable.getByRole('button').first().click();
-      await expect(page.getByTestId('player-card')).toBeVisible();
-      await expectFits(page, 'draft: player card');
-      await page.keyboard.press('Escape');
-      await expect(page.getByTestId('player-card')).toBeHidden();
+      const research = page.getByRole('article', { name: / research$/ });
+      await expect(research).toBeVisible();
+      await expectFits(page, 'draft: research');
+      await page.getByRole('button', { name: '← Back to players' }).click();
+      await expect(research).toBeHidden();
+      await expect(firstAvailable).toBeVisible();
       await page.getByRole('tablist', { name: 'Draft room' }).getByRole('tab', { name: 'Board' }).tap();
       await page.getByRole('tablist', { name: 'Board view' }).getByRole('tab', { name: 'Depth' }).tap();
       await expect(page.getByRole('table', { name: 'Depth chart' })).toBeVisible();
