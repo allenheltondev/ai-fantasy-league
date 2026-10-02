@@ -347,6 +347,40 @@ describe('ScoreBar', () => {
     expect(screen.getByTestId('win-probability-bar')).toHaveStyle({ width: '70%' });
   });
 
+  it('shows no odds without an opponent, or for teams that are not in this matchup', () => {
+    const d = data();
+    const you = {
+      teamId: d.matchup.home.teamId,
+      teamName: 'a',
+      currentPoints: 0,
+      projectedPoints: 1,
+      remainingPoints: 1,
+      playersYetToPlay: 0,
+      playersInProgress: 0,
+      winProbability: 0.5
+    };
+    const base = { week: 4, teamId: you.teamId, status: 'in_progress' } as const;
+    for (const outlook of [
+      { ...base, you, opponent: null },
+      { ...base, you, opponent: { ...you, teamId: 'someone-else' } },
+      { ...base, you: { ...you, winProbability: null }, opponent: { ...you, teamId: d.matchup.away.teamId } }
+    ]) {
+      const { unmount } = render(
+        <MemoryRouter>
+          <ScoreBar
+            week={4}
+            matchup={d.matchup}
+            lineups={d.lineups}
+            leader={null}
+            outlook={outlook as unknown as MatchupOutlook}
+          />
+        </MemoryRouter>
+      );
+      expect(screen.queryByTestId('win-probability')).toBeNull();
+      unmount();
+    }
+  });
+
   function renderBar(d = data(), leader: string | null = 'team-1') {
     return render(
       <MemoryRouter>

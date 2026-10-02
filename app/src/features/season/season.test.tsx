@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import { LeagueApiContext, type LeagueApi } from '../../api/league';
 import type { EventConnect, LeagueEvent } from '../../realtime/leagueEvents';
-import type { MatchupData, Roster, RosterEntry, SlotCount, StandingsData } from '../../api/types';
+import type {
+  MatchupData,
+  MatchupOutlook,
+  Roster,
+  RosterEntry,
+  SlotCount,
+  StandingsData
+} from '../../api/types';
 import { fakeApi, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 import { MATCHUP_POLL_MS, MatchupPage } from './MatchupPage';
@@ -271,6 +278,69 @@ describe('MatchupPage', () => {
     expect(screen.queryByRole('link', { name: 'Edit lineup' })).toBeNull();
     // The outlook panel loads on its own, after the board: wait for its read rather than race it.
     await waitFor(() => expect(api.getMatchupOutlook).toHaveBeenCalled());
+  });
+
+  const outlookTeam = (teamId: string, winProbability: number | null) => ({
+    teamId,
+    teamName: teamId,
+    currentPoints: 10,
+    projectedPoints: 100,
+    remainingPoints: 90,
+    playersYetToPlay: 1,
+    playersInProgress: 0,
+    winProbability
+  });
+  const outlookFor = (
+    opponent: MatchupOutlook['opponent'],
+    winProbability: number | null
+  ): MatchupOutlook => ({
+    week: 1,
+    teamId: 'team-1',
+    status: 'in_progress',
+    you: outlookTeam('team-1', winProbability),
+    opponent,
+    insights: {
+      startersOut: [],
+      emptySlots: [{ slot: 'TE', missing: 1 }],
+      benchUpgrades: [],
+      lockedPlayers: [],
+      currentProjectedPoints: 100,
+      optimalProjectedPoints: 100
+    }
+  });
+
+  it('feeds one outlook read to the header odds and the lineup advice', async () => {
+    const getMatchupOutlook = vi.fn(async () => outlookFor(outlookTeam('team-2', 0.4), 0.6));
+    open('/leagues/L1/matchup', {
+      getMatchup: vi.fn(async () => matchupData('in_progress', 10)),
+      getMatchupOutlook
+    });
+    expect(await screen.findByTestId('win-probability-home')).toHaveTextContent('60%');
+    expect(screen.getByTestId('win-probability-away')).toHaveTextContent('40%');
+    const advice = screen.getByRole('region', { name: 'Lineup advice' });
+    expect(within(advice).getByText('Your TE slot is empty.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Outlook' })).toBeNull();
+    expect(getMatchupOutlook).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the header without odds when the outlook has none', async () => {
+    const getMatchupOutlook = vi.fn();
+    getMatchupOutlook.mockResolvedValueOnce(outlookFor(null, null));
+    open('/leagues/L1/matchup', {
+      getMatchup: vi.fn(async () => matchupData('in_progress', 10)),
+      getMatchupOutlook
+    });
+    await screen.findByRole('region', { name: 'Lineup advice' });
+    expect(screen.queryByTestId('win-probability')).toBeNull();
+  });
+
+  it('keeps the outlook off a ?team= matchup', async () => {
+    const theirs = matchupData('in_progress', 10);
+    const api = open('/leagues/L1/team/matchup?team=team-1', { getMatchup: vi.fn(async () => theirs) });
+    expect(await screen.findByTestId('score-team-1')).toHaveTextContent('10.00');
+    expect(screen.queryByTestId('win-probability')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Lineup advice' })).toBeNull();
+    expect(api.getMatchupOutlook).not.toHaveBeenCalled();
   });
 
   it("keeps another team's empty week free of your outlook", async () => {

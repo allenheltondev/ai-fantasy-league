@@ -66,7 +66,7 @@ export function OutlookView({
   ];
 
   return (
-    <section aria-label="Outlook" className="rounded-lg border border-border p-4">
+    <section aria-label={odds ? 'Outlook' : 'Lineup advice'} className="rounded-lg border border-border p-4">
       <h3 className="font-semibold">{odds ? 'Outlook' : 'Lineup advice'}</h3>
       {odds &&
         (opponent !== null && you.winProbability !== null ? (
