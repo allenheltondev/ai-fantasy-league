@@ -27,10 +27,20 @@ export function NflTeamPage() {
   const known = (NFL_TEAMS as readonly string[]).includes(code);
   const api = useLeagueApi();
   const navigate = useNavigate();
-  const chart = useLoad<NflDepthChart | null>(
-    () => (known ? api.getNflDepthChart(code) : Promise.resolve(null)),
+  // `useLoad` keeps the last team's result on screen while the next loads, so each result carries
+  // its team (a failure too) and only the current team's counts: a failed switch shows its error,
+  // never the team before it.
+  const loaded = useLoad<TeamLoad | null>(
+    () =>
+      known
+        ? api.getNflDepthChart(code).then(
+            (chart) => ({ code, chart, error: null }),
+            (error: unknown) => ({ code, chart: null, error })
+          )
+        : Promise.resolve(null),
     code
   );
+  const current = loaded.data?.code === code ? loaded.data : null;
 
   return (
     <div data-testid="nfl-team-page" className="space-y-4">
@@ -57,17 +67,22 @@ export function NflTeamPage() {
       </div>
       {!known ? (
         <EmptyState title="Team not found" description={`"${team}" is not an NFL team.`} />
-      ) : chart.data === null ? (
-        chart.error ? (
-          <ApiErrorAlert error={chart.error} />
-        ) : (
-          <LoadingSkeleton label="Loading the depth chart…" rows={6} />
-        )
+      ) : current === null ? (
+        <LoadingSkeleton label="Loading the depth chart…" rows={6} />
+      ) : current.chart === null ? (
+        <ApiErrorAlert error={current.error} />
       ) : (
-        <DepthChartView chart={chart.data} />
+        <DepthChartView chart={current.chart} />
       )}
     </div>
   );
+}
+
+/** One team's load: its chart, or why it failed. */
+interface TeamLoad {
+  code: string;
+  chart: NflDepthChart | null;
+  error: unknown;
 }
 
 function DepthChartView({ chart }: { chart: NflDepthChart }) {

@@ -1,11 +1,13 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LeagueApi } from '../../api/league';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { LeagueApiContext, type LeagueApi } from '../../api/league';
 import type { DepthChartPlayer, NflDepthChart } from '../../api/types';
 import type { PlayerCardData } from '../../draft/research';
 import { fakeApi, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
+import { NflTeamPage } from './NflTeamPage';
 
 /** An NFL team's page (League › Players): its depth chart, with links to each player's card. */
 
@@ -114,12 +116,55 @@ describe('NFL team page', () => {
     await waitFor(() => expect(screen.queryByTestId('player-card')).not.toBeInTheDocument());
   });
 
-  it('jumps to another team from the picker', async () => {
+  it("jumps to another team from the picker and shows that team's chart", async () => {
     const user = userEvent.setup();
-    const api = open('/leagues/L1/league/players/nfl/KC');
+    const BUF: NflDepthChart = {
+      team: { code: 'BUF', city: 'Buffalo', nickname: 'Bills' },
+      slots: [{ slot: 'QB', label: 'QB', players: [player('buf-qb', { team: 'BUF', position: 'QB' })] }],
+      others: []
+    };
+    const api = open('/leagues/L1/league/players/nfl/KC', {
+      getNflDepthChart: vi.fn(async (team: string) => (team === 'BUF' ? BUF : KC))
+    });
     await screen.findByRole('heading', { level: 2, name: 'Kansas City Chiefs' });
     await user.selectOptions(screen.getByLabelText('NFL team'), 'BUF');
-    await waitFor(() => expect(api.getNflDepthChart).toHaveBeenCalledWith('BUF'));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Buffalo Bills' })).toBeInTheDocument();
+    expect(screen.getByTestId('depth-buf-qb')).toBeInTheDocument();
+    expect(screen.queryByTestId('depth-qb1')).not.toBeInTheDocument();
+    expect(api.getNflDepthChart).toHaveBeenCalledWith('BUF');
+  });
+
+  it("shows the error, not the last team's chart, when a switch fails", async () => {
+    const user = userEvent.setup();
+    let failBuf: (reason: Error) => void = () => undefined;
+    // Rendered on its own: the league shell remounts each page by path, which would hide a stale chart.
+    const api = fakeApi({
+      getNflDepthChart: vi.fn((team: string) =>
+        team === 'BUF'
+          ? new Promise<NflDepthChart>((_, reject) => {
+              failBuf = reject;
+            })
+          : Promise.resolve(KC)
+      )
+    });
+    render(
+      <LeagueApiContext.Provider value={api}>
+        <MemoryRouter initialEntries={['/leagues/L1/league/players/nfl/KC']}>
+          <Routes>
+            <Route path="/leagues/:leagueId/league/players/nfl/:team" element={<NflTeamPage />} />
+          </Routes>
+        </MemoryRouter>
+      </LeagueApiContext.Provider>
+    );
+    await screen.findByRole('heading', { level: 2, name: 'Kansas City Chiefs' });
+    await user.selectOptions(screen.getByLabelText('NFL team'), 'BUF');
+    // While Buffalo loads, Kansas City's chart is gone.
+    expect(await screen.findByText('Loading the depth chart…')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Kansas City Chiefs' })).not.toBeInTheDocument();
+    failBuf(new Error('boom'));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Kansas City Chiefs' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('NFL team')).toHaveValue('BUF');
   });
 
   it('says when a team has no depth chart yet, or the load fails', async () => {
