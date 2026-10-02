@@ -1283,6 +1283,34 @@ describe('draft workspace continuity', () => {
     expect(screen.getByTestId('pick-clock')).toBeInTheDocument();
   });
 
+  it('counts only messages that arrive while the chat is hidden, not the history it opened with', async () => {
+    const width = mockWidth(false);
+    try {
+      const user = userEvent.setup();
+      const { api } = researchApi();
+      const { chat, list } = fakeChat();
+      const [history] = (await list()).messages;
+      const later = { ...history!, id: 'm2', text: 'Trade you a third for that pick?' };
+      let messages = [history!];
+      list.mockImplementation(async () => ({ messages, nextCursor: null }));
+      vi.mocked(chat.realtime).mockResolvedValue({
+        ...(await chat.realtime('L1')),
+        pollIntervalSeconds: 0.05
+      });
+      renderDraft(api, 60_000, undefined, { chat });
+      const chatTab = await screen.findByRole('tab', { name: 'Chat' });
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+      expect(chatTab).toHaveTextContent(/^Chat$/);
+      messages = [history!, later];
+      await waitFor(() => expect(chatTab).toHaveTextContent('Chat (1)'));
+      await user.click(chatTab);
+      expect(await screen.findByText('Trade you a third for that pick?')).toBeInTheDocument();
+      expect(chatTab).toHaveTextContent(/^Chat$/);
+    } finally {
+      width.restore();
+    }
+  });
+
   it('starts in Essentials if device storage cannot be read', async () => {
     const block = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('blocked');

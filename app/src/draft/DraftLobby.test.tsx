@@ -40,6 +40,7 @@ function fakeQueue(players: DraftQueue['players'] = []): DraftQueue {
   return {
     players,
     ready: true,
+    saving: false,
     error: null,
     has: (id) => players.some((p) => p.id === id),
     add: vi.fn(),

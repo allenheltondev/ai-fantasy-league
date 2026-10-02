@@ -70,16 +70,22 @@ export function RoomChat({
     seen.current = onSeen;
   }, [onSeen]);
 
-  // Keep the newest message in view, and the room read.
+  // Keep the newest message in view, and the room read. History loaded before the room goes live or
+  // starts polling is not "new", even while the conversation is collapsed. The first page and the
+  // end of loading can land in the same render, so that render still counts as history.
+  const loading = chat.status === 'loading';
+  const loaded = useRef(false);
   useEffect(() => {
+    const history = !loaded.current;
+    if (!loading) loaded.current = true;
     if (visible && following) {
       const list = listRef.current as HTMLOListElement;
       list.scrollTop = list.scrollHeight;
-      lastSeenCount.current = chat.messages.length;
       seen.current();
     }
+    if (history || (visible && following)) lastSeenCount.current = chat.messages.length;
     unread.current?.(Math.max(0, chat.messages.length - lastSeenCount.current));
-  }, [chat.messages.length, visible, following]);
+  }, [chat.messages.length, visible, following, loading]);
 
   // In a DM only the other team can be mentioned.
   const mentionable = roomMembers(chat.teams, room, yourTeamId);

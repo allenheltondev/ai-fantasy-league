@@ -61,7 +61,8 @@ export interface DraftQueue {
   players: PlayerRef[];
   /** False until the server queue has loaded. */
   ready: boolean;
-  saving?: boolean;
+  /** True while a change is still on its way to the server. */
+  saving: boolean;
   /** Why the last load or save failed, or null. */
   error: string | null;
   has(playerId: string): boolean;
