@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { LeagueApiContext, type LeagueApi } from '../../api/league';
-import type { DepthChartPlayer, NflDepthChart } from '../../api/types';
+import type { DepthChartPlayer, NflDepthChart, PointsAllowedData } from '../../api/types';
 import type { PlayerCardData } from '../../draft/research';
 import { fakeApi, state } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
@@ -69,10 +69,32 @@ function stubCardFetch() {
   );
 }
 
+const rank = (perGame: number, r: number) => ({ perGame, rank: r, of: 32 });
+const KC_ALLOWED: PointsAllowedData = {
+  season: 2026,
+  throughWeek: 3,
+  scoring: 'ppr',
+  teams: [
+    {
+      team: 'KC',
+      games: 3,
+      positions: {
+        QB: rank(24.1, 2),
+        RB: rank(18, 16),
+        WR: rank(20.25, 31),
+        TE: rank(8, 12),
+        K: rank(9, 20),
+        DEF: rank(4, 25)
+      }
+    }
+  ]
+};
+
 function open(path: string, overrides: Partial<LeagueApi> = {}) {
   const api = fakeApi({
     getLeagueState: vi.fn(async () => state({ phase: 'regular_season', week: 3 })),
     getNflDepthChart: vi.fn(async () => KC),
+    getPointsAllowed: vi.fn(async () => KC_ALLOWED),
     ...overrides
   });
   renderApp(path, undefined, api);
@@ -103,6 +125,40 @@ describe('NFL team page', () => {
       '/leagues/L1/league/players'
     );
     expect(screen.getByLabelText('NFL team')).toHaveValue('KC');
+  });
+
+  it('shows the points its defense allows to each position, rated as a matchup', async () => {
+    const api = open('/leagues/L1/league/players/nfl/KC');
+    const section = await screen.findByRole('region', { name: 'Points allowed by position' });
+    expect(api.getPointsAllowed).toHaveBeenCalledWith({ team: 'KC' });
+    expect(section).toHaveTextContent('through week 3 (3 games)');
+    expect(within(section).getByTestId('allowed-QB')).toHaveTextContent(
+      'QB 24.1 pts · 2nd of 32Favorable matchup'
+    );
+    expect(within(section).getByTestId('allowed-RB')).toHaveTextContent(
+      'RB 18 pts · 16th of 32Average matchup'
+    );
+    expect(within(section).getByTestId('allowed-WR')).toHaveTextContent(
+      'WR 20.3 pts · 31st of 32Tough matchup'
+    );
+    expect(within(section).getByTestId('allowed-DEF')).toHaveTextContent('Team defense 4 pts');
+  });
+
+  it('says when there are no completed games yet', async () => {
+    open('/leagues/L1/league/players/nfl/KC', {
+      getPointsAllowed: vi.fn(async () => ({ ...KC_ALLOWED, throughWeek: null, teams: [] }))
+    });
+    expect(await screen.findByText('No completed games yet this season.')).toBeInTheDocument();
+  });
+
+  it('keeps the depth chart when points allowed cannot load', async () => {
+    open('/leagues/L1/league/players/nfl/KC', {
+      getPointsAllowed: vi.fn(async () => {
+        throw new Error('down');
+      })
+    });
+    expect(await screen.findByText('Points allowed are not available right now.')).toBeInTheDocument();
+    expect(screen.getByTestId('depth-qb1')).toBeInTheDocument();
   });
 
   it("opens a player's card, whose team links back to the team page", async () => {

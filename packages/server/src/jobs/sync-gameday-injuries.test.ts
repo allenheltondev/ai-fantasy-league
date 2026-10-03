@@ -182,6 +182,60 @@ describe('syncGameDayInjuries', () => {
     ]);
   });
 
+  it('stores ESPN’s note with the designation, refreshes it alone, and drops it when the designation changes', async () => {
+    const { deps, provider } = await setup('2025-09-07T15:30:00.000Z');
+    const alphaNote = { text: 'One (ankle) is inactive for Sunday.', reportedAt: '2025-09-07T15:10Z' };
+    provider.injuries = [
+      report({
+        name: 'Alpha One',
+        espnId: 'e1',
+        position: 'RB',
+        comment: alphaNote.text,
+        reportedAt: alphaNote.reportedAt
+      }),
+      report({ name: 'Bravo Two', injuryStatus: 'Doubtful', statusText: 'Doubtful', comment: '  ' })
+    ];
+    await syncGameDayInjuries(deps, deps.clock);
+    expect((await deps.playerRepo.get('1'))?.injuryNote).toEqual(alphaNote);
+    // A blank comment is no note.
+    expect((await deps.playerRepo.get('2'))?.injuryNote).toBeUndefined();
+
+    // Same designation, new note: stored, with no status event.
+    deps.events.events.length = 0;
+    const bravoNote = { text: 'Two (hamstring) is doubtful for Sunday.', reportedAt: null };
+    provider.injuries = [
+      provider.injuries[0]!,
+      report({ name: 'Bravo Two', injuryStatus: 'Doubtful', statusText: 'Doubtful', comment: bravoNote.text })
+    ];
+    deps.clock.advance(15 * 60_000);
+    expect(await syncGameDayInjuries(deps, deps.clock)).toMatchObject({ statusChanges: 0, notesUpdated: 1 });
+    expect(await deps.playerRepo.get('2')).toMatchObject({ injuryStatus: 'Doubtful', injuryNote: bravoNote });
+    expect(deps.events.events).toEqual([]);
+
+    // A Sleeper sync that keeps the designation keeps the note: held (Alpha), or agreeing (Bravo).
+    provider.players = [
+      { ...PLAYERS[0]!, depthChartOrder: 2 },
+      { ...PLAYERS[1]!, injuryStatus: 'Doubtful', depthChartOrder: 2 },
+      ...PLAYERS.slice(2)
+    ];
+    deps.clock.set(new Date('2025-09-07T21:17:00.000Z'));
+    await syncPlayers(deps, deps.clock);
+    expect((await deps.playerRepo.get('1'))?.injuryNote).toEqual(alphaNote);
+    expect((await deps.playerRepo.get('2'))?.injuryNote).toEqual(bravoNote);
+
+    // Once the week is over, Sleeper clears Alpha and moves Bravo to Questionable: both notes go.
+    provider.players = [
+      { ...PLAYERS[0]!, depthChartOrder: 2 },
+      { ...PLAYERS[1]!, injuryStatus: 'Questionable', depthChartOrder: 2 },
+      ...PLAYERS.slice(2)
+    ];
+    deps.clock.set(new Date('2025-09-09T09:17:00.000Z'));
+    await syncPlayers(deps, deps.clock);
+    expect((await deps.playerRepo.get('1'))?.injuryNote).toBeUndefined();
+    expect(await deps.playerRepo.get('2')).toMatchObject({ injuryStatus: 'Questionable' });
+    expect((await deps.playerRepo.get('2'))?.injuryNote).toBeUndefined();
+  });
+
   it('skips without an injury source, NFL state, regular season, schedule, or rostered player', async () => {
     const none = createTestJobDeps({ provider: new FixtureDataProvider() });
     expect(await syncGameDayInjuries(none, none.clock)).toMatchObject({ reason: 'no_injury_source' });

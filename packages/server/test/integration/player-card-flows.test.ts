@@ -3,6 +3,7 @@ import { currentWeek } from '../../src/players/current-form.js';
 import { registry } from '../../src/operations/index.js';
 import { fixtureDraftPool } from '../../src/players/fixtures.js';
 import { createHarness, type Harness } from '../support/harness.js';
+import { sourcePlayer } from '../support/jobs.js';
 import { as, data, type Caller } from '../support/league-client.js';
 import { ALICE, seedLeague } from '../support/leagues.js';
 
@@ -16,7 +17,10 @@ let h: Harness;
 let alice: Caller;
 
 interface Card {
-  player: { id: string; team: string | null };
+  player: { id: string; team: string | null; injuryNote?: { text: string; reportedAt: string | null } };
+  injuryStatus: string | null;
+  injuryNote: { text: string; reportedAt: string | null } | null;
+  bio: { age: number | null; yearsExp: number | null; number: number | null };
   thisSeason: {
     season: number;
     points: number;
@@ -40,8 +44,38 @@ interface Card {
     bye: boolean;
     opponent: { team: string; home: boolean } | null;
     kickoff: string | null;
+    matchup: {
+      position: string;
+      perGame: number;
+      rank: number;
+      of: number;
+      games: number;
+      throughWeek: number;
+    } | null;
   } | null;
 }
+
+interface PointsAllowed {
+  season: number | null;
+  throughWeek: number | null;
+  scoring: string;
+  teams: {
+    team: string;
+    games: number;
+    positions: Record<string, { perGame: number; rank: number; of: number }>;
+  }[];
+}
+
+const CHASE_NOTE = { text: 'Chase (hip) is questionable for Sunday.', reportedAt: '2026-10-02T20:00Z' };
+
+/** A team defense's week: its id is the team code, and `fan_pts_allow_*` are Sleeper's PPR points allowed. */
+const defense = (team: string, season: number, week: number, stats: Record<string, number>) => ({
+  playerId: team,
+  season,
+  week,
+  stats: { gp: 1, ...stats },
+  updatedAt: 'x'
+});
 
 const card = async (playerId: string) =>
   data<Card>(await alice.get(`/players/card?playerId=${playerId}&leagueId=${L}`));
@@ -78,6 +112,28 @@ beforeAll(async () => {
     // Last season and the playoffs are not this season.
     { playerId: 'fx-chase', season: 2025, week: 3, stats: { gp: 1, rec: 9, rec_yd: 200 }, updatedAt: 'x' },
     { playerId: 'fx-chase', season: 2026, week: 19, stats: { gp: 1, rec: 9, rec_yd: 200 }, updatedAt: 'x' }
+  ]);
+  // Defenses' points allowed to receivers, per game: CLE 50, BAL 35, KC 15, MIA 0 (Sleeper leaves
+  // the zero out). NYG's line has no points-allowed keys and the game in progress (week 4) is not
+  // complete: neither counts. BAL's 2025 line is another season.
+  await reference.stats.putLines([
+    defense('BAL', 2026, 1, { fan_pts_allow: 100, fan_pts_allow_wr: 40, fan_pts_allow_qb: 20 }),
+    defense('BAL', 2026, 2, { fan_pts_allow: 90, fan_pts_allow_wr: 30, fan_pts_allow_qb: 10 }),
+    defense('BAL', 2026, 3, { fan_pts_allow: 95, fan_pts_allow_wr: 35, fan_pts_allow_qb: 15 }),
+    defense('BAL', 2025, 17, { fan_pts_allow: 60, fan_pts_allow_wr: 22 }),
+    defense('KC', 2026, 1, { fan_pts_allow: 70, fan_pts_allow_wr: 20, fan_pts_allow_qb: 30 }),
+    defense('KC', 2026, 3, { fan_pts_allow: 60, fan_pts_allow_wr: 10, fan_pts_allow_qb: 30 }),
+    defense('CLE', 2026, 1, { fan_pts_allow: 120, fan_pts_allow_wr: 50, fan_pts_allow_qb: 5 }),
+    defense('CLE', 2026, 4, { fan_pts_allow: 200, fan_pts_allow_wr: 99 }),
+    defense('MIA', 2026, 1, { fan_pts_allow: 10, fan_pts_allow_qb: 10 }),
+    defense('NYG', 2026, 2, { pts_allow: 17 })
+  ]);
+  // Chase's synced Sleeper record (age, experience, jersey) and ESPN's note on his designation.
+  await reference.playerSync.upsert([
+    {
+      player: { ...chase, injuryStatus: 'Questionable', injuryNote: CHASE_NOTE },
+      source: sourcePlayer({ id: 'fx-chase', team: chase.team, age: 26, yearsExp: 5, number: 1 })
+    }
   ]);
   // The research sync's copy of this season: week 2, which the live job missed, and a stale week 1
   // that the live line overrides.
@@ -208,9 +264,23 @@ describe('the player card in season', () => {
       totals: expect.objectContaining({ rec: 6, rec_yd: 80 }),
       bye: false,
       opponent: { team: 'BAL', home: true },
-      kickoff: '2026-10-04T17:00:00.000Z'
+      kickoff: '2026-10-04T17:00:00.000Z',
+      // BAL allows 35 PPR points a game to receivers through week 3: second most of four.
+      matchup: { position: 'WR', perGame: 35, rank: 2, of: 4, games: 3, throughWeek: 3 }
     });
     expect(player.team).toBeTruthy();
+  });
+
+  it('shows his age, experience, and jersey number, and ESPN’s note on his injury', async () => {
+    const chase = await card('fx-chase');
+    expect(chase.bio).toEqual({ age: 26, yearsExp: 5, number: 1 });
+    expect(chase.injuryStatus).toBe('Questionable');
+    expect(chase.injuryNote).toEqual(CHASE_NOTE);
+    expect(chase.player.injuryNote).toEqual(CHASE_NOTE);
+    // No synced record and no note: unknowns, not guesses.
+    const lamb = await card('fx-lamb');
+    expect(lamb.bio).toEqual({ age: null, yearsExp: null, number: null });
+    expect(lamb.injuryNote).toBeNull();
   });
 
   it('marks a bye and leaves out what is not there yet', async () => {
@@ -225,6 +295,47 @@ describe('the player card in season', () => {
       opponent: null,
       kickoff: null
     });
+  });
+});
+
+describe('get_points_allowed', () => {
+  const get = async (query: string) =>
+    (await alice.get(`/nfl-teams/points-allowed${query}`)).body as {
+      data: PointsAllowed;
+      warnings?: { code: string }[];
+    };
+
+  it('ranks every defense with completed games, 1 allowing the most', async () => {
+    const { data: table } = await get('');
+    expect(table).toMatchObject({ season: 2026, throughWeek: 3, scoring: 'ppr' });
+    expect(table.teams.map((t) => t.team)).toEqual(['BAL', 'CLE', 'KC', 'MIA']);
+    const kc = table.teams.find((t) => t.team === 'KC')!;
+    expect(kc.games).toBe(2);
+    // KC allows 30 a game to quarterbacks, the most; BAL and the rest follow. Ties share a rank.
+    expect(kc.positions.QB).toEqual({ perGame: 30, rank: 1, of: 4 });
+    expect(kc.positions.RB).toEqual({ perGame: 0, rank: 1, of: 4 });
+    expect(table.teams.find((t) => t.team === 'MIA')!.positions.WR).toEqual({ perGame: 0, rank: 4, of: 4 });
+  });
+
+  it('sorts by a position, filters to a team, and counts a past season whole', async () => {
+    expect((await get('?position=WR')).data.teams.map((t) => [t.team, t.positions.WR!.perGame])).toEqual([
+      ['CLE', 50],
+      ['BAL', 35],
+      ['KC', 15],
+      ['MIA', 0]
+    ]);
+    expect((await get('?team=BAL')).data.teams.map((t) => t.team)).toEqual(['BAL']);
+    const past = (await get('?season=2025')).data;
+    expect(past).toMatchObject({ season: 2025, throughWeek: 18 });
+    expect(past.teams).toEqual([
+      { team: 'BAL', games: 1, positions: expect.objectContaining({ WR: { perGame: 22, rank: 1, of: 1 } }) }
+    ]);
+  });
+
+  it('is empty with a warning when no completed week has defense stats', async () => {
+    const none = await get('?season=2024');
+    expect(none.data).toMatchObject({ season: 2024, throughWeek: null, teams: [] });
+    expect(none.warnings?.map((w) => w.code)).toEqual(['NO_POINTS_ALLOWED']);
   });
 });
 

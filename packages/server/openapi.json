@@ -19398,6 +19398,26 @@
                                                     "type": "null"
                                                   }
                                                 ]
+                                              },
+                                              "injuryNote": {
+                                                "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                                "type": "object",
+                                                "properties": {
+                                                  "text": {
+                                                    "type": "string"
+                                                  },
+                                                  "reportedAt": {
+                                                    "type": [
+                                                      "string",
+                                                      "null"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "text",
+                                                  "reportedAt"
+                                                ],
+                                                "additionalProperties": false
                                               }
                                             },
                                             "required": [
@@ -19836,6 +19856,26 @@
                                                     "type": "null"
                                                   }
                                                 ]
+                                              },
+                                              "injuryNote": {
+                                                "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                                "type": "object",
+                                                "properties": {
+                                                  "text": {
+                                                    "type": "string"
+                                                  },
+                                                  "reportedAt": {
+                                                    "type": [
+                                                      "string",
+                                                      "null"
+                                                    ]
+                                                  }
+                                                },
+                                                "required": [
+                                                  "text",
+                                                  "reportedAt"
+                                                ],
+                                                "additionalProperties": false
                                               }
                                             },
                                             "required": [
@@ -23624,6 +23664,26 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "injuryNote": {
+                                    "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                    "type": "object",
+                                    "properties": {
+                                      "text": {
+                                        "type": "string"
+                                      },
+                                      "reportedAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "text",
+                                      "reportedAt"
+                                    ],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "required": [
@@ -27569,6 +27629,26 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "injuryNote": {
+                                    "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                    "type": "object",
+                                    "properties": {
+                                      "text": {
+                                        "type": "string"
+                                      },
+                                      "reportedAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "text",
+                                      "reportedAt"
+                                    ],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "required": [
@@ -28670,6 +28750,26 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "injuryNote": {
+                                    "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                    "type": "object",
+                                    "properties": {
+                                      "text": {
+                                        "type": "string"
+                                      },
+                                      "reportedAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "text",
+                                      "reportedAt"
+                                    ],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "required": [
@@ -34844,6 +34944,26 @@
                                             "type": "null"
                                           }
                                         ]
+                                      },
+                                      "injuryNote": {
+                                        "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                        "type": "object",
+                                        "properties": {
+                                          "text": {
+                                            "type": "string"
+                                          },
+                                          "reportedAt": {
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "text",
+                                          "reportedAt"
+                                        ],
+                                        "additionalProperties": false
                                       }
                                     },
                                     "required": [
@@ -34927,6 +35047,26 @@
                                             "type": "null"
                                           }
                                         ]
+                                      },
+                                      "injuryNote": {
+                                        "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                        "type": "object",
+                                        "properties": {
+                                          "text": {
+                                            "type": "string"
+                                          },
+                                          "reportedAt": {
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "text",
+                                          "reportedAt"
+                                        ],
+                                        "additionalProperties": false
                                       }
                                     },
                                     "required": [
@@ -38685,6 +38825,497 @@
         "x-mutation": false
       }
     },
+    "/api/v1/nfl-teams/points-allowed": {
+      "get": {
+        "operationId": "get_points_allowed",
+        "summary": "Fantasy points each NFL defense allows by position (matchup strength)",
+        "description": "Returns, for every NFL defense, the fantasy points per game it has allowed to opposing QBs, RBs, WRs, TEs, kickers, and team defenses this season, with a rank at each position: 1 allows the most (the easiest matchup), 32 the fewest (the toughest). Points are Sleeper’s PPR scoring, so use the ranks more than the exact points when your league scores differently. Only completed weeks count (`throughWeek`); early in the season the sample is small, so weigh `games`. Pass `team` for one defense, or `position` to sort every defense by that position’s rank, easiest first. `season` defaults to the current one; a past season counts all 18 weeks. Use it for start/sit calls, streaming a quarterback, tight end, or defense, and judging a waiver pickup’s upcoming schedule. Before week 2 there is no data and the list is empty with a NO_POINTS_ALLOWED warning.",
+        "tags": [
+          "research"
+        ],
+        "parameters": [
+          {
+            "name": "team",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ARI",
+                "ATL",
+                "BAL",
+                "BUF",
+                "CAR",
+                "CHI",
+                "CIN",
+                "CLE",
+                "DAL",
+                "DEN",
+                "DET",
+                "GB",
+                "HOU",
+                "IND",
+                "JAX",
+                "KC",
+                "LAC",
+                "LAR",
+                "LV",
+                "MIA",
+                "MIN",
+                "NE",
+                "NO",
+                "NYG",
+                "NYJ",
+                "PHI",
+                "PIT",
+                "SEA",
+                "SF",
+                "TB",
+                "TEN",
+                "WAS"
+              ]
+            },
+            "description": "Only this defense, e.g. \"KC\"."
+          },
+          {
+            "name": "position",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "QB",
+                "RB",
+                "WR",
+                "TE",
+                "K",
+                "DEF"
+              ]
+            },
+            "description": "Sort by this position’s rank, easiest matchup first. Default: team order."
+          },
+          {
+            "name": "season",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100
+            },
+            "description": "NFL season year, e.g. 2026. Defaults to the current season."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "season": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The season counted, or null when the NFL state is unknown."
+                        },
+                        "throughWeek": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The last week counted, or null with no data."
+                        },
+                        "scoring": {
+                          "type": "string",
+                          "const": "ppr",
+                          "description": "Sleeper’s PPR scoring, whatever the league’s."
+                        },
+                        "teams": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "team": {
+                                "type": "string",
+                                "enum": [
+                                  "ARI",
+                                  "ATL",
+                                  "BAL",
+                                  "BUF",
+                                  "CAR",
+                                  "CHI",
+                                  "CIN",
+                                  "CLE",
+                                  "DAL",
+                                  "DEN",
+                                  "DET",
+                                  "GB",
+                                  "HOU",
+                                  "IND",
+                                  "JAX",
+                                  "KC",
+                                  "LAC",
+                                  "LAR",
+                                  "LV",
+                                  "MIA",
+                                  "MIN",
+                                  "NE",
+                                  "NO",
+                                  "NYG",
+                                  "NYJ",
+                                  "PHI",
+                                  "PIT",
+                                  "SEA",
+                                  "SF",
+                                  "TB",
+                                  "TEN",
+                                  "WAS"
+                                ]
+                              },
+                              "games": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "Games counted."
+                              },
+                              "positions": {
+                                "type": "object",
+                                "properties": {
+                                  "QB": {
+                                    "type": "object",
+                                    "properties": {
+                                      "perGame": {
+                                        "type": "number",
+                                        "description": "PPR fantasy points allowed to the position per game."
+                                      },
+                                      "rank": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "1 allows the most points (the easiest matchup) through `of` (the toughest); ties share a rank."
+                                      },
+                                      "of": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "How many defenses are ranked."
+                                      }
+                                    },
+                                    "required": [
+                                      "perGame",
+                                      "rank",
+                                      "of"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "RB": {
+                                    "type": "object",
+                                    "properties": {
+                                      "perGame": {
+                                        "type": "number",
+                                        "description": "PPR fantasy points allowed to the position per game."
+                                      },
+                                      "rank": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "1 allows the most points (the easiest matchup) through `of` (the toughest); ties share a rank."
+                                      },
+                                      "of": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "How many defenses are ranked."
+                                      }
+                                    },
+                                    "required": [
+                                      "perGame",
+                                      "rank",
+                                      "of"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "WR": {
+                                    "type": "object",
+                                    "properties": {
+                                      "perGame": {
+                                        "type": "number",
+                                        "description": "PPR fantasy points allowed to the position per game."
+                                      },
+                                      "rank": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "1 allows the most points (the easiest matchup) through `of` (the toughest); ties share a rank."
+                                      },
+                                      "of": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "How many defenses are ranked."
+                                      }
+                                    },
+                                    "required": [
+                                      "perGame",
+                                      "rank",
+                                      "of"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "TE": {
+                                    "type": "object",
+                                    "properties": {
+                                      "perGame": {
+                                        "type": "number",
+                                        "description": "PPR fantasy points allowed to the position per game."
+                                      },
+                                      "rank": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "1 allows the most points (the easiest matchup) through `of` (the toughest); ties share a rank."
+                                      },
+                                      "of": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "How many defenses are ranked."
+                                      }
+                                    },
+                                    "required": [
+                                      "perGame",
+                                      "rank",
+                                      "of"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "K": {
+                                    "type": "object",
+                                    "properties": {
+                                      "perGame": {
+                                        "type": "number",
+                                        "description": "PPR fantasy points allowed to the position per game."
+                                      },
+                                      "rank": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "1 allows the most points (the easiest matchup) through `of` (the toughest); ties share a rank."
+                                      },
+                                      "of": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "How many defenses are ranked."
+                                      }
+                                    },
+                                    "required": [
+                                      "perGame",
+                                      "rank",
+                                      "of"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "DEF": {
+                                    "type": "object",
+                                    "properties": {
+                                      "perGame": {
+                                        "type": "number",
+                                        "description": "PPR fantasy points allowed to the position per game."
+                                      },
+                                      "rank": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "1 allows the most points (the easiest matchup) through `of` (the toughest); ties share a rank."
+                                      },
+                                      "of": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991,
+                                        "description": "How many defenses are ranked."
+                                      }
+                                    },
+                                    "required": [
+                                      "perGame",
+                                      "rank",
+                                      "of"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "QB",
+                                  "RB",
+                                  "WR",
+                                  "TE",
+                                  "K",
+                                  "DEF"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "team",
+                              "games",
+                              "positions"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "season",
+                        "throughWeek",
+                        "scoring",
+                        "teams"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": false
+      }
+    },
     "/api/v1/notifications": {
       "get": {
         "operationId": "get_notification_summary",
@@ -39852,6 +40483,26 @@
                                   }
                                 ]
                               },
+                              "injuryNote": {
+                                "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                "type": "object",
+                                "properties": {
+                                  "text": {
+                                    "type": "string"
+                                  },
+                                  "reportedAt": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "text",
+                                  "reportedAt"
+                                ],
+                                "additionalProperties": false
+                              },
                               "availability": {
                                 "type": "object",
                                 "properties": {
@@ -40024,7 +40675,7 @@
       "get": {
         "operationId": "get_player_card",
         "summary": "One player’s card: this season so far, next week’s projection and matchup, last season, the season projection, and news",
-        "description": "Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines. Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used. `lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade. An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.",
+        "description": "Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`); his projection for the current NFL week with his opponent and how that defense has fared against his position, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his age, NFL experience, and jersey number (`bio`); his bye week, injury designation, and ESPN’s injury note; and up to 3 recent news headlines. Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used. `lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade. An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.",
         "tags": [
           "research",
           "players"
@@ -40137,6 +40788,26 @@
                                   "type": "null"
                                 }
                               ]
+                            },
+                            "injuryNote": {
+                              "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                              "type": "object",
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                },
+                                "reportedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "text",
+                                "reportedAt"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -40184,6 +40855,85 @@
                             "string",
                             "null"
                           ]
+                        },
+                        "injuryNote": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "text": {
+                                  "type": "string",
+                                  "description": "ESPN’s note, e.g. \"Jefferson (hamstring) is doubtful for Sunday.\""
+                                },
+                                "reportedAt": {
+                                  "description": "When ESPN posted it (ISO 8601), or null.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "text",
+                                "reportedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "ESPN’s injury report note on his designation, or null when there is none."
+                        },
+                        "bio": {
+                          "type": "object",
+                          "properties": {
+                            "age": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Age in years, or null when unknown."
+                            },
+                            "yearsExp": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Seasons in the NFL before this one: 0 is a rookie. Null when unknown."
+                            },
+                            "number": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Jersey number, or null when unknown."
+                            }
+                          },
+                          "required": [
+                            "age",
+                            "yearsExp",
+                            "number"
+                          ],
+                          "additionalProperties": false
                         },
                         "lastSeason": {
                           "anyOf": [
@@ -40512,6 +41262,67 @@
                                     "string",
                                     "null"
                                   ]
+                                },
+                                "matchup": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "position": {
+                                          "type": "string",
+                                          "enum": [
+                                            "QB",
+                                            "RB",
+                                            "WR",
+                                            "TE",
+                                            "K",
+                                            "DEF"
+                                          ],
+                                          "description": "Fantasy position: QB, RB, WR, TE, K, or DEF (team defense)."
+                                        },
+                                        "perGame": {
+                                          "type": "number",
+                                          "description": "PPR fantasy points per game the opponent’s defense has allowed to his position."
+                                        },
+                                        "rank": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991,
+                                          "description": "1 allows the most points to his position (the easiest matchup) through `of` (the toughest)."
+                                        },
+                                        "of": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "games": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991,
+                                          "description": "Games the opponent’s defense has played that count."
+                                        },
+                                        "throughWeek": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991,
+                                          "description": "The last completed week counted."
+                                        }
+                                      },
+                                      "required": [
+                                        "position",
+                                        "perGame",
+                                        "rank",
+                                        "of",
+                                        "games",
+                                        "throughWeek"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "How the opponent’s defense has fared against his position this season (get_points_allowed has every team); null on a bye or before week 2."
                                 }
                               },
                               "required": [
@@ -40521,7 +41332,8 @@
                                 "totals",
                                 "bye",
                                 "opponent",
-                                "kickoff"
+                                "kickoff",
+                                "matchup"
                               ],
                               "additionalProperties": false
                             },
@@ -40569,6 +41381,8 @@
                         "scoring",
                         "bye",
                         "injuryStatus",
+                        "injuryNote",
+                        "bio",
                         "lastSeason",
                         "projection",
                         "thisSeason",
@@ -40819,6 +41633,26 @@
                                   "type": "null"
                                 }
                               ]
+                            },
+                            "injuryNote": {
+                              "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                              "type": "object",
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                },
+                                "reportedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "text",
+                                "reportedAt"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -41146,6 +41980,26 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "injuryNote": {
+                                    "description": "ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.",
+                                    "type": "object",
+                                    "properties": {
+                                      "text": {
+                                        "type": "string"
+                                      },
+                                      "reportedAt": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "text",
+                                      "reportedAt"
+                                    ],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "required": [

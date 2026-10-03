@@ -269,6 +269,22 @@ export interface NflDepthChart {
   others: DepthChartPlayer[];
 }
 
+/** get_points_allowed: PPR points a defense allows to a position per game, ranked (1 allows the most). */
+export interface PositionAllowed {
+  perGame: number;
+  rank: number;
+  of: number;
+}
+
+/** get_points_allowed: every defense's points allowed by position this season. */
+export interface PointsAllowedData {
+  season: number | null;
+  /** The last completed week counted, or null before any. */
+  throughWeek: number | null;
+  scoring: 'ppr';
+  teams: { team: string; games: number; positions: Record<string, PositionAllowed> }[];
+}
+
 /**
  * A player's NFL game this week as the server sees it (#193, core `playerGame`): the matchup, the
  * outlook, the lineup locks, and the agents all use this one state.

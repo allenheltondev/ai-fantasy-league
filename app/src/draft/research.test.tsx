@@ -233,6 +233,56 @@ describe('PlayerCard', () => {
     expect(calls).toEqual(['/players/card']);
   });
 
+  it('shows his age and experience, ESPN’s injury note, and how next week’s defense fares against his position', async () => {
+    renderCard({
+      ...CARD,
+      bio: { age: 26, yearsExp: 5, number: 1 },
+      injuryNote: { text: 'Chase (hip) is doubtful for Sunday.', reportedAt: '2026-10-02T20:00Z' },
+      nextWeek: {
+        season: 2026,
+        week: 4,
+        points: 11,
+        totals: {},
+        bye: false,
+        opponent: { team: 'BAL', home: true },
+        kickoff: null,
+        matchup: { position: 'WR', perGame: 35.24, rank: 2, of: 32, games: 3, throughWeek: 3 }
+      }
+    });
+    const card = await screen.findByTestId('player-card');
+    expect(await within(card).findByTestId('card-bio')).toHaveTextContent('#1 · Age 26 · 6th season');
+    expect(within(card).getByTestId('card-injury-note')).toHaveTextContent(
+      'Chase (hip) is doubtful for Sunday. ESPN · Oct 2'
+    );
+    expect(within(card).getByTestId('card-matchup')).toHaveTextContent(
+      'Favorable matchupBAL allows 35.2 PPR pts a game to WRs, 2nd most of 32 (through week 3)'
+    );
+  });
+
+  it('calls a rookie a rookie, leaves out what is unknown, and rates a tough matchup', async () => {
+    renderCard({
+      ...CARD,
+      bio: { age: null, yearsExp: 0, number: null },
+      injuryNote: null,
+      nextWeek: {
+        season: 2026,
+        week: 4,
+        points: 11,
+        totals: {},
+        bye: false,
+        opponent: { team: 'DEN', home: false },
+        kickoff: null,
+        matchup: { position: 'DEF', perGame: 1, rank: 30, of: 32, games: 3, throughWeek: 3 }
+      }
+    });
+    const card = await screen.findByTestId('player-card');
+    expect(await within(card).findByTestId('card-bio')).toHaveTextContent(/^Rookie$/);
+    expect(within(card).queryByTestId('card-injury-note')).toBeNull();
+    expect(within(card).getByTestId('card-matchup')).toHaveTextContent(
+      'Tough matchupDEN allows 1 PPR pts a game to team defenses, 30th most of 32'
+    );
+  });
+
   it('queues and drafts from the card', async () => {
     const user = userEvent.setup();
     const { props } = renderCard(CARD);

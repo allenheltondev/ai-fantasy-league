@@ -116,6 +116,15 @@ const CASES: Record<string, Case[]> = {
     { label: 'team', path: '/api/v1/nfl-teams/SF/depth-chart', status: 200 },
     { label: 'unknown team', path: '/api/v1/nfl-teams/XYZ/depth-chart', status: 400 }
   ],
+  get_points_allowed: [
+    { label: 'every defense', path: '/api/v1/nfl-teams/points-allowed', status: 200 },
+    {
+      label: 'one defense by position',
+      path: '/api/v1/nfl-teams/points-allowed?team=SF&position=RB',
+      status: 200
+    },
+    { label: 'unknown position', path: '/api/v1/nfl-teams/points-allowed?position=LB', status: 400 }
+  ],
   ...LEAGUE_CASES,
   get_roster: [
     { label: 'own team', path: '/api/v1/leagues/lg-cs/teams/team-1/roster', status: 200 },

@@ -26,7 +26,8 @@ export const PlayerRecordSchema = z.object({
   updatedAt: z.string(),
   statusSource: z.enum(STATUS_SOURCES).optional(),
   statusAsOf: z.string().optional(),
-  statusHeldUntil: z.string().optional()
+  statusHeldUntil: z.string().optional(),
+  injuryNote: z.object({ text: z.string(), reportedAt: z.string().nullable() }).optional()
 });
 
 export const playerKey = (id: string) => ({ pk: `PLAYER#${id}`, sk: 'PROFILE' });
