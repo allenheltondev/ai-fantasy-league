@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Button, Drawer } from '@readysetcloud/ui';
+import { Button, Drawer, StatusBadge } from '@readysetcloud/ui';
 import { ApiError, type ApiFetch } from '../api';
 import type { PlayerRef } from './board';
 import { InjuryBadge } from './BestAvailableTable';
 import { NflTeamLink } from '../players/NflTeamLink';
+import {
+  experienceText,
+  MATCHUP_LABEL,
+  MATCHUP_TONE,
+  matchupStrength,
+  positionPlural
+} from '../players/matchup';
 import { PlayerHeadshot, TeamLogo } from '../players/PlayerHeadshot';
+import { ordinal } from './DraftResults';
 import { fmt, STAT_NAMES, type PlayerCardData } from './research';
 import { RecentGames } from './RecentGames';
 import { WeeklyPoints } from './WeeklyPoints';
@@ -63,10 +71,52 @@ function matchupText(next: NonNullable<PlayerCardData['nextWeek']>): string {
   )}`;
 }
 
+/** "#1 · Age 26 · 6th season", from what is known; null when nothing is. */
+function bioText(bio: PlayerCardData['bio']): string | null {
+  if (bio === undefined) return null;
+  const parts = [
+    bio.number === null ? null : `#${bio.number}`,
+    bio.age === null ? null : `Age ${bio.age}`,
+    bio.yearsExp === null ? null : experienceText(bio.yearsExp)
+  ].filter((p) => p !== null);
+  return parts.length === 0 ? null : parts.join(' · ');
+}
+
+/** "Oct 2", or null without a date. */
+function shortDate(iso: string | null): string | null {
+  if (iso === null) return null;
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime())
+    ? null
+    : at.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** The opponent's defense against his position: a strength badge and the points it allows. */
+function OpponentMatchup({
+  opponent,
+  matchup
+}: {
+  opponent: string;
+  matchup: NonNullable<NonNullable<PlayerCardData['nextWeek']>['matchup']>;
+}) {
+  const strength = matchupStrength(matchup.rank, matchup.of);
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid="card-matchup">
+      <StatusBadge tone={MATCHUP_TONE[strength]}>{MATCHUP_LABEL[strength]}</StatusBadge>
+      <span className="text-muted-foreground">
+        {opponent} allows {fmt(matchup.perGame)} PPR pts a game to {positionPlural(matchup.position)},{' '}
+        {matchup.rank === 1 ? 'the most' : `${ordinal(matchup.rank)} most`} of {matchup.of} (through week{' '}
+        {matchup.throughWeek})
+      </span>
+    </p>
+  );
+}
+
 /**
  * A player's card in a drawer: this season so far (sparkline, points per game, stat totals), the
- * current week's projection and matchup, last season, the season projection, bye, injury, and
- * recent news. In the draft room it also has Queue and (on the clock) Draft buttons.
+ * current week's projection and matchup (with how the opponent's defense fares against his
+ * position), last season, the season projection, his age and experience, bye, injury (with ESPN's
+ * note), and recent news. In the draft room it also has Queue and (on the clock) Draft buttons.
  */
 export function PlayerCard(props: PlayerCardProps) {
   const { api, leagueId, player } = props;
@@ -114,6 +164,22 @@ export function PlayerCard(props: PlayerCardProps) {
             )}
           </p>
         </div>
+        {card !== null && bioText(card.bio) !== null && (
+          <p className="text-sm text-muted-foreground" data-testid="card-bio">
+            {bioText(card.bio)}
+          </p>
+        )}
+        {card?.injuryNote != null && (
+          <p className="rounded-md border border-border p-2 text-sm" data-testid="card-injury-note">
+            {card.injuryNote.text}{' '}
+            <span className="text-muted-foreground">
+              ESPN
+              {shortDate(card.injuryNote.reportedAt) === null
+                ? ''
+                : ` · ${shortDate(card.injuryNote.reportedAt)}`}
+            </span>
+          </p>
+        )}
         {props.onQueue !== undefined && (
           <div className="flex gap-2">
             <Button
@@ -181,6 +247,9 @@ export function PlayerCard(props: PlayerCardProps) {
                   <TeamLogo team={card.nextWeek.opponent?.team} size={16} eager />
                   {matchupText(card.nextWeek)}
                 </p>
+                {!card.nextWeek.bye && card.nextWeek.opponent !== null && card.nextWeek.matchup != null && (
+                  <OpponentMatchup opponent={card.nextWeek.opponent.team} matchup={card.nextWeek.matchup} />
+                )}
                 {card.nextWeek.bye ? (
                   <p>On bye: no points this week.</p>
                 ) : card.nextWeek.points === null ? (

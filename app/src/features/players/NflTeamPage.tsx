@@ -1,11 +1,14 @@
 import { Link, useNavigate, useParams } from 'react-router';
-import { Card, CardBody, EmptyState, Select } from '@readysetcloud/ui';
+import { Card, CardBody, EmptyState, Select, StatusBadge } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
-import type { DepthChartPlayer, NflDepthChart } from '../../api/types';
+import type { DepthChartPlayer, NflDepthChart, PointsAllowedData } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { InjuryBadge } from '../../draft/BestAvailableTable';
+import { ordinal } from '../../draft/DraftResults';
+import { fmt } from '../../draft/research';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton } from '../../motion/decor';
+import { MATCHUP_LABEL, MATCHUP_TONE, matchupStrength } from '../../players/matchup';
 import { PlayerHeadshot, TeamLogo } from '../../players/PlayerHeadshot';
 import { PlayerLink } from '../../players/PlayerLink';
 import { leagueTabPath, nflTeamPath } from '../../routes/leagueRoutes';
@@ -18,8 +21,8 @@ export const NFL_TEAMS = [
 
 /**
  * An NFL team's page, under League › Players: its depth chart at the fantasy positions, starters
- * first, each player's picture and name opening his card, and the rest of the team below. A picker
- * jumps to another team.
+ * first, each player's picture and name opening his card, and the rest of the team below, then the
+ * fantasy points its defense allows by position. A picker jumps to another team.
  */
 export function NflTeamPage() {
   const { leagueId = '', team = '' } = useParams();
@@ -41,6 +44,18 @@ export function NflTeamPage() {
     code
   );
   const current = loaded.data?.code === code ? loaded.data : null;
+  // Points allowed load on their own: the depth chart shows whether or not they come back.
+  const allowed = useLoad<AllowedLoad | null>(
+    () =>
+      known
+        ? api.getPointsAllowed({ team: code }).then(
+            (table) => ({ code, table }),
+            () => ({ code, table: null })
+          )
+        : Promise.resolve(null),
+    code
+  );
+  const allowedNow = allowed.data?.code === code ? allowed.data : null;
 
   return (
     <div data-testid="nfl-team-page" className="space-y-4">
@@ -72,7 +87,10 @@ export function NflTeamPage() {
       ) : current.chart === null ? (
         <ApiErrorAlert error={current.error} />
       ) : (
-        <DepthChartView chart={current.chart} />
+        <>
+          <DepthChartView chart={current.chart} />
+          {allowedNow !== null && <PointsAllowedCard team={code} table={allowedNow.table} />}
+        </>
       )}
     </div>
   );
@@ -83,6 +101,66 @@ interface TeamLoad {
   code: string;
   chart: NflDepthChart | null;
   error: unknown;
+}
+
+/** One team's points-allowed load: its table, or null when it failed. */
+interface AllowedLoad {
+  code: string;
+  table: PointsAllowedData | null;
+}
+
+const ALLOWED_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
+const ALLOWED_LABELS: Readonly<Record<string, string>> = { DEF: 'Team defense' };
+
+/**
+ * How the team's defense fares against each fantasy position this season: PPR points allowed per
+ * game and its rank (1st allows the most: the easiest matchup for an opposing player).
+ */
+function PointsAllowedCard({ team, table }: { team: string; table: PointsAllowedData | null }) {
+  const row = table?.teams.find((t) => t.team === team);
+  return (
+    <Card>
+      <CardBody>
+        <section aria-label="Points allowed by position" className="space-y-2">
+          <h3 className="font-semibold">Points allowed by position</h3>
+          {table === null ? (
+            <p className="text-sm text-muted-foreground">Points allowed are not available right now.</p>
+          ) : row === undefined || table.throughWeek === null ? (
+            <p className="text-sm text-muted-foreground">No completed games yet this season.</p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                PPR points per game the {team} defense allows to opposing players, through week{' '}
+                {table.throughWeek} ({row.games} {row.games === 1 ? 'game' : 'games'}). 1st allows the most.
+              </p>
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {ALLOWED_POSITIONS.map((position) => {
+                  const p = row.positions[position];
+                  if (p === undefined) return null;
+                  const strength = matchupStrength(p.rank, p.of);
+                  return (
+                    <li
+                      key={position}
+                      data-testid={`allowed-${position}`}
+                      className="flex items-center justify-between gap-2 rounded-md border border-border p-2"
+                    >
+                      <span>
+                        <span className="font-medium">{ALLOWED_LABELS[position] ?? position}</span>{' '}
+                        <span className="text-sm text-muted-foreground">
+                          {fmt(p.perGame)} pts · {ordinal(p.rank)} of {p.of}
+                        </span>
+                      </span>
+                      <StatusBadge tone={MATCHUP_TONE[strength]}>{MATCHUP_LABEL[strength]}</StatusBadge>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </section>
+      </CardBody>
+    </Card>
+  );
 }
 
 function DepthChartView({ chart }: { chart: NflDepthChart }) {

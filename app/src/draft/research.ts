@@ -28,6 +28,10 @@ export interface PlayerCardData {
   scoring: { source: 'league' | 'default' };
   bye: number | null;
   injuryStatus: string | null;
+  /** ESPN's note on his designation; null without one (older servers omit it). */
+  injuryNote?: { text: string; reportedAt: string | null } | null;
+  /** Age, seasons in the NFL before this one (0: rookie), and jersey number (older servers omit it). */
+  bio?: { age: number | null; yearsExp: number | null; number: number | null };
   lastSeason: {
     season: number;
     points: number;
@@ -57,6 +61,16 @@ export interface PlayerCardData {
     bye: boolean;
     opponent: { team: string; home: boolean } | null;
     kickoff: string | null;
+    /** How the opponent's defense has fared against his position (PPR); null on a bye or before week 2. */
+    matchup?: {
+      position: string;
+      perGame: number;
+      /** 1 allows the most points (easiest) through `of` (toughest). */
+      rank: number;
+      of: number;
+      games: number;
+      throughWeek: number;
+    } | null;
   } | null;
   news: NewsHeadline[];
 }

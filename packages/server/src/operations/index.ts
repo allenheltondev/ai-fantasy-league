@@ -12,6 +12,7 @@ import { configureAgentSeat, getAgentSeat, randomizeAgentSeatsOperation } from '
 import { getNews } from './research/get-news.js';
 import { getNflDepthChart } from './research/get-nfl-depth-chart.js';
 import { getPlayerCard } from './research/get-player-card.js';
+import { getPointsAllowed } from './research/get-points-allowed.js';
 import { getProjections } from './research/get-projections.js';
 import { getTrendingPlayers } from './research/get-trending-players.js';
 import { seasonOperations } from './season/index.js';
@@ -31,6 +32,7 @@ export const operations = [
   getNews,
   getPlayerCard,
   getNflDepthChart,
+  getPointsAllowed,
   // League lifecycle, membership, and settings
   ...leagueOperations,
   // Season loop: rosters and lineups (#52)

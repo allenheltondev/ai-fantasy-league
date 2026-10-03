@@ -28,11 +28,11 @@ export async function syncPlayers(
   const stored = new Set(previous.map((p) => p.id));
   const scoped = fetched.filter((p) => inSyncScope(p, stored));
   const firstDiff = diffPlayers(previous, scoped);
-  const held = await heldGameDayStatuses(
+  const storedProfiles = await profilesOf(
     deps,
-    firstDiff.upserts.filter((p) => stored.has(p.id)).map((p) => p.id),
-    now
+    firstDiff.upserts.filter((p) => stored.has(p.id)).map((p) => p.id)
   );
+  const held = new Map([...storedProfiles].filter(([, player]) => isGameDayHeld(player, now)));
   const diff = held.size === 0 ? firstDiff : diffPlayers(previous, pinGameDay(scoped, previous, held));
 
   const updatedAt = now.toISOString();
@@ -40,7 +40,8 @@ export async function syncPlayers(
     const player = toProfile(source, updatedAt);
     if (player === null) return [];
     const gameDay = held.get(source.id);
-    return [{ player: gameDay === undefined ? player : { ...player, ...gameDayMarkers(gameDay) }, source }];
+    const profile = gameDay === undefined ? player : { ...player, ...gameDayMarkers(gameDay) };
+    return [{ player: keepInjuryNote(profile, storedProfiles.get(source.id)), source }];
   });
   await deps.reference.playerSync.upsert(records);
 
@@ -73,19 +74,25 @@ export async function syncPlayers(
   return result;
 }
 
-/** Stored profiles among `ids` whose game-day status still holds at `now`. */
-async function heldGameDayStatuses(
+/** The stored profiles of `ids`, by id. */
+async function profilesOf(
   deps: Pick<JobDeps, 'reference'>,
-  ids: readonly string[],
-  now: Date
+  ids: readonly string[]
 ): Promise<Map<string, Player>> {
   if (ids.length === 0) return new Map();
   const records = await deps.reference.playerSync.getMany(ids);
-  return new Map(
-    records
-      .filter(({ player }) => isGameDayHeld(player, now))
-      .map(({ player }) => [player.id, player] as const)
-  );
+  return new Map(records.map(({ player }) => [player.id, player] as const));
+}
+
+/**
+ * ESPN's injury note (`syncGameDayInjuries`) stays on the rebuilt profile while the designation it
+ * explains stands; a changed or cleared designation drops it.
+ */
+function keepInjuryNote(player: Player, stored: Player | undefined): Player {
+  const note = stored?.injuryNote;
+  return note !== undefined && player.injuryStatus !== null && player.injuryStatus === stored?.injuryStatus
+    ? { ...player, injuryNote: note }
+    : player;
 }
 
 /** Whether a stored game-day status (#200) still outranks Sleeper at `now`. */

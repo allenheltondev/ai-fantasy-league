@@ -41,6 +41,18 @@ export interface Player {
   /** When the game-day status was read. */
   statusAsOf?: string;
   statusHeldUntil?: string;
+  /**
+   * ESPN's note on the injury behind `injuryStatus`, from its injury report (the game-day sync):
+   * "McCaffrey (Achilles) is inactive for Sunday's game." Kept while the designation it explains
+   * stands, and dropped when the designation changes or clears.
+   */
+  injuryNote?: InjuryNote;
+}
+
+export interface InjuryNote {
+  text: string;
+  /** When ESPN posted it (ISO 8601), or null when ESPN left the date out. */
+  reportedAt: string | null;
 }
 
 export const STATUS_SOURCES = ['sleeper', 'espn_gameday'] as const;
@@ -73,7 +85,11 @@ export const PlayerDetailSchema = PlayerRefSchema.extend({
     .optional()
     .describe('Injury designation such as "Questionable" or "Out", or null. Present when `detail` is true.'),
   aliases: z.array(z.string()).optional().describe('Nicknames accepted by name resolution.'),
-  rank: z.number().int().nullable().optional().describe('Consensus overall rank, lower is better.')
+  rank: z.number().int().nullable().optional().describe('Consensus overall rank, lower is better.'),
+  injuryNote: z
+    .object({ text: z.string(), reportedAt: z.string().nullable() })
+    .optional()
+    .describe('ESPN’s injury report note on his designation, when it has one. Present when `detail` is true.')
 }).describe(
   'A player. Compact responses include only id, name, team, and position; `detail: true` adds the rest.'
 );
@@ -90,7 +106,8 @@ export function toPlayerDetail(player: Player, detail: boolean): PlayerDetail {
     status: rosterStatus(player),
     injuryStatus: player.injuryStatus,
     aliases: player.aliases,
-    rank: player.rank
+    rank: player.rank,
+    ...(player.injuryNote === undefined ? {} : { injuryNote: player.injuryNote })
   };
 }
 

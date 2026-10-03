@@ -1,5 +1,6 @@
 import { openGameDay, weekEndsAt, type Clock } from '@fantasy/core';
-import { matchInjuryReports, type InjuryStatus } from '@fantasy/data';
+import { matchInjuryReports, type InjuryReport, type InjuryStatus } from '@fantasy/data';
+import type { InjuryNote, Player } from '../players/model.js';
 import { inSeasonRosters, rosteredPlayerIds } from '../players/roster-index.js';
 import type { SyncedPlayer } from '../repos/reference.js';
 import { weekGames } from '../season/lineups.js';
@@ -41,7 +42,9 @@ function isMorningRun(now: Date): boolean {
  * Output: a changed injury status is written to the player record, marked as a game-day status
  * held until the week ends (so the next Sleeper sync cannot revert it, `syncPlayers`), and
  * published as the same `Player Status Changed` the Sleeper sync emits, with
- * `source: 'espn_gameday'`: agents, views, and the matchup all read the stored status.
+ * `source: 'espn_gameday'`: agents, views, and the matchup all read the stored status. ESPN's
+ * note on the injury ("Jefferson (hamstring) is doubtful for Sunday.") is stored with it
+ * (`injuryNote`), and refreshed without an event when only the note changed.
  */
 export async function syncGameDayInjuries(
   deps: Pick<JobDeps, 'provider' | 'reference' | 'repos' | 'events' | 'directory' | 'log'>,
@@ -87,6 +90,8 @@ export async function syncGameDayInjuries(
     });
   }
   const changed: { record: SyncedPlayer; from: string | null; to: InjuryStatus | null }[] = [];
+  // Same designation, but ESPN's note on it is new or changed: stored without an event.
+  const noted: SyncedPlayer[] = [];
   let cleared = 0;
   for (const { player, source } of records) {
     const report = matches.byPlayer.get(player.id);
@@ -101,7 +106,11 @@ export async function syncGameDayInjuries(
     } else {
       continue;
     }
-    if (to === player.injuryStatus) continue;
+    const note = to === null ? undefined : injuryNote(report);
+    if (to === player.injuryStatus) {
+      if (!sameNote(player.injuryNote, note)) noted.push({ source, player: withInjuryNote(player, note) });
+      continue;
+    }
     const { injuryStatusRaw: _raw, ...rest } = source;
     changed.push({
       from: player.injuryStatus,
@@ -109,7 +118,7 @@ export async function syncGameDayInjuries(
       record: {
         source: { ...rest, injuryStatus: to },
         player: {
-          ...player,
+          ...withInjuryNote(player, note),
           injuryStatus: to,
           updatedAt: asOf,
           statusSource: 'espn_gameday',
@@ -119,8 +128,8 @@ export async function syncGameDayInjuries(
       }
     });
   }
-  await deps.reference.playerSync.upsert(changed.map((c) => c.record));
-  if (changed.length > 0) deps.directory.invalidate();
+  await deps.reference.playerSync.upsert([...changed.map((c) => c.record), ...noted]);
+  if (changed.length > 0 || noted.length > 0) deps.directory.invalidate();
   await mapLimit(changed, 10, ({ record, from, to }) =>
     deps.events.publish(
       'Player Status Changed',
@@ -142,9 +151,26 @@ export async function syncGameDayInjuries(
     matchedById: matches.byId,
     matchedByName: matches.byName,
     statusChanges: changed.length,
+    notesUpdated: noted.length,
     cleared,
     clearing: canClear
   };
   deps.log.info('game-day injuries synced', result);
   return result;
+}
+
+/** ESPN's note on a report entry, or undefined when it has none. */
+function injuryNote(report: InjuryReport | undefined): InjuryNote | undefined {
+  const text = report?.comment?.trim();
+  return text ? { text, reportedAt: report?.reportedAt ?? null } : undefined;
+}
+
+function sameNote(a: InjuryNote | undefined, b: InjuryNote | undefined): boolean {
+  return a?.text === b?.text && (a?.reportedAt ?? null) === (b?.reportedAt ?? null);
+}
+
+/** The profile with `note` as its injury note, or with none. */
+export function withInjuryNote(player: Player, note: InjuryNote | undefined): Player {
+  const { injuryNote: _old, ...rest } = player;
+  return note === undefined ? rest : { ...rest, injuryNote: note };
 }

@@ -332,6 +332,12 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       slots: [],
       others: []
     })),
+    getPointsAllowed: vi.fn(async () => ({
+      season: 2026,
+      throughWeek: null,
+      scoring: 'ppr' as const,
+      teams: []
+    })),
     listLeaguePlayers: vi.fn(async () => ({
       season: 2026,
       week: 1,

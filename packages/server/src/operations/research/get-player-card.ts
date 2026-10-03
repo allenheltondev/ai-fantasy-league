@@ -1,6 +1,14 @@
 import { z } from 'zod';
-import { PlayerDetailSchema, playerSelectorShape, toPlayerDetail } from '../../players/model.js';
+import type { Ctx } from '../../context.js';
+import {
+  PlayerDetailSchema,
+  PositionSchema,
+  playerSelectorShape,
+  toPlayerDetail,
+  type Position
+} from '../../players/model.js';
 import { loadCurrentForm } from '../../players/current-form.js';
+import { loadPointsAllowed } from '../../players/points-allowed.js';
 import { cardTotals, loadResearch } from '../../players/research.js';
 import { defineOperation } from '../../registry/operation.js';
 import { leagueIdField, scoringFor } from './shared.js';
@@ -21,7 +29,7 @@ export const getPlayerCard = defineOperation({
   summary:
     'One player’s card: this season so far, next week’s projection and matchup, last season, the season projection, and news',
   description: [
-    'Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`); his projection for the current NFL week with his opponent, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his bye week and injury designation; and up to 3 recent news headlines.',
+    'Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`); his projection for the current NFL week with his opponent and how that defense has fared against his position, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his age, NFL experience, and jersey number (`bio`); his bye week, injury designation, and ESPN’s injury note; and up to 3 recent news headlines.',
     'Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used.',
     '`lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade.',
     'An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.'
@@ -38,6 +46,22 @@ export const getPlayerCard = defineOperation({
     }),
     bye: z.number().int().nullable().describe('Bye week this season, or null when unknown.'),
     injuryStatus: z.string().nullable().describe('Injury designation, or null when healthy.'),
+    injuryNote: z
+      .object({
+        text: z.string().describe('ESPN’s note, e.g. "Jefferson (hamstring) is doubtful for Sunday."'),
+        reportedAt: z.string().nullable().describe('When ESPN posted it (ISO 8601), or null.')
+      })
+      .nullable()
+      .describe('ESPN’s injury report note on his designation, or null when there is none.'),
+    bio: z.object({
+      age: z.number().int().nullable().describe('Age in years, or null when unknown.'),
+      yearsExp: z
+        .number()
+        .int()
+        .nullable()
+        .describe('Seasons in the NFL before this one: 0 is a rookie. Null when unknown.'),
+      number: z.number().int().nullable().describe('Jersey number, or null when unknown.')
+    }),
     lastSeason: z
       .object({
         season: z.number().int(),
@@ -113,7 +137,27 @@ export const getPlayerCard = defineOperation({
         opponent: z
           .object({ team: z.string().describe('The opposing NFL team, e.g. "BUF".'), home: z.boolean() })
           .nullable(),
-        kickoff: z.string().nullable().describe('Kickoff (ISO 8601), or null on a bye or unknown.')
+        kickoff: z.string().nullable().describe('Kickoff (ISO 8601), or null on a bye or unknown.'),
+        matchup: z
+          .object({
+            position: PositionSchema,
+            perGame: z
+              .number()
+              .describe('PPR fantasy points per game the opponent’s defense has allowed to his position.'),
+            rank: z
+              .number()
+              .int()
+              .describe(
+                '1 allows the most points to his position (the easiest matchup) through `of` (the toughest).'
+              ),
+            of: z.number().int(),
+            games: z.number().int().describe('Games the opponent’s defense has played that count.'),
+            throughWeek: z.number().int().describe('The last completed week counted.')
+          })
+          .nullable()
+          .describe(
+            'How the opponent’s defense has fared against his position this season (get_points_allowed has every team); null on a bye or before week 2.'
+          )
       })
       .nullable()
       .describe('The upcoming week: projection and matchup. Null in the offseason.'),
@@ -132,11 +176,22 @@ export const getPlayerCard = defineOperation({
   handler: async (ctx, input) => {
     const scoring = await scoringFor(ctx, input.leagueId);
     const player = await ctx.data.players.resolve(input);
-    const [research, news, form] = await Promise.all([
+    const [research, news, form, synced] = await Promise.all([
       loadResearch(ctx, scoring.settings, [player.id]),
       ctx.data.reference.news.listByPlayer(player.id, { limit: CARD_NEWS_LIMIT }),
-      loadCurrentForm(ctx, scoring.settings, player)
+      loadCurrentForm(ctx, scoring.settings, player),
+      // The bio is enrichment: a failed read leaves it unknown rather than failing the card.
+      ctx.data.reference.playerSync.getMany([player.id]).catch((error: unknown) => {
+        ctx.log.warn('player card bio unavailable', { playerId: player.id, error });
+        return [];
+      })
     ]);
+    const source = synced[0]?.source;
+    const next = form.nextWeek;
+    const matchup =
+      next === null || next.opponent === null
+        ? null
+        : await opponentMatchup(ctx, next.season, next.week, next.opponent.team, player.position);
     const last = research.lastSeason(player.id);
     const projection = research.projection(player.id);
     return {
@@ -144,6 +199,12 @@ export const getPlayerCard = defineOperation({
       scoring: { source: scoring.source },
       bye: research.bye(player.team),
       injuryStatus: player.injuryStatus,
+      injuryNote: player.injuryNote ?? null,
+      bio: {
+        age: source?.age ?? null,
+        yearsExp: source?.yearsExp ?? null,
+        number: source?.number ?? null
+      },
       lastSeason:
         last === null
           ? null
@@ -164,7 +225,7 @@ export const getPlayerCard = defineOperation({
               totals: cardTotals(projection.lines, player.position)
             },
       thisSeason: form.thisSeason,
-      nextWeek: form.nextWeek,
+      nextWeek: next === null ? null : { ...next, matchup },
       news: news.map((item) => ({
         id: item.id,
         title: item.title,
@@ -175,3 +236,24 @@ export const getPlayerCard = defineOperation({
     };
   }
 });
+
+/**
+ * How `opponent`'s defense has fared against `position` through the weeks before `week`. It is
+ * enrichment: a failed read (any of the 32 defenses) is logged and the matchup is null, so the
+ * rest of the card still loads.
+ */
+async function opponentMatchup(
+  ctx: Pick<Ctx, 'data' | 'log'>,
+  season: number,
+  week: number,
+  opponent: string,
+  position: Position
+) {
+  const table = await loadPointsAllowed(ctx.data.reference.stats, season, week).catch((error: unknown) => {
+    ctx.log.warn('player card matchup unavailable', { season, week, opponent, error });
+    return null;
+  });
+  const entry = table?.teams.find((t) => t.team === opponent);
+  if (table === null || entry === undefined) return null;
+  return { position, ...entry.positions[position], games: entry.games, throughWeek: table.throughWeek };
+}

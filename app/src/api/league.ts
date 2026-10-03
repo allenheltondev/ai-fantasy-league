@@ -26,6 +26,7 @@ import type {
   MatchupData,
   MatchupOutlook,
   NflDepthChart,
+  PointsAllowedData,
   NflGamesData,
   ModelLeaderboard,
   MyLeague,
@@ -117,6 +118,9 @@ export function createLeagueApi(api: ApiFetch) {
     /** get_nfl_depth_chart: an NFL team's depth chart, starters first at each slot. */
     getNflDepthChart: (team: string) =>
       call<NflDepthChart>(`/nfl-teams/${encodeURIComponent(team)}/depth-chart`),
+    /** get_points_allowed: PPR points each defense allows by position this season, ranked. */
+    getPointsAllowed: (query: { team?: string; position?: string } = {}) =>
+      call<PointsAllowedData>('/nfl-teams/points-allowed', { query }),
     // Roster workspace (#205): the player market, adds and claims, drops, and pending claims
     listLeaguePlayers: (id: string, query: MarketQuery) =>
       call<MarketPage>(`${league(id)}/players`, { query: { ...query } }),
