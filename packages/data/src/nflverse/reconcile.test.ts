@@ -26,4 +26,16 @@ describe('reconcileWithNflverse', () => {
       line('DEF-KC', { def_int: 2 })
     ]);
   });
+
+  it('adds the nflverse usage stats, replacing any the line had', () => {
+    const primary = [line('p1', { gp: 1, rec: 5, nfv_rec_epa: 3, nfv_wopr: 0.5 }), line('p2', { gp: 1 })];
+    const official = [
+      { ...line('p1', { gp: 1, rec: 5 }), usage: { nfv_tgt_share: 0.25, nfv_wopr: 0.4 } },
+      line('p2', { gp: 1 })
+    ];
+    expect(reconcileWithNflverse(primary, official)).toEqual([
+      line('p1', { gp: 1, rec: 5, nfv_tgt_share: 0.25, nfv_wopr: 0.4 }),
+      line('p2', { gp: 1 })
+    ]);
+  });
 });

@@ -13,7 +13,7 @@ import {
 } from '../players/matchup';
 import { PlayerHeadshot, TeamLogo } from '../players/PlayerHeadshot';
 import { ordinal } from './DraftResults';
-import { fmt, STAT_NAMES, type PlayerCardData } from './research';
+import { fmt, STAT_NAMES, usageEntries, type PlayerCardData, type SeasonUsage } from './research';
 import { RecentGames } from './RecentGames';
 import { WeeklyPoints } from './WeeklyPoints';
 
@@ -42,6 +42,30 @@ function Totals({ totals, label }: { totals: Record<string, number>; label: stri
         </div>
       ))}
     </dl>
+  );
+}
+
+/** His usage from official stats: target share and WOPR for a receiver or back, EPA and CPOE for a passer. */
+function Usage({ usage, position }: { usage: SeasonUsage; position: string }) {
+  const entries = usageEntries(usage, position);
+  if (entries.length === 0) return null;
+  return (
+    <div className="space-y-1" data-testid="card-usage">
+      <p className="text-xs text-muted-foreground">
+        Usage · official stats through week {usage.throughWeek} ({usage.games}{' '}
+        {usage.games === 1 ? 'game' : 'games'})
+      </p>
+      <dl aria-label="Usage" className="grid grid-cols-3 gap-x-3 gap-y-1 text-sm">
+        {entries.map((e) => (
+          <div key={e.key}>
+            <dt className="text-xs text-muted-foreground" title={e.title}>
+              {e.label}
+            </dt>
+            <dd className="font-medium">{e.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
@@ -238,6 +262,9 @@ export function PlayerCard(props: PlayerCardProps) {
                   games={card.thisSeason.games}
                 />
                 <Totals totals={card.thisSeason.totals} label="This season totals" />
+                {card.thisSeason.usage != null && (
+                  <Usage usage={card.thisSeason.usage} position={player.position} />
+                )}
               </section>
             )}
             {card.nextWeek != null && (

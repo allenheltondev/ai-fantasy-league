@@ -40,6 +40,11 @@ describe('isScoringChange', () => {
     expect(isScoringChange({ rec_tgt: 1 }, { rec_tgt: 2 })).toBe(true);
     expect(isScoringChange(undefined, { rush_yd: 4 })).toBe(true);
   });
+
+  it('ignores the nflverse usage stats the official final adds', () => {
+    expect(isScoringChange({ rec: 5 }, { rec: 5, nfv_tgt_share: 0.25, nfv_rec_epa: -1.2 })).toBe(false);
+    expect(isScoringChange({ rec: 5, nfv_wopr: 0.4 }, { rec: 6, nfv_wopr: 0.5 })).toBe(true);
+  });
 });
 
 describe('scoredStats', () => {

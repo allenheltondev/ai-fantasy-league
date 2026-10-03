@@ -46,8 +46,14 @@ export interface ScoredEvent {
  */
 const VOLATILE_STATS = new Set(['pts_std', 'pts_ppr', 'pts_half_ppr', 'gp', 'gs', 'gms_active']);
 
+/**
+ * The prefix of the usage stats the official final copies from nflverse (target share, air yards,
+ * EPA, ...: `NFLVERSE_USAGE` in `@fantasy/data`). No league scores them, so they are not events.
+ */
+export const USAGE_STAT_PREFIX = 'nfv_';
+
 function isVolatile(stat: string): boolean {
-  return VOLATILE_STATS.has(stat) || stat.endsWith('_snp');
+  return VOLATILE_STATS.has(stat) || stat.endsWith('_snp') || stat.startsWith(USAGE_STAT_PREFIX);
 }
 
 function num(line: StatLine | undefined, stat: string): number {

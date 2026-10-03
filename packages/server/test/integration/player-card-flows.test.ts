@@ -36,6 +36,7 @@ interface Card {
       opponent: { team: string; home: boolean } | null;
       breakdown: { stat: string; text: string; points: number }[];
     }[];
+    usage: Record<string, number | null> | null;
   } | null;
   nextWeek: {
     season: number;
@@ -102,14 +103,44 @@ beforeAll(async () => {
   const chase = fixtureDraftPool.find((p) => p.id === 'fx-chase')!;
   // Chase: two games (week 2 was a missing line), 100 and 50 receiving yards, one touchdown.
   await reference.stats.putLines([
+    // Weeks 1 and 3 are official: they carry nflverse's usage stats (`nfv_…`).
     {
       playerId: 'fx-chase',
       season: 2026,
       week: 1,
-      stats: { gp: 1, rec: 8, rec_yd: 100, rec_td: 1 },
+      stats: {
+        gp: 1,
+        rec: 8,
+        rec_yd: 100,
+        rec_td: 1,
+        rec_tgt: 10,
+        nfv_tgt_share: 0.3,
+        nfv_air_yd_share: 0.4,
+        nfv_wopr: 0.73,
+        nfv_rec_air_yd: 90,
+        nfv_rec_yac: 30,
+        nfv_rec_epa: 5
+      },
       updatedAt: 'x'
     },
-    { playerId: 'fx-chase', season: 2026, week: 3, stats: { gp: 1, rec: 4, rec_yd: 50 }, updatedAt: 'x' },
+    {
+      playerId: 'fx-chase',
+      season: 2026,
+      week: 3,
+      stats: {
+        gp: 1,
+        rec: 4,
+        rec_yd: 50,
+        rec_tgt: 6,
+        nfv_tgt_share: 0.2,
+        nfv_air_yd_share: 0.2,
+        nfv_wopr: 0.44,
+        nfv_rec_air_yd: 60,
+        nfv_rec_yac: 10,
+        nfv_rec_epa: -1
+      },
+      updatedAt: 'x'
+    },
     // Last season and the playoffs are not this season.
     { playerId: 'fx-chase', season: 2025, week: 3, stats: { gp: 1, rec: 9, rec_yd: 200 }, updatedAt: 'x' },
     { playerId: 'fx-chase', season: 2026, week: 19, stats: { gp: 1, rec: 9, rec_yd: 200 }, updatedAt: 'x' }
@@ -197,6 +228,27 @@ beforeAll(async () => {
 afterAll(() => h.close());
 
 describe('the player card in season', () => {
+  it('sums up his usage over the official weeks, from the nflverse numbers on those lines', async () => {
+    const { thisSeason } = await card('fx-chase');
+    // Weeks 1 and 3 (week 2 is not official yet): 16 targets, 12 catches, 150 air yards, 40 YAC.
+    expect(thisSeason?.usage).toEqual({
+      games: 2,
+      throughWeek: 3,
+      targetShare: 0.25,
+      airYardsShare: 0.3,
+      wopr: 0.585,
+      aDot: 9.4,
+      yacPerReception: 3.3,
+      receivingEpa: 2,
+      rushingEpa: null,
+      passingEpa: null,
+      cpoe: null,
+      passingAdot: null
+    });
+    // Lamb has no official week: no usage.
+    expect((await card('fx-lamb')).thisSeason).toBeNull();
+  });
+
   it("shows this season so far, week by week, with weeks the live job missed, scored with the league's settings", async () => {
     const { thisSeason } = await card('fx-chase');
     // Half PPR: week 1 = 4 + 10 + 6 = 20 (the live line, not the stale copy); week 2 = 2.5 + 6 =

@@ -29,7 +29,7 @@ export const getPlayerCard = defineOperation({
   summary:
     'One player’s card: this season so far, next week’s projection and matchup, last season, the season projection, and news',
   description: [
-    'Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`); his projection for the current NFL week with his opponent and how that defense has fared against his position, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his age, NFL experience, and jersey number (`bio`); his bye week, injury designation, and ESPN’s injury note; and up to 3 recent news headlines.',
+    'Returns one player’s card: this season’s fantasy points so far, week by week, with points per game and key stat totals, plus his last three games in detail: points, versus his average, the opponent, and where the points came from (`thisSeason`, `thisSeason.recent`), and his usage from official stats: target and air yards share, WOPR, depth of target, and EPA (`thisSeason.usage`); his projection for the current NFL week with his opponent and how that defense has fared against his position, or his bye (`nextWeek`); last regular season’s points each week plus totals, points per game, and key stat totals; this season’s projected points and stat totals; his age, NFL experience, and jersey number (`bio`); his bye week, injury designation, and ESPN’s injury note; and up to 3 recent news headlines.',
     'Pass `leagueId` to score with your league’s settings (you must be a member); otherwise points use Yahoo standard half-PPR, and `scoring.source` says which was used.',
     '`lastSeason` is null for rookies and players with no stats last season; `projection` is null until projections are published; `thisSeason` is null until he has a stat line this season; `nextWeek` is null in the offseason, and its `points` are null until that week’s projections are published. Use it before a draft pick, a start/sit call, a waiver claim, or a trade.',
     'An unknown player returns PLAYER_NOT_FOUND; an ambiguous name returns AMBIGUOUS_PLAYER with candidates.'
@@ -118,7 +118,45 @@ export const getPlayerCard = defineOperation({
                 )
             })
           )
-          .describe('His last three games played, newest first, each in detail.')
+          .describe('His last three games played, newest first, each in detail.'),
+        usage: z
+          .object({
+            games: z
+              .number()
+              .int()
+              .describe('Official games counted (stat-corrected weeks, so it can trail `games`).'),
+            throughWeek: z.number().int().describe('The last official week counted.'),
+            targetShare: z
+              .number()
+              .nullable()
+              .describe(
+                'Average share of his team’s targets, as a fraction (0.25 = 25%); null with no targets.'
+              ),
+            airYardsShare: z
+              .number()
+              .nullable()
+              .describe('Average share of his team’s air yards, as a fraction.'),
+            wopr: z
+              .number()
+              .nullable()
+              .describe(
+                'Weighted opportunity rating: 1.5 × target share + 0.7 × air yards share. Higher is a bigger role.'
+              ),
+            aDot: z.number().nullable().describe('Average depth of target: air yards per target.'),
+            yacPerReception: z.number().nullable().describe('Yards after the catch per reception.'),
+            receivingEpa: z.number().nullable().describe('Receiving expected points added per game.'),
+            rushingEpa: z.number().nullable().describe('Rushing expected points added per game.'),
+            passingEpa: z.number().nullable().describe('Passing expected points added per game.'),
+            cpoe: z
+              .number()
+              .nullable()
+              .describe('Completion percentage over expected, in points, weighted by attempts.'),
+            passingAdot: z.number().nullable().describe('Air yards per pass attempt.')
+          })
+          .nullable()
+          .describe(
+            'His usage and efficiency from nflverse’s official weekly stats (added when each week’s stats are corrected, the Thursday after); null before his first official week.'
+          )
       })
       .nullable()
       .describe(

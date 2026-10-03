@@ -256,6 +256,25 @@ describe('officialFinal job', () => {
     });
   });
 
+  it('stores the nflverse usage stats the official line adds, without a correction', async () => {
+    const provider = new OfficialProvider();
+    const { deps } = await setup({ provider });
+    const usage = { nfv_tgt_share: 0.08, nfv_rush_epa: 2.5 };
+    provider.stats = [{ ...cmc(100), stats: { rush_yd: 100, ...usage } }];
+    expect(await officialFinal(deps, new FixedClock(officialTime(4)))).toMatchObject({
+      status: 'ok',
+      statsChanged: 1,
+      corrections: 0
+    });
+    expect(
+      (await deps.reference.stats.getWeek(SEASON, 4)).find((l) => l.playerId === 'fx-cmc')?.stats
+    ).toEqual({
+      rush_yd: 100,
+      ...usage
+    });
+    expect(await deps.reference.scoringLog.listPlayers(SEASON, 4, ['fx-cmc'])).toEqual([]);
+  });
+
   it('looks at played weeks of in-season leagues and recent complete leagues, never void weeks', async () => {
     const deps = createTestJobDeps();
     await seedNflSchedule(deps.reference);

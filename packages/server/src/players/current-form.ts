@@ -5,7 +5,8 @@ import {
   statLabel,
   type ScoreBreakdownItem,
   type ScoringSettings,
-  type WeekPoints
+  type WeekPoints,
+  USAGE_STAT_PREFIX
 } from '@fantasy/core';
 import type { Ctx } from '../context.js';
 import type { Player } from './model.js';
@@ -48,6 +49,101 @@ export interface ThisSeason {
   totals: Record<string, number>;
   /** His last three games played, newest first. */
   recent: RecentGame[];
+  /** His usage from nflverse's official weekly stats; null before any official week. */
+  usage: SeasonUsage | null;
+}
+
+/**
+ * A player's usage this season from the nflverse numbers the Thursday official final adds to each
+ * week's stat line (`nfv_…`, `NFLVERSE_USAGE` in `@fantasy/data`). Only official weeks have them,
+ * so `games` and `throughWeek` can trail his games played. The shares are null for a position that
+ * does not run routes (a quarterback); every other figure is null when no counted game reported it
+ * (a receiver has no passing EPA).
+ */
+export interface SeasonUsage {
+  /** Official games counted. */
+  games: number;
+  /** The last official week counted. */
+  throughWeek: number;
+  /** Average share of his team's targets (0.25 is a quarter). */
+  targetShare: number | null;
+  /** Average share of his team's air yards. */
+  airYardsShare: number | null;
+  /** Weighted opportunity rating: 1.5 × target share + 0.7 × air yards share. */
+  wopr: number | null;
+  /** Average depth of target: air yards per target. */
+  aDot: number | null;
+  /** Yards after the catch per reception. */
+  yacPerReception: number | null;
+  /** Expected points added per game, by how he gained them. */
+  receivingEpa: number | null;
+  rushingEpa: number | null;
+  passingEpa: number | null;
+  /** Completion percentage over expected, weighted by attempts. */
+  cpoe: number | null;
+  /** Air yards per pass attempt. */
+  passingAdot: number | null;
+}
+
+const RECEIVER_SHARE = `${USAGE_STAT_PREFIX}tgt_share`;
+const usageKey = (name: string) => `${USAGE_STAT_PREFIX}${name}`;
+
+/** The positions that run routes: their target, air yards, and WOPR shares count even at 0. */
+const RECEIVING_POSITIONS: ReadonlySet<string> = new Set(['RB', 'WR', 'TE']);
+
+/**
+ * His usage over the official weeks among `played` (those carrying nflverse's numbers). The shares
+ * are a receiving role's: a running back, receiver, or tight end has them even with no targets
+ * (0%), and any other position (a passer, a kicker) has none.
+ */
+export function seasonUsage(
+  played: readonly { week: number; stats: Record<string, number> }[],
+  position: string
+): SeasonUsage | null {
+  const games = played.filter(
+    (p) => playedWeek(p.stats) && Object.keys(p.stats).some((key) => key.startsWith(USAGE_STAT_PREFIX))
+  );
+  if (games.length === 0) return null;
+  const sum = (key: string) => games.reduce((total, g) => total + (g.stats[key] ?? 0), 0);
+  const reported = (key: string) => games.filter((g) => g.stats[key] !== undefined);
+  const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
+  // A share averages over the games that reported it (0 included): a game whose file lacked the
+  // column is not a 0% game.
+  const share = (key: string) => {
+    const counted = reported(key);
+    if (!receiver || counted.length === 0) return null;
+    return round(counted.reduce((total, g) => total + (g.stats[key] ?? 0), 0) / counted.length, 3);
+  };
+  const perGame = (name: string) =>
+    reported(usageKey(name)).length === 0 ? null : round(sum(usageKey(name)) / games.length, 2);
+  const ratio = (top: number, bottom: number, places: number) =>
+    bottom > 0 ? round(top / bottom, places) : null;
+  const targets = sum('rec_tgt');
+  const receiver = RECEIVING_POSITIONS.has(position);
+  const attempts = sum('pass_att');
+  const cpoeGames = reported(usageKey('pass_cpoe'));
+  const cpoeAttempts = cpoeGames.reduce((total, g) => total + (g.stats.pass_att ?? 0), 0);
+  return {
+    games: games.length,
+    throughWeek: Math.max(...games.map((g) => g.week)),
+    targetShare: share(RECEIVER_SHARE),
+    airYardsShare: share(usageKey('air_yd_share')),
+    wopr: share(usageKey('wopr')),
+    aDot: ratio(sum(usageKey('rec_air_yd')), targets, 1),
+    yacPerReception: ratio(sum(usageKey('rec_yac')), sum('rec'), 1),
+    receivingEpa: perGame('rec_epa'),
+    rushingEpa: perGame('rush_epa'),
+    passingEpa: perGame('pass_epa'),
+    cpoe: ratio(
+      cpoeGames.reduce(
+        (total, g) => total + (g.stats[usageKey('pass_cpoe')] ?? 0) * (g.stats.pass_att ?? 0),
+        0
+      ),
+      cpoeAttempts,
+      1
+    ),
+    passingAdot: ratio(sum(usageKey('pass_air_yd')), attempts, 1)
+  };
 }
 
 /** Games shown in the recent-games detail. */
@@ -173,7 +269,8 @@ export async function loadCurrentForm(
       games: scored.games,
       weekly: scored.weekly,
       totals: cardTotals({ playerId: player.id, season, weeks: played }, player.position),
-      recent
+      recent,
+      usage: seasonUsage(played, player.position)
     };
   }
 

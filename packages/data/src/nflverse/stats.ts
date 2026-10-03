@@ -1,3 +1,4 @@
+import { USAGE_STAT_PREFIX } from '@fantasy/core';
 import { toSleeperTeam } from '../teams.js';
 import type { StatLine, StatMap } from '../types.js';
 import type { IdCrosswalk } from './crosswalk.js';
@@ -73,6 +74,35 @@ export const NFLVERSE_TO_SLEEPER: Readonly<Record<string, readonly string[]>> = 
   idp_safe: ['def_safeties']
 };
 
+/**
+ * Usage stat key ← the nflverse column it copies: the advanced receiving, passing, and rushing
+ * numbers Sleeper does not carry. Keys share `USAGE_STAT_PREFIX` (`nfv_`) so they never collide with
+ * a Sleeper key and never count as a scoring change. Shares are fractions (0.25 is a quarter of the
+ * team's targets); air yards can be negative (a catch behind the line).
+ */
+export const NFLVERSE_USAGE: Readonly<Record<string, string>> = {
+  [`${USAGE_STAT_PREFIX}tgt_share`]: 'target_share',
+  [`${USAGE_STAT_PREFIX}air_yd_share`]: 'air_yards_share',
+  [`${USAGE_STAT_PREFIX}wopr`]: 'wopr',
+  [`${USAGE_STAT_PREFIX}rec_air_yd`]: 'receiving_air_yards',
+  [`${USAGE_STAT_PREFIX}rec_yac`]: 'receiving_yards_after_catch',
+  [`${USAGE_STAT_PREFIX}rec_epa`]: 'receiving_epa',
+  [`${USAGE_STAT_PREFIX}pass_air_yd`]: 'passing_air_yards',
+  [`${USAGE_STAT_PREFIX}pass_epa`]: 'passing_epa',
+  [`${USAGE_STAT_PREFIX}pass_cpoe`]: 'passing_cpoe',
+  [`${USAGE_STAT_PREFIX}rush_epa`]: 'rushing_epa'
+};
+
+/**
+ * The shares nflverse reports for every player row, kept even at 0 when the file has the column: a
+ * receiver with no targets in a game has a 0% target share that his average must count.
+ */
+const ALWAYS_KEPT = new Set([
+  `${USAGE_STAT_PREFIX}tgt_share`,
+  `${USAGE_STAT_PREFIX}air_yd_share`,
+  `${USAGE_STAT_PREFIX}wopr`
+]);
+
 /** Columns we require so a rename upstream fails loudly instead of scoring zeros. */
 export const STATS_REQUIRED_COLUMNS = [
   'player_id',
@@ -103,6 +133,8 @@ export const STATS_REQUIRED_COLUMNS = [
 ] as const;
 
 export interface NflverseStatLine extends StatLine {
+  /** The usage stats (`NFLVERSE_USAGE`), apart from the scoring `stats`. */
+  usage: StatMap;
   gsisId: string;
   name: string;
   position: string | null;
@@ -122,6 +154,26 @@ export function mapNflverseStats(row: CsvRow): StatMap {
     if (total !== 0) stats[key] = Math.round(total * 1000) / 1000;
   }
   return stats;
+}
+
+/**
+ * A row's usage stats, rounded to 4 decimals: the shares whenever the file has their column (0 when
+ * the row's value is empty), the rest only when reported and nonzero. A column the file does not
+ * have (renamed or dropped upstream, or an older season) yields no key at all, never a 0, so a
+ * schema change reads as "not reported" instead of a confident 0% share. The usage columns are not
+ * required (`STATS_REQUIRED_COLUMNS`): losing one must not stop the stat corrections.
+ */
+export function mapNflverseUsage(row: CsvRow): StatMap {
+  const usage: StatMap = {};
+  for (const [key, column] of Object.entries(NFLVERSE_USAGE)) {
+    // Every parsed row carries every header column (an empty cell is ''), so a missing key is a
+    // missing column.
+    if (row[column] === undefined) continue;
+    const value = csvNumber(row, column);
+    if (ALWAYS_KEPT.has(key)) usage[key] = Math.round((value ?? 0) * 10_000) / 10_000;
+    else if (value !== undefined && value !== 0) usage[key] = Math.round(value * 10_000) / 10_000;
+  }
+  return usage;
 }
 
 /**
@@ -147,6 +199,7 @@ export function parseNflverseWeeklyStats(csv: string, crosswalk?: IdCrosswalk): 
       seasonType: csvValue(row, 'season_type') === 'REG' ? 'regular' : 'post',
       opponent: toSleeperTeam(csvValue(row, 'opponent_team')),
       stats: mapNflverseStats(row),
+      usage: mapNflverseUsage(row),
       fantasyPoints: csvNumber(row, 'fantasy_points') ?? 0,
       fantasyPointsPpr: csvNumber(row, 'fantasy_points_ppr') ?? 0
     };
