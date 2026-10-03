@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { currentWeek } from '../../src/players/current-form.js';
 import { registry } from '../../src/operations/index.js';
 import { fixtureDraftPool } from '../../src/players/fixtures.js';
@@ -269,6 +269,32 @@ describe('the player card in season', () => {
       matchup: { position: 'WR', perGame: 35, rank: 2, of: 4, games: 3, throughWeek: 3 }
     });
     expect(player.team).toBeTruthy();
+  });
+
+  it('still loads, without the matchup or the bio, when their reads fail', async () => {
+    const reference = h.services.data.reference;
+    // One defense's read fails (BAL, his opponent, still reads): the whole table is unavailable.
+    const read = reference.stats.getPlayerHistory.bind(reference.stats);
+    const history = vi
+      .spyOn(reference.stats, 'getPlayerHistory')
+      .mockImplementation(async (playerId, season) => {
+        if (playerId === 'KC') throw new Error('throttled');
+        return read(playerId, season);
+      });
+    const sync = vi.spyOn(reference.playerSync, 'getMany').mockRejectedValue(new Error('throttled'));
+    try {
+      const chase = await card('fx-chase');
+      expect(chase.nextWeek).toMatchObject({
+        opponent: { team: 'BAL', home: true },
+        points: 11,
+        matchup: null
+      });
+      expect(chase.bio).toEqual({ age: null, yearsExp: null, number: null });
+      expect(chase.thisSeason?.games).toBe(3);
+    } finally {
+      history.mockRestore();
+      sync.mockRestore();
+    }
   });
 
   it('shows his age, experience, and jersey number, and ESPN’s note on his injury', async () => {

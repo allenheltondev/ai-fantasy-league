@@ -180,7 +180,11 @@ export const getPlayerCard = defineOperation({
       loadResearch(ctx, scoring.settings, [player.id]),
       ctx.data.reference.news.listByPlayer(player.id, { limit: CARD_NEWS_LIMIT }),
       loadCurrentForm(ctx, scoring.settings, player),
-      ctx.data.reference.playerSync.getMany([player.id])
+      // The bio is enrichment: a failed read leaves it unknown rather than failing the card.
+      ctx.data.reference.playerSync.getMany([player.id]).catch((error: unknown) => {
+        ctx.log.warn('player card bio unavailable', { playerId: player.id, error });
+        return [];
+      })
     ]);
     const source = synced[0]?.source;
     const next = form.nextWeek;
@@ -233,15 +237,22 @@ export const getPlayerCard = defineOperation({
   }
 });
 
-/** How `opponent`'s defense has fared against `position` through the weeks before `week`. */
+/**
+ * How `opponent`'s defense has fared against `position` through the weeks before `week`. It is
+ * enrichment: a failed read (any of the 32 defenses) is logged and the matchup is null, so the
+ * rest of the card still loads.
+ */
 async function opponentMatchup(
-  ctx: Pick<Ctx, 'data'>,
+  ctx: Pick<Ctx, 'data' | 'log'>,
   season: number,
   week: number,
   opponent: string,
   position: Position
 ) {
-  const table = await loadPointsAllowed(ctx.data.reference.stats, season, week);
+  const table = await loadPointsAllowed(ctx.data.reference.stats, season, week).catch((error: unknown) => {
+    ctx.log.warn('player card matchup unavailable', { season, week, opponent, error });
+    return null;
+  });
   const entry = table?.teams.find((t) => t.team === opponent);
   if (table === null || entry === undefined) return null;
   return { position, ...entry.positions[position], games: entry.games, throughWeek: table.throughWeek };
