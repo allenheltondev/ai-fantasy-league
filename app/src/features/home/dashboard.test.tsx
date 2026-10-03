@@ -43,12 +43,14 @@ function game(
   home: DashboardTeam,
   away: DashboardTeam,
   scores: [number | null, number | null],
-  status: DashboardMatchup['status'] = 'in_progress'
+  status: DashboardMatchup['status'] = 'in_progress',
+  live = status === 'in_progress'
 ): DashboardMatchup {
   return {
     id,
     kind: 'regular',
     status,
+    live,
     home: { ...home, score: scores[0], record: '2-1' },
     away: { ...away, score: scores[1], record: '1-2' }
   };
@@ -239,6 +241,36 @@ describe('the league dashboard', () => {
     expect(within(matchups).getByRole('heading', { name: 'Week 3 results' })).toBeInTheDocument();
     expect(within(matchups).getAllByText('Final')).toHaveLength(2);
     expect(within(matchups).getAllByText('–')).toHaveLength(2);
+  });
+
+  it('shows Live only on matchups with a rostered player in a game right now', async () => {
+    mount({
+      getLeagueDashboard: vi.fn(async () =>
+        inSeason({
+          matchups: [
+            game('W03-M1', MARCUS, ALICE, [20, 10], 'in_progress', true),
+            game('W03-M2', BOB, NOVA, [5, 0], 'in_progress', false)
+          ]
+        })
+      )
+    });
+    const matchups = await screen.findByRole('region', { name: 'Matchups' });
+    const tiles = within(matchups).getAllByRole('link');
+    expect(tiles[0]).toHaveTextContent('Live');
+    expect(tiles[1]).not.toHaveTextContent('Live');
+    expect(tiles[1]).not.toHaveTextContent('In progress');
+  });
+
+  it('leaves the Live chip off between games', async () => {
+    mount({
+      getLeagueDashboard: vi.fn(async () =>
+        inSeason({ matchups: [game('W03-M1', MARCUS, ALICE, [20, 10], 'in_progress', false)] })
+      )
+    });
+    const matchups = await screen.findByRole('region', { name: 'Matchups' });
+    expect(within(matchups).queryByText('Live')).not.toBeInTheDocument();
+    expect(within(matchups).queryByText('In progress')).not.toBeInTheDocument();
+    expect(within(matchups).queryByText('Upcoming')).not.toBeInTheDocument();
   });
 
   it('labels playoff games, and an open seat by its team', async () => {

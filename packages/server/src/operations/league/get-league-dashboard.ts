@@ -1,4 +1,4 @@
-import { currentPick, picksUntilTurn, totalPicks } from '@fantasy/core';
+import { currentPick, playerGame, picksUntilTurn, totalPicks } from '@fantasy/core';
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { requireMember } from '../../league/access.js';
@@ -9,6 +9,9 @@ import { LeagueIdSchema, PhaseSchema } from '../../league/views.js';
 import { PlayerRefSchema } from '../../players/model.js';
 import { defineOperation } from '../../registry/operation.js';
 import type { League, Team } from '../../repos/types.js';
+import { weekGames } from '../../season/lineups.js';
+import { nflWeekView } from '../../season/nfl-games.js';
+import { ASSUME_FINAL_AFTER_MS } from '../season/views.js';
 import { playerRefs, refOf } from '../waivers/shared.js';
 import { loadStandings } from './get-standings.js';
 
@@ -29,6 +32,11 @@ const DashboardMatchupSchema = z.object({
   id: z.string(),
   kind: z.enum(['regular', 'playoff']),
   status: z.enum(['scheduled', 'in_progress', 'final']),
+  live: z
+    .boolean()
+    .describe(
+      'An NFL game with a player on either roster is being played right now. A week can be `in_progress` between games; this says points can move.'
+    ),
   home: DashboardSideSchema,
   away: DashboardSideSchema
 });
@@ -160,6 +168,10 @@ export const getLeagueDashboard = defineOperation({
       board.moves.flatMap((m) => m.records.flatMap((r) => [r.addPlayerId, r.dropPlayerId]))
     );
     const championTeamId = playoffs?.championTeamId ?? null;
+    const playing =
+      league.week !== null && week.some((m) => m.status === 'in_progress')
+        ? await teamsPlaying(ctx, league, teams, league.week)
+        : new Set<string>();
 
     return {
       leagueId: league.id,
@@ -175,6 +187,7 @@ export const getLeagueDashboard = defineOperation({
           id: m.id,
           kind: m.kind,
           status: m.status,
+          live: m.status === 'in_progress' && (playing.has(m.homeTeamId) || playing.has(m.awayTeamId)),
           home: side(m.homeTeamId, m.homeScore),
           away: side(m.awayTeamId, m.awayScore)
         })),
@@ -281,4 +294,28 @@ async function draftStatus(
     deadline: record.deadline,
     yourPickIn: yourTeamId === null ? null : picksUntilTurn(record.state, yourTeamId)
   };
+}
+
+/** The teams with a rostered player whose NFL game is being played right now. */
+async function teamsPlaying(
+  ctx: Ctx,
+  league: League,
+  teams: readonly Team[],
+  week: number
+): Promise<Set<string>> {
+  const { reference } = ctx.data;
+  const now = ctx.clock.now();
+  const [schedule, stored, players] = await Promise.all([
+    weekGames(reference, league.season, week),
+    reference.nflGames.get(league.season, week),
+    ctx.repos.players.getMany(teams.flatMap((t) => t.roster))
+  ]);
+  const games = nflWeekView(league.season, week, schedule, stored, now).games.filter(
+    (g) => g.gameId !== null
+  );
+  const nflTeams = new Map(players.map((p) => [p.id, p.team]));
+  const live = (playerId: string) =>
+    playerGame(nflTeams.get(playerId) ?? null, games, now, { finalAfterMs: ASSUME_FINAL_AFTER_MS }).state ===
+    'live';
+  return new Set(teams.filter((t) => t.roster.some(live)).map((t) => t.id));
 }

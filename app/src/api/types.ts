@@ -779,6 +779,8 @@ export interface DashboardMatchup {
   id: string;
   kind: 'regular' | 'playoff';
   status: 'scheduled' | 'in_progress' | 'final';
+  /** A player on either roster is in an NFL game right now; absent on older responses. */
+  live?: boolean;
   home: DashboardMatchupSide;
   away: DashboardMatchupSide;
 }

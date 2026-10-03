@@ -18,17 +18,28 @@ import { managerName, TeamAvatar } from './TeamBadge';
 
 const STATUS = {
   scheduled: { label: 'Upcoming', tone: 'neutral' },
-  in_progress: { label: 'Live', tone: 'success' },
+  live: { label: 'Live', tone: 'success' },
   final: { label: 'Final', tone: 'neutral' }
 } as const;
 
-function StatusChip({ status }: { status: DashboardMatchup['status'] }) {
+type ChipState = keyof typeof STATUS;
+
+function StatusChip({ state }: { state: ChipState }) {
   return (
-    <StatusBadge tone={STATUS[status].tone}>
-      {status === 'in_progress' && <span className="motion-live-dot mr-1" aria-hidden="true" />}
-      {STATUS[status].label}
+    <StatusBadge tone={STATUS[state].tone}>
+      {state === 'live' && <span className="motion-live-dot mr-1" aria-hidden="true" />}
+      {STATUS[state].label}
     </StatusBadge>
   );
+}
+
+/**
+ * Live only while a rostered player's game is on, not for the whole in-progress week; between
+ * games an in-progress matchup shows no chip.
+ */
+function chipState(m: DashboardMatchup): ChipState | null {
+  if (m.status !== 'in_progress') return m.status;
+  return m.live === true ? 'live' : null;
 }
 
 /** The side ahead once scoring starts; null before kickoff and on a tie. */
@@ -76,6 +87,7 @@ function MatchupTile({
 }) {
   const yours = yourTeamId !== null && [matchup.home.teamId, matchup.away.teamId].includes(yourTeamId);
   const leader = matchupLeader(matchup);
+  const chip = chipState(matchup);
   const href = yours
     ? teamPath(leagueId, 'matchup')
     : `${teamPath(leagueId, 'matchup')}?team=${encodeURIComponent(matchup.home.teamId)}`;
@@ -94,7 +106,7 @@ function MatchupTile({
         <span className={yours ? 'text-primary-700' : undefined}>
           {yours ? 'Your matchup' : matchup.kind === 'playoff' ? 'Playoffs' : 'Matchup'}
         </span>
-        <StatusChip status={matchup.status} />
+        {chip !== null && <StatusChip state={chip} />}
       </span>
       {[matchup.away, matchup.home].map((side) => (
         <SideRow
@@ -123,13 +135,13 @@ export function MatchupsCard({
   const ordered = [...matchups].sort(
     (a, b) => Number(isYours(b, yourTeamId)) - Number(isYours(a, yourTeamId))
   );
-  const live = matchups.some((m) => m.status === 'in_progress');
+  const live = matchups.some((m) => chipState(m) === 'live');
   const done = matchups.length > 0 && matchups.every((m) => m.status === 'final');
   return (
     <Card role="region" aria-label="Matchups">
       <CardHeader className="flex flex-wrap items-center justify-between gap-2">
         <CardTitle>{week === null ? 'Matchups' : `Week ${week} ${done ? 'results' : 'matchups'}`}</CardTitle>
-        {live && <StatusChip status="in_progress" />}
+        {live && <StatusChip state="live" />}
       </CardHeader>
       <CardBody>
         {ordered.length === 0 ? (
@@ -295,7 +307,7 @@ export function DraftCard({ leagueId, draft }: { leagueId: string; draft: Dashbo
         {draft.status === 'paused' ? (
           <StatusBadge tone="warning">Paused</StatusBadge>
         ) : (
-          draft.status === 'in_progress' && <StatusChip status="in_progress" />
+          draft.status === 'in_progress' && <StatusChip state="live" />
         )}
       </CardHeader>
       <CardBody className="space-y-3">

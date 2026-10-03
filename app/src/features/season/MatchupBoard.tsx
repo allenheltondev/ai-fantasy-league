@@ -38,7 +38,7 @@ import { PlayerLink } from '../../players/PlayerLink';
 
 const pts = (n: number) => n.toFixed(2);
 const proj = (n: number) => n.toFixed(1);
-const STATUS_LABEL = { scheduled: 'Upcoming', in_progress: 'Live', final: 'Final' } as const;
+const STATUS_LABEL = { scheduled: 'Upcoming', final: 'Final' } as const;
 
 type Matchup = NonNullable<MatchupData['matchup']>;
 type Side = 'home' | 'away';
@@ -146,7 +146,10 @@ export function ScoreBar({
   const said = useThrottledAnnouncement(
     `${home.teamName} ${pts(home.score ?? 0)}, ${away.teamName} ${pts(away.score ?? 0)}.`
   );
-  const live = matchup.status === 'in_progress';
+  // Live only while someone on either roster is in a game, not for the whole in-progress week.
+  const live =
+    matchup.status === 'in_progress' &&
+    [...lineups.home.players, ...lineups.away.players].some((p) => gameOf(p).state === 'live');
   return (
     <div className="sticky top-0 z-20 -mx-4 bg-background/95 px-4 pb-2 pt-2 backdrop-blur sm:mx-0 sm:px-0">
       <div
@@ -163,10 +166,17 @@ export function ScoreBar({
           trailing={leader === away.teamId}
         />
         <div className="flex flex-col items-center gap-1 pt-0.5 text-center">
-          <StatusBadge tone={live ? 'success' : 'neutral'}>
-            {live && <span className="motion-live-dot mr-1" aria-hidden="true" />}
-            {STATUS_LABEL[matchup.status]}
-          </StatusBadge>
+          {/* Between games an in-progress matchup shows no chip. */}
+          {live ? (
+            <StatusBadge tone="success">
+              <span className="motion-live-dot mr-1" aria-hidden="true" />
+              Live
+            </StatusBadge>
+          ) : (
+            matchup.status !== 'in_progress' && (
+              <StatusBadge tone="neutral">{STATUS_LABEL[matchup.status]}</StatusBadge>
+            )
+          )}
           <span className="text-xs text-muted-foreground">Week {week}</span>
         </div>
         <TeamScore
