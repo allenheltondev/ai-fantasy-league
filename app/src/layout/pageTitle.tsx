@@ -31,7 +31,7 @@ export function pageName(pathname: string, context: PageNameContext = {}): PageN
     if (pathname === '/leagues/new') return same('Create League');
     return same('Page not found');
   }
-  const [section = '', page = '', detail] = leagueSubpath(pathname, leagueId)
+  const [section = '', page = '', detail, item] = leagueSubpath(pathname, leagueId)
     .split('/')
     .map((part) => decodeURIComponent(part));
   switch (section) {
@@ -45,6 +45,9 @@ export function pageName(pathname: string, context: PageNameContext = {}): PageN
       return same(context.commissioner === true ? 'Settings' : 'League info');
     case 'league':
       if (page === 'history' || page === 'draft') return same('League info');
+      if (page === 'players' && detail === 'nfl' && item !== undefined && item !== '') {
+        return { heading: 'Players', title: `${item.toUpperCase()} depth chart` };
+      }
       return same(LEAGUE_PAGES.find((tab) => tab.path === page)?.label ?? 'Scoreboard');
     case 'team': {
       if (page === 'teams' && detail !== undefined && detail !== '') {

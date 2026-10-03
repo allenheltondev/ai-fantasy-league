@@ -25,6 +25,7 @@ import type {
   MarketQuery,
   MatchupData,
   MatchupOutlook,
+  NflDepthChart,
   NflGamesData,
   ModelLeaderboard,
   MyLeague,
@@ -113,6 +114,9 @@ export function createLeagueApi(api: ApiFetch) {
       id: string,
       query: { includeBench?: boolean; limit?: number; cursor?: string; teamId?: string } = {}
     ) => call<ScoringLogData>(`${league(id)}/matchup/scoring-log`, { query }),
+    /** get_nfl_depth_chart: an NFL team's depth chart, starters first at each slot. */
+    getNflDepthChart: (team: string) =>
+      call<NflDepthChart>(`/nfl-teams/${encodeURIComponent(team)}/depth-chart`),
     // Roster workspace (#205): the player market, adds and claims, drops, and pending claims
     listLeaguePlayers: (id: string, query: MarketQuery) =>
       call<MarketPage>(`${league(id)}/players`, { query: { ...query } }),

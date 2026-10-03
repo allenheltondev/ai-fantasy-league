@@ -255,6 +255,20 @@ export interface PlayerRef {
   position: string;
 }
 
+/** One player on an NFL depth chart: `depth` 1 starts; null when he is not on the chart. */
+export interface DepthChartPlayer extends PlayerRef {
+  depth: number | null;
+  number: number | null;
+  injuryStatus: string | null;
+}
+
+/** get_nfl_depth_chart: an NFL team's depth chart at the fantasy positions. */
+export interface NflDepthChart {
+  team: { code: string; city: string; nickname: string };
+  slots: { slot: string; label: string; players: DepthChartPlayer[] }[];
+  others: DepthChartPlayer[];
+}
+
 /**
  * A player's NFL game this week as the server sees it (#193, core `playerGame`): the matchup, the
  * outlook, the lineup locks, and the agents all use this one state.

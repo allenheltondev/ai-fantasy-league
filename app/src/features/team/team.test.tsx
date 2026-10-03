@@ -255,6 +255,10 @@ describe('another team, read-only', () => {
     // Starters first; the bench after.
     expect(rows[1]).toHaveTextContent('WRPlayer wr1WR · KCOutvs DEN12.3');
     expect(rows[2]).toHaveTextContent('BNPlayer bench');
+    expect(within(rows[1] as HTMLElement).getByRole('link', { name: 'KC' })).toHaveAttribute(
+      'href',
+      '/leagues/L1/league/players/nfl/KC'
+    );
     expect(screen.getByText('Projected 98.6')).toBeInTheDocument();
     expect(api.getRoster).toHaveBeenCalledWith('L1', 'team-2');
     const moves = screen.getByRole('region', { name: 'Recent moves' });
@@ -443,7 +447,9 @@ describe('more of the shell', () => {
     const lineup = await screen.findByRole('table', { name: "Bob's Team lineup" });
     expect(within(lineup).getAllByText('Bye').length).toBeGreaterThan(0);
     expect(within(lineup).getByText('@ BUF')).toBeInTheDocument();
-    expect(within(lineup).getByText('K · FA')).toBeInTheDocument();
+    // A free agent has no team page to link to.
+    expect(within(lineup).getByText('FA').closest('a')).toBeNull();
+    expect(within(lineup).getByText('FA').parentElement).toHaveTextContent('K · FA');
     expect(screen.queryByText(/^Projected/)).not.toBeInTheDocument();
     const moves = screen.getByRole('region', { name: 'Recent moves' });
     await user.click(await within(moves).findByRole('button', { name: 'Show older moves' }));

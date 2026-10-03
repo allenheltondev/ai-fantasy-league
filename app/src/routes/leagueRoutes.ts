@@ -107,6 +107,10 @@ export const leagueTabPath = (leagueId: string, tab: LeagueTabPath) => leaguePat
 export const otherTeamPath = (leagueId: string, teamId: string) =>
   leaguePath(leagueId, `team/teams/${encodeURIComponent(teamId)}`);
 
+/** An NFL team's page (its depth chart), under League › Players. */
+export const nflTeamPath = (leagueId: string, team: string) =>
+  leaguePath(leagueId, `league/players/nfl/${encodeURIComponent(team)}`);
+
 /**
  * Where each section URL from before #178 now lives, relative to the league. Deep links (old
  * bookmarks, notifications already sent) redirect, keeping their query (`?trade=`, `?team=`).

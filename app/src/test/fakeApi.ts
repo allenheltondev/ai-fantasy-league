@@ -327,6 +327,11 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     setLineup: vi.fn(async () => {
       throw new Error('setLineup is not faked in this test');
     }),
+    getNflDepthChart: vi.fn(async (team: string) => ({
+      team: { code: team, city: 'Kansas City', nickname: 'Chiefs' },
+      slots: [],
+      others: []
+    })),
     listLeaguePlayers: vi.fn(async () => ({
       season: 2026,
       week: 1,
