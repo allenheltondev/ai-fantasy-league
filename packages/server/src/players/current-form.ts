@@ -5,7 +5,8 @@ import {
   statLabel,
   type ScoreBreakdownItem,
   type ScoringSettings,
-  type WeekPoints
+  type WeekPoints,
+  USAGE_STAT_PREFIX
 } from '@fantasy/core';
 import type { Ctx } from '../context.js';
 import type { Player } from './model.js';
@@ -48,6 +49,83 @@ export interface ThisSeason {
   totals: Record<string, number>;
   /** His last three games played, newest first. */
   recent: RecentGame[];
+  /** His usage from nflverse's official weekly stats; null before any official week. */
+  usage: SeasonUsage | null;
+}
+
+/**
+ * A player's usage this season from the nflverse numbers the Thursday official final adds to each
+ * week's stat line (`nfv_…`, `NFLVERSE_USAGE` in `@fantasy/data`). Only official weeks have them,
+ * so `games` and `throughWeek` can trail his games played. Each figure is null when no counted game
+ * reported it (a quarterback has no target share worth showing, a receiver no passing EPA).
+ */
+export interface SeasonUsage {
+  /** Official games counted. */
+  games: number;
+  /** The last official week counted. */
+  throughWeek: number;
+  /** Average share of his team's targets (0.25 is a quarter). */
+  targetShare: number | null;
+  /** Average share of his team's air yards. */
+  airYardsShare: number | null;
+  /** Weighted opportunity rating: 1.5 × target share + 0.7 × air yards share. */
+  wopr: number | null;
+  /** Average depth of target: air yards per target. */
+  aDot: number | null;
+  /** Yards after the catch per reception. */
+  yacPerReception: number | null;
+  /** Expected points added per game, by how he gained them. */
+  receivingEpa: number | null;
+  rushingEpa: number | null;
+  passingEpa: number | null;
+  /** Completion percentage over expected, weighted by attempts. */
+  cpoe: number | null;
+  /** Air yards per pass attempt. */
+  passingAdot: number | null;
+}
+
+const RECEIVER_SHARE = `${USAGE_STAT_PREFIX}tgt_share`;
+const usageKey = (name: string) => `${USAGE_STAT_PREFIX}${name}`;
+
+/** His usage over the official weeks among `played` (those carrying nflverse's numbers). */
+export function seasonUsage(
+  played: readonly { week: number; stats: Record<string, number> }[]
+): SeasonUsage | null {
+  const games = played.filter((p) => playedWeek(p.stats) && p.stats[RECEIVER_SHARE] !== undefined);
+  if (games.length === 0) return null;
+  const sum = (key: string) => games.reduce((total, g) => total + (g.stats[key] ?? 0), 0);
+  const reported = (key: string) => games.filter((g) => g.stats[key] !== undefined);
+  const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
+  const average = (key: string, places: number) => round(sum(key) / games.length, places);
+  const perGame = (name: string) =>
+    reported(usageKey(name)).length === 0 ? null : round(sum(usageKey(name)) / games.length, 2);
+  const ratio = (top: number, bottom: number, places: number) =>
+    bottom > 0 ? round(top / bottom, places) : null;
+  const targets = sum('rec_tgt');
+  const attempts = sum('pass_att');
+  const cpoeGames = reported(usageKey('pass_cpoe'));
+  const cpoeAttempts = cpoeGames.reduce((total, g) => total + (g.stats.pass_att ?? 0), 0);
+  return {
+    games: games.length,
+    throughWeek: Math.max(...games.map((g) => g.week)),
+    targetShare: targets > 0 ? average(RECEIVER_SHARE, 3) : null,
+    airYardsShare: targets > 0 ? average(usageKey('air_yd_share'), 3) : null,
+    wopr: targets > 0 ? average(usageKey('wopr'), 3) : null,
+    aDot: ratio(sum(usageKey('rec_air_yd')), targets, 1),
+    yacPerReception: ratio(sum(usageKey('rec_yac')), sum('rec'), 1),
+    receivingEpa: perGame('rec_epa'),
+    rushingEpa: perGame('rush_epa'),
+    passingEpa: perGame('pass_epa'),
+    cpoe: ratio(
+      cpoeGames.reduce(
+        (total, g) => total + (g.stats[usageKey('pass_cpoe')] ?? 0) * (g.stats.pass_att ?? 0),
+        0
+      ),
+      cpoeAttempts,
+      1
+    ),
+    passingAdot: ratio(sum(usageKey('pass_air_yd')), attempts, 1)
+  };
 }
 
 /** Games shown in the recent-games detail. */
@@ -173,7 +251,8 @@ export async function loadCurrentForm(
       games: scored.games,
       weekly: scored.weekly,
       totals: cardTotals({ playerId: player.id, season, weeks: played }, player.position),
-      recent
+      recent,
+      usage: seasonUsage(played)
     };
   }
 

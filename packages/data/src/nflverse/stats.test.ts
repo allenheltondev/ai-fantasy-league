@@ -5,7 +5,7 @@ import { normalizePlayers, normalizeWeekStats } from '../sleeper/normalize.js';
 import { sleeperPlayersSchema, sleeperWeekStatsSchema } from '../sleeper/schemas.js';
 import type { StatMap } from '../types.js';
 import { buildCrosswalk, parseIdMap } from './crosswalk.js';
-import { NFLVERSE_TO_SLEEPER, mapNflverseStats, parseNflverseWeeklyStats } from './stats.js';
+import { NFLVERSE_TO_SLEEPER, NFLVERSE_USAGE, mapNflverseStats, parseNflverseWeeklyStats } from './stats.js';
 
 const csv = fixtureText('nflverse/stats_player_week_2025.csv');
 const players = normalizePlayers(sleeperPlayersSchema.parse(fixtureJson('sleeper/players.json')));
@@ -30,6 +30,33 @@ function nflverseStandard(s: StatMap): number {
 }
 
 describe('parseNflverseWeeklyStats (fixture: 18 players, 2025 weeks 1-2)', () => {
+  it('keeps the usage stats apart: shares always, the rest when reported and nonzero', () => {
+    const chase = lines.find((l) => l.name === "Ja'Marr Chase" && l.week === 2);
+    expect(chase?.usage).toEqual({
+      nfv_tgt_share: 0.3721,
+      nfv_air_yd_share: 0.3111,
+      nfv_wopr: 0.7759,
+      nfv_rec_air_yd: 112,
+      nfv_rec_yac: 92,
+      nfv_rec_epa: 11.1419
+    });
+    // Usage never leaks into the scoring stats.
+    expect(Object.keys(chase?.stats ?? {}).some((k) => k.startsWith('nfv_'))).toBe(false);
+    const mahomes = lines.find((l) => l.name === 'Patrick Mahomes' && l.week === 1);
+    expect(mahomes?.usage).toEqual({
+      nfv_tgt_share: 0,
+      nfv_air_yd_share: 0,
+      nfv_wopr: 0,
+      nfv_pass_air_yd: 271,
+      nfv_pass_epa: 3.4486,
+      nfv_pass_cpoe: -5.9928,
+      nfv_rush_epa: 7.2115
+    });
+    // A catch behind the line of scrimmage is negative air yards.
+    expect(lines.find((l) => l.name === 'Saquon Barkley' && l.week === 1)?.usage.nfv_rec_air_yd).toBe(-5);
+    expect(Object.keys(NFLVERSE_USAGE).every((k) => k.startsWith('nfv_'))).toBe(true);
+  });
+
   it('parses every row and keys them by Sleeper id through the crosswalk', () => {
     expect(lines).toHaveLength(36);
     expect(crosswalk.unmappedGsis(lines.map((l) => l.gsisId))).toEqual([]);

@@ -6,7 +6,7 @@ import { BestAvailableTable, type BestAvailableTableProps } from './BestAvailabl
 import type { BestAvailableEntry } from './board';
 import { DepthChart } from './DepthChart';
 import { PlayerCard } from './PlayerCard';
-import { fmt, type DraftDepth, type PlayerCardData } from './research';
+import { fmt, usageEntries, type DraftDepth, type PlayerCardData } from './research';
 
 const ref = (id: string, name: string, position: string, team: string | null = 'CIN') => ({
   id,
@@ -29,6 +29,30 @@ function fakeApi(handler: (path: string) => unknown) {
 }
 
 describe('research helpers', () => {
+  it("picks a passer's usage figures for a QB and none for a kicker", () => {
+    const usage = {
+      games: 1,
+      throughWeek: 1,
+      targetShare: null,
+      airYardsShare: null,
+      wopr: null,
+      aDot: null,
+      yacPerReception: null,
+      receivingEpa: null,
+      rushingEpa: 0.5,
+      passingEpa: 2,
+      cpoe: 1.04,
+      passingAdot: 7
+    };
+    expect(usageEntries(usage, 'QB').map((e) => `${e.label} ${e.value}`)).toEqual([
+      'Pass EPA/g +2',
+      'CPOE +1',
+      'Air yds/att 7',
+      'Rush EPA/g +0.5'
+    ]);
+    expect(usageEntries(usage, 'K')).toEqual([]);
+  });
+
   it('formats to one decimal', () => {
     expect([fmt(12.345), fmt(10), fmt(null), fmt(undefined)]).toEqual(['12.3', '10', '—', '—']);
   });
@@ -314,6 +338,54 @@ describe('PlayerCard', () => {
     const card = await screen.findByTestId('player-card');
     expect(await within(card).findByTestId('card-injury-note')).toHaveTextContent(
       /^Chase \(hip\) is out\. ESPN$/
+    );
+  });
+
+  it("shows a receiver's usage from official stats, leaving out what was not reported", async () => {
+    renderCard({
+      ...CARD,
+      thisSeason: {
+        season: 2026,
+        points: 35.5,
+        ppg: 11.8,
+        games: 3,
+        weekly: [],
+        totals: {},
+        recent: [],
+        usage: {
+          games: 2,
+          throughWeek: 3,
+          targetShare: 0.25,
+          airYardsShare: 0.3,
+          wopr: 0.585,
+          aDot: 9.4,
+          yacPerReception: 3.3,
+          receivingEpa: -0.5,
+          rushingEpa: null,
+          passingEpa: 4,
+          cpoe: null,
+          passingAdot: null
+        }
+      }
+    });
+    const card = await screen.findByTestId('player-card');
+    const usage = await within(card).findByTestId('card-usage');
+    expect(usage).toHaveTextContent('Usage · official stats through week 3 (2 games)');
+    const terms = within(usage)
+      .getAllByRole('term')
+      .map((t) => `${t.textContent}=${t.nextSibling?.textContent}`);
+    // A receiver: no passing figures, even when reported.
+    expect(terms).toEqual([
+      'Target share=25%',
+      'Air yds share=30%',
+      'WOPR=0.59',
+      'aDOT=9.4',
+      'YAC/rec=3.3',
+      'Rec EPA/g=-0.5'
+    ]);
+    expect(within(usage).getByText('WOPR')).toHaveAttribute(
+      'title',
+      expect.stringContaining('1.5 × target share')
     );
   });
 
