@@ -144,6 +144,21 @@ describe('NFL team page', () => {
     expect(within(section).getByTestId('allowed-DEF')).toHaveTextContent('Team defense 4 pts');
   });
 
+  it('counts a single game and leaves out a position the server did not rank', async () => {
+    const { DEF: _def, ...positions } = KC_ALLOWED.teams[0]!.positions;
+    open('/leagues/L1/league/players/nfl/KC', {
+      getPointsAllowed: vi.fn(async () => ({
+        ...KC_ALLOWED,
+        throughWeek: 1,
+        teams: [{ team: 'KC', games: 1, positions }]
+      }))
+    });
+    const section = await screen.findByRole('region', { name: 'Points allowed by position' });
+    expect(section).toHaveTextContent('through week 1 (1 game)');
+    expect(within(section).queryByTestId('allowed-DEF')).toBeNull();
+    expect(within(section).getByTestId('allowed-QB')).toBeInTheDocument();
+  });
+
   it('says when there are no completed games yet', async () => {
     open('/leagues/L1/league/players/nfl/KC', {
       getPointsAllowed: vi.fn(async () => ({ ...KC_ALLOWED, throughWeek: null, teams: [] }))

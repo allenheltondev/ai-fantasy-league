@@ -283,6 +283,40 @@ describe('PlayerCard', () => {
     );
   });
 
+  it('leaves out an unknown bio and an undated note, and names the defense allowing the most', async () => {
+    renderCard({
+      ...CARD,
+      bio: { age: null, yearsExp: null, number: null },
+      injuryNote: { text: 'Chase (hip) is doubtful.', reportedAt: null },
+      nextWeek: {
+        season: 2026,
+        week: 4,
+        points: null,
+        totals: {},
+        bye: false,
+        opponent: { team: 'BAL', home: true },
+        kickoff: null,
+        matchup: { position: 'K', perGame: 12, rank: 1, of: 32, games: 3, throughWeek: 3 }
+      }
+    });
+    const card = await screen.findByTestId('player-card');
+    expect(await within(card).findByTestId('card-injury-note')).toHaveTextContent(
+      /^Chase \(hip\) is doubtful\. ESPN$/
+    );
+    expect(within(card).queryByTestId('card-bio')).toBeNull();
+    expect(within(card).getByTestId('card-matchup')).toHaveTextContent(
+      'BAL allows 12 PPR pts a game to kickers, the most of 32'
+    );
+  });
+
+  it('shows no date for a note whose date does not parse', async () => {
+    renderCard({ ...CARD, injuryNote: { text: 'Chase (hip) is out.', reportedAt: 'not a date' } });
+    const card = await screen.findByTestId('player-card');
+    expect(await within(card).findByTestId('card-injury-note')).toHaveTextContent(
+      /^Chase \(hip\) is out\. ESPN$/
+    );
+  });
+
   it('queues and drafts from the card', async () => {
     const user = userEvent.setup();
     const { props } = renderCard(CARD);
