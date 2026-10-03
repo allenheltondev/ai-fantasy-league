@@ -6,7 +6,7 @@ import { recordStandings } from '../../src/season/scoring.js';
 import { createHarness, START, type Harness } from '../support/harness.js';
 import { as, data, errorCode, type Caller } from '../support/league-client.js';
 import { ALICE, BOB, CAROL, seedLeague } from '../support/leagues.js';
-import { seedNflSchedule, seedSeasonLeague } from '../support/season.js';
+import { liveGame, seedNflSchedule, seedSeasonLeague } from '../support/season.js';
 import { seedSeasonLeague as seedWaiverLeague } from '../support/waivers.js';
 
 /**
@@ -38,6 +38,7 @@ interface Dashboard {
   matchups: {
     id: string;
     status: string;
+    live: boolean;
     home: Ref & { score: number | null; record: string | null };
     away: Ref;
   }[];
@@ -154,6 +155,35 @@ describe('in season', () => {
     });
     expect(board.standings.throughWeek).toBeNull();
     expect(board.standings.rows.map((r) => r.record)).toEqual(['0-0', '0-0', '0-0', '0-0']);
+  });
+
+  it('marks a matchup live only while a rostered player is in an NFL game', async () => {
+    // The week is in progress, but no game has kicked off.
+    const before = await dashboard(alice, 'lg-dm');
+    expect(before.matchups.map((m) => [m.status, m.live])).toEqual([
+      ['in_progress', false],
+      ['in_progress', false]
+    ]);
+
+    const games = await h.services.data.reference.schedule.getWeek(2026, 1);
+    await h.services.data.reference.nflGames.put({
+      season: 2026,
+      week: 1,
+      games: games.map((g) => liveGame(g.gameId)),
+      updatedAt: h.clock.now().toISOString()
+    });
+    const during = await dashboard(alice, 'lg-dm');
+    // Only team-1 and team-2 have players; teams 3 and 4 have empty rosters.
+    const rostered = (m: Dashboard['matchups'][number]) =>
+      ['team-1', 'team-2'].includes(m.home.teamId) || ['team-1', 'team-2'].includes(m.away.teamId);
+    expect(during.matchups.map((m) => m.live)).toEqual(during.matchups.map(rostered));
+    expect(during.matchups.some((m) => m.live)).toBe(true);
+    await h.services.data.reference.nflGames.put({
+      season: 2026,
+      week: 1,
+      games: [],
+      updatedAt: h.clock.now().toISOString()
+    });
   });
 
   it('carries the records once a week is final', async () => {

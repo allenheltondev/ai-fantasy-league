@@ -29,7 +29,8 @@ const player = (id: string, points: number | null) => ({
   injuryStatus: null,
   byeWeek: 10,
   onBye: false,
-  kickoff: null,
+  // Kicked off and locked: his game is live, so the matchup is too.
+  kickoff: '2026-09-13T17:00:00.000Z',
   locked: true,
   projectedPoints: 10,
   points
@@ -77,7 +78,9 @@ describe('live matchup motion', () => {
     // The trailing total steps back (#193): muted, while the leader's stays full strength.
     expect(screen.getByTestId('score-team-1')).toHaveClass('text-muted-foreground');
     expect(screen.getByTestId('score-team-2')).not.toHaveClass('text-muted-foreground');
-    expect(screen.getByText('Live').querySelector('.motion-live-dot')).not.toBeNull();
+    expect(
+      within(screen.getByTestId('score-bar')).getByText('Live').querySelector('.motion-live-dot')
+    ).not.toBeNull();
 
     data = matchup('in_progress', 16, 12);
     await act(async () => {

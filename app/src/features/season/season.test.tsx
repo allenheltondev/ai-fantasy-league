@@ -199,7 +199,9 @@ describe('MatchupPage', () => {
     let score = 10;
     open('/leagues/L1/matchup', { getMatchup: vi.fn(async () => matchupData('in_progress', score)) });
     expect(await screen.findByTestId('score-team-1')).toHaveTextContent('10.00');
-    expect(screen.getByText('Live')).toBeInTheDocument();
+    // The week is under way, but no one in this matchup has kicked off: not live yet.
+    expect(screen.getByText('In progress')).toBeInTheDocument();
+    expect(screen.queryByText('Live')).not.toBeInTheDocument();
     // Head to head by slot: their QB faces yours.
     expect(within(screen.getByTestId('h2h-row-QB-0')).getAllByText('QB2').length).toBeGreaterThan(0);
     // The bench starts collapsed.

@@ -10135,6 +10135,10 @@
                                   "final"
                                 ]
                               },
+                              "live": {
+                                "type": "boolean",
+                                "description": "An NFL game with a player on either roster is being played right now. A week can be `in_progress` between games; this says points can move."
+                              },
                               "home": {
                                 "type": "object",
                                 "properties": {
@@ -10292,6 +10296,7 @@
                               "id",
                               "kind",
                               "status",
+                              "live",
                               "home",
                               "away"
                             ],
