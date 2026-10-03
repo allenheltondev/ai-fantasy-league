@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { currentWeek } from '../../players/current-form.js';
 import { NFL_TEAMS, POSITIONS, PositionSchema } from '../../players/model.js';
 import { loadPointsAllowed } from '../../players/points-allowed.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
@@ -7,6 +6,22 @@ import { seasonField } from './shared.js';
 
 /** After week 18 every regular-season week of a past season counts. */
 const PAST_SEASON_WEEK = 19;
+
+/**
+ * The season the table defaults to and the week it counts up to (exclusive), from the NFL state:
+ * in the preseason, the coming season with nothing complete yet; in the regular season, the weeks
+ * before the current one; in the postseason and offseason, the season just played, all 18 weeks.
+ * Null only when the NFL state is unknown.
+ */
+export function seasonInPlay(
+  state: { season: number; seasonType: string; week: number; leagueSeason: number } | null
+): { season: number; week: number } | null {
+  if (state === null) return null;
+  if (state.seasonType === 'pre') return { season: Math.max(state.season, state.leagueSeason), week: 1 };
+  if (state.seasonType === 'regular')
+    return { season: state.season, week: Math.min(Math.max(state.week, 1), PAST_SEASON_WEEK) };
+  return { season: state.season, week: PAST_SEASON_WEEK };
+}
 
 export const PositionAllowedSchema = z.object({
   perGame: z.number().describe('PPR fantasy points allowed to the position per game.'),
@@ -61,7 +76,7 @@ export const getPointsAllowed = defineOperation({
     )
   }),
   handler: async (ctx, input) => {
-    const current = currentWeek(await ctx.data.reference.nflState.get());
+    const current = seasonInPlay(await ctx.data.reference.nflState.get());
     const season = input.season ?? current?.season ?? null;
     const week =
       season === null

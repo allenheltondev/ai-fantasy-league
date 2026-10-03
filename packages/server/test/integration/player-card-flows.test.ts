@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { currentWeek } from '../../src/players/current-form.js';
 import { registry } from '../../src/operations/index.js';
+import { seasonInPlay } from '../../src/operations/research/get-points-allowed.js';
 import { fixtureDraftPool } from '../../src/players/fixtures.js';
 import { createHarness, type Harness } from '../support/harness.js';
 import { sourcePlayer } from '../support/jobs.js';
@@ -358,10 +359,42 @@ describe('get_points_allowed', () => {
     ]);
   });
 
+  it('defaults to the season just played, all 18 weeks, once the regular season is over', async () => {
+    const reference = h.services.data.reference;
+    const regular = (await reference.nflState.get())!;
+    const { updatedAt: _at, ...expected } = regular;
+    await reference.nflState.put({ ...regular, seasonType: 'post', week: 1 }, expected);
+    try {
+      const { data: table, warnings } = await get('');
+      // Week 4's line (CLE's 99 to receivers) now counts: CLE averages (50 + 99) / 2.
+      expect(table).toMatchObject({ season: 2026, throughWeek: 18 });
+      expect(warnings ?? []).toEqual([]);
+      expect(table.teams.find((t) => t.team === 'CLE')).toMatchObject({
+        games: 2,
+        positions: expect.objectContaining({ WR: { perGame: 74.5, rank: 1, of: 4 } })
+      });
+    } finally {
+      const { updatedAt: _post, ...post } = (await reference.nflState.get())!;
+      await reference.nflState.put(regular, post);
+    }
+  });
+
   it('is empty with a warning when no completed week has defense stats', async () => {
     const none = await get('?season=2024');
     expect(none.data).toMatchObject({ season: 2024, throughWeek: null, teams: [] });
     expect(none.warnings?.map((w) => w.code)).toEqual(['NO_POINTS_ALLOWED']);
+  });
+});
+
+describe('seasonInPlay', () => {
+  it('is the coming season in the preseason, the weeks so far in season, and all 18 weeks after it', () => {
+    const base = { season: 2026, week: 7, leagueSeason: 2026 };
+    expect(seasonInPlay({ ...base, seasonType: 'pre', season: 2025 })).toEqual({ season: 2026, week: 1 });
+    expect(seasonInPlay({ ...base, seasonType: 'regular' })).toEqual({ season: 2026, week: 7 });
+    expect(seasonInPlay({ ...base, seasonType: 'regular', week: 0 })).toEqual({ season: 2026, week: 1 });
+    expect(seasonInPlay({ ...base, seasonType: 'post', week: 2 })).toEqual({ season: 2026, week: 19 });
+    expect(seasonInPlay({ ...base, seasonType: 'off', week: 0 })).toEqual({ season: 2026, week: 19 });
+    expect(seasonInPlay(null)).toBeNull();
   });
 });
 
