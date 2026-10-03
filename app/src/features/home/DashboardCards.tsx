@@ -18,8 +18,6 @@ import { managerName, TeamAvatar } from './TeamBadge';
 
 const STATUS = {
   scheduled: { label: 'Upcoming', tone: 'neutral' },
-  // The week has started, but no one in the matchup is playing right now.
-  in_progress: { label: 'In progress', tone: 'neutral' },
   live: { label: 'Live', tone: 'success' },
   final: { label: 'Final', tone: 'neutral' }
 } as const;
@@ -35,9 +33,14 @@ function StatusChip({ state }: { state: ChipState }) {
   );
 }
 
-/** Live only while a rostered player's game is on, not for the whole in-progress week. */
-const chipState = (m: DashboardMatchup): ChipState =>
-  m.status === 'in_progress' && m.live === true ? 'live' : m.status;
+/**
+ * Live only while a rostered player's game is on, not for the whole in-progress week; between
+ * games an in-progress matchup shows no chip.
+ */
+function chipState(m: DashboardMatchup): ChipState | null {
+  if (m.status !== 'in_progress') return m.status;
+  return m.live === true ? 'live' : null;
+}
 
 /** The side ahead once scoring starts; null before kickoff and on a tie. */
 export function matchupLeader(m: DashboardMatchup): string | null {
@@ -84,6 +87,7 @@ function MatchupTile({
 }) {
   const yours = yourTeamId !== null && [matchup.home.teamId, matchup.away.teamId].includes(yourTeamId);
   const leader = matchupLeader(matchup);
+  const chip = chipState(matchup);
   const href = yours
     ? teamPath(leagueId, 'matchup')
     : `${teamPath(leagueId, 'matchup')}?team=${encodeURIComponent(matchup.home.teamId)}`;
@@ -102,7 +106,7 @@ function MatchupTile({
         <span className={yours ? 'text-primary-700' : undefined}>
           {yours ? 'Your matchup' : matchup.kind === 'playoff' ? 'Playoffs' : 'Matchup'}
         </span>
-        <StatusChip state={chipState(matchup)} />
+        {chip !== null && <StatusChip state={chip} />}
       </span>
       {[matchup.away, matchup.home].map((side) => (
         <SideRow

@@ -38,7 +38,7 @@ import { PlayerLink } from '../../players/PlayerLink';
 
 const pts = (n: number) => n.toFixed(2);
 const proj = (n: number) => n.toFixed(1);
-const STATUS_LABEL = { scheduled: 'Upcoming', in_progress: 'In progress', final: 'Final' } as const;
+const STATUS_LABEL = { scheduled: 'Upcoming', final: 'Final' } as const;
 
 type Matchup = NonNullable<MatchupData['matchup']>;
 type Side = 'home' | 'away';
@@ -166,10 +166,17 @@ export function ScoreBar({
           trailing={leader === away.teamId}
         />
         <div className="flex flex-col items-center gap-1 pt-0.5 text-center">
-          <StatusBadge tone={live ? 'success' : 'neutral'}>
-            {live && <span className="motion-live-dot mr-1" aria-hidden="true" />}
-            {live ? 'Live' : STATUS_LABEL[matchup.status]}
-          </StatusBadge>
+          {/* Between games an in-progress matchup shows no chip. */}
+          {live ? (
+            <StatusBadge tone="success">
+              <span className="motion-live-dot mr-1" aria-hidden="true" />
+              Live
+            </StatusBadge>
+          ) : (
+            matchup.status !== 'in_progress' && (
+              <StatusBadge tone="neutral">{STATUS_LABEL[matchup.status]}</StatusBadge>
+            )
+          )}
           <span className="text-xs text-muted-foreground">Week {week}</span>
         </div>
         <TeamScore

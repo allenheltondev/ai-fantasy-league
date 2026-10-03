@@ -257,8 +257,8 @@ describe('the league dashboard', () => {
     const matchups = await screen.findByRole('region', { name: 'Matchups' });
     const tiles = within(matchups).getAllByRole('link');
     expect(tiles[0]).toHaveTextContent('Live');
-    expect(tiles[1]).toHaveTextContent('In progress');
     expect(tiles[1]).not.toHaveTextContent('Live');
+    expect(tiles[1]).not.toHaveTextContent('In progress');
   });
 
   it('leaves the Live chip off between games', async () => {
@@ -268,8 +268,9 @@ describe('the league dashboard', () => {
       )
     });
     const matchups = await screen.findByRole('region', { name: 'Matchups' });
-    expect(within(matchups).getByText('In progress')).toBeInTheDocument();
     expect(within(matchups).queryByText('Live')).not.toBeInTheDocument();
+    expect(within(matchups).queryByText('In progress')).not.toBeInTheDocument();
+    expect(within(matchups).queryByText('Upcoming')).not.toBeInTheDocument();
   });
 
   it('labels playoff games, and an open seat by its team', async () => {
