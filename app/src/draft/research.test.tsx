@@ -51,6 +51,12 @@ describe('research helpers', () => {
       'Rush EPA/g +0.5'
     ]);
     expect(usageEntries(usage, 'K')).toEqual([]);
+    // A receiver with no targets shows his zero shares, not blanks.
+    expect(
+      usageEntries({ ...usage, targetShare: 0, airYardsShare: 0, wopr: 0, rushingEpa: null }, 'WR').map(
+        (e) => `${e.label} ${e.value}`
+      )
+    ).toEqual(['Target share 0%', 'Air yds share 0%', 'WOPR 0.00']);
   });
 
   it('formats to one decimal', () => {
