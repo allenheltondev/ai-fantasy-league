@@ -100,12 +100,20 @@ export function seasonUsage(
   played: readonly { week: number; stats: Record<string, number> }[],
   position: string
 ): SeasonUsage | null {
-  const games = played.filter((p) => playedWeek(p.stats) && p.stats[RECEIVER_SHARE] !== undefined);
+  const games = played.filter(
+    (p) => playedWeek(p.stats) && Object.keys(p.stats).some((key) => key.startsWith(USAGE_STAT_PREFIX))
+  );
   if (games.length === 0) return null;
   const sum = (key: string) => games.reduce((total, g) => total + (g.stats[key] ?? 0), 0);
   const reported = (key: string) => games.filter((g) => g.stats[key] !== undefined);
   const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
-  const average = (key: string, places: number) => round(sum(key) / games.length, places);
+  // A share averages over the games that reported it (0 included): a game whose file lacked the
+  // column is not a 0% game.
+  const share = (key: string) => {
+    const counted = reported(key);
+    if (!receiver || counted.length === 0) return null;
+    return round(counted.reduce((total, g) => total + (g.stats[key] ?? 0), 0) / counted.length, 3);
+  };
   const perGame = (name: string) =>
     reported(usageKey(name)).length === 0 ? null : round(sum(usageKey(name)) / games.length, 2);
   const ratio = (top: number, bottom: number, places: number) =>
@@ -118,9 +126,9 @@ export function seasonUsage(
   return {
     games: games.length,
     throughWeek: Math.max(...games.map((g) => g.week)),
-    targetShare: receiver ? average(RECEIVER_SHARE, 3) : null,
-    airYardsShare: receiver ? average(usageKey('air_yd_share'), 3) : null,
-    wopr: receiver ? average(usageKey('wopr'), 3) : null,
+    targetShare: share(RECEIVER_SHARE),
+    airYardsShare: share(usageKey('air_yd_share')),
+    wopr: share(usageKey('wopr')),
     aDot: ratio(sum(usageKey('rec_air_yd')), targets, 1),
     yacPerReception: ratio(sum(usageKey('rec_yac')), sum('rec'), 1),
     receivingEpa: perGame('rec_epa'),

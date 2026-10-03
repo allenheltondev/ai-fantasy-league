@@ -94,8 +94,8 @@ export const NFLVERSE_USAGE: Readonly<Record<string, string>> = {
 };
 
 /**
- * The shares nflverse reports for every player row, kept even at 0: a receiver with no targets in a
- * game has a 0% target share that his average must count.
+ * The shares nflverse reports for every player row, kept even at 0 when the file has the column: a
+ * receiver with no targets in a game has a 0% target share that his average must count.
  */
 const ALWAYS_KEPT = new Set([
   `${USAGE_STAT_PREFIX}tgt_share`,
@@ -157,12 +157,18 @@ export function mapNflverseStats(row: CsvRow): StatMap {
 }
 
 /**
- * A row's usage stats: the shares always (0 when missing), the rest only when reported and nonzero.
- * Rounded to 4 decimals. A file without the usage columns (an older season) yields only the shares.
+ * A row's usage stats, rounded to 4 decimals: the shares whenever the file has their column (0 when
+ * the row's value is empty), the rest only when reported and nonzero. A column the file does not
+ * have (renamed or dropped upstream, or an older season) yields no key at all, never a 0, so a
+ * schema change reads as "not reported" instead of a confident 0% share. The usage columns are not
+ * required (`STATS_REQUIRED_COLUMNS`): losing one must not stop the stat corrections.
  */
 export function mapNflverseUsage(row: CsvRow): StatMap {
   const usage: StatMap = {};
   for (const [key, column] of Object.entries(NFLVERSE_USAGE)) {
+    // Every parsed row carries every header column (an empty cell is ''), so a missing key is a
+    // missing column.
+    if (row[column] === undefined) continue;
     const value = csvNumber(row, column);
     if (ALWAYS_KEPT.has(key)) usage[key] = Math.round((value ?? 0) * 10_000) / 10_000;
     else if (value !== undefined && value !== 0) usage[key] = Math.round(value * 10_000) / 10_000;

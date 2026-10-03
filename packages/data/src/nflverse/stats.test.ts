@@ -5,6 +5,7 @@ import { normalizePlayers, normalizeWeekStats } from '../sleeper/normalize.js';
 import { sleeperPlayersSchema, sleeperWeekStatsSchema } from '../sleeper/schemas.js';
 import type { StatMap } from '../types.js';
 import { buildCrosswalk, parseIdMap } from './crosswalk.js';
+import { parseCsv } from './csv.js';
 import { NFLVERSE_TO_SLEEPER, NFLVERSE_USAGE, mapNflverseStats, parseNflverseWeeklyStats } from './stats.js';
 
 const csv = fixtureText('nflverse/stats_player_week_2025.csv');
@@ -55,6 +56,33 @@ describe('parseNflverseWeeklyStats (fixture: 18 players, 2025 weeks 1-2)', () =>
     // A catch behind the line of scrimmage is negative air yards.
     expect(lines.find((l) => l.name === 'Saquon Barkley' && l.week === 1)?.usage.nfv_rec_air_yd).toBe(-5);
     expect(Object.keys(NFLVERSE_USAGE).every((k) => k.startsWith('nfv_'))).toBe(true);
+  });
+
+  it('leaves out a usage stat whose column the file lacks, rather than reading it as 0', () => {
+    // The fixture without nflverse's target_share and wopr columns (renamed or dropped upstream).
+    const [header, ...rows] = parseCsv(csv);
+    const dropped = ['target_share', 'wopr'].map((c) => header!.indexOf(c));
+    expect(dropped.every((i) => i >= 0)).toBe(true);
+    const quote = (cell: string) => `"${cell.replaceAll('"', '""')}"`;
+    const without = (cells: string[]) =>
+      cells
+        .filter((_, i) => !dropped.includes(i))
+        .map(quote)
+        .join(',');
+    const trimmed = [header!, ...rows].map(without).join('\n');
+    const parsed = parseNflverseWeeklyStats(trimmed, crosswalk);
+    const chase = parsed.find((l) => l.name === "Ja'Marr Chase" && l.week === 2);
+    // The share the file still has is kept; the two it lacks are absent, not 0.
+    expect(chase?.usage).toEqual({
+      nfv_air_yd_share: 0.3111,
+      nfv_rec_air_yd: 112,
+      nfv_rec_yac: 92,
+      nfv_rec_epa: 11.1419
+    });
+    // An empty cell in a column the file has is still a reported 0.
+    const mahomes = parsed.find((l) => l.name === 'Patrick Mahomes' && l.week === 1);
+    expect(mahomes?.usage.nfv_air_yd_share).toBe(0);
+    expect(mahomes?.usage).not.toHaveProperty('nfv_tgt_share');
   });
 
   it('parses every row and keys them by Sleeper id through the crosswalk', () => {

@@ -4,6 +4,26 @@ import { seasonUsage } from './current-form.js';
 /** Usage from the nflverse numbers the official final adds to a week's stat line. */
 
 describe('seasonUsage', () => {
+  it('averages a share over the games that reported it, and never counts a missing column as 0', () => {
+    const usage = seasonUsage(
+      [
+        { week: 1, stats: { gp: 1, rec_tgt: 8, nfv_tgt_share: 0.3, nfv_wopr: 0.6 } },
+        // A file without the target_share and wopr columns: only the air yards share came through.
+        { week: 2, stats: { gp: 1, rec_tgt: 6, nfv_air_yd_share: 0.2 } }
+      ],
+      'WR'
+    );
+    expect(usage).toMatchObject({ games: 2, targetShare: 0.3, wopr: 0.6, airYardsShare: 0.2 });
+    // No game reported a share at all: unknown, not 0%.
+    expect(seasonUsage([{ week: 1, stats: { gp: 1, nfv_rec_epa: 1 } }], 'WR')).toMatchObject({
+      games: 1,
+      targetShare: null,
+      airYardsShare: null,
+      wopr: null,
+      receivingEpa: 1
+    });
+  });
+
   it('keeps zero shares for a back, receiver, or tight end with no targets at all, and none for a passer', () => {
     const zero = { gp: 1, nfv_tgt_share: 0, nfv_air_yd_share: 0, nfv_wopr: 0 };
     for (const position of ['RB', 'WR', 'TE']) {
