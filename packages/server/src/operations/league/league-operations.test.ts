@@ -855,6 +855,37 @@ describe('taking over an AI team', () => {
     }
   });
 
+  it('lets only one of two invites made at the same moment work', async () => {
+    const [a, b] = await Promise.all([alice.post(PATH, {}), alice.post(PATH, {})]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const [won, lost] = a.status === 200 ? [a, b] : [b, a];
+    expect(lost.body).toMatchObject({ error: { code: 'CONFLICT', fix: expect.stringContaining('Retry') } });
+    const winner = data<{ token: string; invite: { id: string } }>(won);
+    const invites = await h.repos.invites.list('lg-t');
+    expect(invites.filter((i) => i.revokedAt === null).map((i) => i.id)).toEqual([winner.invite.id]);
+    expect(data(await bob.post(`/invites/${winner.token}/join`, {}))).toMatchObject({
+      team: { id: 'team-3' }
+    });
+  });
+
+  it('refuses an invite a newer one replaced, even if it was never revoked', async () => {
+    const created = await takeoverInvite();
+    const team = await h.repos.teams.get('lg-t', 'team-3');
+    await h.repos.teams.update({ ...team!, takeoverInviteId: 'newer' });
+    expect(data(await bob.get(`/invites/${created.token}`))).toMatchObject({
+      status: 'revoked',
+      joinable: false
+    });
+    expect(errorCode(await bob.post(`/invites/${created.token}/join`, {}))).toBe('INVITE_REVOKED');
+  });
+
+  it('clears the live invite once the team is taken', async () => {
+    const created = await takeoverInvite();
+    expect((await h.repos.teams.get('lg-t', 'team-3'))?.takeoverInviteId).toBe(created.invite.id);
+    await bob.post(`/invites/${created.token}/join`, {});
+    expect((await h.repos.teams.get('lg-t', 'team-3'))?.takeoverInviteId).toBeUndefined();
+  });
+
   it('fails once someone else already took the team over', async () => {
     const created = await takeoverInvite();
     const team = await h.repos.teams.get('lg-t', 'team-3');

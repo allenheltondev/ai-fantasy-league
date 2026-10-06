@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isAgentPlayed } from '../../league/managers.js';
 import { TAKEOVER_PHASES } from '../../league/phase.js';
-import { claimableSeats } from '../../league/seats.js';
+import { claimableSeats, isLiveTakeover } from '../../league/seats.js';
 import { inviteStatus, INVITE_STATUSES, PhaseSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 import { findInvite } from './invites.js';
@@ -51,13 +51,15 @@ export const getInvite = defineOperation({
     const { invite, league } = await findInvite(ctx, input.token);
     const teams = await ctx.repos.teams.list(league.id);
     const now = ctx.clock.now();
-    const status = inviteStatus(invite, now);
     const openSeats = claimableSeats(teams).length;
     const target = invite.teamId === null ? undefined : teams.find((t) => t.id === invite.teamId);
     const takeover =
       target === undefined
         ? null
         : { teamId: target.id, teamName: target.name, available: isAgentPlayed(target) };
+    // A takeover invite a newer one replaced reads as revoked, as join_league treats it.
+    const replaced = target !== undefined && takeover?.available === true && !isLiveTakeover(target, invite);
+    const status = replaced ? 'revoked' : inviteStatus(invite, now);
     const joinable =
       status === 'active' &&
       (invite.teamId === null

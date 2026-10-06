@@ -396,6 +396,32 @@ describe('settings: invites', () => {
     expect(await screen.findByText('Too late.')).toBeInTheDocument();
   });
 
+  it('keeps invites revocable while the draft runs', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      getLeague: vi.fn(async () => league({ phase: 'drafting' })),
+      getLeagueState: vi.fn(async () => state({ phase: 'drafting', allowedActions: ['revoke_invite'] })),
+      listInvites: vi.fn(async () => [
+        {
+          id: 'i1',
+          code: 'K7M-Q2X',
+          status: 'active' as const,
+          email: null,
+          teamId: null,
+          maxUses: 1,
+          uses: 0,
+          expiresAt: '2026-10-01T00:00:00Z'
+        }
+      ])
+    });
+    await open(api);
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create takeover code' })).not.toBeInTheDocument();
+    const list = await screen.findByRole('list', { name: 'Invites' });
+    await user.click(within(list).getByRole('button', { name: 'Revoke' }));
+    expect(api.revokeInvite).toHaveBeenCalledWith('L1', 'i1');
+  });
+
   it('hands a picked AI team to a person mid-season with a takeover code', async () => {
     const user = userEvent.setup();
     const inSeason = league({

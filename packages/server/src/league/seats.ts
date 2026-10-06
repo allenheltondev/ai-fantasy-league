@@ -1,5 +1,5 @@
 import { isGenericTeamName, type LeagueSettings, type NameSetBy } from '@fantasy/core';
-import type { Team, TeamRename } from '../repos/types.js';
+import type { Invite, Team, TeamRename } from '../repos/types.js';
 
 /** Seats: creation, the order open seats are claimed in, and giving a seat back to an agent. */
 
@@ -76,8 +76,15 @@ export function claimSeat(
     nameSetBy: 'owner',
     // A new person plays the seat: the team's earlier DMs are not theirs.
     occupiedSince: now.toISOString(),
+    // The seat is taken: no takeover invite is live for it any more.
+    takeoverInviteId: undefined,
     updatedAt: now.toISOString()
   };
+}
+
+/** True when `invite` is the team's one live takeover invite (create_takeover_invite). */
+export function isLiveTakeover(team: Pick<Team, 'takeoverInviteId'>, invite: Pick<Invite, 'id'>): boolean {
+  return team.takeoverInviteId === invite.id;
 }
 
 /** A person left or was removed: the seat goes back to an agent under its default name. */

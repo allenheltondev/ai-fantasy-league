@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ApiError, isApiError } from '../../errors.js';
 import { isAgentPlayed, leagueManagers } from '../../league/managers.js';
 import { TAKEOVER_PHASES } from '../../league/phase.js';
-import { claimableSeats, claimSeat, sameTeamName } from '../../league/seats.js';
+import { claimableSeats, claimSeat, isLiveTakeover, sameTeamName } from '../../league/seats.js';
 import {
   leagueSummary,
   LeagueSummarySchema,
@@ -11,7 +11,7 @@ import {
   TeamNameSchema
 } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
-import type { LeaguePhase, Team } from '../../repos/types.js';
+import type { Invite, LeaguePhase, Team } from '../../repos/types.js';
 import { InviteTokenSchema } from './get-invite.js';
 import { assertUsable, findInvite } from './invites.js';
 
@@ -54,7 +54,7 @@ export const joinLeague = defineOperation({
     const teams = await ctx.repos.teams.list(league.id);
     const held = teams.find((t) => t.ownerUserId === principal.sub);
     if (held !== undefined) throw alreadyMember(`Yours is "${held.name}" (teamId "${held.id}").`);
-    const seat = invite.teamId === null ? claimableSeats(teams)[0] : takeoverSeat(teams, invite.teamId);
+    const seat = invite.teamId === null ? claimableSeats(teams)[0] : takeoverSeat(teams, invite);
     if (seat === undefined) {
       throw new ApiError('NO_OPEN_SEATS', 'Every seat in this league is taken.', {
         fix: 'Ask the commissioner to raise teamCount (update_league_settings) or to free a seat.'
@@ -138,12 +138,21 @@ function assertJoinPhase(phase: LeaguePhase, takeover: boolean): void {
   );
 }
 
-/** The AI team a takeover invite names; NO_OPEN_SEATS once a person plays it or it is gone. */
-function takeoverSeat(teams: readonly Team[], teamId: string): Team {
-  const team = teams.find((t) => t.id === teamId);
+/**
+ * The AI team a takeover invite names: NO_OPEN_SEATS once a person plays it or it is gone, and
+ * INVITE_REVOKED when a newer takeover invite replaced this one. Claiming the seat is checked
+ * against the team's version, so it also loses to a replacement made after this read.
+ */
+function takeoverSeat(teams: readonly Team[], invite: Invite): Team {
+  const team = teams.find((t) => t.id === invite.teamId);
   if (team === undefined || !isAgentPlayed(team)) {
     throw new ApiError('NO_OPEN_SEATS', 'This team is no longer played by an AI manager.', {
       fix: 'Someone else took it over already. Ask the commissioner for an invite to another team.'
+    });
+  }
+  if (!isLiveTakeover(team, invite)) {
+    throw new ApiError('INVITE_REVOKED', 'The commissioner replaced this invite with a newer one.', {
+      fix: 'Ask the commissioner for the latest invite for this team.'
     });
   }
   return team;

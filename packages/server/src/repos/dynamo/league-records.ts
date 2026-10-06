@@ -134,6 +134,7 @@ export const TeamRecordSchema = z.object({
   waiverPriorityResetKey: z.string().optional(),
   roster: z.array(z.string()),
   occupiedSince: iso.optional(),
+  takeoverInviteId: z.string().optional(),
   createdAt: iso,
   updatedAt: iso,
   version: z.number()
