@@ -277,6 +277,11 @@ export interface Invite {
   code: string | null;
   /** When set, only a user signed in with this email can use the invite. */
   email: string | null;
+  /**
+   * A takeover invite (create_takeover_invite): the AI team the person joining takes over, roster
+   * and record included, even after the draft. Null for an invite to any open seat.
+   */
+  teamId: string | null;
   maxUses: number;
   uses: number;
   expiresAt: string;

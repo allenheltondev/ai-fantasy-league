@@ -310,6 +310,7 @@ describe('views', () => {
     tokenHash: 'h',
     code: null,
     email: null,
+    teamId: null,
     maxUses: 2,
     uses: 0,
     expiresAt: '2026-09-11T00:00:00.000Z',

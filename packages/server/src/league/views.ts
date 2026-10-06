@@ -210,6 +210,10 @@ export const InviteViewSchema = z.object({
     .string()
     .nullable()
     .describe('Only this email can use the invite; null means anyone with the link.'),
+  teamId: z
+    .string()
+    .nullable()
+    .describe('A takeover invite: the AI team the person joining takes over. Null for any open seat.'),
   maxUses: z.number().int(),
   uses: z.number().int(),
   expiresAt: z.string(),
@@ -223,6 +227,7 @@ export function inviteView(invite: Invite, now: Date): z.infer<typeof InviteView
     code: invite.code === null ? null : formatInviteCode(invite.code),
     status: inviteStatus(invite, now),
     email: invite.email,
+    teamId: invite.teamId,
     maxUses: invite.maxUses,
     uses: invite.uses,
     expiresAt: invite.expiresAt,

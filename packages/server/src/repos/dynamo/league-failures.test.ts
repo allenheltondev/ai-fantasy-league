@@ -29,6 +29,7 @@ const invite = {
   tokenHash: 'h',
   code: null,
   email: null,
+  teamId: null,
   maxUses: 1,
   uses: 0,
   expiresAt: START,

@@ -129,6 +129,8 @@ export interface Invite {
   code: string | null;
   status: InviteStatus;
   email: string | null;
+  /** A takeover invite: the AI team the person joining takes over. Null for any open seat. */
+  teamId: string | null;
   maxUses: number;
   uses: number;
   expiresAt: string;
@@ -148,6 +150,8 @@ export interface InvitePreview {
   teamCount: number;
   openSeats: number;
   status: InviteStatus;
+  /** A takeover invite: the AI team it hands over, and whether it still can. */
+  takeover: { teamId: string; teamName: string; available: boolean } | null;
   joinable: boolean;
 }
 

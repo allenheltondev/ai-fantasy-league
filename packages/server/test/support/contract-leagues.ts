@@ -98,6 +98,20 @@ export const LEAGUE_CASES: Record<string, Case[]> = {
       status: 403
     }
   ],
+  create_takeover_invite: [
+    {
+      label: 'created',
+      path: `${L}/lg-c/teams/team-8/takeover-invites`,
+      init: { body: {}, idempotencyKey: key('takeover') },
+      status: 200
+    },
+    {
+      label: 'person plays it',
+      path: `${L}/lg-c/teams/team-2/takeover-invites`,
+      init: { body: {}, idempotencyKey: key('takeover-bad') },
+      status: 409
+    }
+  ],
   list_invites: [
     { label: 'commissioner', path: `${L}/lg-c/invites`, status: 200 },
     { label: 'member', path: `${L}/lg-c/invites`, init: { token: bob }, status: 403 }

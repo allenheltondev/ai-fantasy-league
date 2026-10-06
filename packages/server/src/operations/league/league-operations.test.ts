@@ -501,6 +501,7 @@ describe('invites and joining', () => {
       status: 'active',
       restrictedToEmail: false,
       expiresAt: '2026-09-17T12:00:00.000Z',
+      takeover: null,
       joinable: true
     });
     const missing = await h.request(`/api/v1/invites/${token('missing')}`, { token: null });
@@ -744,6 +745,135 @@ describe('invites and joining', () => {
     expect(data(await alice.del(path))).toMatchObject({ invite: { status: 'revoked' } });
     expect(errorCode(await bob.post(`/invites/${created.token}/join`, {}))).toBe('INVITE_REVOKED');
     expect(errorCode(await alice.del('/leagues/lg-i/invites/nope'))).toBe('INVITE_NOT_FOUND');
+  });
+});
+
+describe('taking over an AI team', () => {
+  const PATH = '/leagues/lg-t/teams/team-3/takeover-invites';
+
+  beforeEach(async () => {
+    await seedLeague(h.repos, {
+      id: 'lg-t',
+      owners: [ALICE],
+      overrides: { phase: 'regular_season', week: 5 }
+    });
+    const team = await h.repos.teams.get('lg-t', 'team-3');
+    await h.repos.teams.update({
+      ...team!,
+      name: 'Robo Ballers',
+      nameSetBy: 'agent',
+      roster: ['p-1', 'p-2', 'p-3'],
+      faabRemaining: 42,
+      waiverPriority: 2
+    });
+  });
+
+  async function takeoverInvite(path = PATH) {
+    const res = await alice.post(path, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    return data<{ token: string; invite: { id: string; code: string; teamId: string; maxUses: number } }>(
+      res
+    );
+  }
+
+  it('hands a person the AI team, roster and all, by join code mid-season', async () => {
+    const created = await takeoverInvite();
+    expect(created.invite).toMatchObject({ teamId: 'team-3', maxUses: 1, status: 'active' });
+
+    const preview = data(await bob.get(`/invites/${created.invite.code}`));
+    expect(preview).toMatchObject({
+      phase: 'regular_season',
+      takeover: { teamId: 'team-3', teamName: 'Robo Ballers', available: true },
+      joinable: true
+    });
+
+    const joined = await bob.post(`/invites/${created.invite.code}/join`, {});
+    expect(joined.status, JSON.stringify(joined.body)).toBe(200);
+    expect(data(joined)).toMatchObject({
+      league: { id: 'lg-t', yourTeamId: 'team-3' },
+      team: { id: 'team-3', name: 'Robo Ballers', seatType: 'human', ownerUserId: 'bob' }
+    });
+    const team = await h.repos.teams.get('lg-t', 'team-3');
+    expect(team).toMatchObject({
+      roster: ['p-1', 'p-2', 'p-3'],
+      faabRemaining: 42,
+      waiverPriority: 2,
+      nameSetBy: 'owner',
+      agentConfigId: null
+    });
+    expect(await h.repos.members.get('lg-t', 'bob')).toMatchObject({ teamId: 'team-3' });
+    expect(h.events.events).toContainEqual(
+      expect.objectContaining({
+        detailType: 'Member Joined',
+        detail: expect.objectContaining({
+          teamId: 'team-3',
+          name: 'Bob',
+          replacedManager: expect.any(String)
+        })
+      })
+    );
+    // The one use is spent, and Bob can act for the team now.
+    expect(errorCode(await carol.post(`/invites/${created.token}/join`, {}))).toBe('INVITE_USED_UP');
+    const state = data<{ allowedActions: string[] }>(await bob.get('/leagues/lg-t/state'));
+    expect(state.allowedActions).toContain('set_lineup');
+  });
+
+  it('lets the person pick a new team name', async () => {
+    const created = await takeoverInvite();
+    const joined = await bob.post(`/invites/${created.token}/join`, { teamName: 'Bobcats' });
+    expect(data(joined)).toMatchObject({ team: { id: 'team-3', name: 'Bobcats' } });
+  });
+
+  it('keeps one live takeover invite per team, and lets the commissioner revoke it in season', async () => {
+    const first = await takeoverInvite();
+    const second = await takeoverInvite();
+    expect(errorCode(await bob.post(`/invites/${first.token}/join`, {}))).toBe('INVITE_REVOKED');
+    expect(data(await alice.del(`/leagues/lg-t/invites/${second.invite.id}`))).toMatchObject({
+      invite: { status: 'revoked' }
+    });
+    expect(errorCode(await bob.post(`/invites/${second.token}/join`, {}))).toBe('INVITE_REVOKED');
+  });
+
+  it('refuses a team a person plays, non-commissioners, and the draft and after the season', async () => {
+    expect(errorCode(await alice.post('/leagues/lg-t/teams/team-1/takeover-invites', {}))).toBe('CONFLICT');
+    expect(errorCode(await alice.post('/leagues/lg-t/teams/team-99/takeover-invites', {}))).toBe(
+      'TEAM_NOT_FOUND'
+    );
+    expect(errorCode(await carol.post(PATH, {}))).toBe('FORBIDDEN');
+    // Plain invites still stop at the draft.
+    expect(errorCode(await alice.post('/leagues/lg-t/invites', {}))).toBe('PHASE_NOT_ALLOWED');
+
+    const created = await takeoverInvite();
+    for (const phase of ['drafting', 'complete'] as const) {
+      await h.repos.leagues.update({ ...(await h.repos.leagues.get('lg-t'))!, phase });
+      expect(errorCode(await alice.post(PATH, {}))).toBe('PHASE_NOT_ALLOWED');
+      const join = await bob.post(`/invites/${created.token}/join`, {});
+      expect(join.body, phase).toMatchObject({
+        error: { code: 'PHASE_NOT_ALLOWED', details: { phase }, fix: expect.any(String) }
+      });
+      expect(data(await bob.get(`/invites/${created.token}`))).toMatchObject({ joinable: false });
+    }
+  });
+
+  it('fails once someone else already took the team over', async () => {
+    const created = await takeoverInvite();
+    const team = await h.repos.teams.get('lg-t', 'team-3');
+    await h.repos.teams.update({ ...team!, seatType: 'human', ownerUserId: 'dave', ownerName: 'Dave' });
+    expect(data(await bob.get(`/invites/${created.token}`))).toMatchObject({
+      takeover: { available: false },
+      joinable: false
+    });
+    expect((await bob.post(`/invites/${created.token}/join`, {})).body).toMatchObject({
+      error: { code: 'NO_OPEN_SEATS', message: expect.stringContaining('no longer') }
+    });
+  });
+
+  it('works before the draft too, for that one seat', async () => {
+    await seedLeague(h.repos, { id: 'lg-s', owners: [ALICE] });
+    const created = await takeoverInvite('/leagues/lg-s/teams/team-6/takeover-invites');
+    expect(data(await bob.post(`/invites/${created.token}/join`, {}))).toMatchObject({
+      team: { id: 'team-6', ownerUserId: 'bob' }
+    });
   });
 });
 

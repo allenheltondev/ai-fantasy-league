@@ -222,6 +222,9 @@ describe('renderSystemMessage', () => {
     expect(render('Member Joined', { teamId: 'team-2', name: 'Bob' })?.text).toBe(
       'Bob joined the league and took over Robo Ballers.'
     );
+    expect(
+      render('Member Joined', { teamId: 'team-2', name: 'Bob', replacedManager: 'Marcus Hale' })?.text
+    ).toBe('Bob joined the league and took over Robo Ballers from Marcus Hale.');
     expect(render('Member Joined', { teamId: 'team-2' })?.text).toBe('Robo Ballers has a new manager.');
     expect(render('Member Left', { teamId: 'team-2', reason: 'removed' })?.text).toBe(
       'Robo Ballers was removed from the league by the commissioner.'

@@ -18,7 +18,15 @@ const PREVIEW: InvitePreview = {
   teamCount: 4,
   openSeats: 2,
   status: 'active',
+  takeover: null,
   joinable: true
+};
+
+const TAKEOVER: InvitePreview = {
+  ...PREVIEW,
+  phase: 'regular_season',
+  openSeats: 0,
+  takeover: { teamId: 'team-4', teamName: 'Robo Ballers', available: true }
 };
 
 describe('join page', () => {
@@ -149,5 +157,29 @@ describe('join page', () => {
     expect(notJoinableReason({ ...closed, status: 'used_up' })).toMatch(/used up/);
     expect(notJoinableReason({ ...closed, phase: 'drafting' })).toMatch(/draft/);
     expect(notJoinableReason({ ...closed, openSeats: 0 })).toMatch(/Every seat/);
+    const closedTakeover = { ...TAKEOVER, joinable: false };
+    expect(notJoinableReason(TAKEOVER)).toBeNull();
+    expect(
+      notJoinableReason({ ...closedTakeover, takeover: { ...TAKEOVER.takeover!, available: false } })
+    ).toMatch(/already took over Robo Ballers/);
+    expect(notJoinableReason({ ...closedTakeover, phase: 'drafting' })).toMatch(/draft is running/);
+    expect(notJoinableReason({ ...closedTakeover, phase: 'complete' })).toMatch(/season is over/);
+  });
+
+  it('takes over an AI team with a join code and opens it', async () => {
+    const user = userEvent.setup();
+    signInAs({ sub: 'bob', given_name: 'Bob' });
+    const api = fakeApi({ getInvite: vi.fn(async () => TAKEOVER) });
+    renderApp(`/join/${CODE}`, undefined, api);
+    expect(await screen.findByText("You're invited to take over Robo Ballers in")).toBeInTheDocument();
+    expect(screen.getByText(/its roster, record, and waiver budget/)).toBeInTheDocument();
+    expect(screen.queryByText(/open seat/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('New team name (optional)')).toHaveAttribute(
+      'placeholder',
+      'Keep Robo Ballers'
+    );
+    await user.click(screen.getByRole('button', { name: 'Take over team' }));
+    expect(api.joinLeague).toHaveBeenCalledWith(CODE, undefined);
+    expect(await screen.findByTestId('league-section-home')).toBeInTheDocument();
   });
 });

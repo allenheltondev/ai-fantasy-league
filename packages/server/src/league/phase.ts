@@ -170,6 +170,11 @@ const ALL: readonly LeaguePhase[] = LEAGUE_PHASES;
 const ACTIVE: readonly LeaguePhase[] = ['setup', 'drafting', 'regular_season', 'playoffs'];
 const IN_SEASON: readonly LeaguePhase[] = ['regular_season', 'playoffs'];
 const PLAYERS: readonly LeagueRole[] = ['member', 'agent'];
+/**
+ * When a person can take over an AI team (create_takeover_invite, join_league with its invite):
+ * any time but mid-draft, where an agent may be on the clock, and after the season.
+ */
+export const TAKEOVER_PHASES: readonly LeaguePhase[] = ['setup', 'regular_season', 'playoffs'];
 const COMMISSIONER_FIX =
   'Only the commissioner can do this. Ask the commissioner (see get_league) to make the change.';
 const PLAYER_FIX = 'Only a team in this league can do this. Join with an invite link first (join_league).';
@@ -182,7 +187,8 @@ const PLAYER_FIX = 'Only a team in this league can do this. Join with an invite 
 export const ACTION_RULES: Readonly<Record<string, ActionRule>> = {
   update_league_settings: { phases: ACTIVE, roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   create_invite: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
-  revoke_invite: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
+  create_takeover_invite: { phases: TAKEOVER_PHASES, roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
+  revoke_invite: { phases: ACTIVE, roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   remove_member: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   set_seat_type: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },
   delete_league: { phases: ['setup'], roles: ['commissioner'], roleFix: COMMISSIONER_FIX },

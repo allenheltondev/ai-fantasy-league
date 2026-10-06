@@ -12,7 +12,7 @@ export const revokeInvite = defineOperation({
   summary: 'Revoke an invite so its link stops working (commissioner only)',
   description: [
     'Revokes an invite: its link stops working immediately, and anyone trying it gets INVITE_REVOKED. People who already joined keep their seats (use remove_member for that).',
-    'Revoking an invite that is already revoked succeeds and changes nothing. Get invite ids from list_invites. Only the commissioner can revoke, while the league is in setup.'
+    'Revoking an invite that is already revoked succeeds and changes nothing. Get invite ids from list_invites. Only the commissioner can revoke, until the league is complete.'
   ].join(' '),
   tags: ['leagues', 'invites'],
   mutation: true,

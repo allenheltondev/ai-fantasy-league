@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Button, Input, StatusBadge, useToast, type StatusBadgeTone } from '@readysetcloud/ui';
+import { Button, Input, Select, StatusBadge, useToast, type StatusBadgeTone } from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
-import type { InviteStatus } from '../../api/types';
+import type { CreatedInvite, InviteStatus, TeamDetail } from '../../api/types';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 
@@ -14,19 +14,45 @@ const STATUS: Record<InviteStatus, { label: string; tone: StatusBadgeTone }> = {
 
 export interface InvitesPanelProps {
   leagueId: string;
+  /** Every team, to name the team a takeover invite hands over. */
+  teams: TeamDetail[];
   openHumanSeats: number;
   canCreate: boolean;
+  /** The commissioner may hand an AI team to a person right now (create_takeover_invite). */
+  canTakeover: boolean;
   canRevoke: boolean;
 }
 
-/** Invite links and join codes for the open human seats: create, copy, and revoke them. */
-export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }: InvitesPanelProps) {
+interface Created {
+  link: string;
+  code: string | null;
+  /** The team a takeover invite hands over; null for an open-seat invite. */
+  teamName: string | null;
+}
+
+/**
+ * Invite links and join codes: for the open seats before the draft, and to hand one AI team to a
+ * person (a takeover, which also works in season). Create, copy, and revoke them.
+ */
+export function InvitesPanel({
+  leagueId,
+  teams,
+  openHumanSeats,
+  canCreate,
+  canTakeover,
+  canRevoke
+}: InvitesPanelProps) {
   const api = useLeagueApi();
   const { toast } = useToast();
   const invites = useLoad(() => api.listInvites(leagueId), leagueId);
-  const [created, setCreated] = useState<{ link: string; code: string | null } | null>(null);
+  const [created, setCreated] = useState<Created | null>(null);
+  const [takeoverTeamId, setTakeoverTeamId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const aiTeams = teams
+    .filter((t) => t.seatType === 'agent' && t.open)
+    .sort((a, b) => a.draftSlot - b.draftSlot);
+  const teamName = (teamId: string) => teams.find((t) => t.id === teamId)?.name ?? teamId;
 
   const act = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -41,6 +67,13 @@ export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }:
     }
   };
 
+  const show = (made: CreatedInvite, forTeam: string | null) =>
+    setCreated({
+      link: `${window.location.origin}${made.joinPath}`,
+      code: made.invite.code,
+      teamName: forTeam
+    });
+
   const copy = async (text: string, what: 'link' | 'code') => {
     try {
       await navigator.clipboard.writeText(text);
@@ -52,30 +85,69 @@ export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }:
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {openHumanSeats === 0
-          ? 'No seats are waiting for a person. People who join take an AI seat instead.'
-          : `${openHumanSeats} human seat(s) waiting for someone to join.`}{' '}
-        Each link and code works once and expires in 7 days. Friends can open the link, or enter the code
-        under Join a league.
-      </p>
+      {canCreate && (
+        <p className="text-sm text-muted-foreground">
+          {openHumanSeats === 0
+            ? 'No seats are waiting for a person. People who join take an AI seat instead.'
+            : `${openHumanSeats} human seat(s) waiting for someone to join.`}{' '}
+          Each link and code works once and expires in 7 days. Friends can open the link, or enter the code
+          under Join a league.
+        </p>
+      )}
       <ApiErrorAlert error={error ?? invites.error} />
       {canCreate && (
         <Button
           variant="primary"
           loading={busy}
-          onClick={() =>
-            void act(async () => {
-              const made = await api.createInvite(leagueId);
-              setCreated({ link: `${window.location.origin}${made.joinPath}`, code: made.invite.code });
-            })
-          }
+          onClick={() => void act(async () => show(await api.createInvite(leagueId), null))}
         >
           Create invite link
         </Button>
       )}
+      {canTakeover && aiTeams.length > 0 && (
+        <form
+          className="space-y-2"
+          aria-label="Hand an AI team to a person"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const teamId = takeoverTeamId;
+            void act(async () => show(await api.createTakeoverInvite(leagueId, teamId), teamName(teamId)));
+          }}
+        >
+          <p className="text-sm text-muted-foreground">
+            Hand an AI team to a person: they take over its roster and record, and its AI manager stops
+            playing it. The code works once, expires in 7 days, and is entered under Join a league.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-56">
+              <Select
+                label="AI team to hand over"
+                value={takeoverTeamId}
+                onChange={(e) => setTakeoverTeamId(e.target.value)}
+              >
+                <option value="">Pick a team</option>
+                {aiTeams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.manager ? ` (${t.manager.name})` : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button
+              type="submit"
+              variant={canCreate ? 'secondary' : 'primary'}
+              disabled={takeoverTeamId === ''}
+              loading={busy}
+            >
+              Create takeover code
+            </Button>
+          </div>
+        </form>
+      )}
       {created !== null && (
         <div className="space-y-3">
+          {created.teamName !== null && <p className="text-sm font-medium">Takes over {created.teamName}</p>}
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-64 flex-1">
               <Input label="Invite link" readOnly value={created.link} onFocus={(e) => e.target.select()} />
@@ -112,6 +184,9 @@ export function InvitesPanel({ leagueId, openHumanSeats, canCreate, canRevoke }:
                   <span className="sr-only">Join code </span>
                   {invite.code}
                 </span>
+              )}
+              {invite.teamId !== null && (
+                <span className="font-medium">Takes over {teamName(invite.teamId)}</span>
               )}
               <span>
                 {invite.uses}/{invite.maxUses} used · expires{' '}

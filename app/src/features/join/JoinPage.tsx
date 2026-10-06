@@ -15,6 +15,12 @@ export function notJoinableReason(preview: InvitePreview): string | null {
   if (preview.status === 'expired') return 'This invite has expired. Ask the commissioner for a new link.';
   if (preview.status === 'used_up')
     return 'This invite has been used up. Ask the commissioner for a new link.';
+  if (preview.takeover !== null) {
+    if (!preview.takeover.available)
+      return `Someone already took over ${preview.takeover.teamName}. Ask the commissioner for a new invite.`;
+    if (preview.phase === 'drafting') return 'The draft is running. Come back once it is finished.';
+    return 'The season is over, so no one can take over a team.';
+  }
   if (preview.phase !== 'setup') return 'This league has already started its draft, so no one new can join.';
   return 'Every seat in this league is taken.';
 }
@@ -75,13 +81,15 @@ function InviteCard({ token, preview }: { token: string; preview: InvitePreview 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const reason = notJoinableReason(preview);
+  const takeover = preview.takeover;
 
   const join = async () => {
     setBusy(true);
     setError(null);
     try {
       const joined = await api.joinLeague(token, teamName.trim() || undefined);
-      navigate(`/leagues/${joined.league.id}/settings`);
+      // A taken-over team is already playing: go straight to it.
+      navigate(`/leagues/${joined.league.id}/${takeover === null ? 'settings' : 'home'}`);
     } catch (e) {
       setError(e);
       setBusy(false);
@@ -91,12 +99,19 @@ function InviteCard({ token, preview }: { token: string; preview: InvitePreview 
   return (
     <Card>
       <CardBody className="space-y-4">
-        <p className="text-sm uppercase tracking-wide text-muted-foreground">You're invited to</p>
+        <p className="text-sm uppercase tracking-wide text-muted-foreground">
+          {takeover === null ? "You're invited to" : `You're invited to take over ${takeover.teamName} in`}
+        </p>
         <h1 className="font-display text-2xl font-semibold">{preview.leagueName}</h1>
         <p className="text-muted-foreground">
-          {preview.season} season · {preview.teamCount} teams · commissioner {preview.commissionerName} ·{' '}
-          {preview.openSeats} open seat(s)
+          {preview.season} season · {preview.teamCount} teams · commissioner {preview.commissionerName}
+          {takeover === null && ` · ${preview.openSeats} open seat(s)`}
         </p>
+        {takeover !== null && reason === null && (
+          <p className="text-sm text-muted-foreground">
+            You get the team as it stands: its roster, record, and waiver budget. Its AI manager steps aside.
+          </p>
+        )}
         <ApiErrorAlert error={error} />
         {reason !== null ? (
           <Alert variant="info">{reason}</Alert>
@@ -109,13 +124,14 @@ function InviteCard({ token, preview }: { token: string; preview: InvitePreview 
             }}
           >
             <Input
-              label="Team name (optional)"
+              label={takeover === null ? 'Team name (optional)' : 'New team name (optional)'}
+              placeholder={takeover === null ? undefined : `Keep ${takeover.teamName}`}
               maxLength={40}
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
             />
             <Button type="submit" variant="primary" loading={busy}>
-              Join league
+              {takeover === null ? 'Join league' : 'Take over team'}
             </Button>
           </form>
         ) : (

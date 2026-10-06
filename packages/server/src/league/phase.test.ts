@@ -180,6 +180,7 @@ describe('action rules', () => {
       'check_in_draft_lobby',
       'configure_agent_seat',
       'create_invite',
+      'create_takeover_invite',
       'delete_league',
       'post_message',
       'randomize_agent_seats',
@@ -229,6 +230,12 @@ describe('action rules', () => {
     ]);
     const lateSeason = league({ phase: 'regular_season', week: 12 });
     expect(allowed(AGENT, lateSeason)).not.toContain('propose_trade');
+    // The commissioner can hand an AI team to a person in season, but not mid-draft.
+    expect(allowed(COMMISSIONER, season)).toEqual(
+      expect.arrayContaining(['create_takeover_invite', 'revoke_invite'])
+    );
+    expect(allowed(COMMISSIONER, season)).not.toContain('create_invite');
+    expect(allowed(COMMISSIONER, league({ phase: 'drafting' }))).not.toContain('create_takeover_invite');
     expect(allowed(COMMISSIONER, league({ phase: 'complete' }))).toEqual(['post_message']);
   });
 

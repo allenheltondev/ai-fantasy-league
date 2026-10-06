@@ -1,5 +1,6 @@
 import { createInvite } from './create-invite.js';
 import { createLeague } from './create-league.js';
+import { createTakeoverInvite } from './create-takeover-invite.js';
 import { deleteLeague } from './delete-league.js';
 import { getDataStatus } from './get-data-status.js';
 import { getDefaultSettings } from './get-default-settings.js';
@@ -31,6 +32,7 @@ export const leagueOperations = [
   getLeagueState,
   updateLeagueSettings,
   createInvite,
+  createTakeoverInvite,
   listInvites,
   revokeInvite,
   getInvite,

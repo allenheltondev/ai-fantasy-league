@@ -152,6 +152,7 @@ export const InviteRecordSchema = z.object({
   tokenHash: z.string(),
   code: z.string().nullable().default(null),
   email: z.string().nullable(),
+  teamId: z.string().nullable().default(null),
   maxUses: z.number(),
   uses: z.number(),
   expiresAt: iso,

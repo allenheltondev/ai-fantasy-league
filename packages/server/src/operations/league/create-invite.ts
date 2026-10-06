@@ -20,7 +20,7 @@ export const createInvite = defineOperation({
   description: [
     'Creates an invite and returns its secret `token` exactly once; share `joinPath` (or the token) with the people you want in the league. It also has a six-character join code (`invite.code`, shown again by list_invites) that works the same way for people who type it into Join a league. They preview it with get_invite and join with join_league, taking an open seat.',
     'Defaults: one use, expires in 7 days (168 hours), anyone with the link. Set `email` to restrict it to one person, `maxUses` for a group link.',
-    'Only the commissioner can create invites, and only while the league is in setup (before the draft). The token cannot be read again later: create a new invite if it is lost, and revoke_invite the old one.'
+    'Only the commissioner can create invites, and only while the league is in setup (before the draft); to hand one AI team to a person, before or after the draft, use create_takeover_invite. The token cannot be read again later: create a new invite if it is lost, and revoke_invite the old one.'
   ].join(' '),
   tags: ['leagues', 'invites'],
   mutation: true,
@@ -62,6 +62,7 @@ export const createInvite = defineOperation({
       leagueId: access.league.id,
       tokenHash: hashInviteToken(token),
       email: input.email?.toLowerCase() ?? null,
+      teamId: null,
       maxUses: input.maxUses,
       uses: 0,
       expiresAt: new Date(now.getTime() + input.expiresInHours * 60 * 60 * 1000).toISOString(),
@@ -87,7 +88,7 @@ export const createInvite = defineOperation({
 /** A random code collides with a live one about once in 887 million tries; a few retries make that a non-event. */
 const CODE_ATTEMPTS = 5;
 
-async function createWithFreeCode(ctx: Ctx, invite: Omit<Invite, 'code'>): Promise<Invite> {
+export async function createWithFreeCode(ctx: Ctx, invite: Omit<Invite, 'code'>): Promise<Invite> {
   for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
     const candidate: Invite = { ...invite, code: newInviteCode() };
     if (await ctx.repos.invites.create(candidate)) return candidate;

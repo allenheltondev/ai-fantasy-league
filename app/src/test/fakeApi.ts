@@ -4,6 +4,8 @@ import type {
   AgentCatalog,
   AgentSeatConfig,
   DefaultSettings,
+  Invite,
+  InvitePreview,
   LeagueDashboardData,
   LeagueDetail,
   LeagueSettings,
@@ -243,6 +245,7 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
         code: 'K7M-Q2X',
         status: 'active' as const,
         email: null,
+        teamId: null as string | null,
         maxUses: 1,
         uses: 0,
         expiresAt: '2026-10-01'
@@ -250,13 +253,28 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       token: 'tok',
       joinPath: '/join/tok'
     })),
-    listInvites: vi.fn(async () => []),
+    createTakeoverInvite: vi.fn(async (_id: string, teamId: string) => ({
+      invite: {
+        id: 'i-takeover',
+        code: 'T4K-30V',
+        status: 'active' as const,
+        email: null,
+        teamId: teamId as string | null,
+        maxUses: 1,
+        uses: 0,
+        expiresAt: '2026-10-01'
+      },
+      token: 'takeover-tok',
+      joinPath: '/join/takeover-tok'
+    })),
+    listInvites: vi.fn(async (): Promise<Invite[]> => []),
     revokeInvite: vi.fn(async () => ({
       invite: {
         id: 'i1',
         code: 'K7M-Q2X',
         status: 'revoked' as const,
         email: null,
+        teamId: null,
         maxUses: 1,
         uses: 0,
         expiresAt: '2026-10-01'
@@ -270,6 +288,7 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
       teamCount: 4,
       openSeats: 2,
       status: 'active' as const,
+      takeover: null as InvitePreview['takeover'],
       joinable: true
     })),
     joinLeague: vi.fn(async () => ({

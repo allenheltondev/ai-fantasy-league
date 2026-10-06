@@ -872,7 +872,7 @@
       "get": {
         "operationId": "get_invite",
         "summary": "Preview an invite link before joining",
-        "description": "Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, and whether the invite can still be used (`status`). Anyone with the token can call it, signed in or not; a join code needs a signed-in person (UNAUTHENTICATED otherwise) and ten lookups in an hour that match nothing return RATE_LIMITED. It shows nothing else about the league. To join, call join_league with the same token or code. An unknown token or code returns INVITE_NOT_FOUND.",
+        "description": "Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, whether the invite can still be used (`status`), and for a takeover invite the AI team it hands over (`takeover`). Anyone with the token can call it, signed in or not; a join code needs a signed-in person (UNAUTHENTICATED otherwise) and ten lookups in an hour that match nothing return RATE_LIMITED. It shows nothing else about the league. To join, call join_league with the same token or code. An unknown token or code returns INVITE_NOT_FOUND.",
         "tags": [
           "invites"
         ],
@@ -950,6 +950,35 @@
                         "expiresAt": {
                           "type": "string"
                         },
+                        "takeover": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "teamId": {
+                                  "type": "string"
+                                },
+                                "teamName": {
+                                  "type": "string"
+                                },
+                                "available": {
+                                  "type": "boolean",
+                                  "description": "False once a person already plays the team."
+                                }
+                              },
+                              "required": [
+                                "teamId",
+                                "teamName",
+                                "available"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "A takeover invite: the AI team you would take over. Null for an invite to any open seat."
+                        },
                         "joinable": {
                           "type": "boolean",
                           "description": "True when join_league would accept this invite right now."
@@ -965,6 +994,7 @@
                         "status",
                         "restrictedToEmail",
                         "expiresAt",
+                        "takeover",
                         "joinable"
                       ],
                       "additionalProperties": false
@@ -1095,7 +1125,7 @@
       "post": {
         "operationId": "join_league",
         "summary": "Join a league with an invite token",
-        "description": "Takes an open seat in the league the invite belongs to: an open human seat if there is one, otherwise a seat an agent would have played. The seat becomes yours; name it with `teamName` (default \"<your name>'s Team\"). Fails with a fix when: the token is unknown (INVITE_NOT_FOUND), expired (INVITE_EXPIRED), revoked (INVITE_REVOKED), or used up (INVITE_USED_UP); the invite is for a different email (FORBIDDEN); you already have a seat (ALREADY_A_MEMBER); the draft has started (PHASE_NOT_ALLOWED); every seat is taken (NO_OPEN_SEATS); or your teamName is taken (CONFLICT). `token` is the invite token or the six-character join code. Preview first with get_invite. Only signed-in people can join.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Takes an open seat in the league the invite belongs to: an open human seat if there is one, otherwise a seat an agent would have played. The seat becomes yours; name it with `teamName` (default \"<your name>'s Team\"). A takeover invite (create_takeover_invite) instead hands you the one AI team it names, as it stands (roster, record, pending moves), and also works after the draft; the team keeps its name unless you pass `teamName`. Fails with a fix when: the token is unknown (INVITE_NOT_FOUND), expired (INVITE_EXPIRED), revoked (INVITE_REVOKED), or used up (INVITE_USED_UP); the invite is for a different email (FORBIDDEN); you already have a seat (ALREADY_A_MEMBER); the draft has started, or for a takeover the draft is running or the season is over (PHASE_NOT_ALLOWED); every seat is taken, or the takeover team already has a person (NO_OPEN_SEATS); or your teamName is taken (CONFLICT). `token` is the invite token or the six-character join code. Preview first with get_invite. Only signed-in people can join.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "invites",
           "leagues"
@@ -17992,7 +18022,7 @@
       "post": {
         "operationId": "create_invite",
         "summary": "Create an invite link for people to join (commissioner only)",
-        "description": "Creates an invite and returns its secret `token` exactly once; share `joinPath` (or the token) with the people you want in the league. It also has a six-character join code (`invite.code`, shown again by list_invites) that works the same way for people who type it into Join a league. They preview it with get_invite and join with join_league, taking an open seat. Defaults: one use, expires in 7 days (168 hours), anyone with the link. Set `email` to restrict it to one person, `maxUses` for a group link. Only the commissioner can create invites, and only while the league is in setup (before the draft). The token cannot be read again later: create a new invite if it is lost, and revoke_invite the old one.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Creates an invite and returns its secret `token` exactly once; share `joinPath` (or the token) with the people you want in the league. It also has a six-character join code (`invite.code`, shown again by list_invites) that works the same way for people who type it into Join a league. They preview it with get_invite and join with join_league, taking an open seat. Defaults: one use, expires in 7 days (168 hours), anyone with the link. Set `email` to restrict it to one person, `maxUses` for a group link. Only the commissioner can create invites, and only while the league is in setup (before the draft); to hand one AI team to a person, before or after the draft, use create_takeover_invite. The token cannot be read again later: create a new invite if it is lost, and revoke_invite the old one.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues",
           "invites"
@@ -18060,6 +18090,13 @@
                                 "null"
                               ]
                             },
+                            "teamId": {
+                              "description": "A takeover invite: the AI team the person joining takes over. Null for any open seat.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "maxUses": {
                               "type": "integer",
                               "minimum": -9007199254740991,
@@ -18088,6 +18125,7 @@
                             "code",
                             "status",
                             "email",
+                            "teamId",
                             "maxUses",
                             "uses",
                             "expiresAt",
@@ -18333,6 +18371,13 @@
                                   "null"
                                 ]
                               },
+                              "teamId": {
+                                "description": "A takeover invite: the AI team the person joining takes over. Null for any open seat.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "maxUses": {
                                 "type": "integer",
                                 "minimum": -9007199254740991,
@@ -18361,6 +18406,7 @@
                               "code",
                               "status",
                               "email",
+                              "teamId",
                               "maxUses",
                               "uses",
                               "expiresAt",
@@ -18506,7 +18552,7 @@
       "delete": {
         "operationId": "revoke_invite",
         "summary": "Revoke an invite so its link stops working (commissioner only)",
-        "description": "Revokes an invite: its link stops working immediately, and anyone trying it gets INVITE_REVOKED. People who already joined keep their seats (use remove_member for that). Revoking an invite that is already revoked succeeds and changes nothing. Get invite ids from list_invites. Only the commissioner can revoke, while the league is in setup.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "description": "Revokes an invite: its link stops working immediately, and anyone trying it gets INVITE_REVOKED. People who already joined keep their seats (use remove_member for that). Revoking an invite that is already revoked succeeds and changes nothing. Get invite ids from list_invites. Only the commissioner can revoke, until the league is complete.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
         "tags": [
           "leagues",
           "invites"
@@ -18585,6 +18631,13 @@
                                 "null"
                               ]
                             },
+                            "teamId": {
+                              "description": "A takeover invite: the AI team the person joining takes over. Null for any open seat.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "maxUses": {
                               "type": "integer",
                               "minimum": -9007199254740991,
@@ -18613,6 +18666,7 @@
                             "code",
                             "status",
                             "email",
+                            "teamId",
                             "maxUses",
                             "uses",
                             "expiresAt",
@@ -29671,6 +29725,301 @@
                 "required": [
                   "seatType"
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/leagues/{leagueId}/teams/{teamId}/takeover-invites": {
+      "post": {
+        "operationId": "create_takeover_invite",
+        "summary": "Invite a person to take over an AI team (commissioner only)",
+        "description": "Creates a one-use invite for one AI-played team. The person who joins with it (join_league, by link or by the six-character join code under Join a league) takes over that team as it stands: its roster, lineup, record, waiver priority, FAAB, and pending trades and waiver claims. Its AI manager stops playing it. Works before the draft and during the regular season and playoffs, but not while the draft is running. Returns the secret `token` exactly once; `invite.code` is shown again by list_invites. Creating a new takeover invite for a team revokes its earlier active ones, so only one person can claim it. Fails with CONFLICT when a person already plays the team. Only the commissioner can create it.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "leagues",
+          "invites"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Team id, e.g. \"team-3\"."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "invite": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "description": "The join code, e.g. K7M-Q2X: a short way to join without the link. Null on invites made before codes existed.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "active",
+                                "expired",
+                                "used_up",
+                                "revoked"
+                              ]
+                            },
+                            "email": {
+                              "description": "Only this email can use the invite; null means anyone with the link.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "teamId": {
+                              "description": "A takeover invite: the AI team the person joining takes over. Null for any open seat.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "maxUses": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "uses": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "expiresAt": {
+                              "type": "string"
+                            },
+                            "revokedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "code",
+                            "status",
+                            "email",
+                            "teamId",
+                            "maxUses",
+                            "uses",
+                            "expiresAt",
+                            "revokedAt",
+                            "createdAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "token": {
+                          "type": "string",
+                          "description": "The secret invite token. Shown only now; only its hash is stored."
+                        },
+                        "joinPath": {
+                          "type": "string",
+                          "description": "App path that opens the invite, e.g. /join/<token>."
+                        }
+                      },
+                      "required": [
+                        "invite",
+                        "token",
+                        "joinPath"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "description": "Only a person signed in with this email can use the invite.",
+                    "type": "string",
+                    "maxLength": 254,
+                    "format": "email",
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  },
+                  "expiresInHours": {
+                    "default": 168,
+                    "description": "Hours until it expires (default 168 = 7 days, at most 30 days).",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 720
+                  }
+                }
               }
             }
           }
