@@ -8,6 +8,7 @@ import { ApiError } from '../../errors.js';
 import { invokeTool } from '../../registry/invoke.js';
 import { registry } from '../index.js';
 import { getLeagueState } from './get-league-state.js';
+import { STALE_MEMBERSHIP_MS } from './join-league.js';
 
 /** Playoff settings that fit a league of 6 or fewer teams. */
 const SMALL_LEAGUE = {
@@ -597,10 +598,23 @@ describe('invites and joining', () => {
     expect((await bob.post(`/invites/${token('race')}/join`, {})).body).toMatchObject({
       error: { code: 'CONFLICT', message: expect.stringContaining('that seat') }
     });
+    // The seat claim lost: the membership written before it is gone again.
+    expect(await h.repos.members.get('lg-i', 'bob')).toBeNull();
 
-    vi.spyOn(h.repos.members, 'add').mockResolvedValueOnce(false);
+    // Bob's other join, through another invite, recorded its membership first: this one claims nothing.
+    const update = vi.spyOn(h.repos.teams, 'update');
+    update.mockClear();
+    await h.repos.members.add({
+      leagueId: 'lg-i',
+      userId: 'bob',
+      teamId: 'team-4',
+      joinedAt: h.clock.now().toISOString()
+    });
     expect(errorCode(await bob.post(`/invites/${token('race')}/join`, {}))).toBe('ALREADY_A_MEMBER');
+    expect(update).not.toHaveBeenCalled();
     expect((await h.repos.teams.get('lg-i', 'team-2'))?.ownerUserId).toBeNull();
+    await h.repos.members.remove('lg-i', 'bob');
+    update.mockRestore();
 
     vi.spyOn(h.repos.invites, 'update').mockRejectedValueOnce(conflict);
     expect((await bob.post(`/invites/${token('race')}/join`, {})).body).toMatchObject({
@@ -845,13 +859,17 @@ describe('taking over an AI team', () => {
 
   it('gives the seat back on a lost race but keeps a waiver award that landed meanwhile', async () => {
     const created = await takeoverInvite();
-    const awardFaab = async () => {
+    // Bob's other join won the one-seat-per-person race: this one never claims the team, so a
+    // waiver award that lands at the same moment is untouched.
+    await h.repos.members.add({
+      leagueId: 'lg-t',
+      userId: 'bob',
+      teamId: 'team-5',
+      joinedAt: h.clock.now().toISOString()
+    });
+    vi.spyOn(h.repos.members, 'add').mockImplementationOnce(async () => {
       const team = await h.repos.teams.get('lg-t', 'team-3');
       await h.repos.teams.update({ ...team!, roster: [...team!.roster, 'p-9'], faabRemaining: 30 });
-    };
-    // Another seat per person won the race, after a waiver award moved the team's version.
-    vi.spyOn(h.repos.members, 'add').mockImplementationOnce(async () => {
-      await awardFaab();
       return false;
     });
     expect(errorCode(await bob.post(`/invites/${created.token}/join`, {}))).toBe('ALREADY_A_MEMBER');
@@ -863,6 +881,7 @@ describe('taking over an AI team', () => {
       roster: ['p-1', 'p-2', 'p-3', 'p-9'],
       faabRemaining: 30
     });
+    await h.repos.members.remove('lg-t', 'bob');
 
     // The invite lost its race after another write: the seat is undone first, then the membership.
     const update = h.repos.invites.update.bind(h.repos.invites);
@@ -881,6 +900,66 @@ describe('taking over an AI team', () => {
     vi.mocked(h.repos.invites.update).mockImplementation(update);
     // The invite still works afterwards.
     expect((await bob.post(`/invites/${created.token}/join`, {})).status).toBe(200);
+  });
+
+  it('clears a membership a failed join left behind, but not one a join is still using', async () => {
+    const created = await takeoverInvite();
+    // A join that died after recording its membership, before claiming its seat.
+    const leftover = {
+      leagueId: 'lg-t',
+      userId: 'bob',
+      teamId: 'team-3',
+      joinedAt: h.clock.now().toISOString()
+    };
+    await h.repos.members.add(leftover);
+    // Still young: it may belong to a join that is running right now.
+    expect(errorCode(await bob.post(`/invites/${created.token}/join`, {}))).toBe('ALREADY_A_MEMBER');
+    h.clock.advance(STALE_MEMBERSHIP_MS);
+    const joined = await bob.post(`/invites/${created.token}/join`, {});
+    expect(data(joined)).toMatchObject({ team: { id: 'team-3', ownerUserId: 'bob' } });
+    expect(await h.repos.members.get('lg-t', 'bob')).toMatchObject({
+      teamId: 'team-3',
+      joinedAt: h.clock.now().toISOString()
+    });
+    // A membership whose seat the person holds is never cleared, however old.
+    h.clock.advance(STALE_MEMBERSHIP_MS);
+    const second = await takeoverInvite('/leagues/lg-t/teams/team-4/takeover-invites');
+    expect(errorCode(await bob.post(`/invites/${second.token}/join`, {}))).toBe('ALREADY_A_MEMBER');
+  });
+
+  it('settles each one-seat-per-person race by what the membership says', async () => {
+    const created = await takeoverInvite();
+    const add = h.repos.members.add.bind(h.repos.members);
+    // The other join backed out between the two reads: its row is gone, so this one records its own.
+    vi.spyOn(h.repos.members, 'add').mockResolvedValueOnce(false);
+    expect(data(await bob.post(`/invites/${created.token}/join`, {}))).toMatchObject({
+      team: { id: 'team-3', ownerUserId: 'bob' }
+    });
+
+    // Carol's other join finished after this one's first look: she holds a seat, so an old row stays.
+    const other = await takeoverInvite('/leagues/lg-t/teams/team-4/takeover-invites');
+    vi.mocked(h.repos.members.add).mockImplementationOnce(async (member) => {
+      const team = await h.repos.teams.get('lg-t', 'team-5');
+      await h.repos.teams.update({ ...team!, seatType: 'human', ownerUserId: 'carol', ownerName: 'Carol' });
+      const old = new Date(h.clock.now().getTime() - 2 * STALE_MEMBERSHIP_MS).toISOString();
+      await add({ ...member, teamId: 'team-5', joinedAt: old });
+      return false;
+    });
+    expect(errorCode(await carol.post(`/invites/${other.token}/join`, {}))).toBe('ALREADY_A_MEMBER');
+    expect(await h.repos.members.get('lg-t', 'carol')).toMatchObject({ teamId: 'team-5' });
+    expect((await h.repos.teams.get('lg-t', 'team-4'))?.ownerUserId).toBeNull();
+  });
+
+  it('leaves a seat alone that someone else holds by the time it would be given back', async () => {
+    const created = await takeoverInvite();
+    vi.spyOn(h.repos.invites, 'update').mockImplementationOnce(async () => {
+      const team = await h.repos.teams.get('lg-t', 'team-3');
+      await h.repos.teams.update({ ...team!, ownerUserId: 'dave', ownerName: 'Dave' });
+      throw new ApiError('CONFLICT', 'raced', { fix: 'retry' });
+    });
+    expect(errorCode(await bob.post(`/invites/${created.token}/join`, {}))).toBe('CONFLICT');
+    expect((await h.repos.teams.get('lg-t', 'team-3'))?.ownerUserId).toBe('dave');
+    expect(await h.repos.members.get('lg-t', 'bob')).toBeNull();
   });
 
   it('keeps the membership when the seat cannot be given back', async () => {
@@ -1013,8 +1092,14 @@ describe('taking over an AI team', () => {
   it('works before the draft too, for that one seat', async () => {
     await seedLeague(h.repos, { id: 'lg-s', owners: [ALICE] });
     const created = await takeoverInvite('/leagues/lg-s/teams/team-6/takeover-invites');
-    expect(data(await bob.post(`/invites/${created.token}/join`, {}))).toMatchObject({
-      team: { id: 'team-6', ownerUserId: 'bob' }
+    const joined = await bob.post(`/invites/${created.token}/join`, { teamName: 'Bobcats' });
+    expect(data(joined)).toMatchObject({
+      team: { id: 'team-6', ownerUserId: 'bob', name: 'Bobcats' }
+    });
+    // Before the season, a rename is filed under the league's first week.
+    expect((await h.repos.teams.get('lg-s', 'team-6'))?.renames?.[0]).toMatchObject({
+      to: 'Bobcats',
+      week: 1
     });
   });
 });

@@ -12,7 +12,7 @@ import {
   TeamNameSchema
 } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
-import type { Invite, LeaguePhase, Team } from '../../repos/types.js';
+import type { Invite, LeaguePhase, Member, Team } from '../../repos/types.js';
 import { InviteTokenSchema } from './get-invite.js';
 import { assertUsable, findInvite } from './invites.js';
 
@@ -85,23 +85,23 @@ export const joinLeague = defineOperation({
         )
       : claimSeat(seat, owner, name, now);
 
-    // No multi-item transactions (see the ADR), so: claim the seat, record the membership (which
-    // enforces one seat per person), count the invite use, and undo the earlier steps on a race.
+    // No multi-item transactions (see the ADR), so: record the membership first (its conditional
+    // write enforces one seat per person, so a lost race there has claimed nothing), then claim the
+    // seat, then count the invite use, undoing the earlier steps on a race.
+    const member = {
+      leagueId: league.id,
+      userId: principal.sub,
+      teamId: seat.id,
+      joinedAt: now.toISOString()
+    };
+    if (!(await addMember(ctx, member, now))) throw alreadyMember('Use get_league_state to see your team.');
     let team: Team;
     try {
       team = await ctx.repos.teams.update(claimed);
     } catch (error) {
+      // Nothing was claimed: only this request's own membership row needs to go.
+      await ctx.repos.members.remove(league.id, principal.sub);
       throw isConflict(error) ? raced('that seat') : error;
-    }
-    const member = {
-      leagueId: league.id,
-      userId: principal.sub,
-      teamId: team.id,
-      joinedAt: now.toISOString()
-    };
-    if (!(await ctx.repos.members.add(member))) {
-      await undoClaim(ctx, seat, principal.sub, now);
-      throw alreadyMember('Use get_league_state to see your team.');
     }
     try {
       await ctx.repos.invites.update({ ...invite, uses: invite.uses + 1 });
@@ -132,6 +132,26 @@ export const joinLeague = defineOperation({
     return { league: leagueSummary(league, principal.sub, team.id), team: teamDetail(team) };
   }
 });
+
+/** A membership row this old whose seat its person does not hold is left over from a failed join. */
+export const STALE_MEMBERSHIP_MS = 5 * 60 * 1000;
+
+/**
+ * Records the membership: false when the person already has one in the league. A row left by a
+ * join that died between this write and claiming its seat (the person holds no seat, and it is
+ * older than `STALE_MEMBERSHIP_MS`, so no join is still running) is cleared and written again.
+ */
+async function addMember(ctx: Pick<Ctx, 'repos'>, member: Member, now: Date): Promise<boolean> {
+  if (await ctx.repos.members.add(member)) return true;
+  const existing = await ctx.repos.members.get(member.leagueId, member.userId);
+  if (existing === null) return ctx.repos.members.add(member);
+  const fresh = now.getTime() - new Date(existing.joinedAt).getTime() < STALE_MEMBERSHIP_MS;
+  if (fresh) return false;
+  const holds = (await ctx.repos.teams.list(member.leagueId)).some((t) => t.ownerUserId === member.userId);
+  if (holds) return false;
+  await ctx.repos.members.remove(member.leagueId, member.userId);
+  return ctx.repos.members.add(member);
+}
 
 /** Tries to undo a claim before giving up: other writers can move the team's version meanwhile. */
 const UNDO_ATTEMPTS = 5;
