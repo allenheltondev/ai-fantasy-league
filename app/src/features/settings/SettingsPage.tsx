@@ -168,20 +168,23 @@ export function SettingsPage() {
               />
             </Section>
           )}
-          {state.youAreCommissioner && league.phase === 'setup' && (
-            <Section id="invites" title="Invites">
-              <Card>
-                <CardBody>
-                  <InvitesPanel
-                    leagueId={league.id}
-                    openHumanSeats={league.teams.filter((t) => t.open && t.seatType === 'human').length}
-                    canCreate={can('create_invite')}
-                    canRevoke={can('revoke_invite')}
-                  />
-                </CardBody>
-              </Card>
-            </Section>
-          )}
+          {state.youAreCommissioner &&
+            (can('create_invite') || can('create_takeover_invite') || can('revoke_invite')) && (
+              <Section id="invites" title="Invites">
+                <Card>
+                  <CardBody>
+                    <InvitesPanel
+                      leagueId={league.id}
+                      teams={league.teams}
+                      openHumanSeats={league.teams.filter((t) => t.open && t.seatType === 'human').length}
+                      canCreate={can('create_invite')}
+                      canTakeover={can('create_takeover_invite')}
+                      canRevoke={can('revoke_invite')}
+                    />
+                  </CardBody>
+                </Card>
+              </Section>
+            )}
           {league.phase === 'setup' && (
             <Section id="draft-time" title="Draft time">
               <Card>

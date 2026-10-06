@@ -49,6 +49,7 @@ const COMMISSIONER_SETUP_ACTIONS = [
   'check_in_draft_lobby',
   'configure_agent_seat',
   'create_invite',
+  'create_takeover_invite',
   'delete_league',
   'mark_room_read',
   'pick_player',
@@ -261,10 +262,13 @@ describe('executeOperation', () => {
     const actor = resolveActor(playoffs, [], USER);
     expect(leagueAllowedActions(testRegistry.operations, playoffs, actor, new Date(START))).toEqual([
       'configure_agent_seat',
+      // An AI team can be handed to a person through the playoffs.
+      'create_takeover_invite',
       'mark_room_read',
       'pick_player',
       'post_message',
       'rename_team',
+      'revoke_invite',
       'transfer_commissioner',
       'update_league_settings',
       // Trade review goes on into the playoffs (#121).

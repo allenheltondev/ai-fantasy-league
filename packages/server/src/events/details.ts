@@ -420,7 +420,11 @@ export const EVENT_DETAIL_SCHEMAS = {
     userId: id,
     teamId: id,
     inviteId: id,
-    name: z.string().describe('The person’s display name.')
+    name: z.string().describe('The person’s display name.'),
+    replacedManager: z
+      .string()
+      .optional()
+      .describe('A takeover: the name of the AI manager that played the team before.')
   }),
   'Member Left': z.object({ leagueId: id, userId: id, teamId: id, reason: z.enum(['left', 'removed']) }),
   'Agent Seat Changed': z.object({

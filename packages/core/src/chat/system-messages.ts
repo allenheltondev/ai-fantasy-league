@@ -158,7 +158,11 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
     ]
   },
   'Member Joined': {
-    text: ['{name} joined the league and took over {team:teamId}.', '{team:teamId} has a new manager.']
+    text: [
+      '{name} joined the league and took over {team:teamId} from {replacedManager}.',
+      '{name} joined the league and took over {team:teamId}.',
+      '{team:teamId} has a new manager.'
+    ]
   },
   'Member Left': {
     text: [

@@ -62,6 +62,11 @@ export function createLeagueApi(api: ApiFetch) {
       call<DefaultSettings>('/settings/defaults', { query }),
 
     createInvite: (id: string) => call<CreatedInvite>(`${league(id)}/invites`, { method: 'POST', body: {} }),
+    createTakeoverInvite: (id: string, teamId: string) =>
+      call<CreatedInvite>(`${league(id)}/teams/${encodeURIComponent(teamId)}/takeover-invites`, {
+        method: 'POST',
+        body: {}
+      }),
     listInvites: (id: string) => call<{ invites: Invite[] }>(`${league(id)}/invites`).then((d) => d.invites),
     revokeInvite: (id: string, inviteId: string) =>
       call<{ invite: Invite }>(`${league(id)}/invites/${encodeURIComponent(inviteId)}`, { method: 'DELETE' }),

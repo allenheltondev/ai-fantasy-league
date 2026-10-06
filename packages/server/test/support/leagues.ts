@@ -82,6 +82,7 @@ export async function seedInvite(
     tokenHash: hashInviteToken(token),
     code: null,
     email: null,
+    teamId: null,
     maxUses: 1,
     uses: 0,
     expiresAt: '2026-09-17T12:00:00.000Z',

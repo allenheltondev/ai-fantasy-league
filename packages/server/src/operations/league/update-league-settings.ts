@@ -20,7 +20,7 @@ import {
   settingsPhase,
   settingsWarnings
 } from '../../league/settings.js';
-import { LeagueIdSchema } from '../../league/views.js';
+import { inviteStatus, LeagueIdSchema } from '../../league/views.js';
 import { defineOperation, withWarnings } from '../../registry/operation.js';
 import type { League, Team } from '../../repos/types.js';
 import { scheduleTradeDeadline } from '../../trades/lifecycle.js';
@@ -168,6 +168,14 @@ async function syncSeats(
   const removed = new Set<string>();
   for (const team of removals) {
     if (await ctx.repos.teams.deleteUnowned(league.id, team.id)) removed.add(team.id);
+  }
+  if (removed.size > 0) {
+    // A takeover invite for a removed seat can never be used: revoke it so it reads that way.
+    for (const invite of await ctx.repos.invites.list(league.id)) {
+      if (invite.teamId !== null && removed.has(invite.teamId) && inviteStatus(invite, now) === 'active') {
+        await ctx.repos.invites.update({ ...invite, revokedAt: now.toISOString() });
+      }
+    }
   }
   const kept = teams.filter((t) => !removed.has(t.id));
   const added: Team[] = [];

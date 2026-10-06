@@ -218,6 +218,12 @@ export interface Team {
    * it was recorded, where `seatTenureStart` falls back to `createdAt`.
    */
   occupiedSince?: string;
+  /**
+   * The AI team's one live takeover invite (create_takeover_invite). Set with the team's
+   * version-checked write, so concurrent requests cannot both win; join_league accepts only this
+   * invite for the team. Cleared when a person takes the seat.
+   */
+  takeoverInviteId?: string;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -277,6 +283,11 @@ export interface Invite {
   code: string | null;
   /** When set, only a user signed in with this email can use the invite. */
   email: string | null;
+  /**
+   * A takeover invite (create_takeover_invite): the AI team the person joining takes over, roster
+   * and record included, even after the draft. Null for an invite to any open seat.
+   */
+  teamId: string | null;
   maxUses: number;
   uses: number;
   expiresAt: string;

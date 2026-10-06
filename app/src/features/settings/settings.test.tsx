@@ -295,6 +295,7 @@ describe('settings: invites', () => {
             code: 'K7M-Q2X',
             status: 'active',
             email: null,
+            teamId: null,
             maxUses: 1,
             uses: 0,
             expiresAt: '2026-10-01T00:00:00Z'
@@ -304,6 +305,7 @@ describe('settings: invites', () => {
             code: null,
             status: 'revoked',
             email: null,
+            teamId: null,
             maxUses: 1,
             uses: 0,
             expiresAt: '2026-10-01T00:00:00Z'
@@ -340,6 +342,7 @@ describe('settings: invites', () => {
           code: 'K7M-Q2X',
           status: 'active' as const,
           email: null,
+          teamId: null,
           maxUses: 1,
           uses: 0,
           expiresAt: '2026-10-01T00:00:00Z'
@@ -349,6 +352,7 @@ describe('settings: invites', () => {
           code: null,
           status: 'active' as const,
           email: null,
+          teamId: null,
           maxUses: 1,
           uses: 0,
           expiresAt: '2026-10-01T00:00:00Z'
@@ -390,5 +394,129 @@ describe('settings: invites', () => {
     expect(screen.getByText(/No seats are waiting for a person/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create invite link' }));
     expect(await screen.findByText('Too late.')).toBeInTheDocument();
+  });
+
+  it('keeps invites revocable while the draft runs', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      getLeague: vi.fn(async () => league({ phase: 'drafting' })),
+      getLeagueState: vi.fn(async () => state({ phase: 'drafting', allowedActions: ['revoke_invite'] })),
+      listInvites: vi.fn(async () => [
+        {
+          id: 'i1',
+          code: 'K7M-Q2X',
+          status: 'active' as const,
+          email: null,
+          teamId: null,
+          maxUses: 1,
+          uses: 0,
+          expiresAt: '2026-10-01T00:00:00Z'
+        }
+      ])
+    });
+    await open(api);
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create takeover code' })).not.toBeInTheDocument();
+    const list = await screen.findByRole('list', { name: 'Invites' });
+    await user.click(within(list).getByRole('button', { name: 'Revoke' }));
+    expect(api.revokeInvite).toHaveBeenCalledWith('L1', 'i1');
+  });
+
+  it('offers a takeover next to open-seat invites before the draft', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      getLeagueState: vi.fn(async () =>
+        state({ allowedActions: ['create_invite', 'create_takeover_invite', 'revoke_invite'] })
+      ),
+      listInvites: vi.fn(async () => [
+        {
+          id: 'i-gone',
+          code: 'G0N-E22',
+          status: 'revoked' as const,
+          email: null,
+          // Its seat was removed when the league shrank.
+          teamId: 'team-9',
+          maxUses: 1,
+          uses: 0,
+          expiresAt: '2026-10-01T00:00:00Z'
+        }
+      ])
+    });
+    await open(api);
+    expect(screen.getByRole('button', { name: 'Create invite link' })).toBeInTheDocument();
+    const list = await screen.findByRole('list', { name: 'Invites' });
+    expect(within(list).getByText('Takes over team-9')).toBeInTheDocument();
+    // An AI team whose manager has no name yet shows just the team.
+    const picker = screen.getByLabelText('AI team to hand over');
+    expect(within(picker).getByRole('option', { name: 'Team 4' })).toBeInTheDocument();
+    await user.selectOptions(picker, 'team-4');
+    await user.click(screen.getByRole('button', { name: 'Create takeover code' }));
+    expect(api.createTakeoverInvite).toHaveBeenCalledWith('L1', 'team-4');
+    const joinCode = await screen.findByLabelText('Join code');
+    expect(joinCode).toHaveValue('T4K-30V');
+    await user.click(joinCode);
+    await user.click(screen.getAllByRole('button', { name: 'Copy code' })[0]!);
+    expect(await navigator.clipboard.readText()).toBe('T4K-30V');
+  });
+
+  it('hands a picked AI team to a person mid-season with a takeover code', async () => {
+    const user = userEvent.setup();
+    const inSeason = league({
+      phase: 'regular_season',
+      week: 5,
+      teams: [
+        ...league().teams.slice(0, 3),
+        team(4, {
+          name: 'Robo Ballers',
+          manager: { name: 'Marcus Hale', avatarSeed: 's', personality: null }
+        })
+      ]
+    });
+    const api = fakeApi({
+      getLeague: vi.fn(async () => inSeason),
+      getLeagueState: vi.fn(async () =>
+        state({
+          phase: 'regular_season',
+          week: 5,
+          allowedActions: ['create_takeover_invite', 'revoke_invite', 'update_league_settings']
+        })
+      ),
+      listInvites: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([
+          {
+            id: 'i-takeover',
+            code: 'T4K-30V',
+            status: 'active',
+            email: null,
+            teamId: 'team-4',
+            maxUses: 1,
+            uses: 0,
+            expiresAt: '2026-10-01T00:00:00Z'
+          }
+        ])
+    });
+    await open(api);
+    // Open-seat invites stop at the draft; only the takeover form is offered.
+    expect(screen.queryByRole('button', { name: 'Create invite link' })).not.toBeInTheDocument();
+    const create = screen.getByRole('button', { name: 'Create takeover code' });
+    expect(create).toBeDisabled();
+    const picker = screen.getByLabelText('AI team to hand over');
+    // Only AI-played teams can be handed over.
+    expect(
+      within(picker)
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+    ).toEqual(['Pick a team', 'Robo Ballers (Marcus Hale)']);
+    await user.selectOptions(picker, 'team-4');
+    await user.click(create);
+    expect(api.createTakeoverInvite).toHaveBeenCalledWith('L1', 'team-4');
+    expect(await screen.findByLabelText('Join code')).toHaveValue('T4K-30V');
+    const list = await screen.findByRole('list', { name: 'Invites' });
+    expect(within(list).getByText('Takes over Robo Ballers')).toBeInTheDocument();
+    // Once above the new code, once in the list.
+    expect(screen.getAllByText('Takes over Robo Ballers')).toHaveLength(2);
+    expect(within(list).getByRole('button', { name: 'Revoke' })).toBeInTheDocument();
   });
 });

@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { claimableSeats } from '../../league/seats.js';
+import { isAgentPlayed } from '../../league/managers.js';
+import { TAKEOVER_PHASES } from '../../league/phase.js';
+import { claimableSeats, isLiveTakeover } from '../../league/seats.js';
 import { inviteStatus, INVITE_STATUSES, PhaseSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
 import { findInvite } from './invites.js';
@@ -18,7 +20,7 @@ export const getInvite = defineOperation({
   path: '/invites/{token}',
   summary: 'Preview an invite link before joining',
   description: [
-    'Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, and whether the invite can still be used (`status`).',
+    'Shows what an invite link leads to, without joining: the league name, season, commissioner, phase, how many seats are open, whether the invite can still be used (`status`), and for a takeover invite the AI team it hands over (`takeover`).',
     'Anyone with the token can call it, signed in or not; a join code needs a signed-in person (UNAUTHENTICATED otherwise) and ten lookups in an hour that match nothing return RATE_LIMITED. It shows nothing else about the league. To join, call join_league with the same token or code. An unknown token or code returns INVITE_NOT_FOUND.'
   ].join(' '),
   tags: ['invites'],
@@ -35,14 +37,41 @@ export const getInvite = defineOperation({
     status: z.enum(INVITE_STATUSES).describe('Only `active` invites can be used to join.'),
     restrictedToEmail: z.boolean().describe('True when only one specific email may use it.'),
     expiresAt: z.string(),
+    takeover: z
+      .object({
+        teamId: z.string(),
+        teamName: z.string().nullable().describe('Null once the team was removed from the league.'),
+        available: z
+          .boolean()
+          .describe('False once a person already plays the team, or the team was removed.')
+      })
+      .nullable()
+      .describe('A takeover invite: the AI team you would take over. Null for an invite to any open seat.'),
     joinable: z.boolean().describe('True when join_league would accept this invite right now.')
   }),
   handler: async (ctx, input) => {
     const { invite, league } = await findInvite(ctx, input.token);
     const teams = await ctx.repos.teams.list(league.id);
     const now = ctx.clock.now();
-    const status = inviteStatus(invite, now);
     const openSeats = claimableSeats(teams).length;
+    const target = invite.teamId === null ? undefined : teams.find((t) => t.id === invite.teamId);
+    const takeover =
+      invite.teamId === null
+        ? null
+        : target === undefined
+          ? { teamId: invite.teamId, teamName: null, available: false }
+          : { teamId: target.id, teamName: target.name, available: isAgentPlayed(target) };
+    // A takeover invite whose team is gone, or that a newer one replaced, reads as revoked, as
+    // join_league treats it. One for a team a person took stays as it is (used up, or unavailable).
+    const replaced =
+      invite.teamId !== null &&
+      (target === undefined || (isAgentPlayed(target) && !isLiveTakeover(target, invite)));
+    const status = replaced ? 'revoked' : inviteStatus(invite, now);
+    const joinable =
+      status === 'active' &&
+      (invite.teamId === null
+        ? league.phase === 'setup' && openSeats > 0
+        : TAKEOVER_PHASES.includes(league.phase) && takeover?.available === true);
     return {
       leagueName: league.name,
       season: league.season,
@@ -53,7 +82,8 @@ export const getInvite = defineOperation({
       status,
       restrictedToEmail: invite.email !== null,
       expiresAt: invite.expiresAt,
-      joinable: status === 'active' && league.phase === 'setup' && openSeats > 0
+      takeover,
+      joinable
     };
   }
 });

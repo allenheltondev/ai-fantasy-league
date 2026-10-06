@@ -43,6 +43,7 @@ function invite(leagueId: string, overrides: Partial<Invite> = {}): Invite {
     tokenHash: unique('hash'),
     code: null,
     email: null,
+    teamId: null,
     maxUses: 1,
     uses: 0,
     expiresAt: '2026-09-17T12:00:00.000Z',
