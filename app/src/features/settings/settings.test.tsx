@@ -422,6 +422,43 @@ describe('settings: invites', () => {
     expect(api.revokeInvite).toHaveBeenCalledWith('L1', 'i1');
   });
 
+  it('offers a takeover next to open-seat invites before the draft', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({
+      getLeagueState: vi.fn(async () =>
+        state({ allowedActions: ['create_invite', 'create_takeover_invite', 'revoke_invite'] })
+      ),
+      listInvites: vi.fn(async () => [
+        {
+          id: 'i-gone',
+          code: 'G0N-E22',
+          status: 'revoked' as const,
+          email: null,
+          // Its seat was removed when the league shrank.
+          teamId: 'team-9',
+          maxUses: 1,
+          uses: 0,
+          expiresAt: '2026-10-01T00:00:00Z'
+        }
+      ])
+    });
+    await open(api);
+    expect(screen.getByRole('button', { name: 'Create invite link' })).toBeInTheDocument();
+    const list = await screen.findByRole('list', { name: 'Invites' });
+    expect(within(list).getByText('Takes over team-9')).toBeInTheDocument();
+    // An AI team whose manager has no name yet shows just the team.
+    const picker = screen.getByLabelText('AI team to hand over');
+    expect(within(picker).getByRole('option', { name: 'Team 4' })).toBeInTheDocument();
+    await user.selectOptions(picker, 'team-4');
+    await user.click(screen.getByRole('button', { name: 'Create takeover code' }));
+    expect(api.createTakeoverInvite).toHaveBeenCalledWith('L1', 'team-4');
+    const joinCode = await screen.findByLabelText('Join code');
+    expect(joinCode).toHaveValue('T4K-30V');
+    await user.click(joinCode);
+    await user.click(screen.getAllByRole('button', { name: 'Copy code' })[0]!);
+    expect(await navigator.clipboard.readText()).toBe('T4K-30V');
+  });
+
   it('hands a picked AI team to a person mid-season with a takeover code', async () => {
     const user = userEvent.setup();
     const inSeason = league({
