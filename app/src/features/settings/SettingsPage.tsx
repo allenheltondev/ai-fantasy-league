@@ -52,8 +52,9 @@ type View = 'league' | 'history' | 'draft' | 'ai' | 'data';
 
 /**
  * The league's Settings section (League info for everyone but the commissioner): seats, AI
- * managers, invites, and the rules, with the league's history and, once the draft is over, its
- * results, and (commissioner) AI activity and data status. The view is `?view=`.
+ * managers, invites, and the rules, with the league's history, the draft results once the draft
+ * is over, AI activity (plus budget controls and seat history for the commissioner), and
+ * (commissioner) data status. The view is `?view=`.
  */
 export function SettingsPage() {
   const { leagueId = '' } = useParams();
@@ -89,8 +90,9 @@ export function SettingsPage() {
   const requested = params.get('view');
   const tab: View =
     requested === 'history' ||
+    requested === 'ai' ||
     (requested === 'draft' && drafted) ||
-    (commissioner && (requested === 'ai' || requested === 'data'))
+    (commissioner && requested === 'data')
       ? requested
       : 'league';
   const setTab = (view: View) => setParams(view === 'league' ? {} : { view });
@@ -112,12 +114,8 @@ export function SettingsPage() {
             { value: 'league', label: commissioner ? 'League settings' : 'Rules & seats' },
             { value: 'history', label: 'History' },
             ...(drafted ? [{ value: 'draft', label: 'Draft results' }] : []),
-            ...(commissioner
-              ? [
-                  { value: 'ai', label: 'AI activity' },
-                  { value: 'data', label: 'Data status' }
-                ]
-              : [])
+            { value: 'ai', label: 'AI activity' },
+            ...(commissioner ? [{ value: 'data', label: 'Data status' }] : [])
           ] as { value: View; label: string }[]
         }
         value={tab}
@@ -131,22 +129,26 @@ export function SettingsPage() {
         <Section id="data-status" title="Data status">
           <DataStatusPanel leagueId={league.id} />
         </Section>
-      ) : commissioner && tab === 'ai' ? (
+      ) : tab === 'ai' ? (
         <>
-          <Section id="ai-controls" title="AI budget & models">
-            <AiControlsPanel
-              key={league.version}
-              league={league}
-              canEdit={can('update_league_settings')}
-              onSaved={loaded.reload}
-            />
-          </Section>
+          {commissioner && (
+            <Section id="ai-controls" title="AI budget & models">
+              <AiControlsPanel
+                key={league.version}
+                league={league}
+                canEdit={can('update_league_settings')}
+                onSaved={loaded.reload}
+              />
+            </Section>
+          )}
           <Section id="ai-activity" title="AI activity">
             <AiActivityPanel leagueId={league.id} teams={league.teams} refreshKey={league.version} />
           </Section>
-          <Section id="seat-history" title="Seat version history">
-            <SeatHistoryPanel leagueId={league.id} teams={league.teams} />
-          </Section>
+          {commissioner && (
+            <Section id="seat-history" title="Seat version history">
+              <SeatHistoryPanel leagueId={league.id} teams={league.teams} />
+            </Section>
+          )}
         </>
       ) : (
         <>

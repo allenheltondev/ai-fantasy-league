@@ -5,7 +5,7 @@ import { defineOperation } from '../../registry/operation.js';
 import type { Repos } from '../../repos/types.js';
 import { PUBLIC_STATUSES } from '../trades/shared.js';
 import { LeagueBudgetSchema, SeasonSpendSchema, leagueBudget, seasonSpend } from './budget.js';
-import { TeamIdSchema, requireCommissioner } from './shared.js';
+import { TeamIdSchema, requireMemberAccess } from './shared.js';
 
 /** Trade statuses after which nothing about the trade is secret any more. */
 const FINAL_STATUSES: ReadonlySet<string> = new Set(['processed', 'vetoed']);
@@ -24,11 +24,11 @@ export const getAgentActivity = defineOperation({
   path: '/leagues/{leagueId}/agent-activity',
   summary: "Review the league's agents: recent decisions and model spend",
   description: [
-    'Commissioner only. Lists recent agent tasks, newest first: what triggered each one, the tools it called, its final action, a short reasoning summary, latency, and tokens and estimated cost per model.',
-    'Summaries that would reveal sealed information (pending waiver bids, private trade offers, veto votes while the review is open) are withheld (`redacted: true`) until it resolves, so a commissioner who also plays learns nothing the other managers cannot see.',
+    'Any person in the league (not agents). Lists recent agent tasks, newest first: what triggered each one, the tools it called, its final action, a short reasoning summary, latency, and tokens and estimated cost per model.',
+    'Summaries that would reveal sealed information (pending waiver bids, private trade offers, veto votes while the review is open) are withheld (`redacted: true`) until it resolves, so no manager, the commissioner included, learns anything from it that the other managers cannot see.',
     "Also returns the week's estimated spend against the league's weekly ceiling (the commissioner's `settings.ai.weeklyBudgetUsd`, or automatic from the seats' difficulties) and any overage allowed past it, per agent with each agent's allowance; the spend of every budget week so far (`season`); and whether the global kill switch is engaged. When spend reaches the ceiling plus the overage, or the kill switch is on, agents use deterministic fallbacks instead of models.",
     'Filter to one team with `teamId`; pick a past week with `week`. Costs are estimates from the model catalog, not billing data.',
-    'Errors: FORBIDDEN if you are not the commissioner; LEAGUE_NOT_FOUND for an unknown league.'
+    'Errors: FORBIDDEN if you are not a member of the league; LEAGUE_NOT_FOUND for an unknown league.'
   ].join(' '),
   tags: ['agents'],
   mutation: false,
@@ -55,7 +55,7 @@ export const getAgentActivity = defineOperation({
       .describe('The global agent kill switch, set by the operators (not per league).')
   }),
   handler: async (ctx, input) => {
-    const { league } = await requireCommissioner(ctx, input.leagueId);
+    const { league } = await requireMemberAccess(ctx, input.leagueId);
     const [tasks, budget, season, engaged] = await Promise.all([
       ctx.repos.agents.listTasks(league.id, { teamId: input.teamId, limit: input.limit }),
       leagueBudget(ctx.repos.agents, league, input.week),

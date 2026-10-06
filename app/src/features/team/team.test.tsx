@@ -357,15 +357,16 @@ describe('League pages', () => {
     open('/leagues/L1/settings?view=history', member());
     expect(await screen.findByText('No completed seasons yet.')).toBeInTheDocument();
     cleanup();
-    // A member has no AI activity view: the URL falls back to the settings.
-    open('/leagues/L1/settings?view=ai', member());
+    // A member has no data status view: the URL falls back to the settings.
+    open('/leagues/L1/settings?view=data', member());
     const views = await screen.findByRole('group', { name: 'Settings view' });
     expect(within(views).getByRole('button', { name: 'Rules & seats' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
     expect(within(views).getByRole('button', { name: 'Draft results' })).toBeInTheDocument();
-    expect(within(views).queryByRole('button', { name: 'AI activity' })).not.toBeInTheDocument();
+    expect(within(views).getByRole('button', { name: 'AI activity' })).toBeInTheDocument();
+    expect(within(views).queryByRole('button', { name: 'Data status' })).not.toBeInTheDocument();
   });
 
   it('switches between League info views', async () => {
