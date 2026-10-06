@@ -164,6 +164,14 @@ describe('join page', () => {
     ).toMatch(/already took over Robo Ballers/);
     expect(notJoinableReason({ ...closedTakeover, phase: 'drafting' })).toMatch(/draft is running/);
     expect(notJoinableReason({ ...closedTakeover, phase: 'complete' })).toMatch(/season is over/);
+    // The team was removed from the league: the server reports the invite as revoked.
+    expect(
+      notJoinableReason({
+        ...closedTakeover,
+        status: 'revoked',
+        takeover: { teamId: 'team-4', teamName: null, available: false }
+      })
+    ).toMatch(/revoked this invite/);
   });
 
   it('takes over an AI team with a join code and opens it', async () => {

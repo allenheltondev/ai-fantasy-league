@@ -821,7 +821,118 @@ describe('taking over an AI team', () => {
   it('lets the person pick a new team name', async () => {
     const created = await takeoverInvite();
     const joined = await bob.post(`/invites/${created.token}/join`, { teamName: 'Bobcats' });
-    expect(data(joined)).toMatchObject({ team: { id: 'team-3', name: 'Bobcats' } });
+    expect(data(joined)).toMatchObject({
+      team: { id: 'team-3', name: 'Bobcats', renamedFrom: 'Robo Ballers' }
+    });
+    // A mid-season takeover rename is a rename like any other: kept in history and announced.
+    expect((await h.repos.teams.get('lg-t', 'team-3'))?.renames).toEqual([
+      { from: 'Robo Ballers', to: 'Bobcats', by: 'owner', at: expect.any(String), week: 5 }
+    ]);
+    expect(h.events.events).toContainEqual(
+      expect.objectContaining({
+        detailType: 'Team Renamed',
+        detail: { leagueId: 'lg-t', teamId: 'team-3', from: 'Robo Ballers', to: 'Bobcats', by: 'owner' }
+      })
+    );
+  });
+
+  it('keeps the name, and announces no rename, when the person picks none', async () => {
+    const created = await takeoverInvite();
+    await bob.post(`/invites/${created.token}/join`, {});
+    expect((await h.repos.teams.get('lg-t', 'team-3'))?.renames).toBeUndefined();
+    expect(h.events.events.map((e) => e.detailType)).not.toContain('Team Renamed');
+  });
+
+  it('gives the seat back on a lost race but keeps a waiver award that landed meanwhile', async () => {
+    const created = await takeoverInvite();
+    const awardFaab = async () => {
+      const team = await h.repos.teams.get('lg-t', 'team-3');
+      await h.repos.teams.update({ ...team!, roster: [...team!.roster, 'p-9'], faabRemaining: 30 });
+    };
+    // Another seat per person won the race, after a waiver award moved the team's version.
+    vi.spyOn(h.repos.members, 'add').mockImplementationOnce(async () => {
+      await awardFaab();
+      return false;
+    });
+    expect(errorCode(await bob.post(`/invites/${created.token}/join`, {}))).toBe('ALREADY_A_MEMBER');
+    expect(await h.repos.teams.get('lg-t', 'team-3')).toMatchObject({
+      seatType: 'agent',
+      ownerUserId: null,
+      name: 'Robo Ballers',
+      takeoverInviteId: created.invite.id,
+      roster: ['p-1', 'p-2', 'p-3', 'p-9'],
+      faabRemaining: 30
+    });
+
+    // The invite lost its race after another write: the seat is undone first, then the membership.
+    const update = h.repos.invites.update.bind(h.repos.invites);
+    vi.spyOn(h.repos.invites, 'update').mockImplementationOnce(async () => {
+      const team = await h.repos.teams.get('lg-t', 'team-3');
+      await h.repos.teams.update({ ...team!, waiverPriority: 8 });
+      throw new ApiError('CONFLICT', 'raced', { fix: 'retry' });
+    });
+    expect(errorCode(await bob.post(`/invites/${created.token}/join`, { teamName: 'Bobcats' }))).toBe(
+      'CONFLICT'
+    );
+    expect(await h.repos.members.get('lg-t', 'bob')).toBeNull();
+    const team = await h.repos.teams.get('lg-t', 'team-3');
+    expect(team).toMatchObject({ ownerUserId: null, name: 'Robo Ballers', waiverPriority: 8 });
+    expect(team?.renames).toBeUndefined();
+    vi.mocked(h.repos.invites.update).mockImplementation(update);
+    // The invite still works afterwards.
+    expect((await bob.post(`/invites/${created.token}/join`, {})).status).toBe(200);
+  });
+
+  it('keeps the membership when the seat cannot be given back', async () => {
+    const created = await takeoverInvite();
+    vi.spyOn(h.repos.invites, 'update').mockRejectedValueOnce(
+      new ApiError('CONFLICT', 'raced', { fix: 'retry' })
+    );
+    const stale = new ApiError('CONFLICT', 'stale', { fix: 'retry' });
+    const teamUpdate = h.repos.teams.update.bind(h.repos.teams);
+    let calls = 0;
+    vi.spyOn(h.repos.teams, 'update').mockImplementation(async (t) => {
+      calls++;
+      if (calls === 1) return teamUpdate(t); // the claim
+      throw stale; // every undo attempt loses
+    });
+    expect((await bob.post(`/invites/${created.token}/join`, {})).status).toBe(409);
+    expect(calls).toBe(6);
+    // Bob holds the seat and can still manage it: never a seat without its membership.
+    expect(await h.repos.teams.get('lg-t', 'team-3')).toMatchObject({ ownerUserId: 'bob' });
+    expect(await h.repos.members.get('lg-t', 'bob')).toMatchObject({ teamId: 'team-3' });
+  });
+
+  it('revokes a takeover invite whose seat a smaller league removes', async () => {
+    await seedLeague(h.repos, { id: 'lg-x', owners: [ALICE] });
+    const created = await takeoverInvite('/leagues/lg-x/teams/team-8/takeover-invites');
+    const shrink = await alice.patch('/leagues/lg-x/settings', {
+      changes: { teamCount: 6, ...SMALL_LEAGUE },
+      expectedVersion: 1
+    });
+    expect(shrink.status, JSON.stringify(shrink.body)).toBe(200);
+    expect(await h.repos.teams.get('lg-x', 'team-8')).toBeNull();
+    expect((await h.repos.invites.list('lg-x'))[0]).toMatchObject({ revokedAt: expect.any(String) });
+    expect(data(await bob.get(`/invites/${created.token}`))).toMatchObject({
+      status: 'revoked',
+      takeover: { teamId: 'team-8', teamName: null, available: false },
+      joinable: false
+    });
+    expect(errorCode(await bob.post(`/invites/${created.token}/join`, {}))).toBe('INVITE_REVOKED');
+  });
+
+  it('refuses a takeover invite for a removed seat even if it was never revoked', async () => {
+    await seedLeague(h.repos, { id: 'lg-y', owners: [ALICE] });
+    const created = await takeoverInvite('/leagues/lg-y/teams/team-8/takeover-invites');
+    await h.repos.teams.deleteUnowned('lg-y', 'team-8');
+    expect(data(await bob.get(`/invites/${created.token}`))).toMatchObject({
+      status: 'revoked',
+      takeover: { teamName: null },
+      joinable: false
+    });
+    expect((await bob.post(`/invites/${created.token}/join`, {})).body).toMatchObject({
+      error: { code: 'INVITE_REVOKED', message: expect.stringContaining('no longer in the league') }
+    });
   });
 
   it('keeps one live takeover invite per team, and lets the commissioner revoke it in season', async () => {

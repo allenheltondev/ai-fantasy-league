@@ -17,7 +17,7 @@ export function notJoinableReason(preview: InvitePreview): string | null {
     return 'This invite has been used up. Ask the commissioner for a new link.';
   if (preview.takeover !== null) {
     if (!preview.takeover.available)
-      return `Someone already took over ${preview.takeover.teamName}. Ask the commissioner for a new invite.`;
+      return `Someone already took over ${preview.takeover.teamName ?? 'this team'}. Ask the commissioner for a new invite.`;
     if (preview.phase === 'drafting') return 'The draft is running. Come back once it is finished.';
     return 'The season is over, so no one can take over a team.';
   }
@@ -100,7 +100,7 @@ function InviteCard({ token, preview }: { token: string; preview: InvitePreview 
     <Card>
       <CardBody className="space-y-4">
         <p className="text-sm uppercase tracking-wide text-muted-foreground">
-          {takeover === null ? "You're invited to" : `You're invited to take over ${takeover.teamName} in`}
+          {takeover?.teamName ? `You're invited to take over ${takeover.teamName} in` : "You're invited to"}
         </p>
         <h1 className="font-display text-2xl font-semibold">{preview.leagueName}</h1>
         <p className="text-muted-foreground">

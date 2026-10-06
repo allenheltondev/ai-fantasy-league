@@ -150,8 +150,8 @@ export interface InvitePreview {
   teamCount: number;
   openSeats: number;
   status: InviteStatus;
-  /** A takeover invite: the AI team it hands over, and whether it still can. */
-  takeover: { teamId: string; teamName: string; available: boolean } | null;
+  /** A takeover invite: the AI team it hands over (name null once removed), and whether it still can. */
+  takeover: { teamId: string; teamName: string | null; available: boolean } | null;
   joinable: boolean;
 }
 

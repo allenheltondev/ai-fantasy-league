@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import type { Ctx } from '../../context.js';
 import { ApiError, isApiError } from '../../errors.js';
 import { isAgentPlayed, leagueManagers } from '../../league/managers.js';
 import { TAKEOVER_PHASES } from '../../league/phase.js';
-import { claimableSeats, claimSeat, isLiveTakeover, sameTeamName } from '../../league/seats.js';
+import { claimableSeats, claimSeat, isLiveTakeover, renamedTeam, sameTeamName } from '../../league/seats.js';
 import {
   leagueSummary,
   LeagueSummarySchema,
@@ -29,7 +30,7 @@ export const joinLeague = defineOperation({
   summary: 'Join a league with an invite token',
   description: [
     'Takes an open seat in the league the invite belongs to: an open human seat if there is one, otherwise a seat an agent would have played. The seat becomes yours; name it with `teamName` (default "<your name>\'s Team").',
-    'A takeover invite (create_takeover_invite) instead hands you the one AI team it names, as it stands (roster, record, pending moves), and also works after the draft; the team keeps its name unless you pass `teamName`.',
+    'A takeover invite (create_takeover_invite) instead hands you the one AI team it names, as it stands (roster, record, pending moves), and also works after the draft; the team keeps its name unless you pass `teamName`, which is then a rename kept in its history (`renamedFrom`) and announced like rename_team. A takeover invite whose team was removed, or that a newer one replaced, fails with INVITE_REVOKED.',
     'Fails with a fix when: the token is unknown (INVITE_NOT_FOUND), expired (INVITE_EXPIRED), revoked (INVITE_REVOKED), or used up (INVITE_USED_UP); the invite is for a different email (FORBIDDEN); you already have a seat (ALREADY_A_MEMBER); the draft has started, or for a takeover the draft is running or the season is over (PHASE_NOT_ALLOWED); every seat is taken, or the takeover team already has a person (NO_OPEN_SEATS); or your teamName is taken (CONFLICT).',
     '`token` is the invite token or the six-character join code. Preview first with get_invite. Only signed-in people can join.'
   ].join(' '),
@@ -68,17 +69,30 @@ export const joinLeague = defineOperation({
     const replacedManager =
       invite.teamId === null ? undefined : (await leagueManagers(ctx, league.id, [seat])).get(seat.id)?.name;
 
+    const owner = { userId: principal.sub, name: principal.name };
+    // A takeover keeps the team's identity: a new name is a rename, kept in its history (#194).
+    const renamed = invite.teamId !== null && name !== seat.name;
+    const claimed = renamed
+      ? renamedTeam(
+          claimSeat(seat, owner, seat.name, now),
+          {
+            to: name,
+            by: 'owner',
+            at: now.toISOString(),
+            week: league.week ?? league.settings.schedule.startWeek
+          },
+          'owner'
+        )
+      : claimSeat(seat, owner, name, now);
+
     // No multi-item transactions (see the ADR), so: claim the seat, record the membership (which
     // enforces one seat per person), count the invite use, and undo the earlier steps on a race.
     let team: Team;
     try {
-      team = await ctx.repos.teams.update(
-        claimSeat(seat, { userId: principal.sub, name: principal.name }, name, now)
-      );
+      team = await ctx.repos.teams.update(claimed);
     } catch (error) {
       throw isConflict(error) ? raced('that seat') : error;
     }
-    const undoSeat = () => ctx.repos.teams.update({ ...seat, version: team.version });
     const member = {
       leagueId: league.id,
       userId: principal.sub,
@@ -86,14 +100,15 @@ export const joinLeague = defineOperation({
       joinedAt: now.toISOString()
     };
     if (!(await ctx.repos.members.add(member))) {
-      await undoSeat();
+      await undoClaim(ctx, seat, principal.sub, now);
       throw alreadyMember('Use get_league_state to see your team.');
     }
     try {
       await ctx.repos.invites.update({ ...invite, uses: invite.uses + 1 });
     } catch (error) {
+      // Seat first: if that cannot be undone, the person keeps a seat they can still manage.
+      await undoClaim(ctx, seat, principal.sub, now);
       await ctx.repos.members.remove(league.id, principal.sub);
-      await undoSeat();
       throw isConflict(error) ? raced('this invite') : error;
     }
 
@@ -105,9 +120,52 @@ export const joinLeague = defineOperation({
       name: principal.name,
       ...(replacedManager === undefined ? {} : { replacedManager })
     });
+    if (renamed) {
+      await ctx.events.publish('Team Renamed', {
+        leagueId: league.id,
+        teamId: team.id,
+        from: seat.name,
+        to: team.name,
+        by: 'owner'
+      });
+    }
     return { league: leagueSummary(league, principal.sub, team.id), team: teamDetail(team) };
   }
 });
+
+/** Tries to undo a claim before giving up: other writers can move the team's version meanwhile. */
+const UNDO_ATTEMPTS = 5;
+
+/**
+ * Gives a claimed seat back after a failed join. It re-reads the team and reverts only what the
+ * claim changed (who holds it, its name, its tenure, its takeover invite), so a waiver award or
+ * priority reset that landed meanwhile is kept, and retries when another write wins the race.
+ * Does nothing once the person no longer holds the seat.
+ */
+async function undoClaim(ctx: Pick<Ctx, 'repos'>, before: Team, userId: string, now: Date): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    const current = await ctx.repos.teams.get(before.leagueId, before.id);
+    if (current === null || current.ownerUserId !== userId) return;
+    try {
+      await ctx.repos.teams.update({
+        ...current,
+        seatType: before.seatType,
+        ownerUserId: before.ownerUserId,
+        ownerName: before.ownerName,
+        agentConfigId: before.agentConfigId,
+        name: before.name,
+        nameSetBy: before.nameSetBy,
+        renames: before.renames,
+        occupiedSince: before.occupiedSince,
+        takeoverInviteId: before.takeoverInviteId,
+        updatedAt: now.toISOString()
+      });
+      return;
+    } catch (error) {
+      if (!isConflict(error) || attempt >= UNDO_ATTEMPTS) throw error;
+    }
+  }
+}
 
 /** Anyone joins in setup; a takeover invite also works in season (TAKEOVER_PHASES). */
 function assertJoinPhase(phase: LeaguePhase, takeover: boolean): void {
@@ -145,7 +203,12 @@ function assertJoinPhase(phase: LeaguePhase, takeover: boolean): void {
  */
 function takeoverSeat(teams: readonly Team[], invite: Invite): Team {
   const team = teams.find((t) => t.id === invite.teamId);
-  if (team === undefined || !isAgentPlayed(team)) {
+  if (team === undefined) {
+    throw new ApiError('INVITE_REVOKED', 'The team this invite was for is no longer in the league.', {
+      fix: 'Ask the commissioner for an invite to another team.'
+    });
+  }
+  if (!isAgentPlayed(team)) {
     throw new ApiError('NO_OPEN_SEATS', 'This team is no longer played by an AI manager.', {
       fix: 'Someone else took it over already. Ask the commissioner for an invite to another team.'
     });

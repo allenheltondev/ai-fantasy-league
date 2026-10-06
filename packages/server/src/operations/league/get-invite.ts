@@ -40,8 +40,10 @@ export const getInvite = defineOperation({
     takeover: z
       .object({
         teamId: z.string(),
-        teamName: z.string(),
-        available: z.boolean().describe('False once a person already plays the team.')
+        teamName: z.string().nullable().describe('Null once the team was removed from the league.'),
+        available: z
+          .boolean()
+          .describe('False once a person already plays the team, or the team was removed.')
       })
       .nullable()
       .describe('A takeover invite: the AI team you would take over. Null for an invite to any open seat.'),
@@ -54,11 +56,16 @@ export const getInvite = defineOperation({
     const openSeats = claimableSeats(teams).length;
     const target = invite.teamId === null ? undefined : teams.find((t) => t.id === invite.teamId);
     const takeover =
-      target === undefined
+      invite.teamId === null
         ? null
-        : { teamId: target.id, teamName: target.name, available: isAgentPlayed(target) };
-    // A takeover invite a newer one replaced reads as revoked, as join_league treats it.
-    const replaced = target !== undefined && takeover?.available === true && !isLiveTakeover(target, invite);
+        : target === undefined
+          ? { teamId: invite.teamId, teamName: null, available: false }
+          : { teamId: target.id, teamName: target.name, available: isAgentPlayed(target) };
+    // A takeover invite whose team is gone, or that a newer one replaced, reads as revoked, as
+    // join_league treats it. One for a team a person took stays as it is (used up, or unavailable).
+    const replaced =
+      invite.teamId !== null &&
+      (target === undefined || (isAgentPlayed(target) && !isLiveTakeover(target, invite)));
     const status = replaced ? 'revoked' : inviteStatus(invite, now);
     const joinable =
       status === 'active' &&
