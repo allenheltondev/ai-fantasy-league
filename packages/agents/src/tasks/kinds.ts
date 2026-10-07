@@ -74,6 +74,12 @@ export interface TaskContext {
    */
   recall?(audience: MemoryAudience): Promise<AgentLeagueMemory>;
   /**
+   * Writes records to the agent's memory now, not with the task's outcome (#280: the chat remarks a
+   * check-in read, kept whether or not it goes on to a model call). The caller treats it as best
+   * effort.
+   */
+  remember?(events: readonly MemoryEvent[]): Promise<void>;
+  /**
    * Takes one use of a league-wide rolling-window limit `name`, atomically (#218: one agent speaks
    * about one event in one room). False when used up.
    */

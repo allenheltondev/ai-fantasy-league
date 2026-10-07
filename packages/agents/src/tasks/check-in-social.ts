@@ -279,7 +279,7 @@ async function dmCheck(ctx: TaskContext, g: DmGoal): Promise<DmVerdict> {
 export async function lookSocial(
   ctx: TaskContext,
   naming: 'placeholder' | 'rebrand' | undefined,
-  look: Pick<CheckInLook, 'trade'>
+  look: Pick<CheckInLook, 'trade'> & Partial<Pick<CheckInLook, 'lineup'>>
 ): Promise<SocialLook> {
   const seed = `${ctx.trigger.eventId}:${ctx.principal.teamId}`;
   const chattiness = ctx.config.personality.chattiness;
@@ -305,7 +305,8 @@ export async function lookSocial(
           rooms: listed.rooms,
           postsLeft,
           seed: `${seed}:board`,
-          trade: look.trade.prep
+          trade: look.trade.prep,
+          roster: (look.lineup?.roster ?? []).flatMap((p) => (p.name == null ? [] : [p.name]))
         });
   const answer = opportunity.answer;
   social.act = opportunity.act;
