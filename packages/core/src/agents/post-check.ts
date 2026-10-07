@@ -142,7 +142,9 @@ const ACCEPTED: ReadonlySet<string> = new Set(['accepted', 'in_review', 'process
  * The trade-status claims a post may make (#264), the way #247's claim checks judge them: about the
  * latest trade with the counterpart, or, with no counterpart (a league board), about what this turn
  * did. An offer is "sent" when this turn sent the counterpart one or the latest trade with them is
- * the speaker's own; "accepted" and "completed" need the latest trade to have got that far.
+ * the speaker's own; "completed" needs the latest trade to be processed. "Accepted" also needs it
+ * to be the speaker's own offer: the patterns ("you accepted", "accepted my offer") say the
+ * counterpart took the speaker's offer, which is false of an offer of theirs the agent accepted.
  */
 export function supportedTradeClaims(input: {
   counterpart: string | null;
@@ -160,6 +162,6 @@ export function supportedTradeClaims(input: {
   return [
     ...(latest.status === 'processed' ? (['completed'] as const) : []),
     ...(latest.outgoing ? (['sent'] as const) : []),
-    ...(ACCEPTED.has(latest.status) ? (['accepted'] as const) : [])
+    ...(latest.outgoing && ACCEPTED.has(latest.status) ? (['accepted'] as const) : [])
   ];
 }

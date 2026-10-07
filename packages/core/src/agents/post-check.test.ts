@@ -133,6 +133,19 @@ describe('supportedTradeClaims', () => {
     expect(supportedTradeClaims({ counterpart: 'team-4', offeredTo: [], trades })).toEqual([]);
   });
 
+  it('lets only the team that made the offer say it was accepted', () => {
+    // Their offer, which the agent accepted: "you accepted my offer" would be false.
+    const theirs = [{ teamId: 'team-5', outgoing: false, status: 'processed' }];
+    expect(supportedTradeClaims({ counterpart: 'team-5', offeredTo: [], trades: theirs })).toEqual([
+      'completed'
+    ]);
+    const mine = [{ teamId: 'team-5', outgoing: true, status: 'in_review' }];
+    expect(supportedTradeClaims({ counterpart: 'team-5', offeredTo: [], trades: mine })).toEqual([
+      'sent',
+      'accepted'
+    ]);
+  });
+
   it('counts an offer this turn sent, which is then the latest trade with that team', () => {
     expect(supportedTradeClaims({ counterpart: 'team-1', offeredTo: ['team-1'], trades })).toEqual(['sent']);
     expect(supportedTradeClaims({ counterpart: null, offeredTo: ['team-4'], trades })).toEqual(['sent']);

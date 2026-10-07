@@ -138,9 +138,10 @@ export function blockedStartEmail(
 /**
  * Emails the commissioner that the scheduled start was blocked (#134), once per league and
  * scheduled time: the first delivery claims `<leagueId>#<scheduledAt>`, so a redelivered or retried
- * `Draft Start Scheduled` sends nothing more. A failed send releases the claim and is logged, not
- * thrown: retrying the whole start would also repeat `Draft Start Blocked` in chat, which already
- * told the commissioner.
+ * `Draft Start Scheduled` sends nothing more. Nothing here throws: a failed claim or send is logged
+ * and returned as `failed`, and the claim's own bookkeeping is best effort, because retrying the
+ * whole start would publish `Draft Start Blocked` again (a new event, a second chat line) when chat
+ * already told the commissioner.
  */
 export async function emailBlockedStart(
   services: Pick<Services, 'repos' | 'events' | 'clock' | 'log'>,
@@ -155,29 +156,40 @@ export async function emailBlockedStart(
   }
   const key = `${blocked.leagueId}#${blocked.scheduledAt}`;
   const now = services.clock.now();
-  const claim = await services.repos.idempotency.begin({
-    scope: BLOCKED_START_EMAIL_SCOPE,
-    key,
-    operation: 'draft_start_blocked_email',
-    requestHash: key,
-    now,
-    lockUntil: new Date(now.getTime() + EMAIL_LOCK_MS),
-    expiresAt: new Date(now.getTime() + EMAIL_CLAIM_TTL_MS)
-  });
-  if (claim.status !== 'started') return 'duplicate';
+  const expiresAt = new Date(now.getTime() + EMAIL_CLAIM_TTL_MS);
+  let claimed: boolean;
+  try {
+    const claim = await services.repos.idempotency.begin({
+      scope: BLOCKED_START_EMAIL_SCOPE,
+      key,
+      operation: 'draft_start_blocked_email',
+      requestHash: key,
+      now,
+      lockUntil: new Date(now.getTime() + EMAIL_LOCK_MS),
+      expiresAt
+    });
+    claimed = claim.status === 'started';
+  } catch (error) {
+    log.error('blocked draft start email not claimed', { error });
+    return 'failed';
+  }
+  if (!claimed) return 'duplicate';
   try {
     await services.events.sendEmail(blockedStartEmail(league, to, blocked));
   } catch (error) {
-    await services.repos.idempotency.release(BLOCKED_START_EMAIL_SCOPE, key);
     log.error('blocked draft start email failed', { error });
+    // Best effort: a claim left behind only keeps the lock until it lapses.
+    await services.repos.idempotency
+      .release(BLOCKED_START_EMAIL_SCOPE, key)
+      .catch((releaseError: unknown) =>
+        log.warn('blocked draft start email claim not released', { error: releaseError })
+      );
     return 'failed';
   }
-  await services.repos.idempotency.complete(
-    BLOCKED_START_EMAIL_SCOPE,
-    key,
-    { status: 200, body: { sentAt: now.toISOString() } },
-    new Date(now.getTime() + EMAIL_CLAIM_TTL_MS)
-  );
+  // The email went out: a claim not completed is logged, never a reason to retry the start.
+  await services.repos.idempotency
+    .complete(BLOCKED_START_EMAIL_SCOPE, key, { status: 200, body: { sentAt: now.toISOString() } }, expiresAt)
+    .catch((error: unknown) => log.warn('blocked draft start email claim not completed', { error }));
   log.info('blocked draft start emailed to the commissioner');
   return 'sent';
 }

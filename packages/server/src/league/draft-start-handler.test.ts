@@ -84,6 +84,36 @@ describe('emailBlockedStart', () => {
     expect(h.events.emails).toHaveLength(1);
   });
 
+  it('never throws when its claim bookkeeping fails, so the start is not retried', async () => {
+    const messages = (lines: string[]) => lines.map((l) => (JSON.parse(l) as { message: string }).message);
+    const logged = () => {
+      const lines: string[] = [];
+      return { lines, log: createLogger({ sink: (line) => lines.push(line) }) };
+    };
+    // The claim cannot be taken: nothing is sent.
+    const begin = vi.spyOn(h.repos.idempotency, 'begin').mockRejectedValueOnce(new Error('throttled'));
+    const a = logged();
+    expect(await emailBlockedStart({ ...h.services, log: a.log }, LEAGUE, BLOCKED)).toBe('failed');
+    expect(messages(a.lines)).toContain('blocked draft start email not claimed');
+    expect(h.events.emails).toEqual([]);
+    begin.mockRestore();
+
+    // The send and the release both fail.
+    vi.spyOn(h.events, 'sendEmail').mockRejectedValueOnce(new Error('bus down'));
+    vi.spyOn(h.repos.idempotency, 'release').mockRejectedValueOnce(new Error('throttled'));
+    const b = logged();
+    expect(await emailBlockedStart({ ...h.services, log: b.log }, LEAGUE, BLOCKED)).toBe('failed');
+    expect(messages(b.lines)).toContain('blocked draft start email claim not released');
+
+    // The email goes out, but its claim is not completed: still sent.
+    vi.spyOn(h.repos.idempotency, 'complete').mockRejectedValueOnce(new Error('throttled'));
+    const later = { ...BLOCKED, scheduledAt: '2026-09-11T23:00:00.000Z' };
+    const c = logged();
+    expect(await emailBlockedStart({ ...h.services, log: c.log }, LEAGUE, later)).toBe('sent');
+    expect(messages(c.lines)).toContain('blocked draft start email claim not completed');
+    expect(h.events.emails).toHaveLength(1);
+  });
+
   it('records a sent email as a completed claim on the league and time', async () => {
     await emailBlockedStart(h.services, LEAGUE, BLOCKED);
     const again = await h.repos.idempotency.begin({
