@@ -430,6 +430,41 @@ describe('check-in: a direct message with a goal', () => {
     ]);
   });
 
+  it('lets the board name a player again once the offer for him is turned down, but not the offer (#263)', async () => {
+    const turnedDown = async () => {
+      const s = await league(LOUD);
+      const tradeId = await offerToAllen(s);
+      await executeOperation({
+        registry: s.registry,
+        operation: s.registry.get('respond_to_trade')!,
+        ctx: createContext(s.services, ALLEN),
+        input: { leagueId: LEAGUE_ID, tradeId, response: 'reject' },
+        idempotencyKey: `reject-${++seq}`
+      });
+      s.clock.advance(3_600_000);
+      return s;
+    };
+    const s = await turnedDown();
+    await run(
+      s,
+      checkIn(rolled(LOUD, ['board'])),
+      scripted([{ type: 'post_chat', message: 'H RB would look great in my lineup. Just saying.' }])
+    );
+    expect((await posted(s, 'trash-talk')).map((m) => m.text)).toEqual([
+      'H RB would look great in my lineup. Just saying.'
+    ]);
+
+    // The turned-down offer itself is still the two teams' business.
+    const t = await turnedDown();
+    const record = await run(
+      t,
+      checkIn(rolled(LOUD, ['board'])),
+      scripted([{ type: 'post_chat', message: 'Allen turned down my offer for H RB. Bold.' }])
+    );
+    expect(await posted(t, 'trash-talk')).toEqual([]);
+    expect(record.reasoningSummary).toContain('it touched on a private move');
+  });
+
   it('keeps a true claim about its own offer in the DM, and cuts a false one (#264)', async () => {
     const s = await league(LOUD);
     await offerToAllen(s);

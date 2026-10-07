@@ -65,10 +65,11 @@ import { fallbackRename, namingFor, namingSection, scriptedName, type NamingPrep
  * A free-form post (board, matchup, DM) is written in the same answer as the roster and trade
  * moves, before any of them is made. Before it goes out, a sentence claiming a trade status the
  * record does not support ("Offer sent." with no offer behind it) is cut, and a post with nothing
- * left is held back (core `checkPost`, #264). The prompt also holds private options (pickups and
- * trade ideas, DM goals, a DM-only act's facts) next to the public rooms' facts, so a board post or
- * matchup talk that names a player in a private move, or talks of an offer that is not public, is
- * held back whole (#263); a DM to the other team is not held to that.
+ * left is held back (core `checkPost`, #264). A DM act's facts never share a prompt with a public
+ * post: a check-in that offers one offers no board post or matchup talk (#263). The prompt still
+ * holds private options (pickups and trade ideas, open offers, DM goals) next to the public rooms'
+ * facts, so a board post or matchup talk that names a player in one, or talks of an offer that is
+ * not public, is held back whole; a DM to the other team is not held to that.
  */
 
 /** A direct message the check-in may send, tied to a goal. */
@@ -340,7 +341,10 @@ export async function lookSocial(
       r.week === ctx.league.week &&
       r.teamIds.includes(ctx.principal.teamId)
   );
-  if (rolls.matchup && room !== undefined) {
+  // One audience at a time (#263): a DM act's facts are the two teams' business, so a check-in
+  // that offers one offers no matchup talk beside it (a board post it already replaces).
+  const dmAct = social.act?.pack.roomId.startsWith('dm-') === true;
+  if (rolls.matchup && room !== undefined && !dmAct) {
     const messages = await roomMessages(ctx, room.roomId);
     const self = ctx.principal.teamId;
     if (matchupPostsLeft(messages, self) > 0 && !lastWordIsMine(messages, self)) {
@@ -469,16 +473,10 @@ export const MOVES_NOT_MADE =
 
 /**
  * What a public post must not name (#263): the players in the check-in's private options and in
- * its trades that are not public, and the dates of a DM-only act's facts (the day an offer was
- * turned down is the tell).
+ * its open offers. A DM act's facts never share a prompt with a public post (`lookSocial`).
  */
 export function publicPostTerms(look: CheckInLook): string[] {
-  const act = look.social.act;
-  const dmOnly =
-    act === null || !act.pack.roomId.startsWith('dm-')
-      ? []
-      : act.pack.facts.flatMap((f) => f.line.match(/\d{4}-\d{2}-\d{2}/g) ?? []);
-  return [...new Set([...privateTerms(look), ...privateTradeTerms(look.trades), ...dmOnly])];
+  return [...new Set([...privateTerms(look), ...privateTradeTerms(look.trades)])];
 }
 
 const WITHHELD = {

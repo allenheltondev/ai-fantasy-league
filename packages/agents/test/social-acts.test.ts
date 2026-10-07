@@ -42,14 +42,19 @@ const DM_3 = 'dm-team-2-team-3';
 let seq = 0;
 
 /** An event id whose check-in rolls for these teams come out as asked (board; never matchup or DM). */
-function rolled(config: AgentSeatConfig, board: boolean, teams: readonly string[] = [AGENT_TEAM]): string {
+function rolled(
+  config: AgentSeatConfig,
+  board: boolean,
+  teams: readonly string[] = [AGENT_TEAM],
+  matchup = false
+): string {
   const c = resolveAgentConfig(config).personality.chattiness;
   for (let i = 0; i < 50_000; i++) {
     const id = `evt-acts-${i}`;
     const ok = teams.every(
       (t) =>
         ambientTurn(c, `${id}:${t}:board`) === board &&
-        !socialRoll(matchupTalkChance(c), `${id}:${t}:matchup`)
+        socialRoll(matchupTalkChance(c), `${id}:${t}:matchup`) === matchup
     );
     if (ok) return id;
   }
@@ -656,6 +661,30 @@ describe('a player callback from a stored chat remark (#280)', () => {
     expect(record.status).not.toBe('failed');
     expect(s.logs.some((l) => l.includes('chat remarks not recorded'))).toBe(true);
     expect((await memoryOf(s)).remarks).toEqual([]);
+  });
+
+  it('offers no matchup talk beside a DM act, so its facts never meet a public post (#263)', async () => {
+    // Their starter is out: an angle for matchup talk.
+    const withAngle = async () => {
+      const s = await league();
+      const back = await s.repos.players.get('team-3-rb1');
+      await s.repos.players.putMany([{ ...back!, injuryStatus: 'Out' }]);
+      return s;
+    };
+    const quiet = await withAngle();
+    const control = new ScriptedModelClient();
+    await run(quiet, checkIn(rolled(LOUD, true, [AGENT_TEAM], true)), control);
+    // With nothing for a DM, the matchup roll offers matchup talk.
+    expect(control.transcript[0]?.systemPrompt).toContain('matchup_post');
+
+    const s = await withAngle();
+    const theirs = await remark(s, DM_3, 'WR1 is washed, just saying.');
+    const model = new ScriptedModelClient();
+    await run(s, checkIn(rolled(LOUD, true, [AGENT_TEAM], true)), model);
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    expect(prompt).toContain(`[remark:${theirs.id}]`);
+    expect(prompt).not.toContain('matchup_post');
+    expect((await everywhere(s)).map((m) => m.roomId)).toEqual([DM_3]);
   });
 
   it('makes no callback from a remark gone stale', async () => {

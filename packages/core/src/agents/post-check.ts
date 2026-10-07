@@ -121,10 +121,18 @@ export const PUBLIC_TRADE_STATUSES: ReadonlySet<string> = new Set([
   'vetoed'
 ]);
 
-/** Players in this team's trades that are not public: never in a public post (#263). */
+/** Trade statuses of an offer still on the table: proposed or countered, not yet answered. */
+export const OPEN_TRADE_STATUSES: ReadonlySet<string> = new Set(['proposed', 'countered']);
+
+/**
+ * Players in this team's open offers: never named in a public post (#263). An offer that closed
+ * without going public (turned down, expired, withdrawn) stays private as talk, which
+ * `talksOfPrivateOffer` catches, but its players are fair game again: a ban on every player ever
+ * offered would hold back ordinary trash talk for the rest of the season.
+ */
 export function privateTradeTerms(trades: readonly TradeLine[]): string[] {
   return [
-    ...new Set(trades.filter((t) => !PUBLIC_TRADE_STATUSES.has(t.status)).flatMap((t) => t.players ?? []))
+    ...new Set(trades.filter((t) => OPEN_TRADE_STATUSES.has(t.status)).flatMap((t) => t.players ?? []))
   ];
 }
 

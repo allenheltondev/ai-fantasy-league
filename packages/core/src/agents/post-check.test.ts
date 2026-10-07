@@ -101,12 +101,14 @@ describe('checkPost: private detail in a public room (#263)', () => {
 });
 
 describe('privateTradeTerms', () => {
-  it('names the players in trades that are not public, once each', () => {
+  it('names the players in open offers, once each, and lets closed ones go', () => {
     expect(
       privateTradeTerms([
-        { teamId: 'team-1', outgoing: true, status: 'rejected', players: ['A', 'B'] },
+        { teamId: 'team-1', outgoing: true, status: 'countered', players: ['A', 'B'] },
         { teamId: 'team-3', outgoing: false, status: 'proposed', players: ['B', 'C'] },
         { teamId: 'team-4', outgoing: true, status: 'processed', players: ['D'] },
+        { teamId: 'team-5', outgoing: true, status: 'rejected', players: ['E'] },
+        { teamId: 'team-6', outgoing: false, status: 'withdrawn', players: ['F'] },
         { teamId: 'team-4', outgoing: true, status: 'expired' }
       ])
     ).toEqual(['A', 'B', 'C']);
