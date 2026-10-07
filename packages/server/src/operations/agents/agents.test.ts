@@ -227,6 +227,53 @@ describe('agent seat operations', () => {
     ]);
   });
 
+  it('announces a post-draft rename or new avatar, from the default name a seat showed (#151)', async () => {
+    const mid = await setup('regular_season');
+    const announced = () =>
+      mid.events.events.filter((e) => e.detailType === 'Agent Seat Changed').map((e) => e.detail.changes);
+    // The first config stores no name: the seat keeps showing its default, so nothing is announced.
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    expect(announced()).toEqual([]);
+    const fallback = effectiveManager(null, 'lg-1.team-2');
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      name: 'Ruth Carter'
+    });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      avatarSeed: 'new-look'
+    });
+    // Leaving both out keeps them, and saving the same ones again changes nothing.
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      name: 'Ruth Carter',
+      avatarSeed: 'new-look'
+    });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      name: 'Ruth "Turbo" Carter',
+      difficulty: 'rookie'
+    });
+    expect(announced()).toEqual([
+      [{ field: 'name', from: fallback.name, to: 'Ruth Carter' }],
+      [{ field: 'avatar', from: fallback.avatarSeed, to: 'new-look' }],
+      [
+        { field: 'name', from: 'Ruth Carter', to: 'Ruth "Turbo" Carter' },
+        { field: 'difficulty', from: 'All-Pro', to: 'Rookie' },
+        { field: 'model', from: 'Claude Sonnet 5', to: 'Amazon Nova Micro' }
+      ]
+    ]);
+  });
+
   it('randomizes seats deterministically from a seed', async () => {
     const { run } = await setup();
     const a = await run('randomize_agent_seats', {

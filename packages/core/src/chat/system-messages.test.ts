@@ -261,6 +261,18 @@ describe('renderSystemMessage', () => {
         changes: [{ field: 'difficulty', from: 'Pro' }, null]
       })?.text
     ).toMatch(/^The commissioner changed .+'s AI manager\.$/);
+    // A rename shows both names; a new avatar has no readable from/to, so it is just named (#151).
+    expect(
+      render('Agent Seat Changed', {
+        teamId: 'team-3',
+        changes: [
+          { field: 'name', from: 'Marcus Hale', to: 'Ruth Carter' },
+          { field: 'avatar', from: 'k3q9z0b1ma', to: 'new-look' }
+        ]
+      })?.text
+    ).toBe(
+      "The commissioner changed Tuna's AI manager name from Marcus Hale to Ruth Carter, AI manager avatar."
+    );
     expect(render('Draft Completed', {})?.moment).toBe(true);
     expect(render('Agent Budget Exceeded', { week: 5, spentUsd: 2.5, ceilingUsd: 2.25 })?.text).toBe(
       'The AI managers have used this week’s model budget ($2.5 of $2.25). Until next week they play on autopilot: optimizer lineups, autopicks, no waiver claims, and they turn down trade offers.'

@@ -13,7 +13,8 @@
  * - `list`: a list of strings
  * - `claims`: waiver awards, `[{ teamId, player, cost?, bid? }]` (the FAAB paid, else the bid)
  * - `points`: a number with at most two decimals
- * - `changes`: agent seat changes, `[{ field, from, to }]` ("AI difficulty from All-Pro to Rookie")
+ * - `changes`: agent seat changes, `[{ field, from, to }]` ("AI difficulty from All-Pro to Rookie"; an
+ *   avatar change is just "AI manager avatar", since its seeds mean nothing to read)
  */
 
 /** One way to say it. A guarded alternative is used only when `when` returns true. */
@@ -286,7 +287,8 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
         const from = text(c.from);
         const to = text(c.to);
         if (field === null || from === null || to === null) return null;
-        return `${SEAT_FIELD_LABELS[field] ?? field} from ${from} to ${to}`;
+        const label = SEAT_FIELD_LABELS[field] ?? field;
+        return field === 'avatar' ? label : `${label} from ${from} to ${to}`;
       });
     case 'claims':
       return list(value, (claim) => {
@@ -305,6 +307,8 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
 
 /** How an agent seat field reads in a chat line. */
 export const SEAT_FIELD_LABELS: Readonly<Record<string, string>> = {
+  name: 'AI manager name',
+  avatar: 'AI manager avatar',
   difficulty: 'AI difficulty',
   archetype: 'AI strategy',
   model: 'AI decision model',

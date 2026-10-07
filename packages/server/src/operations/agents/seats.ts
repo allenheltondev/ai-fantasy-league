@@ -1,10 +1,12 @@
 import {
   AgentSeatConfigSchema,
   MAX_TEAMS,
+  effectiveManager,
   getModel,
   randomizeAgentSeats,
   resolveAgentConfig,
-  type AgentSeatConfig
+  type AgentSeatConfig,
+  type ManagerIdentity
 } from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
@@ -28,13 +30,31 @@ import {
   requireCommissioner
 } from './shared.js';
 
-type SeatChange = { field: 'difficulty' | 'archetype' | 'model' | 'personality'; from: string; to: string };
+type SeatChange = {
+  field: 'name' | 'avatar' | 'difficulty' | 'archetype' | 'model' | 'personality';
+  from: string;
+  to: string;
+};
 
-/** What a player of the league would notice changing about an agent, by display name. */
-export function seatChanges(before: AgentSeatConfig, after: AgentSeatConfig): SeatChange[] {
+/**
+ * What a player of the league would notice changing about an agent, by display name. `managers`
+ * are the manager's name and avatar before and after (a seat with none stored shows a default);
+ * left out, only the settings are compared.
+ */
+export function seatChanges(
+  before: AgentSeatConfig,
+  after: AgentSeatConfig,
+  managers?: { before: ManagerIdentity; after: ManagerIdentity }
+): SeatChange[] {
   const a = resolveAgentConfig(before);
   const b = resolveAgentConfig(after);
   const pairs: [SeatChange['field'], string, string][] = [
+    ...(managers === undefined
+      ? []
+      : ([
+          ['name', managers.before.name, managers.after.name],
+          ['avatar', managers.before.avatarSeed, managers.after.avatarSeed]
+        ] as [SeatChange['field'], string, string][])),
     ['difficulty', a.difficulty.displayName, b.difficulty.displayName],
     ['archetype', a.archetype.displayName, b.archetype.displayName],
     [
@@ -76,7 +96,10 @@ async function writeSeat(
   // After the draft, changes are announced (event + chat line): the commissioner usually plays too,
   // and must not be able to quietly weaken the AI teams they face.
   if (league.phase !== 'setup' && current !== null) {
-    const changes = seatChanges(current.config, config);
+    // A name or avatar left out of the new config keeps the one the seat showed before.
+    const before = effectiveManager(current.config, record.agentId);
+    const after = { name: config.name ?? before.name, avatarSeed: config.avatarSeed ?? before.avatarSeed };
+    const changes = seatChanges(current.config, config, { before, after });
     if (changes.length > 0) {
       await ctx.events.publish('Agent Seat Changed', {
         leagueId,
@@ -111,7 +134,7 @@ export const configureAgentSeat = defineOperation({
   path: '/leagues/{leagueId}/agents/{teamId}',
   summary: "Set an agent seat's manager name, avatar, personality, difficulty, and strategy",
   description: [
-    "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat.",
+    "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (manager name, avatar, difficulty, strategy, model, personality) is announced in the league chat.",
     'Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor).',
     "`name` (1-40 characters on one line, unique in the league) is what the manager calls itself in chat; `avatarSeed` picks its avatar picture. Leave either out to keep the seat's current one.",
     '`namesTeam` (on by default) lets the manager name its team: it replaces a placeholder like "Team 3" in character and may rebrand now and then. Turned off, it never renames, and a name you give the team (rename_team) is locked. Leave it out to keep the current setting.',

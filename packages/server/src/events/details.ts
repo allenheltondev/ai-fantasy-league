@@ -436,9 +436,9 @@ export const EVENT_DETAIL_SCHEMAS = {
     changes: z
       .array(
         z.object({
-          field: z.enum(['difficulty', 'archetype', 'model', 'personality']),
-          from: z.string().describe('Display name before the change.'),
-          to: z.string().describe('Display name after the change.')
+          field: z.enum(['name', 'avatar', 'difficulty', 'archetype', 'model', 'personality']),
+          from: z.string().describe('Display name before the change (for `avatar`, the old avatar seed).'),
+          to: z.string().describe('Display name after the change (for `avatar`, the new avatar seed).')
         })
       )
       .min(1)
