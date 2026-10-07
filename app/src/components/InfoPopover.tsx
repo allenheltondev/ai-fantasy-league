@@ -27,10 +27,14 @@ const ICONS = {
 export function InfoPopover(props: {
   /** The button's accessible name, as a question: "What is FAAB?". */
   label: string;
+  /** Show the label beside the icon, for help that stands alone rather than beside what it explains. */
+  showLabel?: boolean;
   /** The open panel's accessible name: "About FAAB". */
   title: string;
   icon?: keyof typeof ICONS;
   testId?: string;
+  /** Which edge of the trigger the panel lines up with: `end` for a trigger at the right. */
+  align?: 'start' | 'end';
   /** Tailwind width classes for the panel. */
   width?: string;
   children: ReactNode;
@@ -74,11 +78,13 @@ export function InfoPopover(props: {
     <span ref={root} className="relative inline-block align-middle" data-testid={props.testId}>
       <button
         type="button"
-        aria-label={props.label}
+        aria-label={props.showLabel ? undefined : props.label}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-muted-foreground hover:text-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+        className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 text-muted-foreground hover:text-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 ${
+          props.showLabel ? 'rounded-md px-2 text-sm font-medium' : 'rounded-full'
+        }`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -93,6 +99,7 @@ export function InfoPopover(props: {
         >
           {ICONS[props.icon ?? 'question']}
         </svg>
+        {props.showLabel && props.label}
       </button>
       {open && (
         <div
@@ -103,7 +110,7 @@ export function InfoPopover(props: {
           aria-label={props.title}
           // A link inside goes somewhere else in the app: the panel has done its job.
           onClick={(e) => (e.target as Element).closest('a') !== null && setOpen(false)}
-          className={`motion-pop absolute left-0 top-full z-30 ${props.width ?? 'w-72'} max-w-[calc(100vw-2rem)] space-y-1 rounded-lg border border-border bg-surface p-3 text-sm font-normal text-foreground shadow-lg`}
+          className={`motion-pop absolute ${props.align === 'end' ? 'right-0' : 'left-0'} top-full z-30 ${props.width ?? 'w-72'} max-w-[calc(100vw-2rem)] space-y-1 rounded-lg border border-border bg-surface p-3 text-sm font-normal text-foreground shadow-lg`}
         >
           {props.children}
         </div>

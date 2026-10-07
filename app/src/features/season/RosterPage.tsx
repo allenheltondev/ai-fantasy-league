@@ -37,15 +37,7 @@ export function RosterPage({ connect = connectMomentoEvents }: { connect?: Event
   } else if (state.data.yourTeam === null) {
     body = <EmptyState title="No team" description="You do not manage a team in this league." />;
   } else {
-    body = (
-      <LineupEditor
-        leagueId={leagueId}
-        teamId={state.data.yourTeam.id}
-        allowedActions={state.data.allowedActions}
-        commissioner={state.data.youAreCommissioner}
-        connect={connect}
-      />
-    );
+    body = <LineupEditor leagueId={leagueId} teamId={state.data.yourTeam.id} connect={connect} />;
   }
   return (
     <div data-testid="league-section-roster" className="space-y-4">
@@ -57,14 +49,10 @@ export function RosterPage({ connect = connectMomentoEvents }: { connect?: Event
 function LineupEditor({
   leagueId,
   teamId,
-  allowedActions,
-  commissioner,
   connect
 }: {
   leagueId: string;
   teamId: string;
-  allowedActions: readonly string[];
-  commissioner: boolean;
   connect: EventConnect;
 }) {
   const api = useLeagueApi();
@@ -162,14 +150,7 @@ function LineupEditor({
         now={now}
         highlight={highlight}
         onTheBlock={onTheBlock}
-        help={
-          <LineupHelp
-            leagueId={leagueId}
-            allowedActions={allowedActions}
-            commissioner={commissioner}
-            slots={data.slots.map((s) => s.slot)}
-          />
-        }
+        help={<LineupHelp slots={data.slots.map((s) => s.slot)} />}
         onSaved={(next) => {
           setWarnings(next);
           setLockRace(null);

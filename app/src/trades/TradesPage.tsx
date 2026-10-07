@@ -1,3 +1,4 @@
+import { HelpBar, TradesHelp } from '../features/help/PageHelp';
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { Alert, Button, Card, CardBody, Input, Select, StatusBadge } from '@readysetcloud/ui';
@@ -348,6 +349,9 @@ export function TradesPage({
 
   return (
     <div data-testid="league-section-trades" className="space-y-6">
+      <HelpBar>
+        <TradesHelp />
+      </HelpBar>
       {notice && <Alert variant="success">{notice}</Alert>}
       <ApiErrorAlert error={error ?? setup.error ?? trades.error} />
 

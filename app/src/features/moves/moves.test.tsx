@@ -550,6 +550,9 @@ describe('the roster workspace on a phone', () => {
       getRoster: vi.fn(async () => roster(PLAYERS.slice(0, 4)))
     });
     expect(await screen.findByTestId('moves-summary')).toHaveTextContent('Rolling waivers');
+    expect(
+      within(screen.getByTestId('moves-summary')).getByRole('button', { name: 'How do adds and drops work?' })
+    ).toBeInTheDocument();
     const sheet = await screen.findByRole('list', { name: 'Available players' });
     await user.click(within(sheet).getByRole('button', { name: 'Claim Jaylen Wright' }));
     const dialog = await screen.findByTestId('add-sheet');
