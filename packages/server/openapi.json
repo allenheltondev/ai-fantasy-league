@@ -7999,7 +7999,7 @@
       "get": {
         "operationId": "list_chat_rooms",
         "summary": "List the chat rooms you can read, with unread counts",
-        "description": "Returns every chat room you can read, each with its `title`, `kind`, `lastMessageAt`, and `unreadCount` (messages since you last marked it read with mark_room_read, at most 100). Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week and of last week until it is official (`kind: matchup`); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat). Past weeks’ matchup rooms are archived (read-only): pass `pastWeek` to list that week’s. Read a room with get_chat and post with post_message, both with its `roomId`. Errors: FORBIDDEN if you are not in the league.",
+        "description": "Returns every chat room you can read, each with its `title`, `kind`, `lastMessageAt`, and `unreadCount` (messages since you last marked it read with mark_room_read, at most 100). Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week (`kind: matchup`; a week’s rooms are archived and leave this list once its games are over); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat, and not while you have it closed with close_dm). Past weeks’ matchup rooms are archived (read-only): `pastWeeks` names those weeks; pass one as `pastWeek` to list its rooms. Read a room with get_chat and post with post_message, both with its `roomId`. Errors: FORBIDDEN if you are not in the league.",
         "tags": [
           "chat"
         ],
@@ -8024,7 +8024,7 @@
               "minimum": 1,
               "maximum": 18
             },
-            "description": "Also list that past week’s matchup rooms (archived once the week is official)."
+            "description": "Also list that past week’s matchup rooms (archived once the week is over)."
           }
         ],
         "responses": {
@@ -8041,6 +8041,15 @@
                         "defaultRoomId": {
                           "type": "string",
                           "description": "The room to open first."
+                        },
+                        "pastWeeks": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "description": "Weeks whose matchup rooms are over and archived, newest first (the final week too once the season is complete): pass one as `pastWeek`."
                         },
                         "postingBudget": {
                           "anyOf": [
@@ -8099,7 +8108,7 @@
                               },
                               "archived": {
                                 "type": "boolean",
-                                "description": "Read-only: a matchup room whose week is official."
+                                "description": "Read-only: a matchup room whose week is over."
                               },
                               "week": {
                                 "anyOf": [
@@ -8151,6 +8160,7 @@
                       },
                       "required": [
                         "defaultRoomId",
+                        "pastWeeks",
                         "postingBudget",
                         "rooms"
                       ],
@@ -8280,6 +8290,210 @@
           }
         ],
         "x-mutation": false
+      }
+    },
+    "/api/v1/leagues/{leagueId}/chat/rooms/{roomId}/close": {
+      "post": {
+        "operationId": "close_dm",
+        "summary": "Close a direct message",
+        "description": "Takes one of your direct messages off your list_chat_rooms (and marks it read). Only for you: the other team still sees it. Nothing is deleted, and it comes back as soon as either team writes in it again. Errors: INVALID_INPUT for a room that is not a DM; FORBIDDEN if you are not in the league or the DM is between two other teams; ROOM_NOT_FOUND for a room this league does not have.\n\nMutation: requires an `Idempotency-Key` header and is recorded in the audit log.",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "leagueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "League id."
+          },
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            },
+            "description": "A room from list_chat_rooms: `league`, `trash-talk`, `draft`, `trades`, `waivers-news`, a matchup room `m-<season>-W<nn>-<matchupId>`, or a DM `dm-<teamA>-<teamB>` (the two team ids sorted)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "A unique value (e.g. a UUID) per distinct request. Reuse it only to retry the same request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "roomId": {
+                          "type": "string"
+                        },
+                        "closedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "roomId",
+                        "closedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "league": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "League id."
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "setup",
+                                "drafting",
+                                "regular_season",
+                                "playoffs",
+                                "complete"
+                              ],
+                              "description": "Where the league is in its season (setup → drafting → regular_season → playoffs → complete). Decides which actions are allowed right now."
+                            },
+                            "week": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Current NFL week, or null before the season."
+                            },
+                            "flags": {
+                              "type": "object",
+                              "properties": {
+                                "waiversOpen": {
+                                  "type": "boolean",
+                                  "description": "Waiver claims and free-agent adds are accepted."
+                                },
+                                "preLock": {
+                                  "type": "boolean",
+                                  "description": "Some of this week's games have not kicked off: those players can still change slots."
+                                },
+                                "tradeDeadlinePassed": {
+                                  "type": "boolean",
+                                  "description": "No more trades can process this season."
+                                }
+                              },
+                              "required": [
+                                "waiversOpen",
+                                "preLock",
+                                "tradeDeadlinePassed"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Sub-phase conditions within the phase."
+                            },
+                            "allowedActions": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "Operation names you may call in this league right now. Check it before acting."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "phase",
+                            "week",
+                            "flags",
+                            "allowedActions"
+                          ],
+                          "additionalProperties": false,
+                          "description": "League phase awareness, included whenever the request is about a league."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A non-fatal note about the result, such as a player on bye in your lineup."
+                      }
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "league",
+                    "warnings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-mutation": true,
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/leagues/{leagueId}/chat/rooms/{roomId}/context": {

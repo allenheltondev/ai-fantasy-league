@@ -63,6 +63,20 @@ export const CHAT_CASES: Record<string, Case[]> = {
     { label: 'rooms', path: ROOMS, status: 200 },
     { label: 'outsider', path: ROOMS, init: { token: outsider }, status: 403 }
   ],
+  close_dm: [
+    {
+      label: 'closed',
+      path: `${ROOMS}/dm-team-1-team-2/close`,
+      init: { body: {}, idempotencyKey: 'contract-chat-close-1' },
+      status: 200
+    },
+    {
+      label: 'not a DM',
+      path: `${ROOMS}/trash-talk/close`,
+      init: { body: {}, idempotencyKey: 'contract-chat-close-2' },
+      status: 400
+    }
+  ],
   mark_room_read: [
     {
       label: 'read',

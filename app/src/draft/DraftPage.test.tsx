@@ -127,6 +127,7 @@ function fakeChat() {
     post: vi.fn(async () => message),
     rooms: vi.fn(async () => ({ defaultRoomId: 'trash-talk', rooms: [] })),
     markRead,
+    closeDm: vi.fn(async () => undefined),
     realtime: vi.fn(async () => ({
       enabled: false,
       token: null,

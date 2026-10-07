@@ -4,13 +4,19 @@ import { DEFAULT_ROOM_ID, type ChatApi, type ChatRoom } from './api';
 export interface ChatRoomsState {
   rooms: ChatRoom[];
   defaultRoomId: string;
+  /** Weeks with archived matchup rooms, newest first; null when the server does not say. */
+  pastWeeks: number[] | null;
   loaded: boolean;
+  /** Counts the successful reads of the list: changes on every refresh, even when nothing else does. */
+  generation: number;
   /** Re-reads the room list (unread counts, new DMs). */
   refresh(): Promise<void>;
   /** A message arrived in another room: count it, or re-read the list when the room is new. */
   bump(roomId: string): void;
   /** Marks a room read, here at once and on the server. */
   markRead(roomId: string): void;
+  /** Closes a DM: off the list at once, and on the server (a failure brings it back). */
+  closeDm(roomId: string): void;
 }
 
 /**
@@ -20,7 +26,9 @@ export interface ChatRoomsState {
 export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number | null): ChatRoomsState {
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [defaultRoomId, setDefaultRoomId] = useState(DEFAULT_ROOM_ID);
+  const [pastWeeks, setPastWeeks] = useState<number[] | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [generation, setGeneration] = useState(0);
   const known = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
@@ -29,6 +37,8 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
       known.current = new Set(data.rooms.map((r) => r.roomId));
       setRooms(data.rooms);
       setDefaultRoomId(data.defaultRoomId);
+      setPastWeeks(data.pastWeeks ?? null);
+      setGeneration((g) => g + 1);
       setLoaded(true);
     } catch {
       // The next refresh (or live message) tries again; the chat itself still works.
@@ -66,5 +76,18 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
     [leagueId, api]
   );
 
-  return { rooms, defaultRoomId, loaded, refresh, bump, markRead };
+  const closeDm = useCallback(
+    (roomId: string) => {
+      setRooms((current) => current.filter((r) => r.roomId !== roomId));
+      // Unknown again, so its next message re-reads the list and brings it back.
+      known.current.delete(roomId);
+      api.closeDm(leagueId, roomId).then(
+        () => undefined,
+        () => void refresh()
+      );
+    },
+    [leagueId, api, refresh]
+  );
+
+  return { rooms, defaultRoomId, pastWeeks, loaded, generation, refresh, bump, markRead, closeDm };
 }

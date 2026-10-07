@@ -202,11 +202,11 @@ describe('system message routing', () => {
       )?.moment
     ).toBe(false);
     expect(renderMatchupRoomLine('Week Official Final', line, options)).toEqual({
-      text: 'Official: Alpha 101.46, Bravo 99. This room is now archived.',
+      text: 'Official: Alpha 101.46, Bravo 99.',
       moment: false
     });
     expect(renderMatchupRoomLine('Week Official Final', { homeTeamId: 'team-9' }, options)).toEqual({
-      text: 'This matchup is official. This room is now archived.',
+      text: 'This matchup is official.',
       moment: false
     });
     expect(renderMatchupRoomLine('Draft Completed', line, options)).toBeNull();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { apiFetch } from '../api';
 import { useYourTeamId } from '../routes/leagueContext';
@@ -76,7 +76,28 @@ function LeagueChat({
 
   const roomId = params.get('room') ?? rooms.defaultRoomId;
   const room = resolveRoom(roomId, rooms.rooms, picked, teams, yourTeamId);
-  const { bump, markRead } = rooms;
+  // A matchup room open when its week ends drops off the live list (as does one opened by a link
+  // to a past week): read it from its week's list, so it shows archived, not a stale live copy.
+  // One read at a time; a failed one is tried again on the next room list (every poll), and only a
+  // week's list that answers without the room (no such room) settles it for good.
+  const reading = useRef(new Set<string>());
+  const missing = useRef(new Set<string>());
+  const listed = rooms.rooms.some((r) => r.roomId === roomId);
+  const week = matchupRoomWeek(roomId);
+  useEffect(() => {
+    if (listed || !rooms.loaded || week === null) return;
+    if (reading.current.has(roomId) || missing.current.has(roomId)) return;
+    if (picked?.roomId === roomId && picked.archived) return;
+    reading.current.add(roomId);
+    const done = () => reading.current.delete(roomId);
+    api.rooms(leagueId, { pastWeek: week }).then((data) => {
+      done();
+      const found = data.rooms.find((r) => r.roomId === roomId);
+      if (found === undefined) missing.current.add(roomId);
+      else setPicked(found);
+    }, done);
+  }, [listed, rooms.loaded, rooms.generation, week, roomId, picked, api, leagueId]);
+  const { bump, markRead, closeDm } = rooms;
   const onOther = useCallback((message: ChatMessage) => bump(message.roomId ?? DEFAULT_ROOM_ID), [bump]);
   const onSeen = useCallback(() => markRead(roomId), [markRead, roomId]);
   const select = (next: string, found?: ChatRoom) => {
@@ -96,7 +117,13 @@ function LeagueChat({
         select(next, found);
         then?.();
       }}
+      onCloseDm={(closed) => {
+        closeDm(closed);
+        // Closing the open DM leaves it for the room people land in.
+        if (closed === roomId) setParams({ room: rooms.defaultRoomId });
+      }}
       loadPastWeek={async (week) => (await api.rooms(leagueId, { pastWeek: week })).rooms}
+      pastWeeks={rooms.pastWeeks}
     />
   );
 
@@ -126,6 +153,12 @@ function LeagueChat({
       </div>
     </section>
   );
+}
+
+/** The week of a matchup room id (`m-2026-W05-…`), or null for any other room. */
+export function matchupRoomWeek(roomId: string): number | null {
+  const match = /^m-\d{4}-W(\d{2})-/.exec(roomId);
+  return match === null ? null : Number(match[1]);
 }
 
 const FIXED_TITLES: Readonly<Record<string, string>> = {

@@ -88,6 +88,7 @@ function fakeApi(realtime: RealtimeInfo = OFF) {
     ]
   ]);
   let rooms = ROOMS.map((r) => ({ ...r }));
+  let pastWeeks: number[] | undefined;
   const api: ChatApi = {
     list: vi.fn(async (_league: string, options: { roomId?: string } = {}) => ({
       messages: [...(byRoom.get(options.roomId ?? 'trash-talk') ?? [])].reverse(),
@@ -102,6 +103,7 @@ function fakeApi(realtime: RealtimeInfo = OFF) {
     teams: vi.fn(async () => TEAMS),
     rooms: vi.fn(async (_league: string, options: { pastWeek?: number } = {}) => ({
       defaultRoomId: 'trash-talk',
+      ...(pastWeeks === undefined ? {} : { pastWeeks }),
       rooms:
         options.pastWeek === undefined
           ? rooms
@@ -118,12 +120,20 @@ function fakeApi(realtime: RealtimeInfo = OFF) {
     })),
     markRead: vi.fn(async (_league: string, roomId: string) => {
       rooms = rooms.map((r) => (r.roomId === roomId ? { ...r, unreadCount: 0 } : r));
+    }),
+    closeDm: vi.fn(async (_league: string, roomId: string) => {
+      rooms = rooms.filter((r) => r.roomId !== roomId);
     })
   };
   return {
     api,
     addRoom: (r: ChatRoom) => {
       rooms = [...rooms, r];
+    },
+    /** Week 5 ends: its matchup rooms leave the live list (`last`: and the season with it). */
+    endWeek: (last = false) => {
+      rooms = rooms.filter((r) => r.kind !== 'matchup');
+      pastWeeks = last ? [5, 4, 3, 2, 1] : [4, 3, 2, 1];
     }
   };
 }
@@ -133,7 +143,10 @@ function Where() {
   return <p data-testid="where">{location.search}</p>;
 }
 
-function renderChat(api: ChatApi, options: { connect?: Connect; path?: string } = {}) {
+function renderChat(
+  api: ChatApi,
+  options: { connect?: Connect; path?: string; roomsRefreshMs?: number | null } = {}
+) {
   return render(
     <MemoryRouter initialEntries={[options.path ?? '/leagues/L1/chat']}>
       <Routes>
@@ -145,7 +158,7 @@ function renderChat(api: ChatApi, options: { connect?: Connect; path?: string } 
                 api={api}
                 connect={options.connect ?? vi.fn()}
                 yourTeamId="team-1"
-                roomsRefreshMs={null}
+                roomsRefreshMs={options.roomsRefreshMs ?? null}
               />
               <Where />
             </>
@@ -161,7 +174,7 @@ const messages = () => screen.getByRole('list', { name: 'Chat messages' });
 const badge = (roomId: string) =>
   within(
     sidebar().getByRole('button', {
-      name: new RegExp(ROOMS.find((r) => r.roomId === roomId)?.title ?? roomId)
+      name: new RegExp(`^(# )?${ROOMS.find((r) => r.roomId === roomId)?.title ?? roomId}`)
     })
   ).queryByTestId('unread-badge');
 
@@ -294,6 +307,149 @@ describe('chat rooms', () => {
     expect(api.rooms).toHaveBeenCalledWith('L1', { pastWeek: 3 });
   });
 
+  it('still lists past weeks once the season is over and no matchup room is live', async () => {
+    const user = userEvent.setup();
+    const { api, endWeek } = fakeApi();
+    endWeek(true);
+    renderChat(api);
+    await within(messages()).findByText('welcome to trash talk');
+    await waitFor(() =>
+      expect(sidebar().getByRole('heading', { name: 'Direct messages' })).toBeInTheDocument()
+    );
+    expect(sidebar().queryByRole('heading', { name: "This week's matchups" })).not.toBeInTheDocument();
+    await user.click(sidebar().getByRole('button', { name: 'Past weeks' }));
+    expect(
+      sidebar()
+        .getAllByRole('button', { name: /^Wk \d$/ })
+        .map((b) => b.textContent)
+    ).toEqual(['Wk 5', 'Wk 4', 'Wk 3', 'Wk 2', 'Wk 1']);
+    await user.click(sidebar().getByRole('button', { name: 'Wk 5' }));
+    expect(
+      await sidebar().findByRole('button', { name: /Wk 5: Allen FC vs Rocket Men/ })
+    ).toBeInTheDocument();
+  });
+
+  it('archives the open matchup room when its week ends', async () => {
+    const user = userEvent.setup();
+    const { api, endWeek } = fakeApi();
+    renderChat(api, { roomsRefreshMs: 50 });
+    await within(messages()).findByText('welcome to trash talk');
+    await user.click(await sidebar().findByRole('button', { name: /Wk 5: Allen FC vs Robo Ballers/ }));
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
+    endWeek();
+    expect(await screen.findByText(/This room is archived/)).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(api.rooms).toHaveBeenCalledWith('L1', { pastWeek: 5 });
+    expect(screen.getByTestId('where')).toHaveTextContent('?room=m-2026-W05-W05-1');
+  });
+
+  it('tries again when reading the ended week’s rooms fails', async () => {
+    const user = userEvent.setup();
+    const { api, endWeek } = fakeApi();
+    const rooms = api.rooms as ReturnType<typeof vi.fn>;
+    const real = rooms.getMockImplementation() as ChatApi['rooms'];
+    let failed = 0;
+    rooms.mockImplementation(async (league: string, options: { pastWeek?: number } = {}) => {
+      if (options.pastWeek !== undefined && failed === 0) {
+        failed += 1;
+        throw new Error('offline');
+      }
+      return real(league, options);
+    });
+    renderChat(api, { roomsRefreshMs: 50 });
+    await within(messages()).findByText('welcome to trash talk');
+    await user.click(await sidebar().findByRole('button', { name: /Wk 5: Allen FC vs Robo Ballers/ }));
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
+    endWeek();
+    expect(await screen.findByText(/This room is archived/)).toBeInTheDocument();
+    expect(failed).toBe(1);
+    expect(rooms.mock.calls.filter(([, o]) => o?.pastWeek === 5).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('reads an ended week’s rooms once at a time, and once for good when the room is not there', async () => {
+    const { api, endWeek } = fakeApi();
+    const rooms = api.rooms as ReturnType<typeof vi.fn>;
+    const real = rooms.getMockImplementation() as ChatApi['rooms'];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    rooms.mockImplementation(async (league: string, options: { pastWeek?: number } = {}) => {
+      if (options.pastWeek !== undefined) await held;
+      return real(league, options);
+    });
+    const pastReads = (week: number) => rooms.mock.calls.filter(([, o]) => o?.pastWeek === week).length;
+    endWeek();
+    // Week 5 has no room 9: a link to it reads the week, finds nothing, and stops asking.
+    renderChat(api, { roomsRefreshMs: 20, path: '/leagues/L1/chat?room=m-2026-W05-W05-9' });
+    await waitFor(() => expect(pastReads(5)).toBe(1));
+    // The list keeps refreshing while that read is out: no second read meanwhile.
+    const listReads = () => rooms.mock.calls.filter(([, o]) => o?.pastWeek === undefined).length;
+    const before = listReads();
+    await waitFor(() => expect(listReads()).toBeGreaterThan(before + 2));
+    expect(pastReads(5)).toBe(1);
+    release();
+    const settled = listReads();
+    await waitFor(() => expect(listReads()).toBeGreaterThan(settled + 2));
+    expect(pastReads(5)).toBe(1);
+    // Still the stand-in: nothing to archive.
+    expect(screen.queryByText(/This room is archived/)).not.toBeInTheDocument();
+  });
+
+  it('closes a DM that is not open, and brings it back when closing fails', async () => {
+    const user = userEvent.setup();
+    const { api } = fakeApi();
+    (api.closeDm as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('offline'));
+    renderChat(api);
+    await within(messages()).findByText('welcome to trash talk');
+    await user.click(await sidebar().findByRole('button', { name: 'Close conversation with Rocket Men' }));
+    // Trash talk stays open; the failed close re-reads the list, which still has the DM.
+    expect(screen.getByTestId('where')).not.toHaveTextContent('room=trash-talk');
+    expect(await sidebar().findByRole('button', { name: /^Rocket Men/ })).toBeInTheDocument();
+    await user.click(sidebar().getByRole('button', { name: 'Close conversation with Rocket Men' }));
+    await waitFor(() =>
+      expect(sidebar().queryByRole('button', { name: /^Rocket Men/ })).not.toBeInTheDocument()
+    );
+    expect(api.closeDm).toHaveBeenCalledTimes(2);
+  });
+
+  it('closes a DM: off the list, back to trash talk, and back again on a new message', async () => {
+    const user = userEvent.setup();
+    const { api, addRoom } = fakeApi({
+      ...OFF,
+      enabled: true,
+      token: 't',
+      cacheName: 'c',
+      topics: { league: 'l', global: 'g', team: 'tm' }
+    });
+    let push: ((m: ChatMessage) => void) | null = null;
+    const connect: Connect = vi.fn(async (_target, handlers) => {
+      push = handlers.onChat;
+      return () => undefined;
+    });
+    renderChat(api, { connect, path: '/leagues/L1/chat?room=dm-team-1-team-3' });
+    expect(await screen.findByRole('heading', { name: 'Rocket Men', level: 2 })).toBeInTheDocument();
+    // Fixed and matchup rooms have no close button.
+    expect(sidebar().getAllByRole('button', { name: /^Close conversation/ })).toHaveLength(1);
+    await user.click(sidebar().getByRole('button', { name: 'Close conversation with Rocket Men' }));
+    expect(sidebar().queryByRole('button', { name: /^Rocket Men/ })).not.toBeInTheDocument();
+    expect(api.closeDm).toHaveBeenCalledWith('L1', 'dm-team-1-team-3');
+    expect(screen.getByTestId('where')).toHaveTextContent('?room=trash-talk');
+    expect(await within(messages()).findByText('welcome to trash talk')).toBeInTheDocument();
+    // Rae writes again: the server lists it again, and so does the sidebar.
+    addRoom(
+      room({
+        roomId: 'dm-team-1-team-3',
+        title: 'Rocket Men',
+        kind: 'dm',
+        teamIds: ['team-1', 'team-3'],
+        unreadCount: 1
+      })
+    );
+    act(() => push?.(msg('dm-team-1-team-3', { text: 'still want that kicker?' })));
+    expect(await sidebar().findByRole('button', { name: /^Rocket Men1/ })).toBeInTheDocument();
+  });
+
   it('switches rooms on a phone from the room sheet', async () => {
     const user = userEvent.setup();
     const { api } = fakeApi();
@@ -364,7 +520,7 @@ describe('chat rooms when things go wrong', () => {
     await within(messages()).findByText('welcome to trash talk');
     await user.click(screen.getByRole('button', { name: /Chat room: Trash Talk/ }));
     const sheet = await screen.findByRole('dialog');
-    await user.click(within(sheet).getByRole('button', { name: /close/i }));
+    await user.click(within(sheet).getByRole('button', { name: /^close(?! conversation)/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: /Chat room: Trash Talk/ })).toBeInTheDocument();
   });

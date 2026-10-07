@@ -230,6 +230,7 @@ describe('reading leagues', () => {
         flags: { waiversOpen: false, preLock: false, tradeDeadlinePassed: false },
         allowedActions: [
           'check_in_draft_lobby',
+          'close_dm',
           'leave_league',
           'mark_room_read',
           'post_message',
@@ -246,6 +247,7 @@ describe('reading leagues', () => {
       yourTeam: { id: 'team-2', ownerUserId: 'bob' },
       allowedActions: [
         'check_in_draft_lobby',
+        'close_dm',
         'leave_league',
         'mark_room_read',
         'post_message',
@@ -1255,7 +1257,9 @@ describe('membership changes', () => {
       });
     expect((await call('team-6', 'Circuit Breakers', 'agent-rename-1')).body).toMatchObject({
       data: { team: { name: 'Circuit Breakers' } },
-      league: { allowedActions: ['mark_room_read', 'post_message', 'rename_team', 'set_draft_queue'] }
+      league: {
+        allowedActions: ['close_dm', 'mark_room_read', 'post_message', 'rename_team', 'set_draft_queue']
+      }
     });
     expect((await call('team-7', 'Takeover', 'agent-rename-2')).body).toMatchObject({
       error: { code: 'FORBIDDEN' }

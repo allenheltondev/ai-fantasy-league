@@ -203,12 +203,13 @@ describe('postSystemMessage', () => {
       ['sys-evt-9-W05-2', 'm-2026-W05-W05-2', 'Final (provisional): Team 1 90, Team 2 89.'],
       ['sys-evt-9-W05-3', 'm-2026-W05-W05-3', 'Final (provisional): Team 1 100, Team 2 50.']
     ]);
-    // The league moment, then one moment for the closest game only, in its room.
+    // The league moment, then one moment for the closest game only, in the league room: the week
+    // is over, so its matchup rooms are archived.
     const moments = events.events.filter((e) => e.detailType === 'Chat Moment').map((e) => e.detail);
     expect(moments).toEqual([
       expect.objectContaining({ roomId: 'league', messageId: 'sys-evt-9' }),
       expect.objectContaining({
-        roomId: 'm-2026-W05-W05-2',
+        roomId: 'league',
         messageId: 'sys-evt-9-W05-2',
         teamIds: ['team-1', 'team-2'],
         moment: 'Final (provisional): Team 1 90, Team 2 89.'

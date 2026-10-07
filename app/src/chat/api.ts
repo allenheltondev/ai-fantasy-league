@@ -22,7 +22,7 @@ export interface ChatRoom {
   roomId: string;
   kind: RoomKind;
   title: string;
-  /** Read-only: a matchup room whose week is official. */
+  /** Read-only: a matchup room whose week is over. */
   archived: boolean;
   week: number | null;
   teamIds: string[];
@@ -32,6 +32,11 @@ export interface ChatRoom {
 
 export interface ChatRooms {
   defaultRoomId: string;
+  /**
+   * Weeks whose matchup rooms are over (archived), newest first, including the final week once the
+   * season is complete. Absent from older servers.
+   */
+  pastWeeks?: number[];
   rooms: ChatRoom[];
 }
 
@@ -95,6 +100,8 @@ export interface ChatApi {
   post(leagueId: string, text: string, roomId?: string): Promise<ChatMessage>;
   rooms(leagueId: string, options?: { pastWeek?: number }): Promise<ChatRooms>;
   markRead(leagueId: string, roomId: string): Promise<void>;
+  /** Takes a DM off your room list until someone writes in it again. */
+  closeDm(leagueId: string, roomId: string): Promise<void>;
   realtime(leagueId: string): Promise<RealtimeInfo>;
   teams(leagueId: string): Promise<ChatTeam[]>;
 }
@@ -124,6 +131,12 @@ export function createChatApi(apiFetch: ApiFetch): ChatApi {
     },
     async markRead(leagueId, roomId) {
       await apiFetch(`${league(leagueId)}/chat/rooms/${encodeURIComponent(roomId)}/read`, {
+        method: 'POST',
+        body: {}
+      });
+    },
+    async closeDm(leagueId, roomId) {
+      await apiFetch(`${league(leagueId)}/chat/rooms/${encodeURIComponent(roomId)}/close`, {
         method: 'POST',
         body: {}
       });

@@ -13,25 +13,35 @@ export function RoomList({
   teams,
   yourTeamId,
   onSelect,
-  loadPastWeek
+  onCloseDm,
+  loadPastWeek,
+  pastWeeks: listedPastWeeks = null
 }: {
   rooms: readonly ChatRoom[];
   currentRoomId: string;
   teams: readonly ChatTeam[];
   yourTeamId: string | null;
   onSelect(roomId: string, room?: ChatRoom): void;
+  /** Closes a DM (off your list until someone writes in it again). */
+  onCloseDm(roomId: string): void;
   /** That past week's matchup rooms (archived). */
   loadPastWeek(week: number): Promise<ChatRoom[]>;
+  /**
+   * The weeks with archived matchup rooms, from the server. Without it they are guessed from this
+   * week's live rooms, which a finished season no longer has.
+   */
+  pastWeeks?: readonly number[] | null;
 }) {
   const fixed = rooms.filter((r) => r.kind === 'fixed');
   const matchups = rooms.filter((r) => r.kind === 'matchup' && !r.archived);
   const dms = rooms.filter((r) => r.kind === 'dm');
   const currentWeek = Math.max(0, ...matchups.map((r) => r.week ?? 0));
   const liveWeeks = new Set(matchups.map((r) => r.week));
-  const pastWeeks = Array.from(
-    { length: Math.max(0, currentWeek - 1) },
-    (_, i) => currentWeek - 1 - i
-  ).filter((w) => !liveWeeks.has(w));
+  const pastWeeks =
+    listedPastWeeks ??
+    Array.from({ length: Math.max(0, currentWeek - 1) }, (_, i) => currentWeek - 1 - i).filter(
+      (w) => !liveWeeks.has(w)
+    );
   const row = (room: ChatRoom) => (
     <RoomRow key={room.roomId} room={room} current={room.roomId === currentRoomId} onSelect={onSelect} />
   );
@@ -40,7 +50,15 @@ export function RoomList({
       <Section title="Rooms">{fixed.map(row)}</Section>
       {matchups.length > 0 ? <Section title="This week's matchups">{matchups.map(row)}</Section> : null}
       <Section title="Direct messages">
-        {dms.map(row)}
+        {dms.map((room) => (
+          <RoomRow
+            key={room.roomId}
+            room={room}
+            current={room.roomId === currentRoomId}
+            onSelect={onSelect}
+            onClose={() => onCloseDm(room.roomId)}
+          />
+        ))}
         {yourTeamId === null ? null : (
           <li>
             <NewMessage
@@ -69,15 +87,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function RoomRow({
   room,
   current,
-  onSelect
+  onSelect,
+  onClose
 }: {
   room: ChatRoom;
   current: boolean;
   onSelect(roomId: string, room?: ChatRoom): void;
+  /** A DM's close button. */
+  onClose?(): void;
 }) {
   const unread = current ? 0 : room.unreadCount;
   return (
-    <li>
+    <li className="flex min-w-0 items-center gap-0.5">
       <button
         type="button"
         data-room={room.roomId}
@@ -93,6 +114,17 @@ function RoomRow({
         </span>
         {unread > 0 ? <UnreadBadge count={unread} /> : null}
       </button>
+      {onClose === undefined ? null : (
+        <button
+          type="button"
+          aria-label={`Close conversation with ${room.title}`}
+          title="Close conversation"
+          onClick={onClose}
+          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      )}
     </li>
   );
 }
