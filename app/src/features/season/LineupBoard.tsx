@@ -548,14 +548,15 @@ function LineupSummary(props: {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-3 sm:p-4">
       <div className="min-w-0">
-        <p className="-my-3 flex items-center text-sm text-muted-foreground">
+        {/* A div, not a p: the help panel inside holds headings and lists. */}
+        <div className="-my-3 flex items-center text-sm text-muted-foreground">
           <span>
             {/* My Team already says whose lineup this is (#212). */}
             Week {data.week}
             {data.carriedFromWeek !== null ? ` · carried over from week ${data.carriedFromWeek}` : ''}
           </span>
           {props.help}
-        </p>
+        </div>
         <p className="flex flex-wrap items-baseline gap-x-2" data-testid="lineup-projection">
           <span className="text-sm text-muted-foreground">Projected</span>
           <AnimatedNumber value={props.total} decimals={2} className="text-2xl font-semibold" />

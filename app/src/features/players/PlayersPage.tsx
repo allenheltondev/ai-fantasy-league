@@ -41,7 +41,8 @@ export function PlayersPage() {
 
   return (
     <div data-testid="league-section-players" className="space-y-4">
-      <p className="text-sm text-muted-foreground">
+      {/* A div, not a p: the help panels inside hold headings and lists. */}
+      <div className="text-sm text-muted-foreground">
         {faab !== null && (
           <>
             {context?.waiverType === 'rolling' ? 'Rolling waivers' : `$${faab} FAAB left`}
@@ -50,7 +51,7 @@ export function PlayersPage() {
           </>
         )}
         <PlayersHelp />
-      </p>
+      </div>
       <PlayerMarket
         leagueId={leagueId}
         title="All players"

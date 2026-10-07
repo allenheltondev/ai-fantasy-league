@@ -962,6 +962,8 @@ describe('lineup help for newer managers', () => {
     });
     const user = userEvent.setup();
     const button = await screen.findByRole('button', { name: 'How do lineups work?' });
+    // The panel holds headings and lists, which a paragraph cannot.
+    expect(button.closest('p')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Lineup help' })).toBeNull();
     await user.click(button);
     const help = screen.getByRole('region', { name: 'Lineup help' });

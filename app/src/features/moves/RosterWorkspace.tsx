@@ -163,7 +163,8 @@ function Workspace({ leagueId, teamId, state }: { leagueId: string; teamId: stri
 
   return (
     <>
-      <p className="min-h-5 text-sm text-muted-foreground" data-testid="moves-summary">
+      {/* A div, not a p: the help panels inside hold headings and lists. */}
+      <div className="min-h-5 text-sm text-muted-foreground" data-testid="moves-summary">
         {[
           known == null ? null : waiverType === 'faab' ? `$${faab as number} FAAB left` : 'Rolling waivers',
           allowed('claim_waiver') ? null : 'Adds and claims are closed right now.'
@@ -172,7 +173,7 @@ function Workspace({ leagueId, teamId, state }: { leagueId: string; teamId: stri
           .join(' · ')}
         {known != null && waiverType === 'faab' && <FaabExplainer remaining={faab} />}
         <MovesHelp waiverType={known == null ? null : waiverType} />
-      </p>
+      </div>
       <RosterNeeds
         needs={rosterNeeds(data)}
         onFind={openMarket}

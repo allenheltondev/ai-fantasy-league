@@ -162,6 +162,7 @@ describe('page help', () => {
 
 describe('page help on its page', () => {
   it.each([
+    ['team/moves', 'How do adds and drops work?'],
     ['team/matchup', 'How matchups work'],
     ['team/trades', 'How trades work'],
     ['league/players', 'How do I read this list?'],
@@ -169,6 +170,8 @@ describe('page help on its page', () => {
   ])('%s offers its help', async (page, button) => {
     signInAs({ sub: 'alice', email: 'alice@example.com', given_name: 'Alice' });
     renderApp(`/leagues/L1/${page}`);
-    expect(await screen.findByRole('button', { name: button })).toBeInTheDocument();
+    const help = await screen.findByRole('button', { name: button });
+    // The panel holds headings and lists, which a paragraph cannot.
+    expect(help.closest('p')).toBeNull();
   });
 });
