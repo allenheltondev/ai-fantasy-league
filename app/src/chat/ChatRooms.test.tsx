@@ -343,6 +343,29 @@ describe('chat rooms', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('?room=m-2026-W05-W05-1');
   });
 
+  it('tries again when reading the ended week’s rooms fails', async () => {
+    const user = userEvent.setup();
+    const { api, endWeek } = fakeApi();
+    const rooms = api.rooms as ReturnType<typeof vi.fn>;
+    const real = rooms.getMockImplementation() as ChatApi['rooms'];
+    let failed = 0;
+    rooms.mockImplementation(async (league: string, options: { pastWeek?: number } = {}) => {
+      if (options.pastWeek !== undefined && failed === 0) {
+        failed += 1;
+        throw new Error('offline');
+      }
+      return real(league, options);
+    });
+    renderChat(api, { roomsRefreshMs: 50 });
+    await within(messages()).findByText('welcome to trash talk');
+    await user.click(await sidebar().findByRole('button', { name: /Wk 5: Allen FC vs Robo Ballers/ }));
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
+    endWeek();
+    expect(await screen.findByText(/This room is archived/)).toBeInTheDocument();
+    expect(failed).toBe(1);
+    expect(rooms.mock.calls.filter(([, o]) => o?.pastWeek === 5).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('closes a DM: off the list, back to trash talk, and back again on a new message', async () => {
     const user = userEvent.setup();
     const { api, addRoom } = fakeApi({

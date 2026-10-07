@@ -78,22 +78,27 @@ function LeagueChat({
   const room = resolveRoom(roomId, rooms.rooms, picked, teams, yourTeamId);
   // A matchup room open when its week ends drops off the live list (as does one opened by a link
   // to a past week): read it from its week's list, so it shows archived, not a stale live copy.
-  const reconciled = useRef<string | null>(null);
+  // One read at a time; a failed one is tried again on the next room list (every poll), and only a
+  // week's list that answers without the room (no such room) settles it for good.
+  const reading = useRef<string | null>(null);
+  const missing = useRef<string | null>(null);
   const listed = rooms.rooms.some((r) => r.roomId === roomId);
   const week = matchupRoomWeek(roomId);
   useEffect(() => {
-    if (listed) reconciled.current = null;
-    if (listed || !rooms.loaded || week === null || reconciled.current === roomId) return;
+    if (listed || !rooms.loaded || week === null) return;
+    if (reading.current === roomId || missing.current === roomId) return;
     if (picked?.roomId === roomId && picked.archived) return;
-    reconciled.current = roomId;
-    api.rooms(leagueId, { pastWeek: week }).then(
-      (data) => {
-        const found = data.rooms.find((r) => r.roomId === roomId);
-        if (found !== undefined) setPicked(found);
-      },
-      () => undefined
-    );
-  }, [listed, rooms.loaded, week, roomId, picked, api, leagueId]);
+    reading.current = roomId;
+    const done = () => {
+      if (reading.current === roomId) reading.current = null;
+    };
+    api.rooms(leagueId, { pastWeek: week }).then((data) => {
+      done();
+      const found = data.rooms.find((r) => r.roomId === roomId);
+      if (found === undefined) missing.current = roomId;
+      else setPicked(found);
+    }, done);
+  }, [listed, rooms.loaded, rooms.generation, week, roomId, picked, api, leagueId]);
   const { bump, markRead, closeDm } = rooms;
   const onOther = useCallback((message: ChatMessage) => bump(message.roomId ?? DEFAULT_ROOM_ID), [bump]);
   const onSeen = useCallback(() => markRead(roomId), [markRead, roomId]);

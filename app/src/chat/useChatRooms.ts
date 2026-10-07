@@ -7,6 +7,8 @@ export interface ChatRoomsState {
   /** Weeks with archived matchup rooms, newest first; null when the server does not say. */
   pastWeeks: number[] | null;
   loaded: boolean;
+  /** Counts the successful reads of the list: changes on every refresh, even when nothing else does. */
+  generation: number;
   /** Re-reads the room list (unread counts, new DMs). */
   refresh(): Promise<void>;
   /** A message arrived in another room: count it, or re-read the list when the room is new. */
@@ -26,6 +28,7 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
   const [defaultRoomId, setDefaultRoomId] = useState(DEFAULT_ROOM_ID);
   const [pastWeeks, setPastWeeks] = useState<number[] | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [generation, setGeneration] = useState(0);
   const known = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
@@ -35,6 +38,7 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
       setRooms(data.rooms);
       setDefaultRoomId(data.defaultRoomId);
       setPastWeeks(data.pastWeeks ?? null);
+      setGeneration((g) => g + 1);
       setLoaded(true);
     } catch {
       // The next refresh (or live message) tries again; the chat itself still works.
@@ -85,5 +89,5 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
     [leagueId, api, refresh]
   );
 
-  return { rooms, defaultRoomId, pastWeeks, loaded, refresh, bump, markRead, closeDm };
+  return { rooms, defaultRoomId, pastWeeks, loaded, generation, refresh, bump, markRead, closeDm };
 }
