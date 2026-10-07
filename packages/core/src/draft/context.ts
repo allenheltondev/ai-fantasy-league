@@ -1,6 +1,13 @@
 import { normalizePlayerStatus, WILL_NOT_PLAY_STATUSES, type Position } from '../rules/positions.js';
 import type { ScheduleSettings } from '../rules/settings.js';
-import { autopick, type DraftablePlayer, type PlayerRankings, type RosterNeeds } from './autopick.js';
+import {
+  autopick,
+  rankOf,
+  type AutopickChoice,
+  type DraftablePlayer,
+  type PlayerRankings,
+  type RosterNeeds
+} from './autopick.js';
 import {
   currentPick,
   pickSlot,
@@ -52,27 +59,85 @@ export function recentPositionRun(
 }
 
 /**
- * Players the other teams will likely take before `teamId` picks again, in the order they go.
- * Each team in between takes what core autopick would take for it by consensus rank: the best player
- * for an empty starting slot, else the best player. The pick on the clock (`teamId`'s) is skipped,
- * so nobody is assumed gone to it. Deterministic, and a hint only: real drafters reach.
+ * How a person has drafted so far, read from their own picks (#151): the position they keep
+ * taking (`lean`), and how many picks ahead of consensus rank they typically take a player
+ * (`reach`). Built from the public draft history only. A team's draft queue is private to it, and
+ * the estimate is shown to other teams, so it never reads a queue: any queue-driven prediction
+ * would show other teams who is queued.
  */
-export function likelyTakenBeforeNextTurn(
+export interface DraftTendency {
+  lean: Position;
+  /** Picks ahead of consensus rank, averaged over the team's own picks (0 = drafts by consensus). */
+  reach: number;
+}
+
+/** A team shows a tendency only after making this many picks itself (not autopicked). */
+export const TENDENCY_MIN_PICKS = 3;
+/** The furthest the model expects a team to reach, in picks. */
+export const MAX_TENDENCY_REACH = 24;
+
+/**
+ * `teamId`'s drafting tendency, or null when its history says nothing yet: fewer than
+ * `TENDENCY_MIN_PICKS` picks it made itself (autopicks follow consensus, not the person), or no
+ * position taken at least twice and more often than any other.
+ */
+export function draftTendency(
+  picks: readonly Pick<DraftPick, 'teamId' | 'positions' | 'auto' | 'overall' | 'adp'>[],
+  teamId: string
+): DraftTendency | null {
+  const own = picks.filter((p) => p.teamId === teamId && !p.auto);
+  if (own.length < TENDENCY_MIN_PICKS) return null;
+  const [first, second] = recentPositionRun(own, own.length);
+  if (first === undefined || first.count < 2 || first.count === second?.count) return null;
+  const reaches = own.flatMap((p) =>
+    p.adp === null || p.adp === undefined ? [] : [Math.max(0, p.adp - p.overall)]
+  );
+  const mean = reaches.length === 0 ? 0 : reaches.reduce((sum, r) => sum + r, 0) / reaches.length;
+  return { lean: first.position, reach: Math.min(MAX_TENDENCY_REACH, Math.round(mean)) };
+}
+
+/** Draft tendencies by team id: the teams the estimate models as people (`draftTendency`). */
+export type DraftTendencies = Readonly<Record<string, DraftTendency | null | undefined>>;
+
+/**
+ * Who the team on the clock likely takes: core autopick by consensus rank, except that a team with a
+ * tendency takes the best player at its lean position within its reach of autopick's choice, when
+ * that player still fits its roster (the same checks as a queued pick).
+ */
+function predictedPick(
   draft: DraftState,
-  teamId: string,
   available: readonly DraftablePlayer[],
   rankings: PlayerRankings,
-  needs: RosterNeeds
+  needs: RosterNeeds,
+  tendency: DraftTendency | null | undefined
+): AutopickChoice | null {
+  const base = autopick(draft, available, rankings, needs);
+  if (base === null || tendency === null || tendency === undefined) return base;
+  const rank = rankOf(rankings);
+  const within = rank(base.playerId) + tendency.reach;
+  const leaning = available
+    .filter((p) => p.positions[0] === tendency.lean && rank(p.playerId) <= within)
+    .sort((a, b) => rank(a.playerId) - rank(b.playerId) || a.playerId.localeCompare(b.playerId))
+    .map((p) => p.playerId);
+  return autopick(draft, available, rankings, needs, leaning);
+}
+
+/** Plays out the next `count` picks from `draft` with `predictedPick`, stopping when nobody fits. */
+function playOut(
+  draft: DraftState,
+  count: number,
+  available: readonly DraftablePlayer[],
+  rankings: PlayerRankings,
+  needs: RosterNeeds,
+  tendencies: DraftTendencies
 ): string[] {
-  const between = picksBeforeNextTurn(draft, teamId);
-  const clock = currentPick(draft);
-  if (between === null || clock === null) return [];
-  let state: DraftState = { ...draft, picks: [...draft.picks, placeholder(clock, teamId)] };
+  let state = draft;
   const taken: string[] = [];
-  for (let i = 0; i < between; i++) {
+  for (let i = 0; i < count; i++) {
     const slot = currentPick(state);
-    const choice = autopick(state, available, rankings, needs);
-    if (slot === null || choice === null) break;
+    if (slot === null) break;
+    const choice = predictedPick(state, available, rankings, needs, tendencies[slot.teamId]);
+    if (choice === null) break;
     taken.push(choice.playerId);
     state = {
       ...state,
@@ -86,38 +151,49 @@ export function likelyTakenBeforeNextTurn(
 }
 
 /**
+ * Players the other teams will likely take before `teamId` picks again, in the order they go.
+ * Each team in between takes what core autopick would take for it by consensus rank: the best player
+ * for an empty starting slot, else the best player. A team in `tendencies` (the people, #151) leans
+ * toward the position its own picks favour, as far ahead of consensus as it has been reaching. The
+ * pick on the clock (`teamId`'s) is skipped, so nobody is assumed gone to it. Deterministic, and a
+ * hint only: real drafters reach.
+ */
+export function likelyTakenBeforeNextTurn(
+  draft: DraftState,
+  teamId: string,
+  available: readonly DraftablePlayer[],
+  rankings: PlayerRankings,
+  needs: RosterNeeds,
+  tendencies: DraftTendencies = {}
+): string[] {
+  const between = picksBeforeNextTurn(draft, teamId);
+  const clock = currentPick(draft);
+  if (between === null || clock === null) return [];
+  const state: DraftState = { ...draft, picks: [...draft.picks, placeholder(clock, teamId)] };
+  return playOut(state, between, available, rankings, needs, tendencies);
+}
+
+/**
  * Players the other teams will likely take before `teamId` next picks, seen from anyone's seat: when
  * `teamId` is on the clock, those gone before its following pick (`likelyTakenBeforeNextTurn`);
- * otherwise, those gone before its upcoming pick. Same consensus-rank model, same caveat: a hint.
+ * otherwise, those gone before its upcoming pick. Same model, same caveat: a hint.
  */
 export function likelyGoneBeforeYourPick(
   draft: DraftState,
   teamId: string,
   available: readonly DraftablePlayer[],
   rankings: PlayerRankings,
-  needs: RosterNeeds
+  needs: RosterNeeds,
+  tendencies: DraftTendencies = {}
 ): string[] {
   const clock = currentPick(draft);
   if (clock === null) return [];
-  if (clock.teamId === teamId) return likelyTakenBeforeNextTurn(draft, teamId, available, rankings, needs);
+  if (clock.teamId === teamId) {
+    return likelyTakenBeforeNextTurn(draft, teamId, available, rankings, needs, tendencies);
+  }
   const away = picksUntilTurn(draft, teamId);
   if (away === null) return [];
-  let state = draft;
-  const taken: string[] = [];
-  for (let i = 0; i < away; i++) {
-    const slot = currentPick(state) as NonNullable<ReturnType<typeof currentPick>>;
-    const choice = autopick(state, available, rankings, needs);
-    if (choice === null) break;
-    taken.push(choice.playerId);
-    state = {
-      ...state,
-      picks: [
-        ...state.picks,
-        { ...slot, playerId: choice.playerId, positions: choice.positions, madeAt: null, auto: true }
-      ]
-    };
-  }
-  return taken;
+  return playOut(draft, away, available, rankings, needs, tendencies);
 }
 
 /** How deep a position still runs: among the best available players, how many play it. */

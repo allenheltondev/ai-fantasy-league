@@ -92,4 +92,15 @@ describe('draft room aids', () => {
     expect(filled).toEqual([{ slot: 'WR', player: expect.objectContaining({ id: 'fx-chase' }) }]);
     expect(b.likelyGone.some((p) => p.id === 'fx-chase')).toBe(false);
   });
+
+  it("never reads another team's private queue into your estimate (#151)", async () => {
+    // Bob is on the clock and next to pick; his queue's top player is deep in the pool.
+    const before = await board(alice);
+    const deep = data<Board>(await bob.get(`/leagues/${L}/draft?limit=100`)).bestAvailable.at(-1)?.player.id;
+    expect(deep).toBeDefined();
+    expect(before.likelyGone.some((p) => p.id === deep)).toBe(false);
+    const queued = await bob.put(`/leagues/${L}/draft/queue`, { playerIds: [deep] });
+    expect(queued.status, JSON.stringify(queued.body)).toBe(200);
+    expect((await board(alice)).likelyGone).toEqual(before.likelyGone);
+  });
 });

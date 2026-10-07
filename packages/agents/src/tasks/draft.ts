@@ -3,6 +3,7 @@ import {
   byeClash,
   byeRemains,
   draftRiskMultiplier,
+  draftTendency,
   isStarterSlot,
   likelyTakenBeforeNextTurn,
   picksBeforeNextTurn,
@@ -19,6 +20,7 @@ import {
   type DraftablePlayer,
   type DraftRiskPlayer,
   type DraftState,
+  type DraftTendencies,
   type LeagueSettings,
   type Position,
   type PositionCount,
@@ -58,7 +60,7 @@ const BoardSchema = z.object({
   status: z.string(),
   rounds: z.number().int(),
   pickSeconds: z.number().int(),
-  order: z.array(z.object({ teamId: z.string() })),
+  order: z.array(z.object({ teamId: z.string(), seatType: z.string().optional() })),
   onTheClock: z
     .object({
       overall: z.number().int(),
@@ -76,6 +78,7 @@ const BoardSchema = z.object({
       teamId: z.string(),
       player: PlayerSchema,
       auto: z.boolean(),
+      adp: z.number().nullable().optional(),
       bye: ByeSchema
     })
   ),
@@ -179,7 +182,8 @@ function draftState(board: Board): DraftState {
       playerId: p.player.id,
       positions: [p.player.position],
       madeAt: null,
-      auto: p.auto
+      auto: p.auto,
+      adp: p.adp ?? null
     }))
   };
 }
@@ -345,9 +349,17 @@ export const draftTask = defineTaskKind<DraftPayload, DraftDecision, DraftPrep>(
       ranked.map((c) => c.player.id),
       ctx.league.settings
     );
-    // Other teams pick by consensus rank, not by this agent's strategy.
+    // Other teams pick by consensus rank, not by this agent's strategy; people lean the way their
+    // picks so far do (the board's model).
     const consensus = Object.fromEntries(ranked.map((c) => [c.player.id, c.rank ?? UNRANKED]));
-    const gone = new Set(likelyTakenBeforeNextTurn(state, teamId, draftable, consensus, ctx.league.settings));
+    const tendencies: DraftTendencies = Object.fromEntries(
+      board.order
+        .filter((o) => o.seatType === 'human')
+        .map((o) => [o.teamId, draftTendency(state.picks, o.teamId)])
+    );
+    const gone = new Set(
+      likelyTakenBeforeNextTurn(state, teamId, draftable, consensus, ctx.league.settings, tendencies)
+    );
     const name = (id: string) => ranked.find((c) => c.player.id === id)?.player.name ?? id;
     return {
       overall: clock.overall,
