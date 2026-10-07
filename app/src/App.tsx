@@ -16,7 +16,7 @@ import { MatchupPage } from './features/season/MatchupPage';
 import { RosterPage } from './features/season/RosterPage';
 import { StandingsPage } from './features/season/StandingsPage';
 import { SettingsPage } from './features/settings/SettingsPage';
-import { AchievementsPage, OtherTeamsPage, TeamProfilePage, TeamViewPage } from './features/team/TeamPages';
+import { TeamViewPage } from './features/team/TeamPages';
 import { AppLayout } from './layout/AppLayout';
 import { MOVED_SECTIONS } from './routes/leagueRoutes';
 import {
@@ -34,8 +34,8 @@ import { TradesPage } from './trades/TradesPage';
  * The route table. The router itself is supplied by the caller (main.tsx, tests), and tests can
  * swap in a fake league API.
  *
- * A league (#178): Home, Draft, My Team (lineup, matchup, moves, trades, achievements, your
- * profile, and the other teams), League (scoreboard, standings, playoffs, transactions, and
+ * A league (#178): Home, Draft, My Team (your lineup, name, avatar, and achievements, with every
+ * other team a pick away; matchup, moves, and trades), League (scoreboard, standings, playoffs, transactions, and
  * players, each its own side-nav item), Chat, and Settings or League info (which also holds the
  * league's history and the draft's results). Older section URLs redirect to their new homes.
  */
@@ -69,9 +69,10 @@ export function App({ api = leagueApi }: { api?: LeagueApi }) {
                 <Route path="matchup" element={<MatchupPage />} />
                 <Route path="moves" element={<RosterWorkspace />} />
                 <Route path="trades" element={<TradesPage />} />
-                <Route path="achievements" element={<AchievementsPage />} />
-                <Route path="profile" element={<TeamProfilePage />} />
-                <Route path="teams" element={<OtherTeamsPage />} />
+                {/* Your profile, achievements, and the teams list now live on My Team itself. */}
+                <Route path="achievements" element={<RedirectTo to="../lineup" />} />
+                <Route path="profile" element={<RedirectTo to="../lineup" />} />
+                <Route path="teams" element={<RedirectTo to="../lineup" />} />
                 <Route path="teams/:teamId" element={<TeamViewPage />} />
               </Route>
               <Route path="league">

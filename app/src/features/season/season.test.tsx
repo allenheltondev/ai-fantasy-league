@@ -166,8 +166,8 @@ describe('My Team › Achievements', () => {
     reason: `${name} reason`
   });
 
-  it("shows the team's own badges", async () => {
-    open('/leagues/L1/team/achievements', {
+  it("shows the team's own badges on My Team", async () => {
+    open('/leagues/L1/team/lineup', {
       getRoster: vi.fn(async () => roster([entry('qb1', 'QB', 'QB')])),
       getLeagueHistory: vi.fn(async () => ({
         ...(await fakeApi().getLeagueHistory('L1')),
@@ -185,10 +185,10 @@ describe('My Team › Achievements', () => {
     expect(within(badges).getAllByRole('listitem')[0]).toHaveAttribute('title', 'Blowout reason');
   });
 
-  it('says so before the team earns one', async () => {
-    const api = open('/leagues/L1/team/achievements', {});
-    expect(await screen.findByText('No achievements yet')).toBeInTheDocument();
-    expect(api.getLeagueHistory).toHaveBeenCalled();
+  it('shows nothing before the team earns one', async () => {
+    const api = open('/leagues/L1/team/lineup', {});
+    await waitFor(() => expect(api.getLeagueHistory).toHaveBeenCalled());
+    expect(await screen.findByTestId('team-header')).toBeInTheDocument();
     expect(screen.queryByTestId('team-achievements')).not.toBeInTheDocument();
   });
 });

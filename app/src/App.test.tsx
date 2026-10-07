@@ -82,18 +82,17 @@ describe('signed in', () => {
     expect(link('Draft')).toHaveAttribute('href', '/leagues/L1/draft');
     // One item per job; the pages under it are tabs on the page.
     for (const [name, page] of [
-      ['Lineup', 'team/lineup'],
+      ['My Team', 'team/lineup'],
       ['Matchup', 'team/matchup'],
       ['Moves', 'team/moves'],
       ['Standings', 'league/standings'],
       ['Players', 'league/players'],
       ['Chat', 'chat'],
-      ['Teams', 'team/profile'],
       ['Settings', 'settings']
     ] as const) {
       expect(link(name)).toHaveAttribute('href', `/leagues/L1/${page}`);
     }
-    for (const name of ['Scoreboard', 'Playoffs', 'Transactions', 'Trades', 'Achievements', 'Other teams']) {
+    for (const name of ['Scoreboard', 'Playoffs', 'Transactions', 'Trades', 'Teams']) {
       expect(within(nav).queryByRole('link', { name })).not.toBeInTheDocument();
     }
     // The league's items sit under its name: there is no league switcher over the page.

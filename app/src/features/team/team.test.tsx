@@ -6,7 +6,7 @@ import type { DashboardMatchup, Roster, RosterEntry } from '../../api/types';
 import { dashboard, fakeApi, league, state, team } from '../../test/fakeApi';
 import { renderApp, signInAs } from '../../test/render';
 
-/** My Team (#178): your team's profile and moves, and the other teams, read-only. */
+/** My Team (#178): the hub for your team (its profile and moves), and any other team, read-only. */
 
 const ALICE = { sub: 'alice', email: 'alice@example.com', given_name: 'Alice' };
 
@@ -106,10 +106,17 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('My Team › Team profile', () => {
+/** My Team, with its "Edit team" form open. */
+async function openEditor(overrides: Partial<LeagueApi> = {}) {
+  const api = open('/leagues/L1/team/lineup', overrides);
+  await userEvent.setup().click(await screen.findByRole('button', { name: 'Edit team' }));
+  return api;
+}
+
+describe('My Team › Edit team', () => {
   it('renames the team and rolls a new avatar, then saves both with rename_team', async () => {
     const user = userEvent.setup();
-    const api = open('/leagues/L1/team/profile');
+    const api = await openEditor();
     const name = await screen.findByLabelText('Team name');
     expect(name).toHaveValue("Alice's Team");
     const save = screen.getByRole('button', { name: 'Save profile' });
@@ -119,6 +126,7 @@ describe('My Team › Team profile', () => {
     await user.type(name, 'Gridiron Gang');
     await user.click(screen.getByRole('button', { name: 'New avatar' }));
     expect(screen.getByRole('img', { name: 'Gridiron Gang avatar' })).toBeInTheDocument();
+    const reads = vi.mocked(api.getLeagueState).mock.calls.length;
     await user.click(save);
 
     await waitFor(() => expect(api.setTeamProfile).toHaveBeenCalledOnce());
@@ -126,13 +134,14 @@ describe('My Team › Team profile', () => {
     expect([leagueId, teamId, profile.name]).toEqual(['L1', 'team-1', 'Gridiron Gang']);
     expect(profile.avatarSeed).toMatch(/^[a-z0-9]{10}$/);
     expect(await screen.findByText('Team profile saved.')).toBeInTheDocument();
-    // The shell reads the league again, so the new name and avatar show everywhere.
-    await waitFor(() => expect(api.getLeagueState).toHaveBeenCalledTimes(2));
+    // The shell reads the league again, so the new name and avatar show everywhere; the form closes.
+    await waitFor(() => expect(api.getLeagueState).toHaveBeenCalledTimes(reads + 1));
+    expect(screen.queryByLabelText('Team name')).not.toBeInTheDocument();
   });
 
   it('says what the team was called before its last rename (#194)', async () => {
     const renamed = { ...TEAMS[0]!, name: 'Gridiron Gang', renamedFrom: "Alice's Team" };
-    open('/leagues/L1/team/profile', {
+    await openEditor({
       getLeagueState: vi.fn(async () => ({
         ...inSeason(),
         teams: [renamed, ...TEAMS.slice(1)],
@@ -142,11 +151,14 @@ describe('My Team › Team profile', () => {
     expect(await screen.findByTestId('renamed-from')).toHaveTextContent("Renamed from Alice's Team");
   });
 
-  it('sends only what changed, and can undo', async () => {
+  it('sends only what changed, and can cancel', async () => {
     const user = userEvent.setup();
-    const api = open('/leagues/L1/team/profile');
+    const api = await openEditor();
     await user.click(await screen.findByRole('button', { name: 'New avatar' }));
-    await user.click(screen.getByRole('button', { name: 'Undo changes' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('button', { name: 'Save profile' })).not.toBeInTheDocument();
+    // Opened again, it starts from the saved team.
+    await user.click(screen.getByRole('button', { name: 'Edit team' }));
     expect(screen.getByRole('button', { name: 'Save profile' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'New avatar' }));
     await user.click(screen.getByRole('button', { name: 'Save profile' }));
@@ -156,7 +168,7 @@ describe('My Team › Team profile', () => {
 
   it('shows why a save failed', async () => {
     const user = userEvent.setup();
-    open('/leagues/L1/team/profile', {
+    await openEditor({
       setTeamProfile: vi.fn(async () => {
         throw new Error('Another team is already named "Robots".');
       })
@@ -165,21 +177,92 @@ describe('My Team › Team profile', () => {
     await user.clear(name);
     await user.type(name, 'Robots');
     await user.click(screen.getByRole('button', { name: 'Save profile' }));
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(await within(screen.getByTestId('team-profile')).findByRole('alert')).toBeInTheDocument();
   });
 
-  it('is read-only once the league cannot change, and says so without a team', async () => {
-    open('/leagues/L1/team/profile', { getLeagueState: vi.fn(async () => inSeason([])) });
+  it('is read-only once the league cannot change', async () => {
+    await openEditor({ getLeagueState: vi.fn(async () => inSeason([])) });
     expect(await screen.findByLabelText('Team name')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'New avatar' })).toBeDisabled();
     expect(screen.getByText(/can no longer change/)).toBeInTheDocument();
   });
 
   it('has nothing to edit without a team', async () => {
-    open('/leagues/L1/team/profile', {
+    open('/leagues/L1/team/lineup', {
       getLeagueState: vi.fn(async () => state({ yourTeam: null, teams: TEAMS }))
     });
     expect(await screen.findByText('No team')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit team' })).not.toBeInTheDocument();
+  });
+
+  it('heads your lineup with the team, its record, and where its other moves happen', async () => {
+    open('/leagues/L1/team/lineup', {
+      getStandings: vi.fn(async () => ({
+        throughWeek: 2,
+        standings: [
+          {
+            rank: 1,
+            teamId: 'team-1',
+            teamName: "Alice's Team",
+            record: '2-0',
+            pointsFor: 1,
+            pointsAgainst: 1,
+            streak: null
+          }
+        ]
+      }))
+    });
+    const header = await screen.findByTestId('team-header');
+    expect(within(header).getByRole('heading', { level: 2, name: "Alice's Team" })).toBeInTheDocument();
+    expect(await within(header).findByText('Alice · 2-0')).toBeInTheDocument();
+    expect(within(header).getByRole('link', { name: 'Add & drop players' })).toHaveAttribute(
+      'href',
+      '/leagues/L1/team/moves'
+    );
+    expect(within(header).getByRole('link', { name: 'Trades' })).toHaveAttribute(
+      'href',
+      '/leagues/L1/team/trades'
+    );
+    expect(within(header).queryByRole('link', { name: 'Propose trade' })).not.toBeInTheDocument();
+  });
+});
+
+describe('My Team › the team picker', () => {
+  it('lists your team first, then opens any other team and comes back', async () => {
+    const user = userEvent.setup();
+    open('/leagues/L1/team/lineup', { getRoster: vi.fn(async () => bobRoster) });
+    const picker = await screen.findByLabelText('View team');
+    expect(picker).toHaveValue('team-1');
+    expect(
+      within(picker)
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+    ).toEqual(["Alice's Team (you)", "Bob's Team", 'Robots']);
+    await user.selectOptions(picker, 'team-2');
+    expect(await screen.findByTestId('team-view')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: "Bob's Team" })).toBeInTheDocument();
+    expect(screen.getByLabelText('View team')).toHaveValue('team-2');
+    await user.selectOptions(screen.getByLabelText('View team'), 'team-1');
+    expect(await screen.findByRole('button', { name: 'Edit team' })).toBeInTheDocument();
+  });
+
+  it('has no picker while you are the only team', async () => {
+    open('/leagues/L1/team/lineup', {
+      getLeagueState: vi.fn(async () => ({ ...inSeason(), teams: [TEAMS[0]!] }))
+    });
+    expect(await screen.findByRole('button', { name: 'Edit team' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('View team')).not.toBeInTheDocument();
+  });
+
+  it.each(['profile', 'achievements', 'teams'])('sends the old team/%s page to My Team', async (page) => {
+    open(`/leagues/L1/team/${page}`);
+    expect(await screen.findByRole('button', { name: 'Edit team' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'My Team' })).toBeInTheDocument();
+  });
+
+  it('opens your own team as My Team', async () => {
+    open('/leagues/L1/team/teams/team-1');
+    expect(await screen.findByRole('button', { name: 'Edit team' })).toBeInTheDocument();
   });
 });
 
@@ -195,53 +278,6 @@ describe('My Team › Roster & moves', () => {
     ).toBeInTheDocument();
     expect(within(moves).queryByText(/Zach Charbonnet/)).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'Roster & moves' })).toBeInTheDocument();
-  });
-});
-
-describe('My Team › Achievements', () => {
-  it('waits for the league before showing your team', async () => {
-    open('/leagues/L1/team/achievements', {
-      getLeagueState: vi.fn(() => new Promise<never>(() => undefined))
-    });
-    expect(await screen.findByText('Loading your team…')).toBeInTheDocument();
-  });
-});
-
-describe('My Team › Other teams', () => {
-  it('lists every other team with its picture, manager and record', async () => {
-    open('/leagues/L1/team/teams', {
-      getStandings: vi.fn(async () => ({
-        throughWeek: 2,
-        standings: [
-          {
-            rank: 1,
-            teamId: 'team-3',
-            teamName: 'Robots',
-            record: '2-0',
-            pointsFor: 1,
-            pointsAgainst: 1,
-            streak: null
-          }
-        ]
-      }))
-    });
-    const list = await screen.findByRole('list', { name: 'Teams' });
-    const links = within(list).getAllByRole('link');
-    expect(links.map((l) => l.getAttribute('href'))).toEqual([
-      '/leagues/L1/team/teams/team-2',
-      '/leagues/L1/team/teams/team-3'
-    ]);
-    expect(within(links[0]!).getByRole('img', { name: "Bob's Team avatar" })).toBeInTheDocument();
-    expect(links[1]).toHaveTextContent('Mei Park');
-    expect(await within(links[1]!).findByText('2-0')).toBeInTheDocument();
-    expect(within(list).queryByText("Alice's Team")).not.toBeInTheDocument();
-  });
-
-  it('says when the league has no one else yet', async () => {
-    open('/leagues/L1/team/teams', {
-      getLeagueState: vi.fn(async () => ({ ...inSeason(), teams: [TEAMS[0]!] }))
-    });
-    expect(await screen.findByText('No other teams')).toBeInTheDocument();
   });
 });
 
@@ -493,22 +529,23 @@ describe('more of the shell', () => {
 
   it('keeps the profile form honest: no blank names, and a picked avatar before any change', async () => {
     const user = userEvent.setup();
-    open('/leagues/L1/team/profile', {
+    await openEditor({
       getLeagueState: vi.fn(async () => ({
         ...inSeason(),
         teams: [{ ...TEAMS[0]!, avatarSeed: 'picked' }, ...TEAMS.slice(1)]
       }))
     });
-    expect(await screen.findByRole('img', { name: "Alice's Team avatar" })).toBeInTheDocument();
+    const form = await screen.findByTestId('team-profile');
+    expect(within(form).getByRole('img', { name: "Alice's Team avatar" })).toBeInTheDocument();
     const name = screen.getByLabelText('Team name');
     await user.clear(name);
     expect(screen.getByRole('button', { name: 'Save profile' })).toBeDisabled();
-    expect(screen.getByRole('img', { name: "Alice's Team avatar" })).toBeInTheDocument();
+    expect(within(form).getByRole('img', { name: "Alice's Team avatar" })).toBeInTheDocument();
   });
 
-  it('shows a loading league on Other teams and on a team page', async () => {
+  it('shows a loading league on another team', async () => {
     const pending = () => new Promise<never>(() => undefined);
-    open('/leagues/L1/team/teams', { getLeagueState: vi.fn(pending) });
-    expect(await screen.findByText("Loading the league's teams…")).toBeInTheDocument();
+    open('/leagues/L1/team/teams/team-2', { getLeagueState: vi.fn(pending) });
+    expect(await screen.findByText('Loading the team…')).toBeInTheDocument();
   });
 });

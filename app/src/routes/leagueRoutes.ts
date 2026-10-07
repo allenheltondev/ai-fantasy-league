@@ -6,15 +6,15 @@
 
 import type { Phase } from '../api/types';
 
-/** My Team's pages, in side-nav order. */
+/**
+ * The pages under `team/`, in side-nav order. The first is My Team itself: your lineup, your team's
+ * name and avatar, its achievements, and a picker that opens any other team (`otherTeamPath`).
+ */
 export const TEAM_PAGES = [
-  { path: 'lineup', label: 'Lineup' },
+  { path: 'lineup', label: 'My Team' },
   { path: 'matchup', label: 'Matchup' },
   { path: 'moves', label: 'Roster & moves' },
-  { path: 'trades', label: 'Trades' },
-  { path: 'achievements', label: 'Achievements' },
-  { path: 'profile', label: 'Team profile' },
-  { path: 'teams', label: 'Other teams' }
+  { path: 'trades', label: 'Trades' }
 ] as const;
 
 export type TeamPagePath = (typeof TEAM_PAGES)[number]['path'];
@@ -67,15 +67,6 @@ export const PAGE_GROUPS = [
       { path: 'league/players', label: 'Players' },
       { path: 'league/transactions', label: 'Transactions' }
     ]
-  },
-  {
-    id: 'teams',
-    label: 'Teams',
-    pages: [
-      { path: 'team/profile', label: 'My team' },
-      { path: 'team/teams', label: 'Other teams' },
-      { path: 'team/achievements', label: 'Achievements' }
-    ]
   }
 ] as const;
 
@@ -103,7 +94,7 @@ export function leaguePath(leagueId: string, page: string): string {
 
 export const teamPath = (leagueId: string, page: TeamPagePath) => leaguePath(leagueId, `team/${page}`);
 export const leagueTabPath = (leagueId: string, tab: LeagueTabPath) => leaguePath(leagueId, `league/${tab}`);
-/** A read-only view of another team, with "Propose trade" as its only action. */
+/** Another team, read-only under My Team, with "Propose trade" as its only action. */
 export const otherTeamPath = (leagueId: string, teamId: string) =>
   leaguePath(leagueId, `team/teams/${encodeURIComponent(teamId)}`);
 

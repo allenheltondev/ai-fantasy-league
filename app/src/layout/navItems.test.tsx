@@ -70,13 +70,12 @@ describe('the side nav items', () => {
       ['My Leagues', null],
       ['Home', 'Sunday Funday'],
       ['Draft', 'Sunday Funday'],
-      ['Lineup', 'Sunday Funday'],
+      ['My Team', 'Sunday Funday'],
       ['Matchup', 'Sunday Funday'],
       ['Moves', 'Sunday Funday'],
       ['Standings', 'Sunday Funday'],
       ['Players', 'Sunday Funday'],
       ['Chat', 'Sunday Funday'],
-      ['Teams', 'Sunday Funday'],
       ['League info', 'Sunday Funday']
     ]);
     expect(find(items, 'home')?.active).toBe(true);
@@ -102,11 +101,13 @@ describe('the side nav items', () => {
     expect(find(after, 'settings')?.active).toBe(true);
   });
 
-  it('marks the item whose pages you are on, another team counting as Teams', () => {
-    const items = nav('/leagues/L1/team/teams/team-2');
-    expect(find(items, 'teams')?.active).toBe(true);
-    expect(find(items, 'lineup')?.active).toBe(false);
-    expect(find(nav('/leagues/L1/team/achievements'), 'teams')?.active).toBe(true);
+  it('marks the item whose pages you are on, another team counting as My Team', () => {
+    expect(find(nav('/leagues/L1/team/lineup'), 'team')).toMatchObject({
+      active: true,
+      href: '/leagues/L1/team/lineup'
+    });
+    expect(find(nav('/leagues/L1/team/teams/team-2'), 'team')?.active).toBe(true);
+    expect(find(nav('/leagues/L1/team/moves'), 'team')?.active).toBe(false);
     expect(find(nav('/leagues/L1/league/scoreboard'), 'matchup')?.active).toBe(true);
     expect(find(nav('/leagues/L1/team/trades'), 'moves')?.active).toBe(true);
     expect(find(nav('/leagues/L1/league/playoffs'), 'standings')?.active).toBe(true);
@@ -205,8 +206,9 @@ describe('the shell', () => {
         state({ teams: [team(1, { name: "Alice's Team", ownerName: 'Alice', avatarSeed: 'a1' })] })
       )
     });
-    renderApp('/leagues/L1/team/teams', undefined, api);
-    expect(await screen.findByText('No other teams')).toBeInTheDocument();
+    renderApp('/leagues/L1/team/lineup', undefined, api);
+    const header = await screen.findByTestId('team-header');
+    expect(within(header).getByRole('img', { name: "Alice's Team avatar" })).toBeInTheDocument();
   });
 });
 

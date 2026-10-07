@@ -6,7 +6,7 @@ import { leagueIdIn, leagueSubpath } from './navItems';
 /**
  * What a page is called (#212), from its route: the name of its (visually hidden) `<h1>`, and the
  * name its browser tab leads with. They differ only on a sub-view the side nav doesn't name, like
- * another team's page: its heading is the section ("Other teams"), its tab the team ("Team 4").
+ * another team's page: its heading is the section ("My Team"), its tab the team ("Team 4").
  */
 export interface PageName {
   heading: string;
@@ -52,9 +52,9 @@ export function pageName(pathname: string, context: PageNameContext = {}): PageN
     case 'team': {
       if (page === 'teams' && detail !== undefined && detail !== '') {
         const team = context.teams?.find((t) => t.id === detail);
-        return { heading: 'Other teams', title: team?.name ?? 'Other teams' };
+        return { heading: 'My Team', title: team?.name ?? 'My Team' };
       }
-      return same(TEAM_PAGES.find((p) => p.path === page)?.label ?? 'Lineup');
+      return same(TEAM_PAGES.find((p) => p.path === page)?.label ?? 'My Team');
     }
     default:
       return same('League');

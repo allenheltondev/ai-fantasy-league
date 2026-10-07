@@ -127,7 +127,7 @@ export function MovesHelp({ waiverType }: { waiverType: 'faab' | 'rolling' | nul
       </ul>
       <HelpLinks
         links={[
-          [teamPath(leagueId, 'lineup'), 'Lineup', 'start the players you add.'],
+          [teamPath(leagueId, 'lineup'), 'My Team', 'start the players you add.'],
           [leagueTabPath(leagueId, 'players'), 'Players', 'research everyone, owned or not.'],
           can(props, 'propose_trade') && [
             teamPath(leagueId, 'trades'),
@@ -217,7 +217,7 @@ export function TradesHelp() {
       </ul>
       <HelpLinks
         links={[
-          [teamPath(leagueId, 'teams'), 'Other teams', 'browse every roster and start an offer from it.'],
+          [teamPath(leagueId, 'lineup'), 'My Team', 'pick any team to see its roster and start an offer.'],
           [leagueTabPath(leagueId, 'players'), 'Players', 'find out who owns whom.'],
           [teamPath(leagueId, 'moves'), 'Roster & moves', 'add a free agent instead.'],
           rulesLink(leagueId, props.commissioner, 'the review, veto votes, and the deadline.')
@@ -260,7 +260,7 @@ export function MatchupHelp() {
       </ul>
       <HelpLinks
         links={[
-          [teamPath(leagueId, 'lineup'), 'Lineup', 'change who starts before their games kick off.'],
+          [teamPath(leagueId, 'lineup'), 'My Team', 'change who starts before their games kick off.'],
           [leagueTabPath(leagueId, 'scoreboard'), 'Scoreboard', 'every matchup in the league this week.'],
           [leagueTabPath(leagueId, 'standings'), 'Standings', 'where your record puts you.'],
           rulesLink(leagueId, props.commissioner, 'how each stat scores.')

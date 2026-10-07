@@ -16,16 +16,14 @@ import {
   MovesIcon,
   PlayersIcon,
   SettingsIcon,
-  StandingsIcon,
-  TeamsIcon
+  StandingsIcon
 } from './navIcons';
 
 const GROUP_ICONS: Record<PageGroup['id'], ReactNode> = {
   matchup: <MatchupIcon />,
   moves: <MovesIcon />,
   standings: <StandingsIcon />,
-  players: <PlayersIcon />,
-  teams: <TeamsIcon />
+  players: <PlayersIcon />
 };
 
 /** How often the nav re-reads chat unread counts (the chat page itself keeps its own live). */
@@ -47,7 +45,7 @@ export function leagueSubpath(pathname: string, leagueId: string): string {
 /**
  * The side nav (#178), as `AppNav` items. Outside a league: My Leagues and Create League. In one:
  * My Leagues (where you switch leagues), then the league's items under its name: Home, the Draft
- * while it is on, Lineup, Matchup, Moves, Standings, Players, Chat, Teams, and Settings. Items that
+ * while it is on, My Team, Matchup, Moves, Standings, Players, Chat, and Settings. Items that
  * hold several pages (PAGE_GROUPS) show them as tabs, so the menu stays short on a phone. Only the
  * commissioner can change anything in Settings, so everyone else sees it as League info.
  */
@@ -122,11 +120,12 @@ export function navItems({
   }
   items.push(
     {
-      id: 'lineup',
-      label: 'Lineup',
+      // Your lineup and team, and every other team from its picker.
+      id: 'team',
+      label: 'My Team',
       href: href('team/lineup'),
       icon: <LineupIcon />,
-      active: on('team/lineup'),
+      active: on('team/lineup') || on('team/teams'),
       section
     },
     group('matchup'),
@@ -153,7 +152,6 @@ export function navItems({
         ? { badge: countLabel(unread), badgeLabel: `${countLabel(unread)} unread` }
         : {})
     },
-    group('teams'),
     {
       id: 'settings',
       label: commissioner ? 'Settings' : 'League info',

@@ -94,14 +94,6 @@ export const MovesIcon = () => (
   </Icon>
 );
 
-export const TeamsIcon = () => (
-  <Icon>
-    <circle cx="9" cy="9" r="3" />
-    <circle cx="16.5" cy="10" r="2.5" />
-    <path d="M3.5 19a5.5 5.5 0 0 1 11 0M14 19a4.5 4.5 0 0 1 6.5-4" />
-  </Icon>
-);
-
 export const StandingsIcon = () => (
   <Icon>
     <path d="M5 20v-7h4v7M10 20V5h4v15M15 20v-10h4v10M3.5 20h17" />
