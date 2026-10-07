@@ -89,11 +89,12 @@ describe('LiveDataProvider (mocked Sleeper + nflverse)', () => {
     const { provider, calls } = live((u, n) => {
       if (u.pathname.endsWith('/games.csv') && fail) {
         fail = false;
-        return text('nope', 404);
+        // Not a 404, which the client asks for again before falling back to games.csv.gz.
+        return text('nope', 403);
       }
       return fixtureRoute(u, n);
     });
-    await expect(provider.getSchedule(2025, asOf)).rejects.toThrow(/404/);
+    await expect(provider.getSchedule(2025, asOf)).rejects.toThrow(/403/);
     expect(await provider.getSchedule(2025, asOf)).toHaveLength(285);
     expect(await provider.getByeWeeks(2025, asOf)).toMatchObject({ GB: 5 });
     expect(calls.filter((c) => c.endsWith('/games.csv'))).toHaveLength(2);
