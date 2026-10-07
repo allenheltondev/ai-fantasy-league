@@ -1,3 +1,4 @@
+import { TRADE_STATUS_PATTERNS } from '@fantasy/core';
 import type { ChatMessage } from '@fantasy/server';
 
 /**
@@ -94,10 +95,8 @@ const SCORE = /(\d{2,3}(?:\.\d{1,2})?)\s*(?:-|–|to)\s*(\d{2,3}(?:\.\d{1,2})?)/
 const WEEK = /\bweek\s+(\d{1,2})\b/i;
 const SELF_WORDS = /\b(i|i'm|we|we're|my|our|me|us)\b/i;
 const YOU_WORDS = /\b(you|your|you're|ya)\b/i;
-const COMPLETED =
-  /\b(trade (?:went|is|has gone) through|deal(?:'s| is) done|done deal|trade (?:is )?(?:complete|completed|processed|official|final))\b/i;
-const SENT = /\b(offer(?:'s| is)? (?:sent|on its way|went out|is out)|sent (?:you )?(?:an|the|my) offer)\b/i;
-const ACCEPTED = /\b(you accepted|accepted (?:my|the|our) offer)\b/i;
+// The runtime cuts the same claims from free-form posts the turn cannot support (#264).
+const { completed: COMPLETED, sent: SENT, accepted: ACCEPTED } = TRADE_STATUS_PATTERNS;
 const QUOTE = /["“]([^"”]{8,})["”]/g;
 /** A quote is at least three words: a one-word nickname in quotes is part of a name. */
 const QUOTE_WORDS = 3;

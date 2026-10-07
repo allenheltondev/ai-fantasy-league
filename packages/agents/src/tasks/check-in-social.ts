@@ -2,6 +2,7 @@ import {
   DEFAULT_ROOM_ID,
   SOCIAL_LIMITS,
   checkInChatChance,
+  checkPost,
   dmChance,
   dmRoomId,
   dmVerdict,
@@ -10,6 +11,7 @@ import {
   matchupPostsLeft,
   matchupTalkChance,
   socialRoll,
+  supportedTradeClaims,
   type DmVerdict
 } from '@fantasy/core';
 import { ChatContextPackSchema, ChatMessageSchema, type Envelope } from '@fantasy/server';
@@ -57,6 +59,11 @@ import { fallbackRename, namingFor, namingSection, scriptedName, type NamingPrep
  *
  * Every post respects the daily chat budgets (checked here and enforced by post_message), and the
  * agent never posts twice in a row in a room until someone else has spoken (`lastWordIsMine`).
+ *
+ * A free-form post (board, matchup, DM) is written in the same answer as the roster and trade
+ * moves, before any of them is made. Before it goes out, a sentence claiming a trade status the
+ * record does not support ("Offer sent." with no offer behind it) is cut, and a post with nothing
+ * left is held back (core `checkPost`, #264).
  */
 
 /** A direct message the check-in may send, tied to a goal. */
@@ -436,8 +443,47 @@ export function chatOnOffer(social: SocialLook): string {
   ];
   return offered.length === 0
     ? 'No chat actions are on offer this check-in: leave out post_chat, matchup_post, send_dm, and social_act, and do not say in your summary that you posted or messaged anyone.'
-    : `Chat actions on offer this check-in: ${offered.join(', ')}. Any other chat action is dropped; your summary must not claim a post or message beyond these.`;
+    : `Chat actions on offer this check-in: ${offered.join(', ')}. Any other chat action is dropped; your summary must not claim a post or message beyond these. ${MOVES_NOT_MADE}`;
 }
+
+/**
+ * Chat is written before any move this answer lists is made, and a move can still be refused
+ * (#264): a post says nothing about a move as done. `clearPost` cuts what slips through.
+ */
+export const MOVES_NOT_MADE =
+  'Your posts are written before any pickup, claim, or trade offer in this answer is made, and one can still be refused: never say in a post or message that you sent an offer, put in a claim, or closed a trade. A line claiming a move the record does not show is cut.';
+
+/**
+ * Checks a free-form post before it goes out (core `checkPost`, #264): with the trade-status
+ * claims the record supports for this counterpart (the offers this turn sent, then the latest
+ * trade with them), unsupported claims are cut. Returns the text to post, or null when the post is
+ * held back (the activity log says so, without the text).
+ */
+export function clearPost(
+  ctx: TaskContext,
+  look: Pick<CheckInLook, 'trades'>,
+  run: Run,
+  post: { text: string; where: string; counterpart: string | null }
+): { text: string; cut: boolean } | null {
+  const offeredTo = run.memory.flatMap((e) =>
+    e.type === 'trade' && e.direction === 'outgoing' && e.outcome === 'proposed' ? [e.teamId] : []
+  );
+  const supported = supportedTradeClaims({ counterpart: post.counterpart, offeredTo, trades: look.trades });
+  const check = checkPost({ message: post.text, supported });
+  if (check.ok) {
+    if (check.cut.length > 0) ctx.log.info('agent post cut', { where: post.where, claims: check.cut });
+    return { text: check.message, cut: check.cut.length > 0 };
+  }
+  ctx.log.info('agent post withheld', { where: post.where, reason: check.reason });
+  run.done.push({
+    action: 'chat_withheld',
+    line: `Held back a post in ${post.where}: it claimed a move I did not make.`
+  });
+  return null;
+}
+
+/** What the activity log adds when a post went out with a claim cut. */
+const CUT = ' Cut a line claiming a move I did not make.';
 
 const chatText = (a: CheckInAction | undefined) => (a?.message ?? '').trim().slice(0, 280);
 
@@ -476,19 +522,35 @@ async function boardPost(ctx: TaskContext, prep: CheckInPrep, actions: readonly 
     run.done.push({ action: 'chat_held', line: `Held my tongue in #${roomId}: I had the last word there.` });
     return;
   }
-  const result = await post(ctx, roomId, chatText(action));
+  const cleared = clearPost(ctx, prep.look, run, {
+    text: chatText(action),
+    where: `#${roomId}`,
+    counterpart: null
+  });
+  if (cleared === null) return;
+  const result = await post(ctx, roomId, cleared.text);
   run.done.push(
     'error' in result
       ? { action: 'post_message_failed', line: `Could not post in #${roomId}: ${result.error.code}.` }
-      : { action: 'post_message', line: `Posted in #${roomId} about the league news.` }
+      : {
+          action: 'post_message',
+          line: `Posted in #${roomId} about the league news.${cleared.cut ? CUT : ''}`
+        }
   );
 }
 
 /** The matchup post, tagging the opponent (added when the message does not already @tag). */
 async function matchupPost(ctx: TaskContext, prep: CheckInPrep, actions: readonly CheckInAction[], run: Run) {
   const matchup = prep.look.social.matchup;
-  const text = chatText(actions.find((a) => chatText(a) !== ''));
-  if (matchup === null || text === '') return;
+  const said = chatText(actions.find((a) => chatText(a) !== ''));
+  if (matchup === null || said === '') return;
+  const cleared = clearPost(ctx, prep.look, run, {
+    text: said,
+    where: 'my matchup room',
+    counterpart: matchup.opponent.teamId
+  });
+  if (cleared === null) return;
+  const text = cleared.text;
   // The week's limit, claimed atomically (the room's messages counted at the look are not).
   if (!(await ctx.claimLimit(`matchup#${matchup.roomId}`, SOCIAL_LIMITS.matchupPostsPerWeek, WEEK_MS))) {
     run.done.push({ action: 'chat_held', line: 'Held my tongue in my matchup room: said enough this week.' });
@@ -500,7 +562,10 @@ async function matchupPost(ctx: TaskContext, prep: CheckInPrep, actions: readonl
   run.done.push(
     'error' in result
       ? { action: 'matchup_post_failed', line: `Could not post in my matchup room: ${result.error.code}.` }
-      : { action: 'matchup_post', line: `Talked matchup with ${name(matchup.opponent.name)}.` }
+      : {
+          action: 'matchup_post',
+          line: `Talked matchup with ${name(matchup.opponent.name)}.${cleared.cut ? CUT : ''}`
+        }
   );
 }
 
@@ -514,6 +579,12 @@ async function directMessage(
   const action = actions.find((a) => a.goal !== undefined && chatText(a) !== '');
   const goal = action?.goal === undefined ? undefined : prep.look.social.dms[action.goal - 1];
   if (goal === undefined) return;
+  const cleared = clearPost(ctx, prep.look, run, {
+    text: chatText(action),
+    where: `my messages with ${name(goal.teamName)}`,
+    counterpart: goal.teamId
+  });
+  if (cleared === null) return;
   // The thread's daily claim is atomic, so two tasks cannot both start one (the chat read is not).
   const checked = await dmCheck(ctx, goal);
   const verdict =
@@ -526,11 +597,14 @@ async function directMessage(
     run.done.push({ action: 'dm_held', line: `Held off messaging ${name(goal.teamName)} (${verdict}).` });
     return;
   }
-  const result = await post(ctx, dmRoomId(ctx.principal.teamId, goal.teamId), chatText(action));
+  const result = await post(ctx, dmRoomId(ctx.principal.teamId, goal.teamId), cleared.text);
   run.done.push(
     'error' in result
       ? { action: 'send_dm_failed', line: `Could not message ${name(goal.teamName)}: ${result.error.code}.` }
-      : { action: 'send_dm', line: `Messaged ${name(goal.teamName)} to ${goal.purpose}.` }
+      : {
+          action: 'send_dm',
+          line: `Messaged ${name(goal.teamName)} to ${goal.purpose}.${cleared.cut ? CUT : ''}`
+        }
   );
 }
 

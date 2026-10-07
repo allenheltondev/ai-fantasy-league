@@ -20,6 +20,7 @@ A persistent participant is a durable identity that observes a shared environmen
   - Every task kind (`TaskKind`: lineup, waivers, trade proposal, response, and vote, chat reply and moment, check-in, commitment reply, draft, and more) has the same steps: `prepare` reads through the same tools a person's UI uses, the model decides or words, `apply` commits through operations, and a deterministic `fallback` stands in whenever the model is missing, fails, or is over budget.
   - Follow-ups are durable tasks. #207's outbox reserves them together with their gates.
   - Their results are recorded before any conversation says they happened. #215's commitments close with one line; #246 recovers that line after a crash or a refused post.
+  - A check-in's free-form posts are written in the same answer as its moves, before any is made. The prompt says so, and core `checkPost` cuts a sentence claiming a trade status the record does not support (#264): an offer this turn did not send, or one the latest trade with that team never reached.
 - **Memory and state.**
   - Memory: #210's provenance-aware memory, where every item carries a #206 visibility.
   - Agenda: operational goals.

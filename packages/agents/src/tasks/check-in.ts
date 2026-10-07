@@ -8,7 +8,8 @@ import {
   wantsEarlyTradeLook,
   type MemoryEvent,
   type RosterPlayer,
-  type RosterSlot
+  type RosterSlot,
+  type TradeLine
 } from '@fantasy/core';
 import type { AgentTaskSeal, Envelope } from '@fantasy/server';
 import { z } from 'zod';
@@ -218,6 +219,8 @@ export interface CheckInLook {
   trade: { shopping: boolean; offersLeft: number; prep: ProposalPrep | null };
   /** Offers waiting on this team's answer for at least `OFFER_NUDGE_AFTER_MS`, oldest first. */
   offers: IncomingOffer[];
+  /** This team's trades, newest first: what a post may say about them (#264). */
+  trades: TradeLine[];
   /** A rename, a board post, matchup talk, DMs (#196). */
   social: SocialLook;
 }
@@ -442,10 +445,13 @@ async function lookAtWaivers(
   return { open: true, faabRemaining: team.faabRemaining, pickups, holes: holes.holes };
 }
 
-/** Opening offers this team sent in the last week, and the offers waiting on its answer. */
-async function lookAtOffers(
-  ctx: TaskContext
-): Promise<{ sentThisWeek: number; offered: Set<string>; waiting: IncomingOffer[] }> {
+/** Opening offers this team sent in the last week, the offers waiting on its answer, and its trades. */
+async function lookAtOffers(ctx: TaskContext): Promise<{
+  sentThisWeek: number;
+  offered: Set<string>;
+  waiting: IncomingOffer[];
+  trades: TradeLine[];
+}> {
   const trades = data(await ctx.tools.call('list_trades', { limit: 100 }), TradesSchema)?.trades ?? [];
   const now = ctx.clock.now().getTime();
   const sent = trades.filter(
@@ -470,7 +476,14 @@ async function lookAtOffers(
     .map((t) => ({ id: t.id, from: t.fromTeam, proposedAt: t.proposedAt }))
     // list_trades is newest first.
     .reverse();
-  return { sentThisWeek: sent.length, offered, waiting };
+  const mine = trades
+    .filter((t) => t.direction !== 'league')
+    .map((t) => ({
+      teamId: t.direction === 'outgoing' ? t.toTeam.id : t.fromTeam.id,
+      outgoing: t.direction === 'outgoing',
+      status: t.status
+    }));
+  return { sentThisWeek: sent.length, offered, waiting, trades: mine };
 }
 
 const offerKey = (teamId: string, send: readonly string[], receive: readonly string[]) =>
@@ -546,7 +559,16 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep>
   const offers = await lookAtOffers(ctx);
   const trade = await lookAtTrades(ctx, payload, offers);
   const social = await lookSocial(ctx, payload.naming, { trade });
-  const look: CheckInLook = { payload, lineup, unavailable, waivers, trade, offers: offers.waiting, social };
+  const look: CheckInLook = {
+    payload,
+    lineup,
+    unavailable,
+    waivers,
+    trade,
+    offers: offers.waiting,
+    trades: offers.trades,
+    social
+  };
   const reasons = checkInReasons(look);
   // A person's question goes to its own reply task (#218), with or without a model call here.
   const handed = [...followUps, ...social.followUps];

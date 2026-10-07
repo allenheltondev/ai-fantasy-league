@@ -16,6 +16,7 @@ import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient, type FakeScript } from '../src/fake-model.js';
 import { routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
+import { MOVES_NOT_MADE } from '../src/tasks/check-in-social.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup, type Setup } from './support.js';
 
@@ -404,6 +405,28 @@ describe('check-in: a direct message with a goal', () => {
     expect(await posted(s, DM)).toHaveLength(2);
   });
 
+  it('keeps a true claim about its own offer in the DM, and cuts a false one (#264)', async () => {
+    const s = await league(LOUD);
+    await offerToAllen(s);
+    s.clock.advance(25 * 3_600_000);
+    const record = await run(
+      s,
+      checkIn(rolled(LOUD, ['dm'])),
+      scripted([
+        {
+          type: 'send_dm',
+          goal: 1,
+          message: 'I sent you an offer yesterday. Glad you accepted my offer! Any thoughts?'
+        }
+      ])
+    );
+    // The offer is real and theirs to answer; nobody accepted it.
+    expect((await posted(s, DM)).map((m) => m.text)).toEqual([
+      'I sent you an offer yesterday. Any thoughts?'
+    ]);
+    expect(record.reasoningSummary).toContain('Cut a line claiming a move I did not make.');
+  });
+
   it('sends no DM without a goal from the list', async () => {
     const s = await league(LOUD);
     await offerToAllen(s);
@@ -461,5 +484,34 @@ describe('check-in: chat actions that were not on offer', () => {
     expect(model.transcript[0]?.systemPrompt ?? '').toContain(
       'Chat actions on offer this check-in: post_chat.'
     );
+  });
+});
+
+describe('check-in: no claim of a move the turn did not make (#264)', () => {
+  it('cuts "Offer sent." from a board post when no offer went out, and says so', async () => {
+    const s = await league(LOUD);
+    const model = scripted([
+      { type: 'post_chat', room: 'waivers-news', message: 'Cooper Kupp is a solid pickup. Offer sent.' }
+    ]);
+    const record = await run(s, checkIn(rolled(LOUD, ['board'])), model);
+    expect(model.transcript[0]?.systemPrompt).toContain(MOVES_NOT_MADE);
+    expect((await posted(s, 'waivers-news')).map((m) => m.text)).toEqual(['Cooper Kupp is a solid pickup.']);
+    expect(record.reasoningSummary).toContain(
+      'Posted in #waivers-news about the league news. Cut a line claiming a move I did not make.'
+    );
+  });
+
+  it('holds back a post that is nothing but the claim', async () => {
+    const s = await league(LOUD);
+    const back = await s.repos.players.get('team-3-rb1');
+    await s.repos.players.putMany([{ ...back!, injuryStatus: 'Out' }]);
+    const record = await run(
+      s,
+      checkIn(rolled(LOUD, ['matchup'])),
+      scripted([{ type: 'matchup_post', message: 'Offer sent, take it or leave it.' }])
+    );
+    expect(record.finalAction).toContain('chat_withheld');
+    expect(record.reasoningSummary).toContain('Held back a post in my matchup room: it claimed a move');
+    expect(await posted(s, ROOM)).toEqual([]);
   });
 });
