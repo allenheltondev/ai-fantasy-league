@@ -15,6 +15,7 @@ import {
   CHAT_TOOLS,
   ChatDecisionSchema,
   HOW_TO_TALK,
+  ownLinesSection,
   factsSection,
   leagueChatOrQuiet,
   post,
@@ -370,6 +371,7 @@ export const postDraftTask = defineTaskKind<Payload, KickoffDecision, KickoffPre
       ].join('\n'),
       factsSection(prep.chat),
       transcript(prep.chat),
+      ownLinesSection(prep.chat),
       HOW_TO_TALK
     ]
       .filter((part): part is string => part !== null)

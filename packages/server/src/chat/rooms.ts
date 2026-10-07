@@ -22,8 +22,9 @@ import { seatTenureStart, type Matchup } from '../repos/types.js';
  *
  * - Fixed rooms: every member reads and posts.
  * - Matchup rooms: derived from the schedule, nothing stored. Every member reads and posts while
- *   the room is live: the current week, and last week until it is official. Then the room is
- *   archived: still readable, no new messages.
+ *   the room is live: the current week's games. Once the week is over (the league rolled past it,
+ *   or the season ended) the room is archived: off the room list, still readable under past weeks,
+ *   no new messages.
  * - DMs: only the two teams' principals (a team's owner, or the agent playing it) read or post.
  *   The commissioner is not one of them unless it is their own team.
  */
@@ -43,7 +44,7 @@ export const ChatRoomSchema = z.object({
     .enum(ROOM_KINDS)
     .describe('`fixed`: a league-wide room. `matchup`: one game of one week. `dm`: two teams only.'),
   title: z.string().describe('"Trash Talk", "Wk 5: Big Tuna vs Gridiron Gang", or the other team in a DM.'),
-  archived: z.boolean().describe('Read-only: a matchup room whose week is official.'),
+  archived: z.boolean().describe('Read-only: a matchup room whose week is over.'),
   week: z.number().int().nullable().describe('Matchup rooms: the week.'),
   teamIds: z.array(z.string()).describe('Matchup rooms: home and away. DMs: both teams. Fixed rooms: empty.')
 });
@@ -85,10 +86,14 @@ const fixedRoom = (id: string, title: string): ChatRoom => ({
   teamIds: []
 });
 
-/** True when the week's matchup rooms are read-only: two or more weeks back, or official. */
+/**
+ * True when the week's matchup rooms are read-only: the week is over. The league rolls to the next
+ * week once every game of this one is final, so any week before the current one is done, and so is
+ * every week of a finished season. An official week is done too, whatever the week counter says.
+ */
 async function weekArchived(ctx: Ctx, access: LeagueAccess, week: number): Promise<boolean> {
   const current = access.league.week ?? 0;
-  if (week < current - 1) return true;
+  if (week < current || access.league.phase === 'complete') return true;
   const official = await ctx.repos.history.getOfficialWeek(access.league.id, week);
   return official?.status === 'complete';
 }
@@ -171,14 +176,14 @@ export async function resolveRoom(ctx: Ctx, access: LeagueAccess, roomId: string
 /** Refuses a new message in an archived room. */
 export function requireOpenRoom(room: ChatRoom): void {
   if (!room.archived) return;
-  throw new ApiError('ROOM_ARCHIVED', `"${room.title}" is archived: its week is official.`, {
+  throw new ApiError('ROOM_ARCHIVED', `"${room.title}" is archived: its week is over.`, {
     fix: 'Read it with get_chat, but post in this week’s matchup room or in "trash-talk" instead (see list_chat_rooms).'
   });
 }
 
 /**
- * Every room the caller can see: the fixed rooms, the live matchup rooms (or, with `pastWeek`, that
- * week's), and the caller's DMs that have messages.
+ * Every room the caller can see: the fixed rooms, the current week's matchup rooms while they are
+ * live (or, with `pastWeek`, that week's, archived or not), and the caller's DMs that have messages.
  */
 export async function visibleRooms(
   ctx: Ctx,
@@ -190,7 +195,7 @@ export async function visibleRooms(
   if (current !== null) {
     const weeks =
       options.pastWeek === undefined
-        ? [current, current - 1].filter((w) => w >= 1)
+        ? [current].filter((w) => w >= 1)
         : options.pastWeek <= current
           ? [options.pastWeek]
           : [];

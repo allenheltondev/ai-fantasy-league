@@ -151,7 +151,7 @@ export function RoomChat({
       )}
       {room.archived ? (
         <p className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
-          This room is archived: its week is official. Read on, or talk in this week’s rooms.
+          This room is archived: its week is over. Read on, or talk in this week’s rooms.
         </p>
       ) : (
         <Composer

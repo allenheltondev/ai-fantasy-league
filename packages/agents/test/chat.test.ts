@@ -214,6 +214,46 @@ describe('chat_reply with the fake model', () => {
     expect(alreadyAnswered([{ ...theirs, replyToId: target.id }, target], target, AGENT_TEAM)).toBe(false);
   });
 
+  it('sees its own lines as its own, and never posts one of them again', async () => {
+    const s = await chatSetup();
+    const roast =
+      "Your lineup's a mess, starting Swift's 9.8 avg while Jeanty rides the bench. My corps is built for war; yours is lost on the obstacle course.";
+    // Its earlier line, posted under a manager name it no longer has.
+    await s.repos.chat.put({
+      ...agentMessage(0),
+      author: { teamId: AGENT_TEAM, teamName: 'Boot Camp', name: 'Jin Bishop' },
+      text: roast,
+      createdAt: '2026-10-04T14:58:00.000Z'
+    });
+    await s.repos.chat.put(human({ text: '@Team 2 you got lucky' }));
+    const parrot = new ScriptedModelClient({
+      script: () => ({
+        steps: [],
+        decision: { summary: 'Roasted them again.', message: `Lucky? ${roast} Drop and give me twenty.` }
+      })
+    });
+    const record = await runAgentAction(s.deps(parrot), request('chat_reply', { messageId: 'm-human' }));
+    const prompt = parrot.transcript[0]?.systemPrompt ?? '';
+    expect(prompt).toContain('Jin Bishop (Boot Camp) [you]:');
+    expect(prompt).toContain("Your own latest messages in this room, oldest first. Don't repeat yourself");
+    expect(prompt).toContain('Vary how you open');
+    expect(record).toMatchObject({ status: 'completed', finalAction: 'none' });
+    expect(record.reasoningSummary).toContain('repeated an earlier one');
+    expect(await s.agentPosts()).toHaveLength(1);
+    // The message stays open: a fresh answer to it still posts.
+    const fresh = new ScriptedModelClient({
+      script: () => ({
+        steps: [],
+        decision: { summary: 'New angle.', message: 'Lucky is a 1-4 team calling a 38-point loss a fluke.' }
+      })
+    });
+    const again = await runAgentAction(s.deps(fresh), {
+      ...request('chat_reply', { messageId: 'm-human' }),
+      taskId: 'chat_reply.evt-fresh'
+    });
+    expect(again.finalAction).toBe('post_message');
+  });
+
   it('stays quiet without a model and skips unknown messages', async () => {
     const s = await chatSetup();
     await s.repos.chat.put(human());

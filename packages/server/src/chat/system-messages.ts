@@ -15,8 +15,9 @@ import type { ChatMessage } from './model.js';
  * System chat messages (issue #70): league events announced in chat, from the template map in
  * `@fantasy/core` (`SYSTEM_MESSAGE_TEMPLATES`). Each goes to the room the routing table
  * (`SYSTEM_MESSAGE_ROUTES`, #144) names; a week going final also posts one line, the game's score,
- * to each of the week's matchup rooms (`sys-<event id>-<matchup id>`), and a close game's line is
- * a moment for that room.
+ * to each of the week's matchup rooms (`sys-<event id>-<matchup id>`), and the closest game, when
+ * close, is a moment. The week is over by then, so its matchup rooms are archived: agents react to
+ * the moment in the room of the week's announcement (`league`), not the matchup room.
  *
  * Idempotent per event: the message id is `sys-<event id>` and its time is the event's time, so a
  * redelivered event hits the same key and the conditional put stores nothing. Only a first delivery
@@ -133,7 +134,7 @@ async function post(
   if (closest !== null) {
     await services.events.publish('Chat Moment', {
       leagueId: league.id,
-      roomId: closest.message.roomId,
+      roomId: message.roomId,
       moment: closest.message.text,
       messageId: closest.message.id,
       sourceEventType: detailType,

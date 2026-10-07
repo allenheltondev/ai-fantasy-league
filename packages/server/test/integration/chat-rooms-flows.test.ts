@@ -83,7 +83,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
     });
     afterEach(() => h.close());
 
-    it('lists the fixed rooms and this week’s and last week’s matchup rooms, with unread counts', async () => {
+    it('lists the fixed rooms and this week’s matchup rooms, with unread counts', async () => {
       const alice = as(h, ALICE);
       const bob = as(h, BOB);
       const empty = data<Rooms>(await bob.get(`${L}/chat/rooms`));
@@ -96,10 +96,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
         ['waivers-news', 'fixed', 'Waivers & News'],
         ['m-2026-W05-W05-1', 'matchup', "Wk 5: Bob's Team vs Team 3"],
         ['m-2026-W05-W05-2', 'matchup', "Wk 5: Carol's Team vs Alice's Team"],
-        ['m-2026-W05-W05-3', 'matchup', 'Wk 5: Team 6 vs Team 5'],
-        ['m-2026-W04-W04-1', 'matchup', "Wk 4: Alice's Team vs Bob's Team"],
-        ['m-2026-W04-W04-2', 'matchup', "Wk 4: Team 3 vs Carol's Team"],
-        ['m-2026-W04-W04-3', 'matchup', 'Wk 4: Team 5 vs Team 6']
+        ['m-2026-W05-W05-3', 'matchup', 'Wk 5: Team 6 vs Team 5']
       ]);
       expect(empty.rooms[5]).toEqual({
         roomId: 'm-2026-W05-W05-1',
@@ -208,37 +205,10 @@ for (const backend of ['memory', 'dynamo'] as const) {
       );
     });
 
-    it('archives last week’s matchup rooms once the week is official', async () => {
+    it('archives a week’s matchup rooms once the week is over', async () => {
       const bob = as(h, BOB);
       const room = 'm-2026-W04-W04-1';
-      expect(
-        (await bob.post(`${L}/chat/messages`, { roomId: room, text: 'still arguing about week 4' })).status
-      ).toBe(200);
-      await h.repos.history.beginOfficialWeek(
-        {
-          leagueId: LG,
-          week: 4,
-          status: 'running',
-          startedAt: h.clock.now().toISOString(),
-          completedAt: null,
-          provisional: [],
-          corrections: 0,
-          flipped: 0
-        },
-        '2000-01-01T00:00:00.000Z'
-      );
-      // A running official final does not archive anything yet.
-      expect(data<Rooms>(await bob.get(`${L}/chat/rooms`)).rooms.some((r) => r.roomId === room)).toBe(true);
-      await h.repos.history.completeOfficialWeek({
-        leagueId: LG,
-        week: 4,
-        status: 'complete',
-        startedAt: h.clock.now().toISOString(),
-        completedAt: h.clock.now().toISOString(),
-        provisional: [],
-        corrections: 0,
-        flipped: 0
-      });
+      // The league rolled to week 5 when week 4's games ended: week 4 is over, official or not.
       const rooms = data<Rooms>(await bob.get(`${L}/chat/rooms`)).rooms;
       expect(rooms.filter((r) => r.kind === 'matchup').map((r) => r.week)).toEqual([5, 5, 5]);
       const past = data<Rooms>(await bob.get(`${L}/chat/rooms?pastWeek=4`)).rooms.filter((r) => r.week === 4);
@@ -250,22 +220,27 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(
         data<Rooms>(await bob.get(`${L}/chat/rooms?pastWeek=6`)).rooms.some((r) => r.kind === 'matchup')
       ).toBe(false);
-      expect(data<Page>(await as(h, CAROL).get(`${L}/chat/messages?roomId=${room}`)).messages).toHaveLength(
-        1
-      );
-      const refused = await bob.post(`${L}/chat/messages`, { roomId: room, text: 'one more thing' });
+      // Still readable.
+      expect(data<Page>(await as(h, CAROL).get(`${L}/chat/messages?roomId=${room}`)).messages).toEqual([]);
+      const refused = await bob.post(`${L}/chat/messages`, {
+        roomId: room,
+        text: 'still arguing about week 4'
+      });
       expect(refused.status).toBe(409);
       expect(refused.body).toMatchObject({
         error: { code: 'ROOM_ARCHIVED', fix: expect.stringMatching(/this week/) }
       });
-      // Two weeks back is archived without an official record.
-      await h.repos.leagues.update({ ...(await h.repos.leagues.get(LG))!, week: 6 });
-      expect(errorCode(await bob.post(`${L}/chat/messages`, { roomId: 'm-2026-W04-W04-2', text: 'x' }))).toBe(
+      expect(
+        (await bob.post(`${L}/chat/messages`, { roomId: 'm-2026-W05-W05-1', text: 'week 5!' })).status
+      ).toBe(200);
+      // A finished season archives its last week too.
+      await h.repos.leagues.update({ ...(await h.repos.leagues.get(LG))!, phase: 'complete' });
+      expect(errorCode(await bob.post(`${L}/chat/messages`, { roomId: 'm-2026-W05-W05-1', text: 'x' }))).toBe(
         'ROOM_ARCHIVED'
       );
-      expect(
-        (await bob.post(`${L}/chat/messages`, { roomId: 'm-2026-W06-W06-1', text: 'week 6!' })).status
-      ).toBe(200);
+      expect(data<Rooms>(await bob.get(`${L}/chat/rooms`)).rooms.some((r) => r.kind === 'matchup')).toBe(
+        false
+      );
     });
 
     it('keeps a DM between its two teams: others get FORBIDDEN, and the league topic never sees it', async () => {

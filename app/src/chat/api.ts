@@ -22,7 +22,7 @@ export interface ChatRoom {
   roomId: string;
   kind: RoomKind;
   title: string;
-  /** Read-only: a matchup room whose week is official. */
+  /** Read-only: a matchup room whose week is over. */
   archived: boolean;
   week: number | null;
   teamIds: string[];

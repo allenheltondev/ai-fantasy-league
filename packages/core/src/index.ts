@@ -43,6 +43,7 @@ export * from './chat/rooms.js';
 export * from './chat/banter.js';
 export * from './chat/continuation.js';
 export * from './chat/context.js';
+export * from './chat/repetition.js';
 export * from './season/cycle.js';
 export * from './outlook/outlook.js';
 export * from './outlook/game-state.js';

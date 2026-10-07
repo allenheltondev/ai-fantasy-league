@@ -168,8 +168,8 @@ export const MATCHUP_ROOM_TEMPLATES: Readonly<
   },
   'Week Official Final': {
     text: [
-      'Official: {team:homeTeamId} {points:homeScore}, {team:awayTeamId} {points:awayScore}. This room is now archived.',
-      'This matchup is official. This room is now archived.'
+      'Official: {team:homeTeamId} {points:homeScore}, {team:awayTeamId} {points:awayScore}.',
+      'This matchup is official.'
     ]
   }
 };

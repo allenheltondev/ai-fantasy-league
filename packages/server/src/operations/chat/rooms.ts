@@ -20,7 +20,7 @@ export const listChatRooms = defineOperation({
   summary: 'List the chat rooms you can read, with unread counts',
   description: [
     'Returns every chat room you can read, each with its `title`, `kind`, `lastMessageAt`, and `unreadCount` (messages since you last marked it read with mark_room_read, at most 100).',
-    'Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week and of last week until it is official (`kind: matchup`); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat).',
+    'Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week (`kind: matchup`; a week’s rooms are archived and leave this list once its games are over); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat).',
     'Past weeks’ matchup rooms are archived (read-only): pass `pastWeek` to list that week’s.',
     'Read a room with get_chat and post with post_message, both with its `roomId`.',
     'Errors: FORBIDDEN if you are not in the league.'
@@ -35,7 +35,7 @@ export const listChatRooms = defineOperation({
       .min(1)
       .max(18)
       .optional()
-      .describe('Also list that past week’s matchup rooms (archived once the week is official).')
+      .describe('Also list that past week’s matchup rooms (archived once the week is over).')
   }),
   output: z.object({
     defaultRoomId: z.string().describe('The room to open first.'),
