@@ -11,7 +11,7 @@ import { espnTeam, normalizeScoreboard, yardsToGoal } from './normalize.js';
 import { espnScoreboardSchema } from './schemas.js';
 
 const asOf = new Date('2026-10-04T18:30:00.000Z');
-const FIXTURE = 'espn/scoreboard_regular_2026_4.json';
+const FIXTURE = 'espn/hand-authored/scoreboard_regular_2026_4.json';
 const board = () => espnScoreboardSchema.parse(fixtureJson(FIXTURE));
 
 const game = (gameId: string, awayTeam: string, homeTeam: string): ScheduledGame => ({

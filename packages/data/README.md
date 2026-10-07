@@ -101,10 +101,14 @@ Team defense (DEF) stats are not in nflverse's player file and are not derived y
 - `nflverse/`: **real** trimmed files fetched from the URLs above: the id map rows for the fixture
   players (plus namesakes and two unmapped rookies), their 2025 week 1–2 stat rows, and the full
   2025 schedule.
-- `espn/`: **hand-authored** from ESPN's documented scoreboard shape (the sandbox cannot reach
-  ESPN): one week with a red-zone drive, a drive outside it, a live game between plays (no
-  possession), a pregame, and a final. `normalizeScoreboard` maps ESPN's codes (`WSH`) to ours
-  and tolerates missing situations and unknown fields; verify against the live feed after deploy.
+- `espn/`: `espn/hand-authored/scoreboard_regular_2026_4.json` is **hand-authored** from ESPN's
+  documented scoreboard shape (the sandbox cannot reach ESPN): one week with a red-zone drive, a
+  drive outside it, a live game between plays (no possession), a pregame, and a final; the unit
+  tests pin it. `normalizeScoreboard` maps ESPN's codes (`WSH`) to ours and tolerates missing
+  situations and unknown fields. Real weeks recorded with `--espn-scoreboard` (or the Record
+  fixtures workflow's `espn_scoreboard` input, which commits them with the Sleeper fixtures) land
+  in `espn/scoreboard_<type>_<season>_<week>.json`, and `espn/recorded.test.ts` checks that every
+  game in each parses and maps to our teams.
   `espn/hand-authored/injuries.json` (#200) is ESPN's league-wide injury report
   (`.../nfl/injuries`) in the shape community clients document: team groups of entries with a
   status word, the athlete's name, position, team, and his ESPN id in `athlete.id` or only in his
@@ -122,6 +126,7 @@ Refresh them where Sleeper is reachable (CI, AWS, a laptop):
 node scripts/record-fixtures.mjs             # Sleeper + nflverse
 node scripts/record-fixtures.mjs --nflverse  # nflverse only (works from the sandbox)
 node scripts/record-fixtures.mjs --espn-injuries  # ESPN's injury report (#200) to espn/injuries.json
+node scripts/record-fixtures.mjs --espn-scoreboard 2026 5  # one ESPN scoreboard week
 ```
 
 The script trims responses to the fixture player set and keeps the synthetic `900xx` players.
