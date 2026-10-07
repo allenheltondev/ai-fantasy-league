@@ -252,15 +252,15 @@ describe('renderSystemMessage', () => {
           { field: 'mystery', from: 'A', to: 'B' }
         ]
       })?.text
-    ).toMatch(
-      /'s AI difficulty from All-Pro to Rookie, AI strategy from Win Now to Balanced, mystery from A to B\.$/
+    ).toBe(
+      'The commissioner updated the AI manager of Tuna: AI difficulty from All-Pro to Rookie, AI strategy from Win Now to Balanced, mystery from A to B.'
     );
     expect(
       render('Agent Seat Changed', {
         teamId: 'team-3',
         changes: [{ field: 'difficulty', from: 'Pro' }, null]
       })?.text
-    ).toMatch(/^The commissioner changed .+'s AI manager\.$/);
+    ).toBe('The commissioner updated the AI manager of Tuna.');
     // A rename shows both names; a new avatar has no readable from/to, so it is just named (#151).
     expect(
       render('Agent Seat Changed', {
@@ -271,7 +271,7 @@ describe('renderSystemMessage', () => {
         ]
       })?.text
     ).toBe(
-      "The commissioner changed Tuna's AI manager name from Marcus Hale to Ruth Carter, AI manager avatar."
+      'The commissioner updated the AI manager of Tuna: AI manager name from Marcus Hale to Ruth Carter, AI manager avatar.'
     );
     expect(render('Draft Completed', {})?.moment).toBe(true);
     expect(render('Agent Budget Exceeded', { week: 5, spentUsd: 2.5, ceilingUsd: 2.25 })?.text).toBe(
@@ -280,6 +280,39 @@ describe('renderSystemMessage', () => {
     expect(render('Agent Budget Exceeded', { week: 5 })?.text).toBe(
       'The AI managers have used this week’s model budget. Until next week they play on autopilot.'
     );
+  });
+
+  it("names an agent team's AI manager next to the team, but not in lines about people (#151)", () => {
+    const MANAGERS: Record<string, string> = { 'team-2': 'Marcus Hale' };
+    const withManagers: RenderOptions = { ...options, managerName: (id) => MANAGERS[id] ?? null };
+    const say = (type: string, detail: Record<string, unknown>) =>
+      renderSystemMessage(type, detail, withManagers)?.text;
+    expect(say('Trade Processed', { fromTeamId: 'team-1', toTeamId: 'team-2' })).toBe(
+      'Trade complete between Allen FC and Robo Ballers (Marcus Hale).'
+    );
+    expect(say('Draft Pick Made', { teamId: 'team-2', player: 'Bijan Robinson' })).toBe(
+      'Robo Ballers (Marcus Hale) drafted Bijan Robinson.'
+    );
+    expect(say('Waivers Processed', { awarded: [{ teamId: 'team-2', player: 'X', cost: 4 }] })).toBe(
+      'Waivers processed: Robo Ballers (Marcus Hale) added X ($4).'
+    );
+    expect(say('Agent Seat Changed', { teamId: 'team-2', changes: [] })).toBe(
+      'The commissioner updated the AI manager of Robo Ballers (Marcus Hale).'
+    );
+    const rename = { teamId: 'team-2', from: 'Team 2', to: 'Robo Ballers' };
+    expect(say('Team Renamed', { ...rename, by: 'commissioner' })).toBe(
+      'The commissioner renamed Team 2 to Robo Ballers (Marcus Hale).'
+    );
+    expect(say('Team Renamed', { ...rename, teamId: 'team-1', by: 'commissioner' })).toBe(
+      'The commissioner renamed Team 2 to Robo Ballers.'
+    );
+    // A person joining or leaving is about the person: the team's name alone.
+    expect(say('Member Joined', { teamId: 'team-2', name: 'Bob', replacedManager: 'Marcus Hale' })).toBe(
+      'Bob joined the league and took over Robo Ballers from Marcus Hale.'
+    );
+    expect(say('Member Left', { teamId: 'team-2', reason: 'left' })).toBe('Robo Ballers left the league.');
+    // An unknown team still fails to resolve, manager or not.
+    expect(say('Achievement Earned', { teamId: 'team-9', name: 'Blowout' })).toBeUndefined();
   });
 
   it('ignores event types without a template', () => {
