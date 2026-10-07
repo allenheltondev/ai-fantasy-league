@@ -42,6 +42,7 @@ These hold in the fantasy runtime, and the second-domain tests check them again:
    - Memory reaches a prompt only through `memoryForAudience` for that prompt's audience.
    - Social acts filter evidence by the destination's readers before the pack is built.
    - DM content never leaves the DM.
+   - A check-in's one prompt serves several destinations: its own private options and a DM-only act's facts sit next to the public rooms' facts, and the prompt marks which is which. So its free-form public posts (board, matchup talk) are checked before they go out (core `checkPost`, #263): a player in a private move that the post's facts do not state, or talk of an offer that is not public, holds the post back. A DM to the other team is not held to that.
 4. **Deterministic fallback remains available.** Every task kind has a fallback that decides without a model. A model failure, a refused budget, or the kill switch never leaves a decision unmade.
 
 ## Decisions versus explanations

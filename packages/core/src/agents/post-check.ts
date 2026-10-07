@@ -1,6 +1,6 @@
 /**
- * Checks on the free-form posts an agent writes itself (#264): a check-in's board post, matchup
- * talk, and goal DM. Grounded social acts have their own check against their facts
+ * Checks on the free-form posts an agent writes itself (#263, #264): a check-in's board post,
+ * matchup talk, and goal DM. Grounded social acts have their own check against their facts
  * (`checkSocialAct`); these posts have no evidence ids, so they are read for what a free-form post
  * has got wrong live (#247's evaluation):
  *
@@ -8,6 +8,12 @@
  *   Each sentence holding a trade-status claim the caller cannot support (the turn did not make
  *   the move, and the latest trade with that counterpart never reached the status) is cut. A post
  *   with nothing left is withheld (`unsupported_claim`).
+ * - **Private detail** (#263, #206): the check-in's one prompt serves several destinations and holds
+ *   private options (pickups and trade ideas being weighed, offers pending or turned down, a DM-only
+ *   act's facts). In a room anyone may read, a player in a private move that the post's own facts
+ *   do not already state is `private_detail`, and talk of an offer that is not public (one turned
+ *   down, countered, withdrawn, or sent) is `private_offer`. Either withholds the post: rewording
+ *   a secret is not a safe repair. A DM between the two teams skips this half.
  *
  * Narrow by design, like the claim checks it shares its patterns with (sim `claims.ts`): a
  * paraphrase the patterns miss gets through, so the prompt still says what not to post. It is a
@@ -23,6 +29,27 @@ export const TRADE_STATUS_PATTERNS = {
 } as const;
 export type TradeStatusClaim = keyof typeof TRADE_STATUS_PATTERNS;
 
+const TRADE_WORDS = String.raw`(?:offers?|trades?|deals?|pitch(?:es)?|proposals?)`;
+const TURN_DOWN = String.raw`(?:turn(?:ed|s|ing)? down|reject(?:ed|s|ing)?|declin(?:ed|es|ing)|pass(?:ed|es|ing)? on|counter(?:ed|s|ing)|withdr(?:ew|awn|aws?))`;
+
+/**
+ * Talk of an offer that is not public: one turned down, countered, or withdrawn (either word
+ * order), one sent or made to someone, or the talks themselves. An accepted or processed trade is
+ * public (#206), so "you accepted my offer" is not here.
+ */
+export const PRIVATE_OFFER_PATTERNS: readonly RegExp[] = [
+  new RegExp(String.raw`\b${TURN_DOWN}\b[^.!?]{0,40}?\b${TRADE_WORDS}\b`, 'i'),
+  new RegExp(String.raw`\b${TRADE_WORDS}\b[^.!?]{0,30}?\b${TURN_DOWN}\b`, 'i'),
+  /\b(?:offered|pitched) (?:you|them|him|her|me|us)\b/i,
+  /\btrade talks\b/i,
+  TRADE_STATUS_PATTERNS.sent
+];
+
+/** Whether a text talks about an offer that is not public (`PRIVATE_OFFER_PATTERNS`). */
+export function talksOfPrivateOffer(text: string): boolean {
+  return PRIVATE_OFFER_PATTERNS.some((p) => p.test(text));
+}
+
 /** The trade-status claims a text makes, in `TRADE_STATUS_PATTERNS` order. */
 export function tradeStatusClaims(text: string): TradeStatusClaim[] {
   return (Object.keys(TRADE_STATUS_PATTERNS) as TradeStatusClaim[]).filter((k) =>
@@ -34,11 +61,17 @@ export interface PostCheckInput {
   message: string;
   /** The trade-status claims the record supports for this post (see `supportedTradeClaims`). */
   supported: readonly TradeStatusClaim[];
+  /** Anyone may read the room (a league board, a matchup room); false for a DM between two teams. */
+  public: boolean;
+  /** Players in private moves (pickups, trade ideas, offers not public), and other private terms. */
+  privateTerms?: readonly string[];
+  /** The facts the post's prompt gave it: a private term they already state may be repeated. */
+  facts?: readonly string[];
 }
 
 export type PostCheck =
   | { ok: true; message: string; cut: TradeStatusClaim[] }
-  | { ok: false; reason: 'empty' | 'unsupported_claim' };
+  | { ok: false; reason: 'empty' | 'unsupported_claim' | 'private_detail' | 'private_offer' };
 
 /** Sentences, each with its own end punctuation and trailing space, so they rejoin unchanged. */
 const sentences = (text: string) => text.match(/[^.!?]+(?:[.!?]+|$)\s*/g) ?? [];
@@ -57,6 +90,16 @@ export function checkPost(input: PostCheckInput): PostCheck {
   // A mention or punctuation alone says nothing.
   if (text.replace(/@\S+|[^\p{L}\p{N}]/gu, '') === '')
     return { ok: false, reason: cut.size > 0 ? 'unsupported_claim' : 'empty' };
+  if (input.public) {
+    const said = text.toLowerCase();
+    const facts = (input.facts ?? []).join(' ').toLowerCase();
+    const named = (input.privateTerms ?? []).some((t) => {
+      const term = t.trim().toLowerCase();
+      return term !== '' && said.includes(term) && !facts.includes(term);
+    });
+    if (named) return { ok: false, reason: 'private_detail' };
+    if (talksOfPrivateOffer(text)) return { ok: false, reason: 'private_offer' };
+  }
   return { ok: true, message: text, cut: [...cut] };
 }
 
@@ -66,6 +109,23 @@ export interface TradeLine {
   teamId: string;
   outgoing: boolean;
   status: string;
+  /** Players either side sends or drops, when known. */
+  players?: readonly string[];
+}
+
+/** Trade statuses anyone may see (#206): before them an offer is the two teams' business. */
+export const PUBLIC_TRADE_STATUSES: ReadonlySet<string> = new Set([
+  'accepted',
+  'in_review',
+  'processed',
+  'vetoed'
+]);
+
+/** Players in this team's trades that are not public: never in a public post (#263). */
+export function privateTradeTerms(trades: readonly TradeLine[]): string[] {
+  return [
+    ...new Set(trades.filter((t) => !PUBLIC_TRADE_STATUSES.has(t.status)).flatMap((t) => t.players ?? []))
+  ];
 }
 
 const ACCEPTED: ReadonlySet<string> = new Set(['accepted', 'in_review', 'processed']);

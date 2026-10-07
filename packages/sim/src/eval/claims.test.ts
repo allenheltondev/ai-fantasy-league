@@ -151,6 +151,20 @@ describe('quotes, history, privacy, and changes of mind', () => {
     expect(checkClaims(ledger([said, inDm])).filter((v) => v.kind === 'privacy')).toEqual([]);
   });
 
+  it('catches talk of a private offer in a public room, and keeps it fine in the DM (#263)', () => {
+    // The line #247's live run posted in a matchup room.
+    const leak = msg('remember when I turned down your trade offer on 2025-09-09?', {
+      roomId: 'm-2026-w05-W05-M1'
+    });
+    expect(checkClaims(ledger([leak])).find((v) => v.kind === 'privacy')).toMatchObject({
+      ok: false,
+      problem: 'private_leak',
+      why: 'talks of an offer that is not public in m-2026-w05-W05-M1'
+    });
+    const inDm = msg('remember when I turned down your trade offer on 2025-09-09?', { roomId: DM });
+    expect(checkClaims(ledger([inDm])).filter((v) => v.kind === 'privacy')).toEqual([]);
+  });
+
   it('supports a recorded change of mind and catches an unjustified one', () => {
     expect(judge(msg('Fine, you convinced me.', { roomId: DM, createdAt: at(5) }))).toMatchObject([
       { kind: 'changed_mind', ok: true }

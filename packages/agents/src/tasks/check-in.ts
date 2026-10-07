@@ -219,7 +219,7 @@ export interface CheckInLook {
   trade: { shopping: boolean; offersLeft: number; prep: ProposalPrep | null };
   /** Offers waiting on this team's answer for at least `OFFER_NUDGE_AFTER_MS`, oldest first. */
   offers: IncomingOffer[];
-  /** This team's trades, newest first: what a post may say about them (#264). */
+  /** This team's trades, newest first: what a post may say about them (#264), and keep out (#263). */
   trades: TradeLine[];
   /** A rename, a board post, matchup talk, DMs (#196). */
   social: SocialLook;
@@ -313,6 +313,7 @@ const ClaimsSchema = z.object({
     z.object({ player: z.object({ id: z.string() }), drop: z.object({ id: z.string() }).nullable() })
   )
 });
+const PlayerSchema = z.object({ id: z.string(), name: z.string() });
 const TradesSchema = z.object({
   trades: z.array(
     z.object({
@@ -323,8 +324,10 @@ const TradesSchema = z.object({
       proposedAt: z.string(),
       fromTeam: z.object({ id: z.string(), name: z.string() }),
       toTeam: z.object({ id: z.string() }),
-      fromSends: z.array(z.object({ id: z.string() })),
-      toSends: z.array(z.object({ id: z.string() }))
+      fromSends: z.array(PlayerSchema),
+      toSends: z.array(PlayerSchema),
+      fromDrops: z.array(PlayerSchema).default([]),
+      toDrops: z.array(PlayerSchema).default([])
     })
   )
 });
@@ -481,7 +484,8 @@ async function lookAtOffers(ctx: TaskContext): Promise<{
     .map((t) => ({
       teamId: t.direction === 'outgoing' ? t.toTeam.id : t.fromTeam.id,
       outgoing: t.direction === 'outgoing',
-      status: t.status
+      status: t.status,
+      players: [...t.fromSends, ...t.toSends, ...t.fromDrops, ...t.toDrops].map((p) => p.name)
     }));
   return { sentThisWeek: sent.length, offered, waiting, trades: mine };
 }

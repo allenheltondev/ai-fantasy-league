@@ -16,7 +16,7 @@ import type { AgentActionRequested } from '../src/events.js';
 import { ScriptedModelClient, type FakeScript } from '../src/fake-model.js';
 import { routeEvent } from '../src/router.js';
 import { runAgentAction } from '../src/runner.js';
-import { MOVES_NOT_MADE } from '../src/tasks/check-in-social.js';
+import { MOVES_NOT_MADE, PUBLIC_POSTS } from '../src/tasks/check-in-social.js';
 import { defaultTaskKinds } from '../src/tasks/index.js';
 import { AGENT_TEAM, LEAGUE_ID, START, setup, type Setup } from './support.js';
 
@@ -405,6 +405,31 @@ describe('check-in: a direct message with a goal', () => {
     expect(await posted(s, DM)).toHaveLength(2);
   });
 
+  it('keeps a pending offer out of the league board, and lets the DM talk about it (#263)', async () => {
+    const s = await league(LOUD);
+    await offerToAllen(s);
+    s.clock.advance(25 * 3_600_000);
+    const model = scripted([
+      { type: 'post_chat', message: 'H RB would look great in my lineup. Just saying.' },
+      {
+        type: 'send_dm',
+        goal: 1,
+        message: 'Still keen on H RB. I sent you an offer yesterday, any thoughts?'
+      }
+    ]);
+    const record = await run(s, checkIn(rolled(LOUD, ['board', 'dm'])), model);
+    expect(model.transcript[0]?.systemPrompt).toContain(PUBLIC_POSTS);
+    // The offer is the two teams' business: its player stays off the public board.
+    expect(await posted(s, 'trash-talk')).toEqual([]);
+    expect(record.reasoningSummary).toContain(
+      'Held back a post in #trash-talk: it touched on a private move.'
+    );
+    // The same offer in their DM goes out as written.
+    expect((await posted(s, DM)).map((m) => m.text)).toEqual([
+      'Still keen on H RB. I sent you an offer yesterday, any thoughts?'
+    ]);
+  });
+
   it('keeps a true claim about its own offer in the DM, and cuts a false one (#264)', async () => {
     const s = await league(LOUD);
     await offerToAllen(s);
@@ -513,5 +538,25 @@ describe('check-in: no claim of a move the turn did not make (#264)', () => {
     expect(record.finalAction).toContain('chat_withheld');
     expect(record.reasoningSummary).toContain('Held back a post in my matchup room: it claimed a move');
     expect(await posted(s, ROOM)).toEqual([]);
+  });
+});
+
+describe('check-in: private memory stays out of public posts (#263)', () => {
+  it('holds back matchup talk about an offer turned down in private', async () => {
+    const s = await league(LOUD);
+    const back = await s.repos.players.get('team-3-rb1');
+    await s.repos.players.putMany([{ ...back!, injuryStatus: 'Out' }]);
+    const model = scripted([
+      { type: 'matchup_post', message: 'remember when I turned down your trade offer on 2025-09-09?' }
+    ]);
+    const record = await run(s, checkIn(rolled(LOUD, ['matchup'])), model);
+    expect(model.transcript[0]?.systemPrompt).toContain(PUBLIC_POSTS);
+    expect(await posted(s, ROOM)).toEqual([]);
+    expect(record.finalAction).toContain('chat_withheld');
+    // The activity log says why, without the words.
+    expect(record.reasoningSummary).toContain(
+      'Held back a post in my matchup room: it touched on a private move.'
+    );
+    expect(record.reasoningSummary).not.toContain('2025-09-09');
   });
 });

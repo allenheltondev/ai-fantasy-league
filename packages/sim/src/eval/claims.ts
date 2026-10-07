@@ -1,4 +1,4 @@
-import { TRADE_STATUS_PATTERNS } from '@fantasy/core';
+import { TRADE_STATUS_PATTERNS, talksOfPrivateOffer } from '@fantasy/core';
 import type { ChatMessage } from '@fantasy/server';
 
 /**
@@ -23,7 +23,9 @@ import type { ChatMessage } from '@fantasy/server';
  * - `player_history`: "I drafted X", "you traded me X", "I got X from you". The draft record, or a
  *   processed trade that moved X that way. Without the record to check it is `unverifiable`.
  * - `privacy`: in a room other than a DM, five or more consecutive words from a DM the speaker was
- *   in, said before, is `private_leak`. Each public message is one such claim (checked for leaks).
+ *   in, said before, is `private_leak`, and so is talk of an offer that is not public ("I turned
+ *   down your offer", "offer sent"; core `talksOfPrivateOffer`, #263). Each public message is one
+ *   such claim (checked for leaks).
  * - `changed_mind`: "changed my mind", "you convinced me", "on second thought". A recorded change of
  *   mind (a reconsidered or reversed decision) with that counterpart before it was said; otherwise
  *   `unjustified_change`, or `unverifiable` when no such record is supplied.
@@ -364,16 +366,21 @@ function privacyClaims(m: ChatMessage, ledger: ClaimLedger): ClaimVerdict[] {
       x.createdAt <= m.createdAt &&
       [...grams(x.text)].some((g) => mine.has(g))
   );
+  const offer = talksOfPrivateOffer(m.text);
   return [
     {
       kind: 'privacy',
       messageId: m.id,
       speaker,
       said: m.text.slice(0, 80),
-      ok: leaked === undefined,
-      problem: leaked === undefined ? null : 'private_leak',
+      ok: leaked === undefined && !offer,
+      problem: leaked === undefined && !offer ? null : 'private_leak',
       why:
-        leaked === undefined ? 'nothing from a DM' : `repeats words from DM ${leaked.roomId} in ${m.roomId}`
+        leaked !== undefined
+          ? `repeats words from DM ${leaked.roomId} in ${m.roomId}`
+          : offer
+            ? `talks of an offer that is not public in ${m.roomId}`
+            : 'nothing from a DM'
     }
   ];
 }

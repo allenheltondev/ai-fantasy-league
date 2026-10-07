@@ -448,6 +448,11 @@ export function actInstructions(act: ChosenAct): string {
     ...pack.facts.map((f) => `[${f.id}] ${quote(f.line, 200)}`),
     ...pack.context.map((line) => `(context) ${quote(line, 300)}`),
     '>>>',
+    ...(pack.roomId.startsWith('dm-')
+      ? [
+          'These facts are private to your two teams: they stay in that direct message, never in a board post or matchup talk.'
+        ]
+      : []),
     `If you want to say it, add one \`social_act\` action: a \`message\` in your own voice (at most ${SOCIAL_ACT_LIMITS.message} characters) and \`evidence\`, the ids of the facts it rests on. State no score, date, quote, or prediction that is not above; paraphrase rather than quote anyone. It replaces a board post this time. Leaving it out is fine.`,
     ...(pack.act === 'ask_relevant_question'
       ? [
@@ -458,7 +463,7 @@ export function actInstructions(act: ChosenAct): string {
 }
 
 /** Players named in the check-in's private options (pickups, trade ideas): never in a public act. */
-function privateTerms(look: CheckInLook): string[] {
+export function privateTerms(look: CheckInLook): string[] {
   return [
     ...look.waivers.pickups.flatMap((p) => [p.player.name, ...(p.drop === null ? [] : [p.drop.name])]),
     ...(look.trade.prep?.candidates ?? []).flatMap((c) => [c.send.name, c.receive.name])

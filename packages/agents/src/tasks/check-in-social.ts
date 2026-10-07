@@ -10,6 +10,7 @@ import {
   lastWordIsMine,
   matchupPostsLeft,
   matchupTalkChance,
+  privateTradeTerms,
   socialRoll,
   supportedTradeClaims,
   type DmVerdict
@@ -22,6 +23,7 @@ import { quote } from './quote.js';
 import {
   ListedRoomsSchema,
   actInstructions,
+  privateTerms,
   fakeActAction,
   NO_OPPORTUNITY,
   lookOpportunities,
@@ -63,7 +65,10 @@ import { fallbackRename, namingFor, namingSection, scriptedName, type NamingPrep
  * A free-form post (board, matchup, DM) is written in the same answer as the roster and trade
  * moves, before any of them is made. Before it goes out, a sentence claiming a trade status the
  * record does not support ("Offer sent." with no offer behind it) is cut, and a post with nothing
- * left is held back (core `checkPost`, #264).
+ * left is held back (core `checkPost`, #264). The prompt also holds private options (pickups and
+ * trade ideas, DM goals, a DM-only act's facts) next to the public rooms' facts, so a board post or
+ * matchup talk that names a player in a private move, or talks of an offer that is not public, is
+ * held back whole (#263); a DM to the other team is not held to that.
  */
 
 /** A direct message the check-in may send, tied to a goal. */
@@ -403,6 +408,7 @@ export function socialInstructions(ctx: TaskContext, prep: CheckInPrep): string[
       ...lines,
       '>>>'
     ].join('\n');
+  if (social.board !== null || social.matchup !== null) parts.push(PUBLIC_POSTS);
   if (social.board !== null)
     parts.push(
       [
@@ -447,6 +453,13 @@ export function chatOnOffer(social: SocialLook): string {
 }
 
 /**
+ * Board posts and matchup talk are public (#263): what the prompt holds for the agent alone or for
+ * one DM stays out of them. `clearPost` holds back what slips through.
+ */
+export const PUBLIC_POSTS =
+  'Board posts and matchup talk are public: every manager reads them. Keep out of them the pickups and trade ideas listed here, any offer that was not accepted (sent, pending, countered, or turned down, theirs or yours), and anything meant for a direct message. A public post that touches on one is held back.';
+
+/**
  * Chat is written before any move this answer lists is made, and a move can still be refused
  * (#264): a post says nothing about a move as done. `clearPost` cuts what slips through.
  */
@@ -454,22 +467,49 @@ export const MOVES_NOT_MADE =
   'Your posts are written before any pickup, claim, or trade offer in this answer is made, and one can still be refused: never say in a post or message that you sent an offer, put in a claim, or closed a trade. A line claiming a move the record does not show is cut.';
 
 /**
- * Checks a free-form post before it goes out (core `checkPost`, #264): with the trade-status
- * claims the record supports for this counterpart (the offers this turn sent, then the latest
- * trade with them), unsupported claims are cut. Returns the text to post, or null when the post is
- * held back (the activity log says so, without the text).
+ * What a public post must not name (#263): the players in the check-in's private options and in
+ * its trades that are not public, and the dates of a DM-only act's facts (the day an offer was
+ * turned down is the tell).
+ */
+export function publicPostTerms(look: CheckInLook): string[] {
+  const act = look.social.act;
+  const dmOnly =
+    act === null || !act.pack.roomId.startsWith('dm-')
+      ? []
+      : act.pack.facts.flatMap((f) => f.line.match(/\d{4}-\d{2}-\d{2}/g) ?? []);
+  return [...new Set([...privateTerms(look), ...privateTradeTerms(look.trades), ...dmOnly])];
+}
+
+const WITHHELD = {
+  empty: 'it said nothing',
+  unsupported_claim: 'it claimed a move I did not make',
+  private_detail: 'it touched on a private move',
+  private_offer: 'it touched on a private move'
+} as const;
+
+/**
+ * Checks a free-form post before it goes out (core `checkPost`): with the trade-status claims the
+ * record supports for this counterpart (the offers this turn sent, then the latest trade with
+ * them), unsupported claims are cut (#264); in a public room, a private term the post's own facts
+ * do not state, or talk of a private offer, holds it back (#263). Returns the text to post, or
+ * null when the post is held back (the activity log says so, without the text).
  */
 export function clearPost(
   ctx: TaskContext,
-  look: Pick<CheckInLook, 'trades'>,
+  look: CheckInLook,
   run: Run,
-  post: { text: string; where: string; counterpart: string | null }
+  post: { text: string; where: string; counterpart: string | null; public: boolean; facts: string[] }
 ): { text: string; cut: boolean } | null {
   const offeredTo = run.memory.flatMap((e) =>
     e.type === 'trade' && e.direction === 'outgoing' && e.outcome === 'proposed' ? [e.teamId] : []
   );
   const supported = supportedTradeClaims({ counterpart: post.counterpart, offeredTo, trades: look.trades });
-  const check = checkPost({ message: post.text, supported });
+  const check = checkPost({
+    message: post.text,
+    supported,
+    public: post.public,
+    ...(post.public ? { privateTerms: publicPostTerms(look), facts: post.facts } : {})
+  });
   if (check.ok) {
     if (check.cut.length > 0) ctx.log.info('agent post cut', { where: post.where, claims: check.cut });
     return { text: check.message, cut: check.cut.length > 0 };
@@ -477,7 +517,7 @@ export function clearPost(
   ctx.log.info('agent post withheld', { where: post.where, reason: check.reason });
   run.done.push({
     action: 'chat_withheld',
-    line: `Held back a post in ${post.where}: it claimed a move I did not make.`
+    line: `Held back a post in ${post.where}: ${WITHHELD[check.reason]}.`
   });
   return null;
 }
@@ -525,7 +565,9 @@ async function boardPost(ctx: TaskContext, prep: CheckInPrep, actions: readonly 
   const cleared = clearPost(ctx, prep.look, run, {
     text: chatText(action),
     where: `#${roomId}`,
-    counterpart: null
+    counterpart: null,
+    public: true,
+    facts: prep.look.social.board.news
   });
   if (cleared === null) return;
   const result = await post(ctx, roomId, cleared.text);
@@ -547,7 +589,9 @@ async function matchupPost(ctx: TaskContext, prep: CheckInPrep, actions: readonl
   const cleared = clearPost(ctx, prep.look, run, {
     text: said,
     where: 'my matchup room',
-    counterpart: matchup.opponent.teamId
+    counterpart: matchup.opponent.teamId,
+    public: true,
+    facts: matchup.angles
   });
   if (cleared === null) return;
   const text = cleared.text;
@@ -582,7 +626,9 @@ async function directMessage(
   const cleared = clearPost(ctx, prep.look, run, {
     text: chatText(action),
     where: `my messages with ${name(goal.teamName)}`,
-    counterpart: goal.teamId
+    counterpart: goal.teamId,
+    public: false,
+    facts: []
   });
   if (cleared === null) return;
   // The thread's daily claim is atomic, so two tasks cannot both start one (the chat read is not).
