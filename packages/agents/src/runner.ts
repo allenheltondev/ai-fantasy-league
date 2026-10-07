@@ -348,6 +348,9 @@ export async function runAgentAction(
       const sealed = await sealChecker(services, league.id, memory);
       return memoryForAudience(memoryForPrompt(memory, 'decision'), audience, sealed).memory;
     },
+    remember: async (events) => {
+      await memoryStore.remember(league.id, seat.agentId, events);
+    },
     claimLimit: (name, cap, windowMs) => claimUse(`${seat.agentId}#${name}`, name, cap, windowMs),
     claimShared: (name, cap, windowMs) => claimUse(`league#${name}`, name, cap, windowMs),
     claimOnce: (name, windowMs) =>

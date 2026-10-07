@@ -7,8 +7,10 @@ import {
 } from './attachments.js';
 import { emptyCommitments, openTradeInterest, type CommitmentBook } from './commitments.js';
 import {
+  MEMORY_LIMITS,
   emptyMemory,
   memoryForAudience,
+  memorySeals,
   rememberEvent,
   type AgentLeagueMemory,
   type MemoryEvent
@@ -25,6 +27,8 @@ import {
   openAsk,
   openAsks,
   pendingQuestions,
+  playerRemarks,
+  playersNamed,
   questionOpportunities,
   recordSocialAct,
   selectSocialAct,
@@ -762,6 +766,195 @@ describe('callbacks by destination (#218)', () => {
         (c) => c.act === 'callback'
       )
     ).toBe(false);
+  });
+});
+
+describe('player callbacks from stored chat remarks (#280)', () => {
+  const MATCHUP = { roomId: 'm-2026-W05-W05-M3', audience: 'public' as const };
+  const DM_3 = 'dm-team-2-team-3';
+  const ROSTER = ['Puka Nacua', 'Kyren Williams', 'Josh Allen', 'Bijan Robinson'];
+  const said = (over: Partial<QuestionMessage> & { id: string; at: number; text: string }): QuestionMessage =>
+    msg({ author: { teamId: 'team-3', name: 'Zed' }, mentionedTeamIds: [], ...over });
+  /** What `playerRemarks` stores for one message in one room. */
+  const stored = (message: QuestionMessage, room: { roomId: string; dm: boolean; teamIds: string[] }) =>
+    playerRemarks([message], room, SELF, ROSTER);
+  const PUBLIC = { roomId: 'trash-talk', dm: false, teamIds: [] };
+  const IN_DM = { roomId: DM_3, dm: true, teamIds: [SELF, 'team-3'] };
+  const laughed = said({ id: 'm-laugh', at: -24 * 4, text: 'lol you claimed Nacua?? enjoy the bench' });
+
+  it('stores who said what about a player, where, and when, with the room’s audience', () => {
+    expect(stored(laughed, PUBLIC)).toEqual([
+      {
+        type: 'remark',
+        messageId: 'm-laugh',
+        roomId: 'trash-talk',
+        authorTeamId: 'team-3',
+        author: 'Zed',
+        players: ['Puka Nacua'],
+        text: 'lol you claimed Nacua?? enjoy the bench',
+        at: at(-24 * 4),
+        visibility: 'public'
+      }
+    ]);
+    // In a DM it is the two teams' alone, for good (a seal naming no moves never lifts).
+    expect(stored(laughed, IN_DM)[0]?.visibility).toEqual({
+      teams: ['team-3'],
+      trades: [],
+      waiverClaims: []
+    });
+    // Its own words, the league's, and messages naming none of its players are not remarks.
+    const own = said({ id: 'm-own', at: -1, text: 'Nacua eats', author: { teamId: SELF, name: 'Me' } });
+    const league = said({
+      id: 'm-sys',
+      at: -1,
+      text: 'Nacua scored',
+      kind: 'system',
+      author: { teamId: null, name: 'League' }
+    });
+    for (const m of [own, league, said({ id: 'm-none', at: -1, text: 'Talk is cheap.' })])
+      expect(stored(m, PUBLIC)).toEqual([]);
+    // A DM it is not in is never a source.
+    expect(stored(laughed, { roomId: 'dm-team-1-team-3', dm: true, teamIds: ['team-1', 'team-3'] })).toEqual(
+      []
+    );
+  });
+
+  it('names a player by full name or an unshared last name, never inside another word', () => {
+    expect(playersNamed('Kyren Williams and josh allen', ROSTER)).toEqual(['Kyren Williams', 'Josh Allen']);
+    expect(playersNamed('Robinson is a bust', ROSTER)).toEqual(['Bijan Robinson']);
+    expect(playersNamed('Nacuaesque', ROSTER)).toEqual([]);
+    // A last name two of them share names neither.
+    expect(playersNamed('Williams again', [...ROSTER, 'Javonte Williams'])).toEqual([]);
+  });
+
+  it('keeps one record per message, bounded, and filters it by audience', () => {
+    const dmRemark = stored(laughed, IN_DM)[0] as MemoryEvent;
+    const again = remember([dmRemark, dmRemark]);
+    expect(again.remarks).toHaveLength(1);
+    const many = remember(
+      Array.from({ length: MEMORY_LIMITS.remarks + 3 }, (_, i) =>
+        stored(said({ id: `m-${i}`, at: -100 + i, text: 'Nacua!' }), PUBLIC)
+      ).flat()
+    );
+    expect(many.remarks).toHaveLength(MEMORY_LIMITS.remarks);
+    expect(many.remarks[0]?.messageId).toBe('m-3');
+    // The DM remark is heard in that DM alone: not in public, not in another team's DM.
+    expect(memoryForAudience(again, { teams: ['team-3'] }, () => true).memory.remarks).toHaveLength(1);
+    expect(memoryForAudience(again, 'public', () => true).memory.remarks).toEqual([]);
+    expect(memoryForAudience(again, { teams: ['team-1'] }, () => true).memory.remarks).toEqual([]);
+    expect(memorySeals(again)).toEqual([{ teams: ['team-3'], trades: [], waiverClaims: [] }]);
+  });
+
+  it('calls back a public remark in the matchup room when the player starts in the game', () => {
+    const heard = remember(stored(laughed, PUBLIC), memory());
+    const found = ambientOpportunities(
+      ambient({ memory: heard, matchupRoom: MATCHUP, ownStarters: ['Puka Nacua'], opponentStarters: ['RB1'] })
+    );
+    const callback = found.candidates.find((c) => c.reason === 'player_remark');
+    expect(callback).toMatchObject({
+      act: 'callback',
+      counterpartTeamId: 'team-3',
+      roomId: MATCHUP.roomId,
+      audience: 'public',
+      topic: 'callback:team-3:remark:m-laugh',
+      evidence: ['remark:m-laugh', 'starter:w5:team-2:puka nacua'],
+      at: at(-24 * 4)
+    });
+    const lines = Object.fromEntries(found.evidence.map((e) => [e.id, e.line]));
+    expect(lines['remark:m-laugh']).toBe(
+      `On ${at(-24 * 4).slice(0, 10)} in #trash-talk, Zed of Zen Garden wrote about Puka Nacua: "lol you claimed Nacua?? enjoy the bench"`
+    );
+    expect(lines['starter:w5:team-2:puka nacua']).toBe(
+      'Puka Nacua is in your starting lineup against Zen Garden this week.'
+    );
+    // It is the act chosen (the most relevant), and its pack holds the remark's real words.
+    const chosen = select({ candidates: found.candidates, evidence: found.evidence }).chosen;
+    expect(chosen?.reason).toBe('player_remark');
+    const pack = socialActPack(chosen as SocialCandidate, found.evidence);
+    expect(
+      checkSocialAct(pack, {
+        message: 'You said "Enjoy the bench." about Puka Nacua. He starts against you.',
+        evidence: ['remark:m-laugh', 'starter:w5:team-2:puka nacua']
+      }).ok
+    ).toBe(true);
+    // A quote nobody said is rejected; a paraphrase that quotes nothing is fine.
+    expect(
+      checkSocialAct(pack, {
+        message: 'You laughed: "worst pickup ever." Now Nacua starts against you.',
+        evidence: ['remark:m-laugh']
+      })
+    ).toEqual({ ok: false, reason: 'invented_quote' });
+    expect(
+      checkSocialAct(pack, {
+        message: 'You had words about Nacua when I got him. He starts against you.',
+        evidence: ['remark:m-laugh']
+      }).ok
+    ).toBe(true);
+    // Their own starter counts too.
+    const theirs = ambientOpportunities(
+      ambient({ memory: heard, matchupRoom: MATCHUP, opponentStarters: ['Puka Nacua'] })
+    );
+    expect(theirs.evidence.find((e) => e.id === 'starter:w5:team-3:puka nacua')?.line).toBe(
+      "Puka Nacua is in Zen Garden's starting lineup against you this week."
+    );
+  });
+
+  it('keeps a DM remark to that DM: never a public room or another team’s DM', () => {
+    const all = remember(stored(laughed, IN_DM), memory());
+    const dm = { roomId: DM_3, memory: memoryForAudience(all, { teams: ['team-3'] }, () => true).memory };
+    const found = ambientOpportunities(
+      ambient({
+        memory: memoryForAudience(all, 'public', () => true).memory,
+        matchupRoom: MATCHUP,
+        ownStarters: ['Puka Nacua'],
+        dm
+      })
+    );
+    const remarks = found.candidates.filter((c) => c.reason === 'player_remark');
+    expect(remarks.map((c) => [c.roomId, c.audience])).toEqual([[DM_3, { teams: ['team-3'] }]]);
+    const callback = remarks[0] as SocialCandidate;
+    // The selector lets it into their DM only.
+    expect(select({ candidates: [callback], evidence: found.evidence }).chosen?.roomId).toBe(DM_3);
+    for (const elsewhere of [
+      { roomId: MATCHUP.roomId, audience: 'public' as const },
+      { roomId: 'dm-team-1-team-2', audience: { teams: ['team-1'] } }
+    ])
+      expect(
+        select({ candidates: [{ ...callback, ...elsewhere }], evidence: found.evidence }).dropped.map(
+          (d) => d.why
+        )
+      ).toEqual(['private_evidence']);
+    // Filtered for another team's DM, the remark is not there to call back at all.
+    const other = { roomId: DM_3, memory: memoryForAudience(all, { teams: ['team-1'] }, () => true).memory };
+    expect(
+      ambientOpportunities(
+        ambient({ memory: emptyMemory(), ownStarters: ['Puka Nacua'], dm: other })
+      ).candidates.some((c) => c.reason === 'player_remark')
+    ).toBe(false);
+  });
+
+  it('makes no callback from a missing, stale, or unrelated remark', () => {
+    const found = (heard: AgentLeagueMemory, over: Partial<AmbientInput> = {}) =>
+      ambientOpportunities(
+        ambient({ memory: heard, matchupRoom: MATCHUP, ownStarters: ['Puka Nacua'], ...over })
+      ).candidates.some((c) => c.reason === 'player_remark');
+    expect(found(memory())).toBe(false);
+    const stale = said({
+      id: 'm-old',
+      at: -SOCIAL_ACT_LIMITS.remarkFreshMs / 3_600_000 - 1,
+      text: 'Nacua? lol'
+    });
+    expect(found(remember(stored(stale, PUBLIC), memory()))).toBe(false);
+    // Said by a team it does not play this week.
+    const bystander = said({
+      id: 'm-by',
+      at: -2,
+      text: 'Nacua? lol',
+      author: { teamId: 'team-1', name: 'Allen' }
+    });
+    expect(found(remember(stored(bystander, PUBLIC), memory()))).toBe(false);
+    // About a player who is not starting in the game.
+    expect(found(remember(stored(laughed, PUBLIC), memory()), { ownStarters: ['Josh Allen'] })).toBe(false);
   });
 });
 

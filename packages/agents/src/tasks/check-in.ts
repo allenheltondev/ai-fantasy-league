@@ -545,7 +545,7 @@ async function prepare(ctx: TaskContext, payload: Payload): Promise<CheckInPrep>
   const waivers = await lookAtWaivers(ctx, bye, keep);
   const offers = await lookAtOffers(ctx);
   const trade = await lookAtTrades(ctx, payload, offers);
-  const social = await lookSocial(ctx, payload.naming, { trade });
+  const social = await lookSocial(ctx, payload.naming, { trade, lineup });
   const look: CheckInLook = { payload, lineup, unavailable, waivers, trade, offers: offers.waiting, social };
   const reasons = checkInReasons(look);
   // A person's question goes to its own reply task (#218), with or without a model call here.
