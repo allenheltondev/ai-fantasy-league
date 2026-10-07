@@ -39,8 +39,14 @@ export function LineupHelp(props: {
           Each player locks when his game kicks off. Until then you can swap him in or out, even mid-week.
         </li>
         <li>
-          Players who are Out or on a bye score 0: bench them
-          {hasIr ? ', or rest an Out or IR player in an IR slot to free a bench spot' : ''}.
+          Players who are Out or on a bye score 0: bench them.
+          {hasIr && (
+            <>
+              {' '}
+              An injured player can rest in an IR slot without using a bench spot, if the league&rsquo;s rules
+              allow his injury status on IR.
+            </>
+          )}
         </li>
         <li>Tap a player&rsquo;s name for his stats, news, and projections.</li>
       </ul>

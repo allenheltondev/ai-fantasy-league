@@ -21,6 +21,10 @@ describe('FaabExplainer', () => {
     expect(screen.queryByRole('region', { name: 'About FAAB' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'What is FAAB?' }));
     expect(screen.getByRole('region', { name: 'About FAAB' })).toHaveTextContent('you have $80 left');
+    // How ties break is a league setting.
+    expect(screen.getByRole('region', { name: 'About FAAB' })).toHaveTextContent(
+      'The league’s rules decide ties.'
+    );
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('region', { name: 'About FAAB' })).toBeNull();
   });

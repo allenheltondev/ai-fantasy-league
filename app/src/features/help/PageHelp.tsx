@@ -102,9 +102,8 @@ export function MovesHelp({ waiverType }: { waiverType: 'faab' | 'rolling' | nul
           A <strong>free agent</strong> joins your team as soon as you add him.
         </li>
         <li>
-          A player on <strong>waivers</strong> (just dropped, or undrafted right after the draft) takes a{' '}
-          <strong>claim</strong> instead. Claims are settled together when waivers run; the player&rsquo;s row
-          says when he clears.
+          A player on <strong>waivers</strong> takes a <strong>claim</strong> instead. Claims are settled
+          together when waivers run; the player&rsquo;s row says when he clears.
         </li>
         {waiverType === 'rolling' && (
           <li>
@@ -121,8 +120,8 @@ export function MovesHelp({ waiverType }: { waiverType: 'faab' | 'rolling' | nul
           Your claims wait on your roster until they process. You can change or cancel them before then.
         </li>
         <li>
-          Roster full? Choose who to drop with the add. A dropped player goes on waivers for a few days before
-          anyone can add him freely.
+          Roster full? Choose who to drop with the add. Depending on the league&rsquo;s rules, a dropped
+          player can spend time on waivers before anyone can add him freely.
         </li>
         <li>New players start on your bench: set your lineup to play them.</li>
       </ul>

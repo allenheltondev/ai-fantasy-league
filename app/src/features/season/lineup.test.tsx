@@ -968,6 +968,8 @@ describe('lineup help for newer managers', () => {
     // The league's own flex slot and IR, in plain words.
     expect(help).toHaveTextContent('W/R/T is a flex slot');
     expect(help).toHaveTextContent('in an IR slot');
+    // Which statuses may go on IR is the league's call: the help names none of its own.
+    expect(help).toHaveTextContent('if the league’s rules allow his injury status on IR');
     const href = (name: string) => within(help).getByRole('link', { name }).getAttribute('href');
     expect(href('Roster & moves')).toBe('/leagues/L1/team/moves');
     expect(href('Trades')).toBe('/leagues/L1/team/trades');

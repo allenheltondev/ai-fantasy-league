@@ -12,8 +12,8 @@ export function FaabExplainer({ remaining }: { remaining?: number | null }) {
         season{remaining != null && <> (you have ${remaining} left)</>}.
       </p>
       <p>
-        Players on waivers cost a bid. Highest bid wins, and only the winner pays. Ties go to waiver priority.
-        Players who are already free agents cost $0: add them any time.
+        Players on waivers cost a bid. Highest bid wins, and only the winner pays. The league&rsquo;s rules
+        decide ties. Players who are already free agents cost $0: add them any time.
       </p>
     </InfoPopover>
   );

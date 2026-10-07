@@ -143,6 +143,12 @@ describe('page help', () => {
     const faab = await openPanel('How do adds and drops work?', 'Adds and drops help');
     expect(faab).toHaveTextContent('highest FAAB bid wins');
     expect(faab).not.toHaveTextContent('priority list');
+    // Post-draft waivers and the waiver period are league settings: the help assumes neither.
+    expect(faab).not.toHaveTextContent('undrafted');
+    expect(faab).not.toHaveTextContent('a few days');
+    expect(faab).toHaveTextContent(
+      'Depending on the league’s rules, a dropped player can spend time on waivers'
+    );
   });
 
   it('takes you to the page a link names', async () => {
