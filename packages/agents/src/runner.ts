@@ -19,6 +19,7 @@ import {
   isApiError,
   leagueBudget,
   roundUsd,
+  seatManager,
   taskCountKey,
   usageKey,
   type AgentFollowUp,
@@ -305,7 +306,13 @@ export async function runAgentAction(
   }
 
   const principal = agentPrincipal({ agentId: seat.agentId, teamId: seat.teamId, leagueId: league.id });
-  const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId, ai: league.settings.ai });
+  // The manager's name as the league shows it: a default name never repeats another manager's (#151).
+  const manager = await seatManager(services, league.id, seat.teamId);
+  const config = resolveAgentConfig(seat.config, {
+    managerKey: seat.agentId,
+    ...(manager === undefined ? {} : { manager }),
+    ai: league.settings.ai
+  });
   const memoryStore = deps.memory ?? tableMemoryStore(agents);
   const prefix = keyPrefix(request.taskId);
   const beforeMutation = () => agents.recordTaskEffect(fence);

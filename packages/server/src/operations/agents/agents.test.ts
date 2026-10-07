@@ -4,6 +4,7 @@ import { START } from '../../../test/support/harness.js';
 import { seedLeague } from '../../../test/support/leagues.js';
 import { agentPrincipal, type Principal } from '../../auth/principal.js';
 import { createContext } from '../../context.js';
+import { seatManager } from '../../league/managers.js';
 import { InMemoryEventPublisher } from '../../events/publisher.js';
 import { silentLogger } from '../../log.js';
 import { executeOperation } from '../../registry/execute.js';
@@ -224,6 +225,53 @@ describe('agent seat operations', () => {
           { field: 'personality', from: 'Hype Man', to: 'The Spreadsheet' }
         ]
       })
+    ]);
+  });
+
+  it('announces a post-draft rename or new avatar, from the default name a seat showed (#151)', async () => {
+    const mid = await setup('regular_season');
+    const announced = () =>
+      mid.events.events.filter((e) => e.detailType === 'Agent Seat Changed').map((e) => e.detail.changes);
+    // The first config stores no name: the seat keeps showing its default, so nothing is announced.
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    expect(announced()).toEqual([]);
+    const fallback = effectiveManager(null, 'lg-1.team-2');
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      name: 'Ruth Carter'
+    });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      avatarSeed: 'new-look'
+    });
+    // Leaving both out keeps them, and saving the same ones again changes nothing.
+    await mid.run('configure_agent_seat', { leagueId: 'lg-1', teamId: 'team-2', ...SEAT });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      name: 'Ruth Carter',
+      avatarSeed: 'new-look'
+    });
+    await mid.run('configure_agent_seat', {
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      ...SEAT,
+      name: 'Ruth "Turbo" Carter',
+      difficulty: 'rookie'
+    });
+    expect(announced()).toEqual([
+      [{ field: 'name', from: fallback.name, to: 'Ruth Carter' }],
+      [{ field: 'avatar', from: fallback.avatarSeed, to: 'new-look' }],
+      [
+        { field: 'name', from: 'Ruth Carter', to: 'Ruth "Turbo" Carter' },
+        { field: 'difficulty', from: 'All-Pro', to: 'Rookie' },
+        { field: 'model', from: 'Claude Sonnet 5', to: 'Amazon Nova Micro' }
+      ]
     ]);
   });
 
@@ -683,6 +731,74 @@ describe('agent seat operations', () => {
           })
         ])
       }
+    });
+  });
+
+  it('gives seats stored before names (#161) default names that never repeat in the league (#151)', async () => {
+    const repos = createInMemoryRepos();
+    // In "lg-7592", team-2's and team-3's own defaults are the same name.
+    const leagueId = 'lg-7592';
+    const clash = effectiveManager(null, `${leagueId}.team-2`).name;
+    expect(effectiveManager(null, `${leagueId}.team-3`).name).toBe(clash);
+    await seedLeague(repos, {
+      id: leagueId,
+      owners: [{ sub: 'user-123', name: 'Commish' }, null, null, null],
+      teamCount: 4,
+      overrides: { phase: 'regular_season', week: 5 }
+    });
+    for (const teamId of ['team-2', 'team-3']) {
+      await repos.agents.putSeat({
+        leagueId,
+        teamId,
+        agentId: `${leagueId}.${teamId}`,
+        config: SEAT as never,
+        version: 1,
+        updatedAt: START,
+        updatedBy: 'user#user-123'
+      });
+    }
+    const services = createServices({
+      clock: new FixedClock(START),
+      repos,
+      events: new InMemoryEventPublisher(),
+      log: silentLogger
+    });
+    const run = async (name: string, input: Record<string, unknown>) => {
+      const operation = registry.get(name);
+      if (operation === undefined) throw new Error(name);
+      const ctx = createContext(services, COMMISH);
+      return executeOperation({ registry, operation, ctx, input, idempotencyKey: `key-${name}` });
+    };
+    const state = await run('get_league_state', { leagueId });
+    const managers = new Map(
+      (state.body as { data: { teams: { id: string; manager: { name: string } | null }[] } }).data.teams.map(
+        (t) => [t.id, t.manager?.name]
+      )
+    );
+    // team-2 comes first and keeps the name; team-3 moves on; team-4 (no config yet) avoids both.
+    expect(managers.get('team-2')).toBe(clash);
+    expect(managers.get('team-3')).not.toBe(clash);
+    expect(new Set(['team-2', 'team-3', 'team-4'].map((t) => managers.get(t))).size).toBe(3);
+    // The seat view and the runner's lookup give the same answer as the league view.
+    for (const teamId of ['team-2', 'team-3']) {
+      const seat = await run('get_agent_seat', { leagueId, teamId });
+      expect(seat.body).toMatchObject({
+        data: {
+          seat: { manager: { name: managers.get(teamId) } },
+          commissioner: { current: { manager: { name: managers.get(teamId) } } }
+        }
+      });
+      expect((await seatManager(services, leagueId, teamId))?.name).toBe(managers.get(teamId));
+    }
+    // Taking team-3's shown name for another seat is refused, as for any name in use.
+    const taken = await run('configure_agent_seat', {
+      leagueId,
+      teamId: 'team-2',
+      ...SEAT,
+      name: managers.get('team-3')
+    });
+    expect(taken.body).toMatchObject({
+      error: { code: 'INVALID_INPUT', message: expect.stringContaining('already named') }
     });
   });
 

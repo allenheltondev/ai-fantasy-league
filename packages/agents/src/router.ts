@@ -20,6 +20,7 @@ import {
   agentChatBudget,
   listInSeason,
   nextLockAt,
+  seatManager,
   teamNameSetBy,
   type AgentSeatRecord,
   type EventDetailOf,
@@ -403,7 +404,11 @@ async function namingNeed(
   if (league === null || team === null || team.ownerUserId !== null || team.seatType !== 'agent') return null;
   if (league.phase === 'setup' || league.phase === 'drafting' || league.phase === 'complete') return null;
   if (!agentMayRename(seat.config, teamNameSetBy(team))) return null;
-  const config = resolveAgentConfig(seat.config, { managerKey: seat.agentId });
+  const manager = await seatManager(services, leagueId, seat.teamId);
+  const config = resolveAgentConfig(seat.config, {
+    managerKey: seat.agentId,
+    ...(manager === undefined ? {} : { manager })
+  });
   if (isGenericTeamName(team.name, { managerName: config.name })) return 'placeholder';
   if (roll === null) return null;
   const last = (team.renames ?? []).filter((r) => r.by === 'agent').at(-1);

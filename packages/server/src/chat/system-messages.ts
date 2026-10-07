@@ -8,6 +8,7 @@ import {
 import { canonicalEvent, eventDetail, type BusEvent } from '../events/bus.js';
 import { EVENT_SOURCE } from '../events/publisher.js';
 import type { Services } from '../context.js';
+import { leagueManagers } from '../league/managers.js';
 import { phaseFlags } from '../league/phase.js';
 import type { ChatMessage } from './model.js';
 
@@ -69,7 +70,12 @@ async function post(
     return { status: 'skipped', reason: 'stale' };
   const teams = await services.repos.teams.list(league.id);
   const names = new Map(teams.map((t) => [t.id, t.name]));
-  const rendered = renderSystemMessage(detailType, detail, { teamName: (id) => names.get(id) ?? null });
+  // Announcements name an agent team's AI manager next to the team (#151).
+  const managers = await leagueManagers(services, league.id, teams);
+  const rendered = renderSystemMessage(detailType, detail, {
+    teamName: (id) => names.get(id) ?? null,
+    managerName: (id) => managers.get(id)?.name ?? null
+  });
   if (rendered === null) return { status: 'skipped', reason: 'nothing_to_say' };
 
   const route = systemMessageRoute(detailType);

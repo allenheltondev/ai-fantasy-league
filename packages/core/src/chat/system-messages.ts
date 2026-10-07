@@ -6,14 +6,18 @@
  * produces no message.
  *
  * Placeholders are `{path}` (a dot path into the detail) or `{format:path}`:
- * - `team`: a team id, rendered as the team's name
+ * - `team`: a team id, rendered as the team's name, followed by its AI manager's name for a team an
+ *   agent plays ("Robo Ballers (Marcus Hale)")
+ * - `teamname`: a team id, rendered as the team's name alone (for lines about the person in the seat)
+ * - `manager`: a team id, rendered as its AI manager's name (unresolved for a team a person plays)
  * - `teams`: a list of team ids
  * - `player`: a player ref (`{ name }`) or a name
  * - `players`: a list of player refs or names
  * - `list`: a list of strings
  * - `claims`: waiver awards, `[{ teamId, player, cost?, bid? }]` (the FAAB paid, else the bid)
  * - `points`: a number with at most two decimals
- * - `changes`: agent seat changes, `[{ field, from, to }]` ("AI difficulty from All-Pro to Rookie")
+ * - `changes`: agent seat changes, `[{ field, from, to }]` ("AI difficulty from All-Pro to Rookie"; an
+ *   avatar change is just "AI manager avatar", since its seeds mean nothing to read)
  */
 
 /** One way to say it. A guarded alternative is used only when `when` returns true. */
@@ -159,24 +163,28 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   },
   'Member Joined': {
     text: [
-      '{name} joined the league and took over {team:teamId} from {replacedManager}.',
-      '{name} joined the league and took over {team:teamId}.',
-      '{team:teamId} has a new manager.'
+      '{name} joined the league and took over {teamname:teamId} from {replacedManager}.',
+      '{name} joined the league and took over {teamname:teamId}.',
+      '{teamname:teamId} has a new manager.'
     ]
   },
   'Member Left': {
     text: [
       {
-        text: '{team:teamId} was removed from the league by the commissioner.',
+        text: '{teamname:teamId} was removed from the league by the commissioner.',
         when: (d) => d.reason === 'removed'
       },
-      '{team:teamId} left the league.'
+      '{teamname:teamId} left the league.'
     ]
   },
   // Renames by people get a league line (#194); an AI manager announces its own new name in character.
   'Team Renamed': {
     text: [
       { text: '{from} is now {to}.', when: (d) => d.by === 'owner' },
+      {
+        text: 'The commissioner renamed {from} to {to} ({manager:teamId}).',
+        when: (d) => d.by === 'commissioner'
+      },
       { text: 'The commissioner renamed {from} to {to}.', when: (d) => d.by === 'commissioner' }
     ]
   },
@@ -184,8 +192,8 @@ export const SYSTEM_MESSAGE_TEMPLATES: Readonly<Record<string, SystemTemplate>> 
   // quietly weaken the AI teams they face.
   'Agent Seat Changed': {
     text: [
-      "The commissioner changed {team:teamId}'s {changes:changes}.",
-      "The commissioner changed {team:teamId}'s AI manager."
+      'The commissioner updated the AI manager of {team:teamId}: {changes:changes}.',
+      'The commissioner updated the AI manager of {team:teamId}.'
     ]
   },
   // The first time in a week the league's AI spend passes its limit, the ceiling plus any overage
@@ -224,6 +232,8 @@ export interface RenderedSystemMessage {
 export interface RenderOptions {
   /** A team's display name, or null when the id is unknown. */
   teamName(teamId: string): string | null;
+  /** The name of the AI manager playing a team, or null when a person plays it (or no one knows). */
+  managerName?(teamId: string): string | null;
   templates?: Readonly<Record<string, SystemTemplate>>;
 }
 
@@ -264,7 +274,17 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
       return text(value);
     case 'team': {
       const id = text(value);
+      const team = id === null ? null : options.teamName(id);
+      const manager = id === null || team === null ? null : (options.managerName?.(id) ?? null);
+      return manager === null ? team : `${team} (${manager})`;
+    }
+    case 'teamname': {
+      const id = text(value);
       return id === null ? null : options.teamName(id);
+    }
+    case 'manager': {
+      const id = text(value);
+      return id === null ? null : (options.managerName?.(id) ?? null);
     }
     case 'teams':
       return list(value, (v) => format('team', v, options));
@@ -286,7 +306,8 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
         const from = text(c.from);
         const to = text(c.to);
         if (field === null || from === null || to === null) return null;
-        return `${SEAT_FIELD_LABELS[field] ?? field} from ${from} to ${to}`;
+        const label = SEAT_FIELD_LABELS[field] ?? field;
+        return field === 'avatar' ? label : `${label} from ${from} to ${to}`;
       });
     case 'claims':
       return list(value, (claim) => {
@@ -305,6 +326,8 @@ function format(kind: string | undefined, value: unknown, options: RenderOptions
 
 /** How an agent seat field reads in a chat line. */
 export const SEAT_FIELD_LABELS: Readonly<Record<string, string>> = {
+  name: 'AI manager name',
+  avatar: 'AI manager avatar',
   difficulty: 'AI difficulty',
   archetype: 'AI strategy',
   model: 'AI decision model',
