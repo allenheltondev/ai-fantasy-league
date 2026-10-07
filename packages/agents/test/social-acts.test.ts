@@ -648,6 +648,16 @@ describe('a player callback from a stored chat remark (#280)', () => {
     expect((await everywhere(s)).some((m) => m.text.includes('cold'))).toBe(false);
   });
 
+  it('carries on without the record when storing a remark fails', async () => {
+    const s = await league();
+    await remark(s, 'trash-talk', 'Nice pickup on WR1. Enjoy the bench.');
+    vi.spyOn(s.repos.agents, 'updateMemory').mockRejectedValueOnce(new Error('throttled'));
+    const record = await run(s, checkIn(rolled(LOUD, false)));
+    expect(record.status).not.toBe('failed');
+    expect(s.logs.some((l) => l.includes('chat remarks not recorded'))).toBe(true);
+    expect((await memoryOf(s)).remarks).toEqual([]);
+  });
+
   it('makes no callback from a remark gone stale', async () => {
     const s = await league();
     await remark(s, 'trash-talk', 'Nice pickup on WR1. Enjoy the bench.');

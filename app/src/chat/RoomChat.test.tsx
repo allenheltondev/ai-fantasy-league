@@ -89,7 +89,8 @@ function pagedRoom(older: () => Promise<{ messages: ChatMessage[]; nextCursor: s
     rooms: vi.fn(),
     markRead: vi.fn(),
     realtime: vi.fn(async () => LIVE),
-    teams: vi.fn(async () => [])
+    teams: vi.fn(async () => []),
+    closeDm: vi.fn()
   };
   const onUnreadChange = vi.fn();
   render(
