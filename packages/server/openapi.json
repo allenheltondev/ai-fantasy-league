@@ -12631,7 +12631,7 @@
                           ]
                         },
                         "likelyGone": {
-                          "description": "Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots. A hint: real drafters reach. Empty with no team or no pick left.",
+                          "description": "Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots; a team run by a person leans toward the position its own picks favour, as far ahead of consensus as it has been reaching. Built from the public draft history only: other teams' queues stay private. A hint: real drafters reach. Empty with no team or no pick left.",
                           "type": "array",
                           "items": {
                             "type": "object",
@@ -16230,7 +16230,7 @@
                           ]
                         },
                         "likelyGone": {
-                          "description": "Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots. A hint: real drafters reach. Empty with no team or no pick left.",
+                          "description": "Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots; a team run by a person leans toward the position its own picks favour, as far ahead of consensus as it has been reaching. Built from the public draft history only: other teams' queues stay private. A hint: real drafters reach. Empty with no team or no pick left.",
                           "type": "array",
                           "items": {
                             "type": "object",

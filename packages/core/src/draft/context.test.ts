@@ -8,7 +8,9 @@ import {
   byeClash,
   byeRemains,
   draftRiskMultiplier,
+  draftTendency,
   isSidelined,
+  MAX_TENDENCY_REACH,
   likelyGoneBeforeYourPick,
   likelyTakenBeforeNextTurn,
   positionScarcity,
@@ -177,6 +179,98 @@ describe('likelyGoneBeforeYourPick', () => {
     expect(likelyGoneBeforeYourPick(s, 't4', pool.slice(0, 1), ranks, settings)).toEqual(['p00']);
     expect(likelyGoneBeforeYourPick(advance(s, 5), 't4', pool, ranks, settings)).toEqual([]);
     expect(likelyGoneBeforeYourPick(advance(s, 8), 't4', pool, ranks, settings)).toEqual([]);
+  });
+});
+
+describe('draft tendencies (#151)', () => {
+  // Three rounds of a 4-team snake: t2 (picks 2, 7, 10) takes a running back every time, each one
+  // `reach` picks ahead of his consensus rank. Round 4 opens t4, t3, t2, then t1.
+  const OPENING: [string, Position][] = [
+    ['a1', 'QB'],
+    ['r1', 'RB'],
+    ['a3', 'QB'],
+    ['a4', 'QB'],
+    ['a5', 'TE'],
+    ['a6', 'TE'],
+    ['r2', 'RB'],
+    ['a8', 'TE'],
+    ['a9', 'K'],
+    ['r3', 'RB'],
+    ['a11', 'K'],
+    ['a12', 'K']
+  ];
+  function opened(reach: number): DraftState {
+    let s = draft(4, 16);
+    for (const [id, position] of OPENING) s = take(s, id, [position]);
+    return {
+      ...s,
+      picks: s.picks.map((p) => (p.teamId === 't2' ? { ...p, adp: p.overall + reach } : { ...p, adp: null }))
+    };
+  }
+  // Wide receivers lead consensus; the best back is sixth.
+  const pool: DraftablePlayer[] = [
+    ...['w0', 'w1', 'w2', 'w3', 'w4'].map((playerId) => ({ playerId, positions: ['WR' as const] })),
+    { playerId: 'b0', positions: ['RB'] },
+    ...['w5', 'w6', 'w7'].map((playerId) => ({ playerId, positions: ['WR' as const] }))
+  ];
+  const ranks = pool.map((p) => p.playerId);
+
+  it('reads the position a team keeps taking and how far ahead of consensus it reaches', () => {
+    const s = opened(8);
+    expect(draftTendency(s.picks, 't2')).toEqual({ lean: 'RB', reach: 8 });
+    // One of everything: no lean.
+    expect(draftTendency(s.picks, 't1')).toBeNull();
+    // Too few picks to say, and autopicks say nothing about the person.
+    expect(draftTendency(s.picks.slice(0, 7), 't2')).toBeNull();
+    expect(
+      draftTendency(
+        s.picks.map((p) => ({ ...p, auto: true })),
+        't2'
+      )
+    ).toBeNull();
+    // A reach is capped, and no ADP at all reads as drafting by consensus.
+    expect(draftTendency(opened(500).picks, 't2')).toEqual({ lean: 'RB', reach: MAX_TENDENCY_REACH });
+    expect(
+      draftTendency(
+        opened(8).picks.map((p) => ({ ...p, adp: null })),
+        't2'
+      )?.reach
+    ).toBe(0);
+  });
+
+  it('finds no lean in a tie between positions', () => {
+    const picks = (['RB', 'WR', 'RB', 'WR'] as const).map((position, i) => ({
+      teamId: 't1',
+      positions: [position],
+      auto: false,
+      overall: i + 1,
+      adp: null
+    }));
+    expect(draftTendency(picks, 't1')).toBeNull();
+  });
+
+  it('has a person take the best player at their lean, within their reach of consensus', () => {
+    const s = opened(8);
+    const tendencies = { t2: draftTendency(s.picks, 't2') };
+    // By consensus alone t4, t3 and t2 take the top three receivers.
+    expect(likelyGoneBeforeYourPick(s, 't1', pool, ranks, settings)).toEqual(['w0', 'w1', 'w2']);
+    // t2 has been reaching 8 picks for backs: the sixth-ranked back is within reach.
+    expect(likelyGoneBeforeYourPick(s, 't1', pool, ranks, settings, tendencies)).toEqual(['w0', 'w1', 'b0']);
+    // A team that only reaches 2 picks still takes the receiver.
+    const near = opened(2);
+    expect(
+      likelyGoneBeforeYourPick(near, 't1', pool, ranks, settings, { t2: draftTendency(near.picks, 't2') })
+    ).toEqual(['w0', 'w1', 'w2']);
+  });
+
+  it('applies to the picks after yours, too, and never to a team without a tendency', () => {
+    // t1 on the clock at pick 16 picks again at 17: nobody in between.
+    let s = opened(8);
+    for (const id of ['x13', 'x14', 'x15']) s = take(s, id, ['WR']);
+    expect(likelyTakenBeforeNextTurn(s, 't1', pool, ranks, settings, { t2: null })).toEqual([]);
+    // t4 picks 13 and has no lean: consensus, whatever is passed for it.
+    const fresh = opened(8);
+    expect(likelyGoneBeforeYourPick(fresh, 't3', pool, ranks, settings, { t4: null })).toEqual(['w0']);
   });
 });
 

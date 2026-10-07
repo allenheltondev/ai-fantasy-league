@@ -585,8 +585,8 @@ export function DraftPage({
         </p>
       )}
       <p className="mt-2 text-muted-foreground">
-        Estimate based on consensus rank and opponents’ open starting slots. Managers can choose differently.
-        Unranked positions count all remaining players.
+        Estimate based on consensus rank, opponents’ open starting slots, and the positions people have been
+        drafting. Managers can choose differently. Unranked positions count all remaining players.
       </p>
     </details>
   );

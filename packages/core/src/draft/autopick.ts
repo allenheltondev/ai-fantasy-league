@@ -103,7 +103,8 @@ export function draftRosterIssue(
   );
 }
 
-function rankOf(rankings: PlayerRankings): (id: string) => number {
+/** A lookup of each player's rank (lower is better); unranked players rank last. */
+export function rankOf(rankings: PlayerRankings): (id: string) => number {
   if (Array.isArray(rankings)) {
     const index = new Map((rankings as readonly string[]).map((id, i) => [id, i]));
     return (id) => index.get(id) ?? Number.POSITIVE_INFINITY;
