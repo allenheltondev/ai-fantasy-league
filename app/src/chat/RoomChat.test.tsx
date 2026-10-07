@@ -42,6 +42,7 @@ it('counts a live message that beats the first good history read, even when that
     post: vi.fn(),
     rooms: vi.fn(),
     markRead: vi.fn(),
+    closeDm: vi.fn(),
     realtime: vi.fn(async () => LIVE),
     teams: vi.fn(async () => [])
   };

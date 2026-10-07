@@ -120,6 +120,9 @@ function fakeApi(realtime: RealtimeInfo = OFF) {
     })),
     markRead: vi.fn(async (_league: string, roomId: string) => {
       rooms = rooms.map((r) => (r.roomId === roomId ? { ...r, unreadCount: 0 } : r));
+    }),
+    closeDm: vi.fn(async (_league: string, roomId: string) => {
+      rooms = rooms.filter((r) => r.roomId !== roomId);
     })
   };
   return {
@@ -171,7 +174,7 @@ const messages = () => screen.getByRole('list', { name: 'Chat messages' });
 const badge = (roomId: string) =>
   within(
     sidebar().getByRole('button', {
-      name: new RegExp(ROOMS.find((r) => r.roomId === roomId)?.title ?? roomId)
+      name: new RegExp(`^(# )?${ROOMS.find((r) => r.roomId === roomId)?.title ?? roomId}`)
     })
   ).queryByTestId('unread-badge');
 
@@ -340,6 +343,43 @@ describe('chat rooms', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('?room=m-2026-W05-W05-1');
   });
 
+  it('closes a DM: off the list, back to trash talk, and back again on a new message', async () => {
+    const user = userEvent.setup();
+    const { api, addRoom } = fakeApi({
+      ...OFF,
+      enabled: true,
+      token: 't',
+      cacheName: 'c',
+      topics: { league: 'l', global: 'g', team: 'tm' }
+    });
+    let push: ((m: ChatMessage) => void) | null = null;
+    const connect: Connect = vi.fn(async (_target, handlers) => {
+      push = handlers.onChat;
+      return () => undefined;
+    });
+    renderChat(api, { connect, path: '/leagues/L1/chat?room=dm-team-1-team-3' });
+    expect(await screen.findByRole('heading', { name: 'Rocket Men', level: 2 })).toBeInTheDocument();
+    // Fixed and matchup rooms have no close button.
+    expect(sidebar().getAllByRole('button', { name: /^Close conversation/ })).toHaveLength(1);
+    await user.click(sidebar().getByRole('button', { name: 'Close conversation with Rocket Men' }));
+    expect(sidebar().queryByRole('button', { name: /^Rocket Men/ })).not.toBeInTheDocument();
+    expect(api.closeDm).toHaveBeenCalledWith('L1', 'dm-team-1-team-3');
+    expect(screen.getByTestId('where')).toHaveTextContent('?room=trash-talk');
+    expect(await within(messages()).findByText('welcome to trash talk')).toBeInTheDocument();
+    // Rae writes again: the server lists it again, and so does the sidebar.
+    addRoom(
+      room({
+        roomId: 'dm-team-1-team-3',
+        title: 'Rocket Men',
+        kind: 'dm',
+        teamIds: ['team-1', 'team-3'],
+        unreadCount: 1
+      })
+    );
+    act(() => push?.(msg('dm-team-1-team-3', { text: 'still want that kicker?' })));
+    expect(await sidebar().findByRole('button', { name: /^Rocket Men1/ })).toBeInTheDocument();
+  });
+
   it('switches rooms on a phone from the room sheet', async () => {
     const user = userEvent.setup();
     const { api } = fakeApi();
@@ -410,7 +450,7 @@ describe('chat rooms when things go wrong', () => {
     await within(messages()).findByText('welcome to trash talk');
     await user.click(screen.getByRole('button', { name: /Chat room: Trash Talk/ }));
     const sheet = await screen.findByRole('dialog');
-    await user.click(within(sheet).getByRole('button', { name: /close/i }));
+    await user.click(within(sheet).getByRole('button', { name: /^close(?! conversation)/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: /Chat room: Trash Talk/ })).toBeInTheDocument();
   });

@@ -76,7 +76,8 @@ function fakeApi(
     }),
     teams: vi.fn(async () => TEAMS),
     rooms: vi.fn(async () => ({ defaultRoomId: 'trash-talk', rooms: [] })),
-    markRead: vi.fn(async () => undefined)
+    markRead: vi.fn(async () => undefined),
+    closeDm: vi.fn(async () => undefined)
   };
   return { api, store };
 }

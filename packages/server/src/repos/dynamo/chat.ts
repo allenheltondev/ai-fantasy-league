@@ -190,6 +190,29 @@ export class DynamoChatRepository implements ChatRepository {
     }
   }
 
+  async closedRooms(leagueId: string, reader: string): Promise<Record<string, string>> {
+    const items = await queryAll(this.table, {
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': chatPk(leagueId), ':prefix': `CLOSED#${reader}#` }
+    });
+    return Object.fromEntries(items.map((item) => [String(item.roomId), String(item.closedAt)]));
+  }
+
+  async closeRoom(leagueId: string, reader: string, roomId: string, at: string): Promise<void> {
+    await this.table.doc.send(
+      new PutCommand({
+        TableName: this.table.tableName,
+        Item: {
+          pk: chatPk(leagueId),
+          sk: `CLOSED#${reader}#${roomId}`,
+          entity: 'chatClosed',
+          roomId,
+          closedAt: at
+        }
+      })
+    );
+  }
+
   async deleteLeague(leagueId: string): Promise<void> {
     const keys = await queryAll(this.table, {
       KeyConditionExpression: 'pk = :pk',

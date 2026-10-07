@@ -13,6 +13,8 @@ export interface ChatRoomsState {
   bump(roomId: string): void;
   /** Marks a room read, here at once and on the server. */
   markRead(roomId: string): void;
+  /** Closes a DM: off the list at once, and on the server (a failure brings it back). */
+  closeDm(roomId: string): void;
 }
 
 /**
@@ -70,5 +72,18 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
     [leagueId, api]
   );
 
-  return { rooms, defaultRoomId, pastWeeks, loaded, refresh, bump, markRead };
+  const closeDm = useCallback(
+    (roomId: string) => {
+      setRooms((current) => current.filter((r) => r.roomId !== roomId));
+      // Unknown again, so its next message re-reads the list and brings it back.
+      known.current.delete(roomId);
+      api.closeDm(leagueId, roomId).then(
+        () => undefined,
+        () => void refresh()
+      );
+    },
+    [leagueId, api, refresh]
+  );
+
+  return { rooms, defaultRoomId, pastWeeks, loaded, refresh, bump, markRead, closeDm };
 }

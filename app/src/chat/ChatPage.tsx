@@ -94,7 +94,7 @@ function LeagueChat({
       () => undefined
     );
   }, [listed, rooms.loaded, week, roomId, picked, api, leagueId]);
-  const { bump, markRead } = rooms;
+  const { bump, markRead, closeDm } = rooms;
   const onOther = useCallback((message: ChatMessage) => bump(message.roomId ?? DEFAULT_ROOM_ID), [bump]);
   const onSeen = useCallback(() => markRead(roomId), [markRead, roomId]);
   const select = (next: string, found?: ChatRoom) => {
@@ -113,6 +113,11 @@ function LeagueChat({
       onSelect={(next, found) => {
         select(next, found);
         then?.();
+      }}
+      onCloseDm={(closed) => {
+        closeDm(closed);
+        // Closing the open DM leaves it for the room people land in.
+        if (closed === roomId) setParams({ room: rooms.defaultRoomId });
       }}
       loadPastWeek={async (week) => (await api.rooms(leagueId, { pastWeek: week })).rooms}
       pastWeeks={rooms.pastWeeks}

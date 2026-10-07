@@ -251,6 +251,42 @@ for (const backend of ['memory', 'dynamo'] as const) {
       ]);
     });
 
+    it('closes a DM for one side until someone writes in it again', async () => {
+      const bob = as(h, BOB);
+      const carol = as(h, CAROL);
+      const room = 'dm-team-2-team-4';
+      const dms = async (who: typeof bob) =>
+        data<Rooms>(await who.get(`${L}/chat/rooms`))
+          .rooms.filter((r) => r.kind === 'dm')
+          .map((r) => [r.roomId, r.unreadCount]);
+      await carol.post(`${L}/chat/messages`, { roomId: room, text: 'want my kicker?' });
+      expect(await dms(bob)).toEqual([[room, 1]]);
+      h.clock.advance(1000);
+
+      const closed = await bob.post(`${L}/chat/rooms/${room}/close`);
+      expect(data(closed)).toEqual({ roomId: room, closedAt: h.clock.now().toISOString() });
+      expect(await dms(bob)).toEqual([]);
+      // Only for Bob: Carol still has it, and the messages are all still there.
+      expect(await dms(carol)).toEqual([[room, 0]]);
+      expect(data<Page>(await bob.get(`${L}/chat/messages?roomId=${room}`)).messages).toHaveLength(1);
+
+      // A new message reopens it, unread.
+      h.clock.advance(1000);
+      await carol.post(`${L}/chat/messages`, { roomId: room, text: 'hello??' });
+      expect(await dms(bob)).toEqual([[room, 1]]);
+      // So does writing in it yourself after closing it again.
+      h.clock.advance(1000);
+      await bob.post(`${L}/chat/rooms/${room}/close`);
+      expect(await dms(bob)).toEqual([]);
+      h.clock.advance(1000);
+      await bob.post(`${L}/chat/messages`, { roomId: room, text: 'fine, what kicker' });
+      expect(await dms(bob)).toEqual([[room, 0]]);
+
+      // Only DMs close, and only your own.
+      expect(errorCode(await bob.post(`${L}/chat/rooms/trash-talk/close`))).toBe('INVALID_INPUT');
+      expect(errorCode(await as(h, ALICE).post(`${L}/chat/rooms/${room}/close`))).toBe('FORBIDDEN');
+    });
+
     it('keeps a DM between its two teams: others get FORBIDDEN, and the league topic never sees it', async () => {
       const bob = as(h, BOB);
       const res = await bob.post(`${L}/chat/messages`, {

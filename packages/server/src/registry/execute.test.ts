@@ -47,6 +47,7 @@ const NO_FLAGS = { waiversOpen: false, preLock: false, tradeDeadlinePassed: fals
 /** The commissioner (without a seat, in this fixture) during setup. */
 const COMMISSIONER_SETUP_ACTIONS = [
   'check_in_draft_lobby',
+  'close_dm',
   'configure_agent_seat',
   'create_invite',
   'create_takeover_invite',
@@ -261,6 +262,7 @@ describe('executeOperation', () => {
     const playoffs = league({ phase: 'playoffs' });
     const actor = resolveActor(playoffs, [], USER);
     expect(leagueAllowedActions(testRegistry.operations, playoffs, actor, new Date(START))).toEqual([
+      'close_dm',
       'configure_agent_seat',
       // An AI team can be handed to a person through the playoffs.
       'create_takeover_invite',

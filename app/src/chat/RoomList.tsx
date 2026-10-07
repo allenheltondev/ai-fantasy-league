@@ -13,6 +13,7 @@ export function RoomList({
   teams,
   yourTeamId,
   onSelect,
+  onCloseDm,
   loadPastWeek,
   pastWeeks: listedPastWeeks = null
 }: {
@@ -21,6 +22,8 @@ export function RoomList({
   teams: readonly ChatTeam[];
   yourTeamId: string | null;
   onSelect(roomId: string, room?: ChatRoom): void;
+  /** Closes a DM (off your list until someone writes in it again); no close buttons without it. */
+  onCloseDm?(roomId: string): void;
   /** That past week's matchup rooms (archived). */
   loadPastWeek(week: number): Promise<ChatRoom[]>;
   /**
@@ -47,7 +50,15 @@ export function RoomList({
       <Section title="Rooms">{fixed.map(row)}</Section>
       {matchups.length > 0 ? <Section title="This week's matchups">{matchups.map(row)}</Section> : null}
       <Section title="Direct messages">
-        {dms.map(row)}
+        {dms.map((room) => (
+          <RoomRow
+            key={room.roomId}
+            room={room}
+            current={room.roomId === currentRoomId}
+            onSelect={onSelect}
+            {...(onCloseDm === undefined ? {} : { onClose: () => onCloseDm(room.roomId) })}
+          />
+        ))}
         {yourTeamId === null ? null : (
           <li>
             <NewMessage
@@ -76,15 +87,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function RoomRow({
   room,
   current,
-  onSelect
+  onSelect,
+  onClose
 }: {
   room: ChatRoom;
   current: boolean;
   onSelect(roomId: string, room?: ChatRoom): void;
+  /** A DM's close button. */
+  onClose?(): void;
 }) {
   const unread = current ? 0 : room.unreadCount;
   return (
-    <li>
+    <li className="flex min-w-0 items-center gap-0.5">
       <button
         type="button"
         data-room={room.roomId}
@@ -100,6 +114,17 @@ function RoomRow({
         </span>
         {unread > 0 ? <UnreadBadge count={unread} /> : null}
       </button>
+      {onClose === undefined ? null : (
+        <button
+          type="button"
+          aria-label={`Close conversation with ${room.title}`}
+          title="Close conversation"
+          onClick={onClose}
+          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      )}
     </li>
   );
 }

@@ -193,7 +193,11 @@ export interface ChatRepository {
   readState(leagueId: string, reader: string): Promise<Record<string, string>>;
   /** Moves the reader's `lastReadAt` for the room forward to `at` (never back). */
   markRead(leagueId: string, reader: string, roomId: string, at: string): Promise<void>;
-  /** Deletes every message, read marker, and index item of a league's chat (delete_league). */
+  /** When a reader closed each DM they closed, by room id (a later message reopens it). */
+  closedRooms(leagueId: string, reader: string): Promise<Record<string, string>>;
+  /** Records that the reader closed the room at `at`, replacing an earlier close. */
+  closeRoom(leagueId: string, reader: string, roomId: string, at: string): Promise<void>;
+  /** Deletes every message, read marker, close marker, and index item of a league's chat (delete_league). */
   deleteLeague(leagueId: string): Promise<void>;
 }
 

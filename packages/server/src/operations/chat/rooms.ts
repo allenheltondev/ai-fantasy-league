@@ -10,6 +10,7 @@ import {
   RoomIdSchema,
   visibleRooms
 } from '../../chat/rooms.js';
+import { ApiError } from '../../errors.js';
 import { requireMember } from '../../league/access.js';
 import { LeagueIdSchema } from '../../league/views.js';
 import { defineOperation } from '../../registry/operation.js';
@@ -21,7 +22,7 @@ export const listChatRooms = defineOperation({
   summary: 'List the chat rooms you can read, with unread counts',
   description: [
     'Returns every chat room you can read, each with its `title`, `kind`, `lastMessageAt`, and `unreadCount` (messages since you last marked it read with mark_room_read, at most 100).',
-    'Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week (`kind: matchup`; a week’s rooms are archived and leave this list once its games are over); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat).',
+    'Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week (`kind: matchup`; a week’s rooms are archived and leave this list once its games are over); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat, and not while you have it closed with close_dm).',
     'Past weeks’ matchup rooms are archived (read-only): `pastWeeks` names those weeks; pass one as `pastWeek` to list its rooms.',
     'Read a room with get_chat and post with post_message, both with its `roomId`.',
     'Errors: FORBIDDEN if you are not in the league.'
@@ -77,7 +78,9 @@ export const listChatRooms = defineOperation({
       access,
       input.pastWeek === undefined ? {} : { pastWeek: input.pastWeek }
     );
-    const read = await ctx.repos.chat.readState(access.league.id, principalKey(ctx.principal));
+    const reader = principalKey(ctx.principal);
+    const read = await ctx.repos.chat.readState(access.league.id, reader);
+    const closed = await ctx.repos.chat.closedRooms(access.league.id, reader);
     const summaries = await Promise.all(
       rooms.map((room) =>
         ctx.repos.chat.summary(
@@ -89,10 +92,14 @@ export const listChatRooms = defineOperation({
       )
     );
     // A DM with nothing from your time on the seat is not yours to list: it was the previous
-    // occupant's.
+    // occupant's. One you closed stays off the list until someone writes in it again.
     const listed = rooms
       .map((room, i) => ({ ...room, ...(summaries[i] as (typeof summaries)[number]) }))
-      .filter((room) => room.kind !== 'dm' || room.lastMessageAt !== null);
+      .filter((room) => room.kind !== 'dm' || room.lastMessageAt !== null)
+      .filter((room) => {
+        const closedAt = room.kind === 'dm' ? closed[room.roomId] : undefined;
+        return closedAt === undefined || (room.lastMessageAt !== null && room.lastMessageAt > closedAt);
+      });
     const agentTeamId = access.actor.kind === 'agent' ? (access.actor.team?.id ?? null) : null;
     const now = ctx.clock.now();
     const postingBudget =
@@ -107,6 +114,39 @@ export const listChatRooms = defineOperation({
             now
           );
     return { defaultRoomId: DEFAULT_ROOM_ID, pastWeeks: pastRoomWeeks(access), postingBudget, rooms: listed };
+  }
+});
+
+export const closeDm = defineOperation({
+  name: 'close_dm',
+  method: 'POST',
+  path: '/leagues/{leagueId}/chat/rooms/{roomId}/close',
+  summary: 'Close a direct message',
+  description: [
+    'Takes one of your direct messages off your list_chat_rooms (and marks it read). Only for you: the other team still sees it. Nothing is deleted, and it comes back as soon as either team writes in it again.',
+    'Errors: INVALID_INPUT for a room that is not a DM; FORBIDDEN if you are not in the league or the DM is between two other teams; ROOM_NOT_FOUND for a room this league does not have.'
+  ].join(' '),
+  tags: ['chat'],
+  mutation: true,
+  input: z.object({ leagueId: LeagueIdSchema, roomId: RoomIdSchema }),
+  output: z.object({ roomId: z.string(), closedAt: z.string() }),
+  handler: async (ctx, input) => {
+    const access = await requireMember(ctx, input.leagueId);
+    const { room } = await resolveRoom(ctx, access, input.roomId);
+    if (room.kind !== 'dm') {
+      throw new ApiError(
+        'INVALID_INPUT',
+        `"${room.title}" is not a direct message; only DMs can be closed.`,
+        {
+          fix: 'Pass a DM room id from list_chat_rooms (`kind: dm`).'
+        }
+      );
+    }
+    const reader = principalKey(ctx.principal);
+    const at = ctx.clock.now().toISOString();
+    await ctx.repos.chat.markRead(access.league.id, reader, room.roomId, at);
+    await ctx.repos.chat.closeRoom(access.league.id, reader, room.roomId, at);
+    return { roomId: room.roomId, closedAt: at };
   }
 });
 

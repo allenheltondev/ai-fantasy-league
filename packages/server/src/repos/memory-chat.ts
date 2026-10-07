@@ -19,6 +19,7 @@ interface LeagueChat {
   dms: Map<string, Set<string>>;
   /** `lastReadAt` by `<reader>#<roomId>`. */
   reads: Map<string, string>;
+  closed: Map<string, string>;
 }
 
 /** In-memory chat, with the same ordering, cursors, and read markers as the DynamoDB repository. */
@@ -28,7 +29,7 @@ export class InMemoryChatRepository implements ChatRepository {
   #league(leagueId: string): LeagueChat {
     let chat = this.#byLeague.get(leagueId);
     if (chat === undefined) {
-      chat = { messages: new Map(), dms: new Map(), reads: new Map() };
+      chat = { messages: new Map(), dms: new Map(), reads: new Map(), closed: new Map() };
       this.#byLeague.set(leagueId, chat);
     }
     return chat;
@@ -116,6 +117,19 @@ export class InMemoryChatRepository implements ChatRepository {
     const key = `${reader}#${roomId}`;
     const current = reads.get(key);
     if (current === undefined || current < at) reads.set(key, at);
+  }
+
+  async closedRooms(leagueId: string, reader: string): Promise<Record<string, string>> {
+    const prefix = `${reader}#`;
+    return Object.fromEntries(
+      [...(this.#byLeague.get(leagueId)?.closed ?? [])]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, at]) => [key.slice(prefix.length), at])
+    );
+  }
+
+  async closeRoom(leagueId: string, reader: string, roomId: string, at: string): Promise<void> {
+    this.#league(leagueId).closed.set(`${reader}#${roomId}`, at);
   }
 
   async deleteLeague(leagueId: string): Promise<void> {
