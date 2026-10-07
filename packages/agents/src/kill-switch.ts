@@ -1,6 +1,6 @@
 /**
  * The global kill switch lives in `@fantasy/server` so the API can show its state to the
- * commissioner (`get_agent_activity`); the agent runtime uses the same implementation.
+ * league's managers (`get_agent_activity`); the agent runtime uses the same implementation.
  */
 export {
   OFF_SWITCH,

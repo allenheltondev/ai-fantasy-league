@@ -33,7 +33,7 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 /**
- * The commissioner's AI activity tab (#77): the kill switch, the week's estimated model spend
+ * The league's AI activity tab (#77), for every manager: the kill switch, the week's estimated model spend
  * against the league ceiling (and any overage) with each agent's allowance, the season's spend so
  * far, and the decision log with each task's reasoning summary and tool calls.
  */
@@ -89,7 +89,7 @@ export function AiActivityPanel({
               ? `On overage: ${formatUsd(Math.max(0, limitUsd - budget.spentUsd))} of ${formatUsd(overageUsd)} left`
               : `${formatUsd(budget.remainingUsd)} left${
                   overageUsd > 0 ? ` + ${formatUsd(overageUsd)} overage` : ''
-                } · ${budget.automatic === false ? 'your budget' : 'automatic budget'}`
+                } · ${budget.automatic === false ? 'custom budget' : 'automatic budget'}`
           }
           {...(budget.exceeded
             ? { status: { tone: 'warning' as const, label: 'Over budget' } }

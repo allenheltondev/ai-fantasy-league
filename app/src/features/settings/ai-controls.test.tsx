@@ -212,7 +212,7 @@ describe('settings: AI budget & models', () => {
     });
     await openAi(api);
     const panel = await screen.findByTestId('ai-activity');
-    expect(within(panel).getByText('$0.50 left + $1.00 overage · your budget')).toBeInTheDocument();
+    expect(within(panel).getByText('$0.50 left + $1.00 overage · custom budget')).toBeInTheDocument();
   });
 
   it('says when the budget and its overage are both spent', async () => {

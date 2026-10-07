@@ -259,7 +259,7 @@ describe('agent seat operations', () => {
     expect(withHuman.body).toMatchObject({ error: { code: 'INVALID_INPUT' } });
   });
 
-  it('reports activity and the weekly budget to the commissioner', async () => {
+  it('reports activity and the weekly budget to the league', async () => {
     const { run, repos } = await setup('regular_season');
     await repos.agents.putSeat({
       leagueId: 'lg-1',
@@ -299,8 +299,12 @@ describe('agent seat operations', () => {
     });
     const past = await run('get_agent_activity', { leagueId: 'lg-1', week: 4, teamId: 'team-2' });
     expect(past.body).toMatchObject({ data: { budget: { week: 4, spentUsd: 0, exceeded: false } } });
+    const member = await run('get_agent_activity', { leagueId: 'lg-1' }, MEMBER);
+    expect((member.body as { data: unknown }).data).toEqual((result.body as { data: unknown }).data);
     const denied = await run('get_agent_activity', { leagueId: 'lg-1' }, OTHER);
     expect(denied.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
+    const agent = await run('get_agent_activity', { leagueId: 'lg-1' }, AGENT);
+    expect(agent.body).toMatchObject({ error: { code: 'FORBIDDEN' } });
     const league5 = await repos.leagues.get('lg-1');
     expect(budgetWeek({ ...league5!, week: null })).toBe(0);
     expect((await leagueBudget(repos.agents, league5!)).week).toBe(5);

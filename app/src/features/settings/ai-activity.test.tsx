@@ -301,11 +301,12 @@ describe('settings: AI activity', () => {
     expect(api.getAgentSeat).not.toHaveBeenCalled();
   });
 
-  it('is only offered to the commissioner', async () => {
+  it('shows other managers the activity but not the budget controls or seat history', async () => {
     const api = fakeApi({ getLeagueState: vi.fn(async () => state({ youAreCommissioner: false })) });
-    renderApp('/leagues/L1/settings', undefined, api);
-    await screen.findByTestId('league-section-settings');
-    expect(screen.queryByRole('button', { name: 'AI activity' })).not.toBeInTheDocument();
-    expect(api.getAgentActivity).not.toHaveBeenCalled();
+    await openAi(api);
+    expect(api.getAgentActivity).toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'AI budget & models' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Seat version history' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Data status' })).not.toBeInTheDocument();
   });
 });
