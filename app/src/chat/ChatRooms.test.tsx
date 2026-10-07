@@ -366,6 +366,53 @@ describe('chat rooms', () => {
     expect(rooms.mock.calls.filter(([, o]) => o?.pastWeek === 5).length).toBeGreaterThanOrEqual(2);
   });
 
+  it('reads an ended week’s rooms once at a time, and once for good when the room is not there', async () => {
+    const { api, endWeek } = fakeApi();
+    const rooms = api.rooms as ReturnType<typeof vi.fn>;
+    const real = rooms.getMockImplementation() as ChatApi['rooms'];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    rooms.mockImplementation(async (league: string, options: { pastWeek?: number } = {}) => {
+      if (options.pastWeek !== undefined) await held;
+      return real(league, options);
+    });
+    const pastReads = (week: number) => rooms.mock.calls.filter(([, o]) => o?.pastWeek === week).length;
+    endWeek();
+    // Week 5 has no room 9: a link to it reads the week, finds nothing, and stops asking.
+    renderChat(api, { roomsRefreshMs: 20, path: '/leagues/L1/chat?room=m-2026-W05-W05-9' });
+    await waitFor(() => expect(pastReads(5)).toBe(1));
+    // The list keeps refreshing while that read is out: no second read meanwhile.
+    const listReads = () => rooms.mock.calls.filter(([, o]) => o?.pastWeek === undefined).length;
+    const before = listReads();
+    await waitFor(() => expect(listReads()).toBeGreaterThan(before + 2));
+    expect(pastReads(5)).toBe(1);
+    release();
+    const settled = listReads();
+    await waitFor(() => expect(listReads()).toBeGreaterThan(settled + 2));
+    expect(pastReads(5)).toBe(1);
+    // Still the stand-in: nothing to archive.
+    expect(screen.queryByText(/This room is archived/)).not.toBeInTheDocument();
+  });
+
+  it('closes a DM that is not open, and brings it back when closing fails', async () => {
+    const user = userEvent.setup();
+    const { api } = fakeApi();
+    (api.closeDm as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('offline'));
+    renderChat(api);
+    await within(messages()).findByText('welcome to trash talk');
+    await user.click(await sidebar().findByRole('button', { name: 'Close conversation with Rocket Men' }));
+    // Trash talk stays open; the failed close re-reads the list, which still has the DM.
+    expect(screen.getByTestId('where')).not.toHaveTextContent('room=trash-talk');
+    expect(await sidebar().findByRole('button', { name: /^Rocket Men/ })).toBeInTheDocument();
+    await user.click(sidebar().getByRole('button', { name: 'Close conversation with Rocket Men' }));
+    await waitFor(() =>
+      expect(sidebar().queryByRole('button', { name: /^Rocket Men/ })).not.toBeInTheDocument()
+    );
+    expect(api.closeDm).toHaveBeenCalledTimes(2);
+  });
+
   it('closes a DM: off the list, back to trash talk, and back again on a new message', async () => {
     const user = userEvent.setup();
     const { api, addRoom } = fakeApi({

@@ -22,8 +22,8 @@ export function RoomList({
   teams: readonly ChatTeam[];
   yourTeamId: string | null;
   onSelect(roomId: string, room?: ChatRoom): void;
-  /** Closes a DM (off your list until someone writes in it again); no close buttons without it. */
-  onCloseDm?(roomId: string): void;
+  /** Closes a DM (off your list until someone writes in it again). */
+  onCloseDm(roomId: string): void;
   /** That past week's matchup rooms (archived). */
   loadPastWeek(week: number): Promise<ChatRoom[]>;
   /**
@@ -56,7 +56,7 @@ export function RoomList({
             room={room}
             current={room.roomId === currentRoomId}
             onSelect={onSelect}
-            {...(onCloseDm === undefined ? {} : { onClose: () => onCloseDm(room.roomId) })}
+            onClose={() => onCloseDm(room.roomId)}
           />
         ))}
         {yourTeamId === null ? null : (
