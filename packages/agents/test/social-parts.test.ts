@@ -297,7 +297,12 @@ describe('dmGoals', () => {
 
 function prep(social: Partial<SocialLook>): CheckInPrep {
   return {
-    look: { social: { ...NO_SOCIAL, ...social } },
+    look: {
+      social: { ...NO_SOCIAL, ...social },
+      waivers: { pickups: [] },
+      trade: { prep: null },
+      trades: []
+    },
     reasons: [],
     context: []
   } as unknown as CheckInPrep;

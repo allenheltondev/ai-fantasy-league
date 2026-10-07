@@ -72,7 +72,7 @@ No extra model call: questions use the reply task's existing call, and ambient a
 
 ## Privacy
 
-What may reach a public room is decided before the prompt: the pack holds only facts the room may hear, filtered through #206 visibility. A rejected or pending offer, a waiver bid, a DM, the agenda, a commitment, bars, and thresholds are never in it. An event the agent never recorded (a trade between two other teams) cannot become a callback. The check-in's model still sees its own private options, as before; the posting check keeps their players out of the act.
+What may reach a public room is decided before the prompt: the pack holds only facts the room may hear, filtered through #206 visibility. A rejected or pending offer, a waiver bid, a DM, the agenda, a commitment, bars, and thresholds are never in it. An event the agent never recorded (a trade between two other teams) cannot become a callback. The check-in's model still sees its own private options, as before; the posting check keeps their players out of the act. The same prompt can offer a board post or matchup talk beside a DM-only act, so those free-form posts get a check of their own (core `checkPost`, #263): the act's DM facts are marked private in the prompt, and a public post naming a player in a private move or talking of an offer that is not public is held back.
 
 ## Limitations and next steps
 

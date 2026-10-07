@@ -2,6 +2,7 @@ import {
   DEFAULT_ROOM_ID,
   SOCIAL_LIMITS,
   checkInChatChance,
+  checkPost,
   dmChance,
   dmRoomId,
   dmVerdict,
@@ -9,7 +10,9 @@ import {
   lastWordIsMine,
   matchupPostsLeft,
   matchupTalkChance,
+  privateTradeTerms,
   socialRoll,
+  supportedTradeClaims,
   type DmVerdict
 } from '@fantasy/core';
 import { ChatContextPackSchema, ChatMessageSchema, type Envelope } from '@fantasy/server';
@@ -20,6 +23,7 @@ import { quote } from './quote.js';
 import {
   ListedRoomsSchema,
   actInstructions,
+  privateTerms,
   fakeActAction,
   NO_OPPORTUNITY,
   lookOpportunities,
@@ -57,6 +61,14 @@ import { fallbackRename, namingFor, namingSection, scriptedName, type NamingPrep
  *
  * Every post respects the daily chat budgets (checked here and enforced by post_message), and the
  * agent never posts twice in a row in a room until someone else has spoken (`lastWordIsMine`).
+ *
+ * A free-form post (board, matchup, DM) is written in the same answer as the roster and trade
+ * moves, before any of them is made. Before it goes out, a sentence claiming a trade status the
+ * record does not support ("Offer sent." with no offer behind it) is cut, and a post with nothing
+ * left is held back (core `checkPost`, #264). The prompt also holds private options (pickups and
+ * trade ideas, DM goals, a DM-only act's facts) next to the public rooms' facts, so a board post or
+ * matchup talk that names a player in a private move, or talks of an offer that is not public, is
+ * held back whole (#263); a DM to the other team is not held to that.
  */
 
 /** A direct message the check-in may send, tied to a goal. */
@@ -397,6 +409,7 @@ export function socialInstructions(ctx: TaskContext, prep: CheckInPrep): string[
       ...lines,
       '>>>'
     ].join('\n');
+  if (social.board !== null || social.matchup !== null) parts.push(PUBLIC_POSTS);
   if (social.board !== null)
     parts.push(
       [
@@ -437,8 +450,81 @@ export function chatOnOffer(social: SocialLook): string {
   ];
   return offered.length === 0
     ? 'No chat actions are on offer this check-in: leave out post_chat, matchup_post, send_dm, and social_act, and do not say in your summary that you posted or messaged anyone.'
-    : `Chat actions on offer this check-in: ${offered.join(', ')}. Any other chat action is dropped; your summary must not claim a post or message beyond these.`;
+    : `Chat actions on offer this check-in: ${offered.join(', ')}. Any other chat action is dropped; your summary must not claim a post or message beyond these. ${MOVES_NOT_MADE}`;
 }
+
+/**
+ * Board posts and matchup talk are public (#263): what the prompt holds for the agent alone or for
+ * one DM stays out of them. `clearPost` holds back what slips through.
+ */
+export const PUBLIC_POSTS =
+  'Board posts and matchup talk are public: every manager reads them. Keep out of them the pickups and trade ideas listed here, any offer that was not accepted (sent, pending, countered, or turned down, theirs or yours), and anything meant for a direct message. A public post that touches on one is held back.';
+
+/**
+ * Chat is written before any move this answer lists is made, and a move can still be refused
+ * (#264): a post says nothing about a move as done. `clearPost` cuts what slips through.
+ */
+export const MOVES_NOT_MADE =
+  'Your posts are written before any pickup, claim, or trade offer in this answer is made, and one can still be refused: never say in a post or message that you sent an offer, put in a claim, or closed a trade. A line claiming a move the record does not show is cut.';
+
+/**
+ * What a public post must not name (#263): the players in the check-in's private options and in
+ * its trades that are not public, and the dates of a DM-only act's facts (the day an offer was
+ * turned down is the tell).
+ */
+export function publicPostTerms(look: CheckInLook): string[] {
+  const act = look.social.act;
+  const dmOnly =
+    act === null || !act.pack.roomId.startsWith('dm-')
+      ? []
+      : act.pack.facts.flatMap((f) => f.line.match(/\d{4}-\d{2}-\d{2}/g) ?? []);
+  return [...new Set([...privateTerms(look), ...privateTradeTerms(look.trades), ...dmOnly])];
+}
+
+const WITHHELD = {
+  empty: 'it said nothing',
+  unsupported_claim: 'it claimed a move I did not make',
+  private_detail: 'it touched on a private move',
+  private_offer: 'it touched on a private move'
+} as const;
+
+/**
+ * Checks a free-form post before it goes out (core `checkPost`): with the trade-status claims the
+ * record supports for this counterpart (the offers this turn sent, then the latest trade with
+ * them), unsupported claims are cut (#264); in a public room, a private term the post's own facts
+ * do not state, or talk of a private offer, holds it back (#263). Returns the text to post, or
+ * null when the post is held back (the activity log says so, without the text).
+ */
+export function clearPost(
+  ctx: TaskContext,
+  look: CheckInLook,
+  run: Run,
+  post: { text: string; where: string; counterpart: string | null; public: boolean; facts: string[] }
+): { text: string; cut: boolean } | null {
+  const offeredTo = run.memory.flatMap((e) =>
+    e.type === 'trade' && e.direction === 'outgoing' && e.outcome === 'proposed' ? [e.teamId] : []
+  );
+  const supported = supportedTradeClaims({ counterpart: post.counterpart, offeredTo, trades: look.trades });
+  const check = checkPost({
+    message: post.text,
+    supported,
+    public: post.public,
+    ...(post.public ? { privateTerms: publicPostTerms(look), facts: post.facts } : {})
+  });
+  if (check.ok) {
+    if (check.cut.length > 0) ctx.log.info('agent post cut', { where: post.where, claims: check.cut });
+    return { text: check.message, cut: check.cut.length > 0 };
+  }
+  ctx.log.info('agent post withheld', { where: post.where, reason: check.reason });
+  run.done.push({
+    action: 'chat_withheld',
+    line: `Held back a post in ${post.where}: ${WITHHELD[check.reason]}.`
+  });
+  return null;
+}
+
+/** What the activity log adds when a post went out with a claim cut. */
+const CUT = ' Cut a line claiming a move I did not make.';
 
 const chatText = (a: CheckInAction | undefined) => (a?.message ?? '').trim().slice(0, 280);
 
@@ -477,19 +563,39 @@ async function boardPost(ctx: TaskContext, prep: CheckInPrep, actions: readonly 
     run.done.push({ action: 'chat_held', line: `Held my tongue in #${roomId}: I had the last word there.` });
     return;
   }
-  const result = await post(ctx, roomId, chatText(action));
+  const cleared = clearPost(ctx, prep.look, run, {
+    text: chatText(action),
+    where: `#${roomId}`,
+    counterpart: null,
+    public: true,
+    facts: prep.look.social.board.news
+  });
+  if (cleared === null) return;
+  const result = await post(ctx, roomId, cleared.text);
   run.done.push(
     'error' in result
       ? { action: 'post_message_failed', line: `Could not post in #${roomId}: ${result.error.code}.` }
-      : { action: 'post_message', line: `Posted in #${roomId} about the league news.` }
+      : {
+          action: 'post_message',
+          line: `Posted in #${roomId} about the league news.${cleared.cut ? CUT : ''}`
+        }
   );
 }
 
 /** The matchup post, tagging the opponent (added when the message does not already @tag). */
 async function matchupPost(ctx: TaskContext, prep: CheckInPrep, actions: readonly CheckInAction[], run: Run) {
   const matchup = prep.look.social.matchup;
-  const text = chatText(actions.find((a) => chatText(a) !== ''));
-  if (matchup === null || text === '') return;
+  const said = chatText(actions.find((a) => chatText(a) !== ''));
+  if (matchup === null || said === '') return;
+  const cleared = clearPost(ctx, prep.look, run, {
+    text: said,
+    where: 'my matchup room',
+    counterpart: matchup.opponent.teamId,
+    public: true,
+    facts: matchup.angles
+  });
+  if (cleared === null) return;
+  const text = cleared.text;
   // The week's limit, claimed atomically (the room's messages counted at the look are not).
   if (!(await ctx.claimLimit(`matchup#${matchup.roomId}`, SOCIAL_LIMITS.matchupPostsPerWeek, WEEK_MS))) {
     run.done.push({ action: 'chat_held', line: 'Held my tongue in my matchup room: said enough this week.' });
@@ -501,7 +607,10 @@ async function matchupPost(ctx: TaskContext, prep: CheckInPrep, actions: readonl
   run.done.push(
     'error' in result
       ? { action: 'matchup_post_failed', line: `Could not post in my matchup room: ${result.error.code}.` }
-      : { action: 'matchup_post', line: `Talked matchup with ${name(matchup.opponent.name)}.` }
+      : {
+          action: 'matchup_post',
+          line: `Talked matchup with ${name(matchup.opponent.name)}.${cleared.cut ? CUT : ''}`
+        }
   );
 }
 
@@ -515,6 +624,14 @@ async function directMessage(
   const action = actions.find((a) => a.goal !== undefined && chatText(a) !== '');
   const goal = action?.goal === undefined ? undefined : prep.look.social.dms[action.goal - 1];
   if (goal === undefined) return;
+  const cleared = clearPost(ctx, prep.look, run, {
+    text: chatText(action),
+    where: `my messages with ${name(goal.teamName)}`,
+    counterpart: goal.teamId,
+    public: false,
+    facts: []
+  });
+  if (cleared === null) return;
   // The thread's daily claim is atomic, so two tasks cannot both start one (the chat read is not).
   const checked = await dmCheck(ctx, goal);
   const verdict =
@@ -527,11 +644,14 @@ async function directMessage(
     run.done.push({ action: 'dm_held', line: `Held off messaging ${name(goal.teamName)} (${verdict}).` });
     return;
   }
-  const result = await post(ctx, dmRoomId(ctx.principal.teamId, goal.teamId), chatText(action));
+  const result = await post(ctx, dmRoomId(ctx.principal.teamId, goal.teamId), cleared.text);
   run.done.push(
     'error' in result
       ? { action: 'send_dm_failed', line: `Could not message ${name(goal.teamName)}: ${result.error.code}.` }
-      : { action: 'send_dm', line: `Messaged ${name(goal.teamName)} to ${goal.purpose}.` }
+      : {
+          action: 'send_dm',
+          line: `Messaged ${name(goal.teamName)} to ${goal.purpose}.${cleared.cut ? CUT : ''}`
+        }
   );
 }
 
