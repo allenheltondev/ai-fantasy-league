@@ -6,6 +6,7 @@ import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton } from '../../motion/decor';
 import { LineupBoard } from './LineupBoard';
+import { LineupHelp } from './LineupHelp';
 import { nextKickoff, useNow, withLocksAt } from './gameState';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
 import { TRADE_EVENTS, TRADES_POLL_MS } from '../../trades/TradesPage';
@@ -149,6 +150,7 @@ function LineupEditor({
         now={now}
         highlight={highlight}
         onTheBlock={onTheBlock}
+        help={<LineupHelp slots={data.slots.map((s) => s.slot)} />}
         onSaved={(next) => {
           setWarnings(next);
           setLockRace(null);

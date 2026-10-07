@@ -402,6 +402,8 @@ describe('StandingsPage', () => {
     open('/leagues/L1/standings', { getStandings: vi.fn(async () => standings) });
     const table = await screen.findByRole('table', { name: 'Standings' });
     expect(within(table).getByText('Through week 2')).toBeInTheDocument();
+    // What PF, PA, and the rest mean, for a newer manager.
+    expect(within(table).getByRole('button', { name: 'How are standings decided?' })).toBeInTheDocument();
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent("1Alice's Team2-0250.50200.00W2");
     // On a phone each row is a card: the numbers carry their column names, the header row hides.
     const first = within(table).getAllByRole('row')[1]!;

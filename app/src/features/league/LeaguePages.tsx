@@ -1,3 +1,4 @@
+import { HelpBar, PlayoffsHelp } from '../help/PageHelp';
 import { useState } from 'react';
 import { useParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
@@ -40,7 +41,10 @@ export function ScoreboardPage() {
 /** League › Playoffs. */
 export function PlayoffsPage() {
   return (
-    <div data-testid="league-page-playoffs">
+    <div data-testid="league-page-playoffs" className="space-y-4">
+      <HelpBar>
+        <PlayoffsHelp />
+      </HelpBar>
       <PlayoffsPanel />
     </div>
   );

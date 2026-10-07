@@ -7,6 +7,7 @@ import { useLoad } from '../../lib/useLoad';
 import { useLeagueOutlet } from '../../routes/leagueContext';
 import { AddPlayerSheet } from '../moves/AddPlayerSheet';
 import { FaabExplainer } from '../moves/FaabExplainer';
+import { PlayersHelp } from '../help/PageHelp';
 import { PlayerMarket } from '../moves/PlayerMarket';
 import { addedMessage, tradeLink } from '../moves/RosterWorkspace';
 
@@ -40,13 +41,17 @@ export function PlayersPage() {
 
   return (
     <div data-testid="league-section-players" className="space-y-4">
-      {faab !== null && (
-        <p className="text-sm text-muted-foreground">
-          {context?.waiverType === 'rolling' ? 'Rolling waivers' : `$${faab} FAAB left`}
-          {!allowed('claim_waiver') && ' · Adds and claims are closed right now.'}
-          {context?.waiverType === 'faab' && <FaabExplainer remaining={faab} />}
-        </p>
-      )}
+      {/* A div, not a p: the help panels inside hold headings and lists. */}
+      <div className="text-sm text-muted-foreground">
+        {faab !== null && (
+          <>
+            {context?.waiverType === 'rolling' ? 'Rolling waivers' : `$${faab} FAAB left`}
+            {!allowed('claim_waiver') && ' · Adds and claims are closed right now.'}
+            {context?.waiverType === 'faab' && <FaabExplainer remaining={faab} />}
+          </>
+        )}
+        <PlayersHelp />
+      </div>
       <PlayerMarket
         leagueId={leagueId}
         title="All players"

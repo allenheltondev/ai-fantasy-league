@@ -7,6 +7,7 @@ import { useLoad } from '../../lib/useLoad';
 import { STACKED_BLOCK, STACKED_HEAD, STACKED_LABEL, STACKED_ROW } from '../../lib/stackedTable';
 import { LoadingSkeleton, stagger } from '../../motion/decor';
 import { ModelLeaderboardPanel } from './ModelLeaderboardPanel';
+import { StandingsHelp } from '../help/PageHelp';
 
 /** A standings row as a card below `sm`: rank | team | record, then PF | PA | streak. */
 const ROW = `${STACKED_ROW} max-sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_auto]`;
@@ -42,6 +43,7 @@ function StandingsTable() {
           {loaded.data.throughWeek === null
             ? 'No games final yet'
             : `Through week ${loaded.data.throughWeek}`}
+          <StandingsHelp />
         </caption>
         <thead className={STACKED_HEAD}>
           <tr className="text-left text-muted-foreground">

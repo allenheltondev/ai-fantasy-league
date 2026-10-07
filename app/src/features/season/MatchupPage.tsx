@@ -1,3 +1,4 @@
+import { HelpBar, MatchupHelp } from '../help/PageHelp';
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { EmptyState } from '@readysetcloud/ui';
@@ -183,11 +184,17 @@ export function MatchupPage({ connect = connectMomentoEvents }: { connect?: Even
   }
   return (
     <div data-testid="league-section-matchup" className="space-y-4">
-      {viewTeam !== undefined && (
-        <Link to="." className="text-sm font-medium text-primary-700 hover:underline">
-          Back to your matchup
-        </Link>
-      )}
+      <HelpBar
+        start={
+          viewTeam !== undefined && (
+            <Link to="." className="text-sm font-medium text-primary-700 hover:underline">
+              Back to your matchup
+            </Link>
+          )
+        }
+      >
+        <MatchupHelp />
+      </HelpBar>
       {body}
     </div>
   );
