@@ -17,9 +17,8 @@ describe('pageName (#212)', () => {
     ['/leagues/L1/chat', 'Chat'],
     ['/leagues/L1/team/matchup', 'Matchup'],
     ['/leagues/L1/team/moves', 'Roster & moves'],
-    ['/leagues/L1/team/profile', 'Team profile'],
-    ['/leagues/L1/team/teams', 'Other teams'],
-    ['/leagues/L1/team', 'Lineup'],
+    ['/leagues/L1/team/lineup', 'My Team'],
+    ['/leagues/L1/team', 'My Team'],
     ['/leagues/L1/league/players', 'Players'],
     ['/leagues/L1/league/players/nfl', 'Players'],
     ['/leagues/L1/league/draft', 'League info'],
@@ -37,14 +36,14 @@ describe('pageName (#212)', () => {
     expect(pageName('/leagues/L1/settings', { commissioner: false }).title).toBe('League info');
   });
 
-  it("names another team's tab after the team, under the Other teams heading", () => {
+  it("names another team's tab after the team, under the My Team heading", () => {
     expect(pageName('/leagues/L1/team/teams/team-4', { teams: TEAMS })).toEqual({
-      heading: 'Other teams',
+      heading: 'My Team',
       title: 'Team 4'
     });
     // Before the teams load, or for a team that isn't there.
-    expect(pageName('/leagues/L1/team/teams/team-9', { teams: TEAMS }).title).toBe('Other teams');
-    expect(pageName('/leagues/L1/team/teams/team-4').title).toBe('Other teams');
+    expect(pageName('/leagues/L1/team/teams/team-9', { teams: TEAMS }).title).toBe('My Team');
+    expect(pageName('/leagues/L1/team/teams/team-4').title).toBe('My Team');
   });
 
   it("names an NFL team's tab after its depth chart, under the Players heading", () => {

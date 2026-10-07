@@ -11,6 +11,8 @@ import { nextKickoff, useNow, withLocksAt } from './gameState';
 import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
 import { TRADE_EVENTS, TRADES_POLL_MS } from '../../trades/TradesPage';
 import { pendingTrades, TradeCallout, tradingAway } from './TradeCallout';
+import { TeamAchievements } from './TeamAchievements';
+import { TeamHeader } from '../team/TeamPages';
 
 /**
  * The week's games changed (a kickoff, a quarter, a final): the locks may have too (#193). A
@@ -21,7 +23,11 @@ const TRADE_EVENT_TYPES: readonly string[] = TRADE_EVENTS;
 /** How often the lock countdowns tick; each kickoff also lands exactly on time. */
 export const LOCK_TICK_MS = 30_000;
 
-/** My Team › Lineup (#58, #176, #178): your lineup, with projections, drag and drop, and Optimize. */
+/**
+ * My Team (#58, #176, #178): the hub for your team. Its header (name, avatar, record, Edit team, and
+ * a picker to open any other team), your lineup with projections, drag and drop, and Optimize, and
+ * the achievements your team has earned.
+ */
 export function RosterPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
@@ -37,7 +43,14 @@ export function RosterPage({ connect = connectMomentoEvents }: { connect?: Event
   } else if (state.data.yourTeam === null) {
     body = <EmptyState title="No team" description="You do not manage a team in this league." />;
   } else {
-    body = <LineupEditor leagueId={leagueId} teamId={state.data.yourTeam.id} connect={connect} />;
+    const teamId = state.data.yourTeam.id;
+    body = (
+      <>
+        <TeamHeader teamId={teamId} />
+        <LineupEditor leagueId={leagueId} teamId={teamId} connect={connect} />
+        <TeamAchievements leagueId={leagueId} teamId={teamId} />
+      </>
+    );
   }
   return (
     <div data-testid="league-section-roster" className="space-y-4">

@@ -3,8 +3,9 @@ import { handle, signInAs } from './support';
 
 /**
  * The league shell (#178) against the local API server: the side nav beside every league page, My
- * Team's profile (a new name and avatar that then show across the league), another team read-only
- * with "Propose trade" as its only action, and the side nav's items with their pages as tabs.
+ * Team's "Edit team" (a new name and avatar that then show across the league), another team from
+ * My Team's picker, read-only with "Propose trade" as its only action, and the side nav's items
+ * with their pages as tabs.
  */
 
 async function createLeague(context: BrowserContext, who: string): Promise<string> {
@@ -33,8 +34,9 @@ test('a manager renames the team and picks an avatar that shows across the leagu
   // Before the draft it has its own place in the nav.
   await expect(nav.getByRole('link', { name: 'Draft' })).toBeVisible();
 
-  await nav.getByRole('link', { name: 'Teams' }).click();
-  await expect(page).toHaveURL(/\/team\/profile$/);
+  await nav.getByRole('link', { name: 'My Team' }).click();
+  await expect(page).toHaveURL(/\/team\/lineup$/);
+  await page.getByRole('button', { name: 'Edit team' }).click();
   await page.getByLabel('Team name').fill('Gridiron Gang');
   await page.getByRole('button', { name: 'New avatar' }).click();
   await expect(page.getByRole('img', { name: 'Gridiron Gang avatar' })).toBeVisible();
@@ -55,15 +57,17 @@ test('another team is read-only, with Propose trade as its only action', async (
   const context = await browser.newContext();
   await signInAs(context, 'season-e2e');
   const page = await context.newPage();
-  await page.goto('/leagues/demo-season/team/teams');
-  const teams = page.getByRole('list', { name: 'Teams' });
-  await expect(teams.getByRole('link')).toHaveCount(3);
-  await teams.getByRole('link', { name: /Team 2/ }).click();
+  await page.goto('/leagues/demo-season/team/lineup');
+  const picker = page.getByLabel('View team');
+  // Yours and the league's three others.
+  await expect(picker.getByRole('option')).toHaveCount(4);
+  await picker.selectOption('team-2');
   await expect(page).toHaveURL(/\/team\/teams\/team-2$/);
   await expect(page.getByRole('heading', { level: 2, name: 'Team 2' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Team 2 lineup' })).toContainText('Lamar Jackson');
   const view = page.getByTestId('team-view');
-  // No roster actions: the only buttons are player names, which open their cards.
+  // No roster actions: the only buttons are player names, which open their cards (the team picker
+  // is a select).
   await expect(view.locator('button:not([data-player-link])')).toHaveCount(0);
   await view.getByRole('button', { name: 'Lamar Jackson' }).click();
   await expect(page.getByTestId('player-card')).toBeVisible();
@@ -83,7 +87,7 @@ test('the side nav lists the league under its name, one item per job', async ({ 
   const page = await context.newPage();
   await page.goto('/leagues/demo-season/team/lineup');
   const nav = page.getByRole('navigation', { name: 'Primary navigation' });
-  await expect(nav.getByRole('link', { name: 'Lineup' })).toHaveAttribute('aria-current', 'page');
+  await expect(nav.getByRole('link', { name: 'My Team' })).toHaveAttribute('aria-current', 'page');
   await expect(nav.locator('.app-nav-section-title')).toHaveText(['Demo Season']);
   // After the draft, its results live with the league's other pages.
   await expect(nav.getByRole('link', { name: 'Draft', exact: true })).toHaveCount(0);
@@ -103,9 +107,10 @@ test('the side nav lists the league under its name, one item per job', async ({ 
     .click();
   await expect(page).toHaveURL(/\/league\/scoreboard$/);
   await expect(nav.getByRole('link', { name: 'Matchup' })).toHaveAttribute('aria-current', 'page');
-  for (const name of ['Standings', 'Players', 'Teams']) {
+  for (const name of ['Standings', 'Players']) {
     await expect(nav.getByRole('link', { name })).toBeVisible();
   }
+  await expect(nav.getByRole('link', { name: 'Teams' })).toHaveCount(0);
   // The commissioner's last item is Settings, everyone else's League info.
   const info = nav.getByRole('link', { name: /^(Settings|League info)$/ });
   await info.click();

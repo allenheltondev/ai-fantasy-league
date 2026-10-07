@@ -51,7 +51,7 @@ describe('page help', () => {
       'How do adds and drops work?',
       'Adds and drops help',
       {
-        Lineup: '/leagues/L1/team/lineup',
+        'My Team': '/leagues/L1/team/lineup',
         Players: '/leagues/L1/league/players',
         Trades: '/leagues/L1/team/trades',
         'League info': '/leagues/L1/settings'
@@ -74,7 +74,7 @@ describe('page help', () => {
       'How trades work',
       'Trades help',
       {
-        'Other teams': '/leagues/L1/team/teams',
+        'My Team': '/leagues/L1/team/lineup',
         Players: '/leagues/L1/league/players',
         'Roster & moves': '/leagues/L1/team/moves',
         'League info': '/leagues/L1/settings'
@@ -86,7 +86,7 @@ describe('page help', () => {
       'How matchups work',
       'Matchup help',
       {
-        Lineup: '/leagues/L1/team/lineup',
+        'My Team': '/leagues/L1/team/lineup',
         Scoreboard: '/leagues/L1/league/scoreboard',
         Standings: '/leagues/L1/league/standings',
         'League info': '/leagues/L1/settings'

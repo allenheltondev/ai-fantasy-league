@@ -653,11 +653,11 @@ for (const viewport of VIEWPORTS) {
       await page.getByRole('button', { name: /^Josh Allen, QB/ }).tap();
       await expect(page.getByTestId('moves-fx-jallen').getByRole('button', { name: 'Drop' })).toBeVisible();
       await expectFits(page, 'my team: player moves');
-      await page.goto('/leagues/demo-season/team/profile');
+      await page.goto('/leagues/demo-season/team/lineup');
+      await page.getByRole('button', { name: 'Edit team' }).tap();
       await expect(page.getByLabel('Team name')).toBeVisible();
       await expectFits(page, 'my team: profile');
-      await page.goto('/leagues/demo-season/team/teams');
-      await page.getByRole('list', { name: 'Teams' }).getByRole('link').first().tap();
+      await page.getByLabel('View team').selectOption('team-2');
       await expect(page.getByTestId('team-view')).toBeVisible();
       await expect(page.getByRole('table', { name: / lineup$/ })).toBeVisible();
       await expectFits(page, 'my team: another team');

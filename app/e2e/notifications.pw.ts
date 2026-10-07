@@ -122,7 +122,7 @@ test('a trade offer that arrives while you are away is on the bell at sign-in; o
   await expect(page.getByText('Reject: the trade is now rejected.')).toBeVisible();
   await page
     .getByRole('navigation', { name: 'Primary navigation' })
-    .getByRole('link', { name: 'Lineup' })
+    .getByRole('link', { name: 'My Team' })
     .click();
   await expect(tradesTab.locator('.app-nav-link-badge')).toHaveCount(0);
   await context.close();
