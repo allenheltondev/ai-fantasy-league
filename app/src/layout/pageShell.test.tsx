@@ -35,12 +35,9 @@ describe('league pages (#212)', () => {
     ['/leagues/L1/home', 'league-section-home', 'Home'],
     ['/leagues/L1/chat', 'league-section-chat', 'Chat'],
     ['/leagues/L1/team/matchup', 'league-section-matchup', 'Matchup'],
-    ['/leagues/L1/team/lineup', 'league-section-roster', 'Lineup'],
+    ['/leagues/L1/team/lineup', 'league-section-roster', 'My Team'],
     ['/leagues/L1/team/moves', 'team-page-moves', 'Roster & moves'],
     ['/leagues/L1/team/trades', 'league-section-trades', 'Trades'],
-    ['/leagues/L1/team/achievements', 'team-page-achievements', 'Achievements'],
-    ['/leagues/L1/team/profile', 'team-page-profile', 'Team profile'],
-    ['/leagues/L1/team/teams', 'team-page-teams', 'Other teams'],
     ['/leagues/L1/league/scoreboard', 'league-page-scoreboard', 'Scoreboard'],
     ['/leagues/L1/league/standings', 'league-section-standings', 'Standings'],
     ['/leagues/L1/draft', 'league-section-draft', 'Draft'],
@@ -68,7 +65,7 @@ describe('league pages (#212)', () => {
     renderApp('/leagues/L1/team/teams/team-2');
     expect(await screen.findByRole('heading', { level: 2, name: "Bob's Team" })).toBeVisible();
     expect(h1s()).toHaveLength(1);
-    expect(h1s()[0]).toHaveTextContent('Other teams');
+    expect(h1s()[0]).toHaveTextContent('My Team');
     await waitFor(() => expect(document.title).toBe("Bob's Team · Sunday Funday · AI Fantasy Football"));
   });
 

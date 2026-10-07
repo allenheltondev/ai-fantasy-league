@@ -40,7 +40,7 @@ test('the tab title and the one h1 follow you around a league', async ({ page })
 
   await page.goto('/leagues/demo-season/team/teams/team-2');
   await expect(page).toHaveTitle(`Team 2 · ${LEAGUE} · AI Fantasy Football`);
-  await expectOneH1(page, 'Other teams');
+  await expectOneH1(page, 'My Team');
   await expect(page.getByRole('heading', { level: 2, name: 'Team 2' })).toBeVisible();
 
   await nav.getByRole('link', { name: 'My Leagues' }).click();

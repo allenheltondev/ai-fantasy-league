@@ -1,6 +1,16 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router';
-import { Alert, Button, Card, CardBody, EmptyState, Input, StatusBadge, useToast } from '@readysetcloud/ui';
+import { Link, Navigate, useNavigate, useParams } from 'react-router';
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  EmptyState,
+  Input,
+  Select,
+  StatusBadge,
+  useToast
+} from '@readysetcloud/ui';
 import { useLeagueApi } from '../../api/league';
 import type { LeagueTeam, Roster, StandingsData } from '../../api/types';
 import { AgentAvatar } from '../../components/AgentAvatar';
@@ -49,44 +59,114 @@ function recordOf(standings: StandingsData | null, teamId: string): string | nul
   return standings?.standings.find((r) => r.teamId === teamId)?.record ?? null;
 }
 
-/** The viewer's team from the league layout, or the page's "no team" / loading state. */
-function useYourTeam(): { team: LeagueTeam | null; fallback: React.ReactNode } {
+/**
+ * The head of My Team: whose team is shown, its record, a picker that opens any team in the league,
+ * and what you can do with it. Yours: edit its name and avatar, and jump to your moves and trades.
+ * Another team: Propose trade. Nothing outside the league layout (a page rendered on its own).
+ */
+export function TeamHeader({ teamId }: { teamId: string }) {
+  const { leagueId = '' } = useParams();
+  const navigate = useNavigate();
   const outlet = useLeagueOutlet();
+  const standings = useStandings(leagueId);
+  const [editing, setEditing] = useState(false);
   const state = outlet?.state ?? null;
-  if (state === null) return { team: null, fallback: <LoadingSkeleton label="Loading your team…" /> };
-  const id = state.yourTeam?.id;
-  const team = state.teams?.find((t) => t.id === id) ?? state.yourTeam;
-  if (team === null || team === undefined) {
-    return {
-      team: null,
-      fallback: <EmptyState title="No team" description="You do not manage a team in this league." />
-    };
-  }
-  return { team, fallback: null };
+  const yourId = state?.yourTeam?.id ?? null;
+  // Yours first, then the rest in league order.
+  const teams = [...(state?.teams ?? [])].sort((a, b) => Number(b.id === yourId) - Number(a.id === yourId));
+  // Callers pass your team or one in the league; yours stands in while the league's teams are missing.
+  const team = teams.find((t) => t.id === teamId) ?? state?.yourTeam ?? null;
+  if (state === null || team === null) return null;
+  const yours = yourId === team.id;
+  const canTrade = !yours && state.allowedActions.includes('propose_trade');
+  const record = recordOf(standings.data, team.id);
+  return (
+    <section aria-label="Team" className="space-y-4" data-testid="team-header">
+      <div className="flex flex-wrap items-center gap-4">
+        <TeamPicture team={team} size={64} />
+        <div className="min-w-0 flex-1">
+          <h2 className="break-words text-xl font-semibold">{team.name}</h2>
+          <p className="text-sm text-muted-foreground">
+            {managerOf(team)}
+            {team.manager?.personality ? ` · ${team.manager.personality}` : ''}
+            {record !== null ? ` · ${record}` : ''}
+          </p>
+        </div>
+        {teams.length > 1 && (
+          <div className="w-full sm:w-64">
+            <Select
+              label="View team"
+              value={team.id}
+              onChange={(e) =>
+                navigate(
+                  e.target.value === yourId
+                    ? teamPath(leagueId, 'lineup')
+                    : otherTeamPath(leagueId, e.target.value)
+                )
+              }
+            >
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.id === yourId ? `${t.name} (you)` : t.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+      </div>
+      {yours ? (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="min-h-11"
+            aria-expanded={editing}
+            onClick={() => setEditing((open) => !open)}
+          >
+            Edit team
+          </Button>
+          <Link
+            to={teamPath(leagueId, 'moves')}
+            className="btn btn-ghost btn-sm inline-flex min-h-11 items-center"
+          >
+            Add &amp; drop players
+          </Link>
+          <Link
+            to={teamPath(leagueId, 'trades')}
+            className="btn btn-ghost btn-sm inline-flex min-h-11 items-center"
+          >
+            Trades
+          </Link>
+        </div>
+      ) : (
+        canTrade && (
+          <Link
+            to={`${teamPath(leagueId, 'trades')}?with=${encodeURIComponent(team.id)}`}
+            className="btn btn-primary inline-flex min-h-11 items-center"
+          >
+            Propose trade
+          </Link>
+        )
+      )}
+      {yours && editing && <TeamProfileForm team={team} onClose={() => setEditing(false)} />}
+    </section>
+  );
 }
 
 /**
- * My Team › Team profile (#178): your team's name and avatar. The avatar is drawn from a seed like
- * an AI manager's (#161); "New avatar" rolls another, and Save keeps it (rename_team).
+ * Your team's name and avatar (#178), from My Team's "Edit team". The avatar is drawn from a seed
+ * like an AI manager's (#161); "New avatar" rolls another, and Save keeps it (rename_team).
  */
-export function TeamProfilePage() {
+function TeamProfileForm({ team, onClose }: { team: LeagueTeam; onClose: () => void }) {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
   const { toast } = useToast();
   const outlet = useLeagueOutlet();
-  const { team, fallback } = useYourTeam();
   const [name, setName] = useState<string | null>(null);
   const [seed, setSeed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  if (team === null) {
-    return (
-      <div data-testid="team-page-profile" className="space-y-4">
-        {fallback}
-      </div>
-    );
-  }
   const canEdit = outlet?.state?.allowedActions.includes('rename_team') === true;
   const draftName = name ?? team.name;
   const draftSeed = seed ?? team.avatarSeed ?? null;
@@ -102,10 +182,9 @@ export function TeamProfilePage() {
     api.setTeamProfile(leagueId, team.id, profile).then(
       () => {
         setBusy(false);
-        setName(null);
-        setSeed(null);
         toast('Team profile saved.', { variant: 'success' });
         outlet?.reloadLeague();
+        onClose();
       },
       (e: unknown) => {
         setBusy(false);
@@ -115,192 +194,90 @@ export function TeamProfilePage() {
   };
 
   return (
-    <div data-testid="team-page-profile" className="space-y-4">
-      <Card>
-        <CardBody>
-          <form className="flex flex-col gap-6 sm:flex-row sm:items-start" onSubmit={save}>
-            <div className="flex flex-col items-center gap-3">
-              {draftSeed === null ? (
-                <TeamPicture team={{ ...team, name: draftName || team.name }} size={96} />
-              ) : (
-                <AgentAvatar seed={draftSeed} label={`${draftName || team.name} avatar`} size={96} />
-              )}
+    <Card data-testid="team-profile">
+      <CardBody>
+        <form className="flex flex-col gap-6 sm:flex-row sm:items-start" onSubmit={save}>
+          <div className="flex flex-col items-center gap-3">
+            {draftSeed === null ? (
+              <TeamPicture team={{ ...team, name: draftName || team.name }} size={96} />
+            ) : (
+              <AgentAvatar seed={draftSeed} label={`${draftName || team.name} avatar`} size={96} />
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="min-h-11"
+              disabled={!canEdit || busy}
+              onClick={() => setSeed(rollTeamAvatarSeed())}
+            >
+              New avatar
+            </Button>
+          </div>
+          <div className="min-w-0 flex-1 space-y-4">
+            <Input
+              label="Team name"
+              value={draftName}
+              maxLength={40}
+              disabled={!canEdit}
+              onChange={(e) => setName(e.target.value)}
+            />
+            {team.renamedFrom && (
+              <p className="text-sm text-muted-foreground" data-testid="renamed-from">
+                Renamed from {team.renamedFrom}
+              </p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              Your avatar shows beside your team everywhere in the league: the dashboard, matchups, standings,
+              chat, and the draft.
+            </p>
+            <ApiErrorAlert error={error} />
+            {!canEdit && (
+              <Alert variant="info">The league is complete, so its teams can no longer change.</Alert>
+            )}
+            <div className="flex flex-wrap gap-2">
               <Button
-                variant="secondary"
-                size="sm"
-                className="min-h-11"
-                disabled={!canEdit || busy}
-                onClick={() => setSeed(rollTeamAvatarSeed())}
+                type="submit"
+                variant="primary"
+                loading={busy}
+                disabled={!canEdit || !changed || draftName.trim() === ''}
               >
-                New avatar
+                Save profile
+              </Button>
+              <Button variant="ghost" onClick={onClose}>
+                Cancel
               </Button>
             </div>
-            <div className="min-w-0 flex-1 space-y-4">
-              <Input
-                label="Team name"
-                value={draftName}
-                maxLength={40}
-                disabled={!canEdit}
-                onChange={(e) => setName(e.target.value)}
-              />
-              {team.renamedFrom && (
-                <p className="text-sm text-muted-foreground" data-testid="renamed-from">
-                  Renamed from {team.renamedFrom}
-                </p>
-              )}
-              <p className="text-sm text-muted-foreground">
-                Your avatar shows beside your team everywhere in the league: the dashboard, matchups,
-                standings, chat, and the draft.
-              </p>
-              <ApiErrorAlert error={error} />
-              {!canEdit && (
-                <Alert variant="info">The league is complete, so its teams can no longer change.</Alert>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={busy}
-                  disabled={!canEdit || !changed || draftName.trim() === ''}
-                >
-                  Save profile
-                </Button>
-                {changed && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setName(null);
-                      setSeed(null);
-                    }}
-                  >
-                    Undo changes
-                  </Button>
-                )}
-              </div>
-            </div>
-          </form>
-        </CardBody>
-      </Card>
-    </div>
-  );
-}
-
-/** My Team › Achievements: every badge your team has earned. */
-export function AchievementsPage() {
-  const { leagueId = '' } = useParams();
-  const { team, fallback } = useYourTeam();
-  return (
-    <div data-testid="team-page-achievements" className="space-y-4">
-      {team === null ? (
-        fallback
-      ) : (
-        <TeamAchievements
-          leagueId={leagueId}
-          teamId={team.id}
-          empty={
-            <EmptyState
-              title="No achievements yet"
-              description="Blowouts, records, and titles earn badges as the season plays out."
-            />
-          }
-        />
-      )}
-    </div>
-  );
-}
-
-/** My Team › Other teams: every other team in the league, to open read-only. */
-export function OtherTeamsPage() {
-  const { leagueId = '' } = useParams();
-  const outlet = useLeagueOutlet();
-  const standings = useStandings(leagueId);
-  const state = outlet?.state ?? null;
-  const others = (state?.teams ?? []).filter((t) => t.id !== state?.yourTeam?.id);
-  return (
-    <div data-testid="team-page-teams" className="space-y-4">
-      {state === null ? (
-        <LoadingSkeleton label="Loading the league's teams…" rows={4} />
-      ) : others.length === 0 ? (
-        <EmptyState title="No other teams" description="Teams show up here as the league fills." />
-      ) : (
-        <ul aria-label="Teams" className="grid gap-2 sm:grid-cols-2">
-          {others.map((team) => {
-            const record = recordOf(standings.data, team.id);
-            return (
-              <li key={team.id}>
-                <Link
-                  to={otherTeamPath(leagueId, team.id)}
-                  className="flex min-h-11 items-center gap-3 rounded-lg border border-border bg-surface p-3 transition-colors hover:border-primary-300 hover:bg-muted"
-                >
-                  <TeamPicture team={team} size={40} />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate font-medium">{team.name}</span>
-                    <span className="truncate text-sm text-muted-foreground">{managerOf(team)}</span>
-                  </span>
-                  {record !== null && (
-                    <span className="shrink-0 text-sm font-semibold tabular-nums">{record}</span>
-                  )}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
   );
 }
 
 /**
- * Another team, read-only (#178): who plays it, its record, its lineup with projections, its recent
- * moves, and its achievements. Proposing a trade is the only thing to do here.
+ * Another team, read-only under My Team (#178): its header (the team picker, and Propose trade), its
+ * achievements, its lineup with projections, and its recent moves. Your own team is My Team itself.
  */
 export function TeamViewPage() {
   const { leagueId = '', teamId = '' } = useParams();
   const outlet = useLeagueOutlet();
   const state = outlet?.state ?? null;
-  const standings = useStandings(leagueId);
   const team = state?.teams?.find((t) => t.id === teamId) ?? null;
 
   if (state === null) return <LoadingSkeleton label="Loading the team…" />;
+  if (state.yourTeam?.id === teamId) return <Navigate to={teamPath(leagueId, 'lineup')} replace />;
   if (team === null) {
     return (
       <EmptyState
         title="Team not found"
         description="That team is not in this league."
-        action={<Link to={teamPath(leagueId, 'teams')}>Back to the teams</Link>}
+        action={<Link to={teamPath(leagueId, 'lineup')}>Back to My Team</Link>}
       />
     );
   }
-  const yours = state.yourTeam?.id === team.id;
-  const canTrade = !yours && state.allowedActions.includes('propose_trade');
-  const record = recordOf(standings.data, team.id);
   return (
     <div data-testid="team-view" className="space-y-4">
-      <Link
-        className="inline-flex min-h-11 items-center text-sm font-medium text-primary-700 hover:underline"
-        to={teamPath(leagueId, 'teams')}
-      >
-        ← All teams
-      </Link>
-      <div className="flex flex-wrap items-center gap-4">
-        <TeamPicture team={team} size={64} />
-        <div className="min-w-0 flex-1">
-          <h2 className="break-words text-xl font-semibold">{team.name}</h2>
-          <p className="text-sm text-muted-foreground">
-            {managerOf(team)}
-            {team.manager?.personality ? ` · ${team.manager.personality}` : ''}
-            {record !== null ? ` · ${record}` : ''}
-          </p>
-        </div>
-        {canTrade && (
-          <Link
-            to={`${teamPath(leagueId, 'trades')}?with=${encodeURIComponent(team.id)}`}
-            className="btn btn-primary inline-flex min-h-11 items-center"
-          >
-            Propose trade
-          </Link>
-        )}
-      </div>
+      <TeamHeader teamId={team.id} />
       <TeamAchievements leagueId={leagueId} teamId={team.id} />
       <ReadOnlyLineup leagueId={leagueId} teamId={team.id} />
       <Transactions leagueId={leagueId} refreshKey={0} teamId={team.id} title="Recent moves" />
