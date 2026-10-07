@@ -108,6 +108,7 @@ function SideNav({
           authState="authenticated"
           user={{ name: displayName(user), email: typeof user.email === 'string' ? user.email : undefined }}
           navItems={items}
+          closeMenuOnOutsideClick
           actions={phone ? undefined : bell}
           onSignOut={() => {
             // The next person on this browser starts at My Leagues, not in your league (#212).
