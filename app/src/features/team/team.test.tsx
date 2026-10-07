@@ -322,6 +322,31 @@ describe('another team, read-only', () => {
     open('/leagues/L1/team/teams/nobody');
     expect(await screen.findByText('Team not found')).toBeInTheDocument();
   });
+
+  it('shows an open seat by its initials, and says why its lineup could not load', async () => {
+    const open4 = team(4, { name: 'Empty Chairs' });
+    open('/leagues/L1/team/teams/team-4', {
+      getLeagueState: vi.fn(async () => ({ ...inSeason(), teams: [...TEAMS, open4] })),
+      getRoster: vi.fn(async () => {
+        throw new Error('Roster unavailable');
+      })
+    });
+    const header = await screen.findByTestId('team-header');
+    expect(within(header).getByText('Open seat')).toBeInTheDocument();
+    expect(within(header).getByRole('img', { name: 'Empty Chairs avatar' })).toHaveTextContent('EC');
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+  });
+});
+
+describe('My Team without the league’s team list', () => {
+  it('heads the page with your team and leaves the picker out', async () => {
+    open('/leagues/L1/team/lineup', {
+      getLeagueState: vi.fn(async () => ({ ...inSeason(), teams: undefined }))
+    });
+    const header = await screen.findByTestId('team-header');
+    expect(within(header).getByRole('heading', { level: 2, name: "Alice's Team" })).toBeInTheDocument();
+    expect(screen.queryByLabelText('View team')).not.toBeInTheDocument();
+  });
 });
 
 describe('League pages', () => {

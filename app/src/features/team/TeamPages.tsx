@@ -72,14 +72,14 @@ export function TeamHeader({ teamId }: { teamId: string }) {
   const [editing, setEditing] = useState(false);
   const state = outlet?.state ?? null;
   const yourId = state?.yourTeam?.id ?? null;
-  const team =
-    state?.teams?.find((t) => t.id === teamId) ?? (yourId === teamId ? (state?.yourTeam ?? null) : null);
+  // Yours first, then the rest in league order.
+  const teams = [...(state?.teams ?? [])].sort((a, b) => Number(b.id === yourId) - Number(a.id === yourId));
+  // Callers pass your team or one in the league; yours stands in while the league's teams are missing.
+  const team = teams.find((t) => t.id === teamId) ?? state?.yourTeam ?? null;
   if (state === null || team === null) return null;
   const yours = yourId === team.id;
   const canTrade = !yours && state.allowedActions.includes('propose_trade');
   const record = recordOf(standings.data, team.id);
-  // Yours first, then the rest in league order.
-  const teams = [...(state.teams ?? [])].sort((a, b) => Number(b.id === yourId) - Number(a.id === yourId));
   return (
     <section aria-label="Team" className="space-y-4" data-testid="team-header">
       <div className="flex flex-wrap items-center gap-4">
