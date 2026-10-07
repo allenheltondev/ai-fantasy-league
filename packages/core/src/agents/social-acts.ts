@@ -16,7 +16,7 @@ import {
 } from './memory.js';
 import { answeredBefore, asksSomething } from '../chat/continuation.js';
 import { relationshipWith } from './relationships.js';
-import { checkInChatChance, socialRoll } from './social.js';
+import { checkInChatChance, looksLikeInstructions, socialRoll } from './social.js';
 
 /**
  * Grounded social acts (#218): what an AI manager says on its own at a check-in, chosen by a
@@ -347,6 +347,10 @@ export function playersNamed(text: string, players: readonly string[]): string[]
  * Each keeps who said it, the room, when, the players named, and the words, with the room's
  * visibility: `public` for a room the league reads, sealed for good to the other team in a DM.
  * Only rooms the agent may read reach here, so another team's DM is never a source.
+ *
+ * A remark that reads like orders (`looksLikeInstructions`) is not kept: a callback quotes the
+ * stored words into the check-in's decision prompt, and a message written to steer the model has
+ * no place there.
  */
 export function playerRemarks(
   newestFirst: readonly QuestionMessage[],
@@ -361,6 +365,7 @@ export function playerRemarks(
   return newestFirst.flatMap((m) => {
     const author = m.author.teamId;
     if (m.kind === 'system' || author === null || author === self) return [];
+    if (looksLikeInstructions(m.text)) return [];
     const named = playersNamed(m.text, players);
     if (named.length === 0) return [];
     return [
