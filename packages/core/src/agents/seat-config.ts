@@ -28,7 +28,8 @@ import {
   ManagerNameSchema,
   effectiveManager,
   rollAvatarSeed,
-  rollManagerName
+  rollManagerName,
+  type ManagerIdentity
 } from './names.js';
 import {
   PERSONALITIES,
@@ -177,6 +178,11 @@ export interface ResolveAgentConfigOptions {
    */
   managerKey?: string;
   /**
+   * The seat's name and avatar as its league shows them (`leagueManagerIdentities`), which keeps a
+   * default name from repeating another seat's. Overrides the default from `managerKey`.
+   */
+  manager?: ManagerIdentity;
+  /**
    * The league's AI settings: their model for the seat's difficulty goes to the front of each chain,
    * after the seat's own Advanced override. Omitted: the tier defaults.
    */
@@ -189,7 +195,7 @@ export function resolveAgentConfig(
   options: ResolveAgentConfigOptions = {}
 ): ResolvedAgentConfig {
   const config = AgentSeatConfigSchema.parse(input);
-  const manager = effectiveManager(config, options.managerKey ?? config.personalityId);
+  const manager = options.manager ?? effectiveManager(config, options.managerKey ?? config.personalityId);
   const personality = getPersonality(config.personalityId);
   const difficulty = getDifficulty(config.difficulty);
   const archetype = getArchetype(config.archetype);

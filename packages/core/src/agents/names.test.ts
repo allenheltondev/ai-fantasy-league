@@ -12,6 +12,7 @@ import {
   PERSONALITY_IDS,
   PERSONALITY_NICKNAMES,
   effectiveManager,
+  leagueManagerIdentities,
   randomizeAgentSeats,
   resolveAgentConfig,
   rollAvatarSeed,
@@ -103,6 +104,55 @@ describe('effectiveManager', () => {
   });
 });
 
+describe('leagueManagerIdentities', () => {
+  // Three seats of "lg-1" whose own defaults are all "Olivia Soto".
+  const clash = ['lg-1.team-31', 'lg-1.team-94', 'lg-1.team-99'];
+
+  it('keeps defaults that collide with nothing, and rerolls only the seats that would repeat a name', () => {
+    expect(new Set(clash.map((key) => effectiveManager(null, key).name))).toEqual(new Set(['Olivia Soto']));
+    const keys = ['lg-1.team-1', ...clash, 'lg-1.team-2'];
+    const names = leagueManagerIdentities(keys.map((key) => ({ key, config: null })));
+    // The first in key order keeps the name; the others move on, each along its own sequence.
+    expect(names.get('lg-1.team-31')?.name).toBe('Olivia Soto');
+    expect(names.get('lg-1.team-94')?.name).not.toBe('Olivia Soto');
+    expect(names.get('lg-1.team-99')?.name).not.toBe('Olivia Soto');
+    expect(new Set([...names.values()].map((m) => m.name)).size).toBe(keys.length);
+    for (const key of ['lg-1.team-1', 'lg-1.team-2']) {
+      expect(names.get(key)).toEqual(effectiveManager(null, key));
+    }
+    // Avatars are never rerolled; neither the order of the input nor a repeat call changes anything.
+    for (const key of keys) expect(names.get(key)?.avatarSeed).toBe(effectiveManager(null, key).avatarSeed);
+    expect(leagueManagerIdentities([...keys].reverse().map((key) => ({ key, config: null })))).toEqual(names);
+  });
+
+  it('keeps stored names, and keeps defaults clear of them and of the names to avoid', () => {
+    const names = leagueManagerIdentities(
+      [
+        { key: 'lg-1.team-99', config: { name: 'Olivia Soto', avatarSeed: 'mine' } },
+        { key: 'lg-1.team-31', config: {} },
+        { key: 'lg-1.team-1', config: null }
+      ],
+      [effectiveManager(null, 'lg-1.team-1').name.toUpperCase()]
+    );
+    expect(names.get('lg-1.team-99')).toEqual({ name: 'Olivia Soto', avatarSeed: 'mine' });
+    expect(names.get('lg-1.team-31')?.name).not.toBe('Olivia Soto');
+    expect(names.get('lg-1.team-1')?.name).not.toBe(effectiveManager(null, 'lg-1.team-1').name);
+  });
+
+  it('gives every seat of a full league its own name', () => {
+    fc.assert(
+      fc.property(fc.string({ maxLength: 12 }), (leagueId) => {
+        const seats = Array.from({ length: 12 }, (_, i) => ({
+          key: `${leagueId}.team-${i + 1}`,
+          config: null
+        }));
+        const names = [...leagueManagerIdentities(seats).values()].map((m) => m.name.toLowerCase());
+        expect(new Set(names).size).toBe(12);
+      })
+    );
+  });
+});
+
 describe('seat config names', () => {
   const base = { personalityId: 'stats-nerd', difficulty: 'pro', archetype: 'balanced' } as const;
 
@@ -132,6 +182,13 @@ describe('seat config names', () => {
     expect(a.name).toBe(effectiveManager(null, 'lg.team-2').name);
     expect(a.prompt.persona).toContain(`Your name is ${a.name}.`);
     expect(resolveAgentConfig(base).name).toBe(effectiveManager(null, 'stats-nerd').name);
+  });
+
+  it("takes the league's name and avatar for the seat over its own default", () => {
+    const manager = { name: 'Olivia Park', avatarSeed: 'league-seed' };
+    const resolved = resolveAgentConfig(base, { managerKey: 'lg.team-2', manager });
+    expect({ name: resolved.name, avatarSeed: resolved.avatarSeed }).toEqual(manager);
+    expect(resolved.prompt.persona).toContain('Your name is Olivia Park.');
   });
 });
 

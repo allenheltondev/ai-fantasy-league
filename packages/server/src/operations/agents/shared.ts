@@ -5,13 +5,13 @@ import {
   getDifficulty,
   getPersonality,
   resolveAgentConfig,
-  type AiSettings
+  type AiSettings,
+  type ManagerIdentity
 } from '@fantasy/core';
 import { z } from 'zod';
 import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import type { AgentSeatRecord } from '../../repos/agents.js';
-import { managerOf } from '../../league/managers.js';
 import {
   requireCommissioner as requireLeagueCommissioner,
   requireMember,
@@ -114,10 +114,11 @@ export const CommissionerSeatSchema = z
   .describe("The commissioner's full view of an agent seat, including its effective settings.");
 export type CommissionerSeat = z.infer<typeof CommissionerSeatSchema>;
 
-export function publicSeat(record: AgentSeatRecord): PublicSeat {
+/** The seat as the league sees it; `manager` is its name and avatar (`seatManager`). */
+export function publicSeat(record: AgentSeatRecord, manager: ManagerIdentity): PublicSeat {
   const p = getPersonality(record.config.personalityId);
   const d = getDifficulty(record.config.difficulty);
-  const { name, avatarSeed } = managerOf(record.leagueId, record.teamId, record.config);
+  const { name, avatarSeed } = manager;
   return {
     teamId: record.teamId,
     manager: { name, avatarSeed },
@@ -132,10 +133,18 @@ export function publicSeat(record: AgentSeatRecord): PublicSeat {
   };
 }
 
-/** The seat as its commissioner sees it; `ai` (the league's AI settings) sets its effective models. */
-export function commissionerSeat(record: AgentSeatRecord, ai?: AiSettings): CommissionerSeat {
+/**
+ * The seat as its commissioner sees it; `manager` is its name and avatar (`seatManager`), and `ai`
+ * (the league's AI settings) sets its effective models.
+ */
+export function commissionerSeat(
+  record: AgentSeatRecord,
+  manager: ManagerIdentity,
+  ai?: AiSettings
+): CommissionerSeat {
   const resolved = resolveAgentConfig(record.config, {
     managerKey: record.agentId,
+    manager,
     ...(ai === undefined ? {} : { ai })
   });
   return {

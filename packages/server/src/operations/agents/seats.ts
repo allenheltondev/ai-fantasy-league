@@ -1,7 +1,6 @@
 import {
   AgentSeatConfigSchema,
   MAX_TEAMS,
-  effectiveManager,
   getModel,
   randomizeAgentSeats,
   resolveAgentConfig,
@@ -14,7 +13,7 @@ import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import { agentIdFor, type AgentSeatRecord } from '../../repos/agents.js';
 import type { LeagueAccess } from '../../league/access.js';
-import { isAgentPlayed, leagueManagers } from '../../league/managers.js';
+import { isAgentPlayed, leagueManagers, seatIdentities, seatManager } from '../../league/managers.js';
 import type { League } from '../../repos/types.js';
 import { defineOperation } from '../../registry/operation.js';
 import {
@@ -92,12 +91,14 @@ async function writeSeat(
     updatedAt: ctx.clock.now().toISOString(),
     updatedBy: principalKey(ctx.principal)
   };
-  await ctx.repos.agents.putSeat(record);
   // After the draft, changes are announced (event + chat line): the commissioner usually plays too,
   // and must not be able to quietly weaken the AI teams they face.
-  if (league.phase !== 'setup' && current !== null) {
+  const announce = league.phase !== 'setup' && current !== null;
+  // The name and avatar the seat showed before (its stored ones, or its default in this league).
+  const before = announce ? ((await seatManager(ctx, leagueId, teamId)) as ManagerIdentity) : null;
+  await ctx.repos.agents.putSeat(record);
+  if (current !== null && before !== null) {
     // A name or avatar left out of the new config keeps the one the seat showed before.
-    const before = effectiveManager(current.config, record.agentId);
     const after = { name: config.name ?? before.name, avatarSeed: config.avatarSeed ?? before.avatarSeed };
     const changes = seatChanges(current.config, config, { before, after });
     if (changes.length > 0) {
@@ -191,7 +192,8 @@ export const configureAgentSeat = defineOperation({
       },
       expectedVersion
     );
-    return { seat: commissionerSeat(record, access.league.settings.ai) };
+    const manager = (await seatManager(ctx, access.league.id, teamId)) as ManagerIdentity;
+    return { seat: commissionerSeat(record, manager, access.league.settings.ai) };
   }
 });
 
@@ -234,11 +236,14 @@ export const randomizeAgentSeatsOperation = defineOperation({
     const seed = input.seed ?? `${league.id}:${ctx.clock.now().toISOString()}`;
     const taken = await namesInUse(ctx, access, new Set(input.teamIds));
     const configs = randomizeAgentSeats(input.teamIds.length, seed, taken);
-    const seats = [];
+    const records = [];
     for (const [i, teamId] of input.teamIds.entries()) {
-      const record = await writeSeat(ctx, league, teamId, configs[i] as AgentSeatConfig, undefined);
-      seats.push(commissionerSeat(record, league.settings.ai));
+      records.push(await writeSeat(ctx, league, teamId, configs[i] as AgentSeatConfig, undefined));
     }
+    const managers = seatIdentities(league.id, await ctx.repos.agents.listSeats(league.id));
+    const seats = records.map((r) =>
+      commissionerSeat(r, managers.get(r.teamId) as ManagerIdentity, league.settings.ai)
+    );
     return { seed, seats };
   }
 });
@@ -272,12 +277,13 @@ export const getAgentSeat = defineOperation({
         fix: 'The commissioner sets one with configure_agent_seat or randomize_agent_seats.'
       });
     }
-    if (!isCommissioner(access)) return { seat: publicSeat(record), commissioner: null };
+    const manager = (await seatManager(ctx, league.id, input.teamId)) as ManagerIdentity;
+    if (!isCommissioner(access)) return { seat: publicSeat(record, manager), commissioner: null };
     const history = await ctx.repos.agents.seatHistory(league.id, input.teamId);
     return {
-      seat: publicSeat(record),
+      seat: publicSeat(record, manager),
       commissioner: {
-        current: commissionerSeat(record, league.settings.ai),
+        current: commissionerSeat(record, manager, league.settings.ai),
         history: history.map((h) => ({
           version: h.version,
           updatedAt: h.updatedAt,

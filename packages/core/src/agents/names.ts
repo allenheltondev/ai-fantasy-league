@@ -148,3 +148,35 @@ export function effectiveManager(
   const avatarSeed = config?.avatarSeed ?? rollAvatarSeed(seededRandom(`avatar:${stableKey}`));
   return { name, avatarSeed };
 }
+
+/** One seat of a league, for `leagueManagerIdentities`: its stable key and its stored config, if any. */
+export interface LeagueSeatIdentityInput {
+  key: string;
+  config: { name?: string | undefined; avatarSeed?: string | undefined } | null | undefined;
+}
+
+/**
+ * The name and avatar seed of every seat in a league (by key), with no default name repeating another
+ * seat's name or any in `avoid` (compared case-insensitively). Stored names are kept as they are;
+ * seats without one take their defaults in key order, each rolled from its own `effectiveManager`
+ * sequence past the names already used. A default that collides with nothing is the very name
+ * `effectiveManager` gives, so only the seat that would have repeated a name changes. Leagues made
+ * before stored names (#161) get unique defaults this way, and every caller that passes the same
+ * seats (the runner, the API) gets the same names.
+ */
+export function leagueManagerIdentities(
+  seats: readonly LeagueSeatIdentityInput[],
+  avoid: Iterable<string> = []
+): Map<string, ManagerIdentity> {
+  const taken = [...avoid];
+  for (const seat of seats) if (seat.config?.name !== undefined) taken.push(seat.config.name);
+  const byKey = [...seats].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const identities = new Map<string, ManagerIdentity>();
+  for (const seat of byKey) {
+    const stored = seat.config?.name;
+    const name = stored ?? rollManagerName(seededRandom(`manager:${seat.key}`), { avoid: taken });
+    if (stored === undefined) taken.push(name);
+    identities.set(seat.key, { ...effectiveManager(seat.config, seat.key), name });
+  }
+  return identities;
+}
