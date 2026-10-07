@@ -86,6 +86,25 @@ describe('EventBridgePublisher', () => {
     expect(entries[2]).toMatchObject({ DetailType: 'Cancel Scheduled Event', Detail: '{"name":"lock-5"}' });
   });
 
+  it("sends an email as rsc-core's Send Email, outside the fantasy source", async () => {
+    const client = new FakeSender();
+    const email = { to: 'a@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' };
+    await new EventBridgePublisher({ client, busName: 'default' }).sendEmail(email);
+    expect(client.commands.map((c) => c.input.Entries?.[0])).toEqual([
+      {
+        EventBusName: 'default',
+        Source: 'fantasy.email',
+        DetailType: 'Send Email',
+        Detail: JSON.stringify(email)
+      }
+    ]);
+    // In memory, emails are kept apart from the events the loop delivers.
+    const memory = new InMemoryEventPublisher();
+    await memory.sendEmail(email);
+    expect(memory.emails).toEqual([email]);
+    expect(memory.events).toEqual([]);
+  });
+
   it('throws when EventBridge rejects the entry', async () => {
     const publisher = new EventBridgePublisher({ client: new FakeSender(1) });
     await expect(publisher.publish('Agent Action Requested', {})).rejects.toThrow(/rejected/);

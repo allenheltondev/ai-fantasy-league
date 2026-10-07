@@ -3,12 +3,15 @@ import { EventBridgeClient, PutEventsCommand, type PutEventsRequestEntry } from 
 import {
   CANCEL_SCHEDULED_EVENT,
   EVENT_SOURCE,
+  LEAGUE_EMAIL_SOURCE,
   SCHEDULE_EVENT,
+  SEND_EMAIL,
   scheduleEventDetail,
   type EventDetail,
   type EventPublisher,
   type FantasyEventType,
-  type ScheduleRequest
+  type ScheduleRequest,
+  type SendEmailDetail
 } from './publisher.js';
 
 /** Minimal surface of the SDK client, so tests can pass a fake. */
@@ -37,10 +40,14 @@ export class EventBridgePublisher implements EventPublisher {
     return this.#put(CANCEL_SCHEDULED_EVENT, { name });
   }
 
-  async #put(detailType: string, detail: EventDetail): Promise<void> {
+  sendEmail(email: SendEmailDetail): Promise<void> {
+    return this.#put(SEND_EMAIL, { ...email }, LEAGUE_EMAIL_SOURCE);
+  }
+
+  async #put(detailType: string, detail: EventDetail, source: string = EVENT_SOURCE): Promise<void> {
     const entry: PutEventsRequestEntry = {
       EventBusName: this.#busName,
-      Source: EVENT_SOURCE,
+      Source: source,
       DetailType: detailType,
       Detail: JSON.stringify(detail)
     };

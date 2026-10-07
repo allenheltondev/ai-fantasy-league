@@ -153,6 +153,17 @@ describe('scheduled draft (DynamoDB Local)', () => {
         text: expect.stringMatching(/^The draft could not start at its scheduled time\. 1 human seat/)
       }
     });
+    // And by email: the seeded league learned Alice's email when she set the draft time.
+    expect(h.events.emails).toEqual([
+      expect.objectContaining({
+        to: ALICE.email,
+        subject: `Your ${(await h.repos.leagues.get(L))?.name} draft did not start`,
+        text: expect.stringContaining('set_seat_type')
+      })
+    ]);
+    // A redelivered fire (at-least-once delivery, or a Lambda retry) emails nobody again.
+    expect(await fire('Draft Start Scheduled', L, first)).toEqual({ handled: true, outcome: 'blocked' });
+    expect(h.events.emails).toHaveLength(1);
     const reverted = await h.repos.teams.get(L, 'team-3');
     await h.repos.teams.update({ ...reverted!, seatType: 'agent' });
   });
@@ -210,6 +221,7 @@ describe('scheduled draft (DynamoDB Local)', () => {
     expect(created.status, JSON.stringify(created.body)).toBe(200);
     const id = data<{ id: string }>(created).id;
     expect(schedules(draftStartScheduleName(id)).at(-1)?.detail).toMatchObject({ at });
+    expect((await h.repos.leagues.get(id))?.commissionerEmail).toBe(CAROL.email);
     const past = await carol.post('/leagues', {
       name: 'Too late',
       settings: { draft: { scheduledAt: iso(now() - HOUR) } }

@@ -299,7 +299,9 @@ Resources:
         - Version: '2012-10-17'
           Statement:
             # ctx.events.publish and ctx.events.scheduleAt (the rsc-core
-            # deferred-event scheduler listens on the same bus).
+            # deferred-event scheduler listens on the same bus), and
+            # ctx.events.sendEmail (rsc-core's Send Email: a blocked
+            # scheduled draft start emails the commissioner, #134).
             - Effect: Allow
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default

@@ -107,6 +107,11 @@ export class InMemoryLeagueRepository implements LeagueRepository {
     return clone(partition.league);
   }
 
+  async setCommissionerEmail(leagueId: string, commissionerId: string, email: string): Promise<void> {
+    const league = this.store.partition(leagueId).league;
+    if (league?.commissionerId === commissionerId) league.commissionerEmail = email;
+  }
+
   async listByCreator(userId: string): Promise<League[]> {
     return this.store
       .partitions()

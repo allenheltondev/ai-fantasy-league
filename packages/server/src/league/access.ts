@@ -44,7 +44,22 @@ export async function requireMember(ctx: Ctx, leagueId: string): Promise<LeagueA
           : 'Ask the commissioner for an invite link and join with join_league. list_my_leagues shows the leagues you are in.'
     });
   }
-  return access;
+  return keepCommissionerEmail(ctx, access);
+}
+
+/**
+ * Stores the commissioner's email from their ID token when it differs from the league's (#134), so
+ * leagues created before it was kept, and leagues handed to a new commissioner, get it the next
+ * time the commissioner uses them. The league's version stays as it is, so the write never makes
+ * the caller's own change (or anyone else's) a conflict.
+ */
+async function keepCommissionerEmail(ctx: Ctx, access: LeagueAccess): Promise<LeagueAccess> {
+  const { principal } = ctx;
+  if (principal.type !== 'user' || principal.email === null) return access;
+  const { league } = access;
+  if (league.commissionerId !== principal.sub || league.commissionerEmail === principal.email) return access;
+  await ctx.repos.leagues.setCommissionerEmail(league.id, principal.sub, principal.email);
+  return { ...access, league: { ...league, commissionerEmail: principal.email } };
 }
 
 export async function requireCommissioner(ctx: Ctx, leagueId: string): Promise<LeagueAccess> {
