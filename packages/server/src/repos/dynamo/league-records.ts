@@ -79,6 +79,7 @@ export const LeagueRecordSchema = z.object({
   settings: LeagueSettingsSchema,
   commissionerId: z.string(),
   commissionerName: z.string(),
+  commissionerEmail: z.string().nullable().optional(),
   createdBy: z.string(),
   scheduleSeed: z.string(),
   draftStartup: z

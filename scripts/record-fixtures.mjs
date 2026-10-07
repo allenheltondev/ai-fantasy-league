@@ -10,6 +10,7 @@
 //   node scripts/record-fixtures.mjs --scoring --weeks 1,2     # scoring validation sets (below)
 //   node scripts/record-fixtures.mjs --espn-summary 401772901  # only one ESPN game summary (#164)
 //   node scripts/record-fixtures.mjs --espn-injuries           # only ESPN's injury report (#200)
+//   node scripts/record-fixtures.mjs --espn-scoreboard 2026 4  # only one week of ESPN's scoreboard
 //   node scripts/record-fixtures.mjs --sleeper-app-projections 2026 4  # both projection endpoints (#184)
 //
 // --sleeper-app-projections <season> <week> records one week's projections from both Sleeper
@@ -86,6 +87,8 @@ const { values, positionals } = parseArgs({
     scoring: { type: 'boolean', default: false },
     'espn-summary': { type: 'string' },
     'espn-injuries': { type: 'boolean', default: false },
+    'espn-scoreboard': { type: 'string' },
+    'season-type': { type: 'string', default: 'regular' },
     'sleeper-app-projections': { type: 'string' }
   },
   allowPositionals: true
@@ -317,6 +320,52 @@ async function recordEspnInjuries() {
   );
 }
 
+/** ESPN's `seasontype` ids, by the names our fixtures use. */
+const ESPN_SEASON_TYPES = { regular: 2, post: 3 };
+
+/**
+ * One week of ESPN's scoreboard, as returned, to fixtures/espn/scoreboard_<type>_<season>_<week>.json
+ * (the hand-authored stand-in is fixtures/espn/hand-authored/scoreboard_regular_2026_4.json). Only
+ * the league's season calendar is dropped (every week of the year, which nothing reads). Record it
+ * during a game window to capture live situations (possession, down and distance, red zone); the
+ * summary line counts the games in each state. The data package's tests check every recorded week
+ * parses and maps to our team codes.
+ */
+async function recordEspnScoreboard(season, week, seasonType) {
+  const type = ESPN_SEASON_TYPES[seasonType];
+  if (
+    !Number.isInteger(season) ||
+    season < 2000 ||
+    !Number.isInteger(week) ||
+    week < 1 ||
+    week > 22 ||
+    !type
+  ) {
+    throw new Error(
+      '--espn-scoreboard takes a season and a week, e.g. --espn-scoreboard 2026 4 (--season-type regular or post)'
+    );
+  }
+  const dir = join(out, 'espn');
+  mkdirSync(dir, { recursive: true });
+  const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${season}&seasontype=${type}&week=${week}`;
+  const body = JSON.parse(await get(url));
+  for (const league of body.leagues ?? []) delete league.calendar;
+  const file = `scoreboard_${seasonType}_${season}_${week}.json`;
+  writeJson(join(dir, file), body);
+  const events = body.events ?? [];
+  const states = {};
+  for (const event of events) {
+    const state = event.competitions?.[0]?.status?.type?.state ?? 'unknown';
+    states[state] = (states[state] ?? 0) + 1;
+  }
+  const situations = events.filter((e) => e.competitions?.[0]?.situation).length;
+  console.log(
+    `espn scoreboard ${season} ${seasonType} week ${week}: ${events.length} games (${Object.entries(states)
+      .map(([k, n]) => `${n} ${k}`)
+      .join(', ')}), ${situations} with a situation -> ${join(dir, file)}`
+  );
+}
+
 /** Fetches without throwing on an HTTP error, so a failing endpoint is recorded, not fatal. */
 async function tryGet(url) {
   try {
@@ -414,6 +463,12 @@ if (values['sleeper-app-projections'] !== undefined) {
   await recordEspnSummary(values['espn-summary']);
 } else if (values['espn-injuries']) {
   await recordEspnInjuries();
+} else if (values['espn-scoreboard'] !== undefined) {
+  await recordEspnScoreboard(
+    Number(values['espn-scoreboard']),
+    Number(positionals[0]),
+    values['season-type']
+  );
 } else if (values.scoring) {
   if (doNflverse) await recordScoringNflverse();
   if (doSleeper) await recordScoringSleeper();

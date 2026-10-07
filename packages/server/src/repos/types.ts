@@ -143,6 +143,13 @@ export interface League {
   /** The commissioner's user id (Cognito `sub`). Always a human who holds a seat. */
   commissionerId: string;
   commissionerName: string;
+  /**
+   * The commissioner's email from their ID token, for the emails the league sends them (a blocked
+   * scheduled draft start, #134). Never shown to anyone. Stored at create_league and refreshed
+   * whenever the commissioner uses the league (`requireMember`), so a league stored before it was
+   * kept, or handed to a new commissioner, gets it on their next visit. Null or absent until known.
+   */
+  commissionerEmail?: string | null;
   /** Who created the league; counts toward that user's league quota. */
   createdBy: string;
   /** Seed for the regular-season schedule, so it can always be regenerated identically. */
@@ -165,6 +172,12 @@ export interface LeagueRepository {
   create(league: League): Promise<void>;
   /** Writes `league` with `version + 1` if the stored version equals `league.version`; else CONFLICT. */
   update(league: League): Promise<League>;
+  /**
+   * Stores the commissioner's email if `commissionerId` is still the commissioner. It leaves the
+   * version alone (it is not a change anyone needs to see), so an `update` from an older read can
+   * drop it again; the next `requireMember` by the commissioner puts it back.
+   */
+  setCommissionerEmail(leagueId: string, commissionerId: string, email: string): Promise<void>;
   /** Every league this user created (GSI1 `CREATOR#<sub>`), oldest first. */
   listByCreator(userId: string): Promise<League[]>;
   /** Every league in a phase (GSI2 `LEAGUEPHASE#<phase>`), for scheduled jobs such as waiver processing. */

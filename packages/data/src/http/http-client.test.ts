@@ -65,6 +65,15 @@ describe('HttpClient', () => {
     expect(headers['user-agent']).toBe('fantasy-test');
   });
 
+  it('returns the raw bytes for binary files, with the same retries', async () => {
+    const m = mockFetch((_u, call) =>
+      call === 1 ? text('busy', 503) : new Response(new Uint8Array([31, 139, 8]))
+    );
+    const client = new HttpClient({ fetch: m.fetch, sleep: async () => undefined, random: () => 0 });
+    expect(await client.getBytes(URL_)).toEqual(new Uint8Array([31, 139, 8]));
+    expect(m.calls).toHaveLength(2);
+  });
+
   it('retries 5xx and 429 with backoff, then succeeds', async () => {
     const { sleep, delays } = recordingSleep();
     const m = mockFetch((_u, call) =>

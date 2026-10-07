@@ -67,6 +67,41 @@ describe('create_league', () => {
       })
     ]);
     expect(res.body).toMatchObject({ league: null, warnings: [] });
+    // The commissioner's email is kept for the league's emails (#134), and never shown.
+    expect(await h.repos.leagues.get(league.id as string)).toMatchObject({
+      commissionerEmail: 'alice@example.com'
+    });
+    expect(JSON.stringify(res.body)).not.toContain('alice@example.com');
+  });
+
+  it("stores an existing league's commissioner email when the commissioner next uses it", async () => {
+    await seedLeague(h.repos, { id: 'lg-old', owners: [ALICE, BOB] });
+    expect((await h.repos.leagues.get('lg-old'))?.commissionerEmail).toBeUndefined();
+    // A member who is not the commissioner changes nothing.
+    expect((await bob.get('/leagues/lg-old')).status).toBe(200);
+    expect((await h.repos.leagues.get('lg-old'))?.commissionerEmail).toBeUndefined();
+    const read = await alice.get('/leagues/lg-old');
+    expect(read.status).toBe(200);
+    expect(JSON.stringify(read.body)).not.toContain('alice@example.com');
+    // Stored without a new version, so a change based on the version just read still applies.
+    expect(await h.repos.leagues.get('lg-old')).toMatchObject({
+      commissionerEmail: 'alice@example.com',
+      version: 1
+    });
+    const changed = await alice.patch('/leagues/lg-old/settings', {
+      changes: { draft: { orderMode: 'random' } },
+      expectedVersion: 1
+    });
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    expect(await h.repos.leagues.get('lg-old')).toMatchObject({
+      commissionerEmail: 'alice@example.com',
+      version: 2
+    });
+    // A new email in the ID token replaces it; a token without one leaves it.
+    expect((await as(h, { ...ALICE, email: 'alice@new.example' }).get('/leagues/lg-old')).status).toBe(200);
+    expect((await h.repos.leagues.get('lg-old'))?.commissionerEmail).toBe('alice@new.example');
+    expect((await as(h, { ...ALICE, email: '' }).get('/leagues/lg-old')).status).toBe(200);
+    expect((await h.repos.leagues.get('lg-old'))?.commissionerEmail).toBe('alice@new.example');
   });
 
   it('takes a preset, team count, team name, and overrides', async () => {
@@ -1152,9 +1187,18 @@ describe('membership changes', () => {
     expect(data(await alice.post('/leagues/lg-m/commissioner', { userId: 'alice' }))).toMatchObject({
       version: 1
     });
+    expect((await h.repos.leagues.get('lg-m'))?.commissionerEmail).toBe('alice@example.com');
     const res = await alice.post('/leagues/lg-m/commissioner', { userId: 'bob' });
     expect(data(res)).toMatchObject({ commissioner: { userId: 'bob', name: 'Bob' }, version: 2 });
+    // Alice's email goes with her role; Bob's is stored the next time he uses the league.
+    expect((await h.repos.leagues.get('lg-m'))?.commissionerEmail).toBeNull();
     expect(errorCode(await alice.patch('/leagues/lg-m/settings', { changes: {} }))).toBe('FORBIDDEN');
+    expect((await h.repos.leagues.get('lg-m'))?.commissionerEmail).toBeNull();
+    expect((await bob.get('/leagues/lg-m')).status).toBe(200);
+    expect(await h.repos.leagues.get('lg-m')).toMatchObject({
+      commissionerEmail: 'bob@example.com',
+      version: 2
+    });
     expect((await alice.post('/leagues/lg-m/leave')).status).toBe(200);
   });
 

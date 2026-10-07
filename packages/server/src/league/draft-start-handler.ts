@@ -1,5 +1,7 @@
 import type { Services } from '../context.js';
 import { isApiError } from '../errors.js';
+import type { SendEmailDetail } from '../events/publisher.js';
+import { escapeHtml } from '../failures/notify.js';
 import { startLeagueDraft } from '../operations/draft/start-draft.js';
 import type { League } from '../repos/types.js';
 import { syncDraftSchedule } from './draft-schedule.js';
@@ -32,7 +34,7 @@ async function scheduledLeague(
  * Handles `Draft Start Scheduled`: starts the draft through the same path as `start_draft`, with
  * the order the commissioner chose (`draft.orderMode`). When something blocks the start (open human
  * seats, a start week too late), the draft stays in setup and `Draft Start Blocked` tells the
- * commissioner, in chat, what to fix.
+ * commissioner, in chat and by email (`emailBlockedStart`), what to fix.
  */
 export async function handleDraftStartScheduled(
   services: Services,
@@ -59,7 +61,7 @@ export async function handleDraftStartScheduled(
     const again = await services.repos.leagues.get(league.id);
     if (again?.draftStartup) throw error;
     if (again !== null && again.phase !== 'setup') return 'ignored';
-    await services.events.publish('Draft Start Blocked', {
+    const blocked = {
       leagueId: league.id,
       scheduledAt,
       commissionerId: league.commissionerId,
@@ -67,8 +69,10 @@ export async function handleDraftStartScheduled(
       reason: error.message,
       /* v8 ignore next -- every start_draft error carries a fix */
       fix: error.fix ?? 'Fix the problem, then start the draft with start_draft or set a new draft time.'
-    });
+    };
+    await services.events.publish('Draft Start Blocked', blocked);
     services.log.warn('scheduled draft start blocked', { leagueId: league.id, code: error.code });
+    await emailBlockedStart(services, again ?? league, blocked);
     return 'blocked';
   }
   services.log.info('scheduled draft started', { leagueId: league.id, scheduledAt });
@@ -90,4 +94,90 @@ export async function handleDraftReminder(
   );
   await services.events.publish('Draft Starting Soon', { leagueId: league.id, scheduledAt, minutes });
   return 'reminded';
+}
+
+/** What `Draft Start Blocked` says, which the commissioner's email repeats. */
+export interface BlockedStart {
+  leagueId: string;
+  scheduledAt: string;
+  code: string;
+  reason: string;
+  fix: string;
+}
+
+export type BlockedStartEmailOutcome = 'sent' | 'no_email' | 'duplicate' | 'failed';
+
+/** Scope of the claims that keep a blocked start to one email (in the idempotency table). */
+export const BLOCKED_START_EMAIL_SCOPE = 'system#draft-start-blocked-email';
+/** A claim left by a send that crashed may be taken over after this long. */
+const EMAIL_LOCK_MS = 5 * 60_000;
+/** Claims outlive any redelivery of the scheduled start. */
+const EMAIL_CLAIM_TTL_MS = 30 * 24 * 3_600_000;
+
+/** The `Send Email` detail telling the commissioner their scheduled draft did not start. */
+export function blockedStartEmail(
+  league: Pick<League, 'name'>,
+  to: string,
+  blocked: BlockedStart
+): SendEmailDetail {
+  const when = new Date(blocked.scheduledAt).toUTCString();
+  const subject = `Your ${league.name} draft did not start`;
+  const lines = [
+    `The ${league.name} draft was scheduled for ${when}, but it could not start: ${blocked.reason}`,
+    `To fix it: ${blocked.fix}`,
+    'The league stays in setup until you start the draft or set a new draft time. The draft room chat says the same.'
+  ];
+  return {
+    to,
+    subject,
+    text: lines.join('\n\n'),
+    html: lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n')
+  };
+}
+
+/**
+ * Emails the commissioner that the scheduled start was blocked (#134), once per league and
+ * scheduled time: the first delivery claims `<leagueId>#<scheduledAt>`, so a redelivered or retried
+ * `Draft Start Scheduled` sends nothing more. A failed send releases the claim and is logged, not
+ * thrown: retrying the whole start would also repeat `Draft Start Blocked` in chat, which already
+ * told the commissioner.
+ */
+export async function emailBlockedStart(
+  services: Pick<Services, 'repos' | 'events' | 'clock' | 'log'>,
+  league: Pick<League, 'name' | 'commissionerEmail'>,
+  blocked: BlockedStart
+): Promise<BlockedStartEmailOutcome> {
+  const log = services.log.child({ leagueId: blocked.leagueId });
+  const to = league.commissionerEmail ?? null;
+  if (to === null) {
+    log.info('no commissioner email for the blocked draft start');
+    return 'no_email';
+  }
+  const key = `${blocked.leagueId}#${blocked.scheduledAt}`;
+  const now = services.clock.now();
+  const claim = await services.repos.idempotency.begin({
+    scope: BLOCKED_START_EMAIL_SCOPE,
+    key,
+    operation: 'draft_start_blocked_email',
+    requestHash: key,
+    now,
+    lockUntil: new Date(now.getTime() + EMAIL_LOCK_MS),
+    expiresAt: new Date(now.getTime() + EMAIL_CLAIM_TTL_MS)
+  });
+  if (claim.status !== 'started') return 'duplicate';
+  try {
+    await services.events.sendEmail(blockedStartEmail(league, to, blocked));
+  } catch (error) {
+    await services.repos.idempotency.release(BLOCKED_START_EMAIL_SCOPE, key);
+    log.error('blocked draft start email failed', { error });
+    return 'failed';
+  }
+  await services.repos.idempotency.complete(
+    BLOCKED_START_EMAIL_SCOPE,
+    key,
+    { status: 200, body: { sentAt: now.toISOString() } },
+    new Date(now.getTime() + EMAIL_CLAIM_TTL_MS)
+  );
+  log.info('blocked draft start emailed to the commissioner');
+  return 'sent';
 }

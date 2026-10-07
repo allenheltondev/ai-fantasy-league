@@ -10,6 +10,10 @@ import { isValidScheduleName } from './schedule-name.js';
 export const EVENT_SOURCE = 'fantasy';
 export const SCHEDULE_EVENT = 'Schedule Event';
 export const CANCEL_SCHEDULED_EVENT = 'Cancel Scheduled Event';
+/** rsc-core's email event: its SendEmailFunction listens on the default bus for this detail type. */
+export const SEND_EMAIL = 'Send Email';
+/** Source of the emails the league sends people (the failure emails have their own). */
+export const LEAGUE_EMAIL_SOURCE = 'fantasy.email';
 
 /** Detail types from docs/ARCHITECTURE.md "Events". */
 export type FantasyEventType =
@@ -109,11 +113,21 @@ export interface ScheduleEventDetail {
   event: { source: string; detailType: string; detail: EventDetail };
 }
 
+/** The `Send Email` detail rsc-core's SendEmailFunction consumes. */
+export interface SendEmailDetail {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}
+
 export interface EventPublisher {
   /** The detail is typed per event type (`EVENT_DETAIL_SCHEMAS`), so emitters cannot drift. */
   publish<T extends FantasyEventType>(detailType: T, detail: EventDetailOf<T>): Promise<void>;
   scheduleAt(request: ScheduleRequest): Promise<void>;
   cancelScheduled(name: string): Promise<void>;
+  /** Emails one person through rsc-core's `Send Email`. Not a domain event: nothing here consumes it. */
+  sendEmail(email: SendEmailDetail): Promise<void>;
 }
 
 export function scheduleEventDetail(request: ScheduleRequest): ScheduleEventDetail {
@@ -151,6 +165,8 @@ export interface RecordedEvent {
  */
 export class InMemoryEventPublisher implements EventPublisher {
   readonly events: RecordedEvent[] = [];
+  /** Emails are kept apart from `events`, which the event loop delivers to handlers. */
+  readonly emails: SendEmailDetail[] = [];
 
   async publish<T extends FantasyEventType>(detailType: T, detail: EventDetailOf<T>): Promise<void> {
     this.events.push({ source: EVENT_SOURCE, detailType, detail: detail as EventDetail });
@@ -168,5 +184,9 @@ export class InMemoryEventPublisher implements EventPublisher {
   async cancelScheduled(name: string): Promise<void> {
     assertScheduleName(name);
     this.events.push({ source: EVENT_SOURCE, detailType: CANCEL_SCHEDULED_EVENT, detail: { name } });
+  }
+
+  async sendEmail(email: SendEmailDetail): Promise<void> {
+    this.emails.push({ ...email });
   }
 }

@@ -93,6 +93,7 @@ export const createLeague = defineOperation({
       settings,
       commissionerId: principal.sub,
       commissionerName: principal.name,
+      commissionerEmail: principal.email,
       createdBy: principal.sub,
       scheduleSeed: leagueId,
       deadlines: {

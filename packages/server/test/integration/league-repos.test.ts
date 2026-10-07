@@ -70,6 +70,23 @@ function matchup(leagueId: string, week: number, n: number): Matchup {
 }
 
 describe.each(backends)('%s league repositories', (_name, make) => {
+  it("stores the commissioner's email without a new version, only for the current commissioner", async () => {
+    const { leagues } = make();
+    const stored = league({ id: unique('lg') });
+    await leagues.create(stored);
+    expect((await leagues.get(stored.id))?.commissionerEmail).toBeUndefined();
+    await leagues.setCommissionerEmail(stored.id, 'someone-else', 'x@example.com');
+    expect((await leagues.get(stored.id))?.commissionerEmail).toBeUndefined();
+    await leagues.setCommissionerEmail(stored.id, stored.commissionerId, 'c@example.com');
+    expect(await leagues.get(stored.id)).toMatchObject({ commissionerEmail: 'c@example.com', version: 1 });
+    // A league that is gone stores nothing (and is not created).
+    const missing = unique('missing');
+    await leagues.setCommissionerEmail(missing, stored.commissionerId, 'c@example.com');
+    expect(await leagues.get(missing)).toBeNull();
+    const updated = await leagues.update({ ...stored, commissionerEmail: null });
+    expect(await leagues.get(stored.id)).toMatchObject({ commissionerEmail: null, version: updated.version });
+  });
+
   it('stores leagues with settings, finds them by creator, and fetches several at once', async () => {
     const { leagues } = make();
     const creator = unique('creator');
