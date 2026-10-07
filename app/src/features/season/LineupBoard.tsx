@@ -113,6 +113,8 @@ export function LineupBoard(props: {
   highlight?: string | null;
   /** Players a pending trade would send away: their rows say so. */
   onTheBlock?: ReadonlySet<string>;
+  /** Help for newer managers, beside the week (LineupHelp). */
+  help?: ReactNode;
 }) {
   const { data } = props;
   const api = useLeagueApi();
@@ -299,6 +301,7 @@ export function LineupBoard(props: {
         canOptimize={optimal !== null && !alreadyOptimal && !saving}
         optimalGain={optimal === null ? 0 : optimal.projectedPoints - total}
         onOptimize={optimize}
+        help={props.help}
       />
       {spotlightRow !== undefined && spotlightStatus !== null && (
         <section
@@ -537,6 +540,7 @@ function LineupSummary(props: {
   canOptimize: boolean;
   optimalGain: number;
   onOptimize: () => void;
+  help?: ReactNode;
 }) {
   const { data } = props;
   const delta = Math.round((props.total - props.savedTotal) * 100) / 100;
@@ -544,10 +548,13 @@ function LineupSummary(props: {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-3 sm:p-4">
       <div className="min-w-0">
-        <p className="text-sm text-muted-foreground">
-          {/* My Team already says whose lineup this is (#212). */}
-          Week {data.week}
-          {data.carriedFromWeek !== null ? ` · carried over from week ${data.carriedFromWeek}` : ''}
+        <p className="-my-3 flex items-center text-sm text-muted-foreground">
+          <span>
+            {/* My Team already says whose lineup this is (#212). */}
+            Week {data.week}
+            {data.carriedFromWeek !== null ? ` · carried over from week ${data.carriedFromWeek}` : ''}
+          </span>
+          {props.help}
         </p>
         <p className="flex flex-wrap items-baseline gap-x-2" data-testid="lineup-projection">
           <span className="text-sm text-muted-foreground">Projected</span>

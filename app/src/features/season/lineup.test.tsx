@@ -944,3 +944,63 @@ describe('player names and pending trades on the lineup', () => {
     expect(screen.queryByTestId('trade-callout')).not.toBeInTheDocument();
   });
 });
+
+describe('lineup help for newer managers', () => {
+  const players = [entry('qb1', 'QB', 'QB'), entry('wr1', 'WR', 'WR'), entry('wr2', 'WR', 'BN')];
+
+  it('explains the lineup behind an info icon and links to where the other moves happen', async () => {
+    open({
+      getLeagueState: vi.fn(async () =>
+        state({
+          phase: 'regular_season',
+          week: 1,
+          youAreCommissioner: false,
+          allowedActions: ['set_lineup', 'claim_waiver', 'drop_player', 'propose_trade']
+        })
+      ),
+      getRoster: vi.fn(async () => roster(players))
+    });
+    const user = userEvent.setup();
+    const button = await screen.findByRole('button', { name: 'How do lineups work?' });
+    expect(screen.queryByRole('region', { name: 'Lineup help' })).toBeNull();
+    await user.click(button);
+    const help = screen.getByRole('region', { name: 'Lineup help' });
+    // The league's own flex slot and IR, in plain words.
+    expect(help).toHaveTextContent('W/R/T is a flex slot');
+    expect(help).toHaveTextContent('in an IR slot');
+    const href = (name: string) => within(help).getByRole('link', { name }).getAttribute('href');
+    expect(href('Roster & moves')).toBe('/leagues/L1/team/moves');
+    expect(href('Trades')).toBe('/leagues/L1/team/trades');
+    expect(href('My matchup')).toBe('/leagues/L1/team/matchup');
+    expect(href('Players')).toBe('/leagues/L1/league/players');
+    expect(href('League info')).toBe('/leagues/L1/settings');
+    // Following a link leaves the lineup, help and all.
+    await user.click(within(help).getByRole('link', { name: 'Roster & moves' }));
+    await waitFor(() => expect(screen.queryByTestId('league-section-roster')).toBeNull());
+    expect(screen.queryByRole('region', { name: 'Lineup help' })).toBeNull();
+  });
+
+  it('leaves out trades when you cannot propose one, and flex and IR when the league has neither', async () => {
+    open({
+      getLeagueState: vi.fn(async () =>
+        state({ phase: 'regular_season', week: 1, allowedActions: ['set_lineup'] })
+      ),
+      getRoster: vi.fn(async () =>
+        roster(players, {
+          slots: [
+            { slot: 'QB', count: 1 },
+            { slot: 'WR', count: 1 },
+            { slot: 'BN', count: 5 }
+          ]
+        })
+      )
+    });
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'How do lineups work?' }));
+    const help = screen.getByRole('region', { name: 'Lineup help' });
+    expect(within(help).queryByRole('link', { name: 'Trades' })).toBeNull();
+    // The commissioner finds the rules under Settings.
+    expect(within(help).getByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(help).not.toHaveTextContent('flex');
+    expect(help).not.toHaveTextContent('IR');
+  });
+});
