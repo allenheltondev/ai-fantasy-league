@@ -13,7 +13,8 @@ export function RoomList({
   teams,
   yourTeamId,
   onSelect,
-  loadPastWeek
+  loadPastWeek,
+  pastWeeks: listedPastWeeks = null
 }: {
   rooms: readonly ChatRoom[];
   currentRoomId: string;
@@ -22,16 +23,22 @@ export function RoomList({
   onSelect(roomId: string, room?: ChatRoom): void;
   /** That past week's matchup rooms (archived). */
   loadPastWeek(week: number): Promise<ChatRoom[]>;
+  /**
+   * The weeks with archived matchup rooms, from the server. Without it they are guessed from this
+   * week's live rooms, which a finished season no longer has.
+   */
+  pastWeeks?: readonly number[] | null;
 }) {
   const fixed = rooms.filter((r) => r.kind === 'fixed');
   const matchups = rooms.filter((r) => r.kind === 'matchup' && !r.archived);
   const dms = rooms.filter((r) => r.kind === 'dm');
   const currentWeek = Math.max(0, ...matchups.map((r) => r.week ?? 0));
   const liveWeeks = new Set(matchups.map((r) => r.week));
-  const pastWeeks = Array.from(
-    { length: Math.max(0, currentWeek - 1) },
-    (_, i) => currentWeek - 1 - i
-  ).filter((w) => !liveWeeks.has(w));
+  const pastWeeks =
+    listedPastWeeks ??
+    Array.from({ length: Math.max(0, currentWeek - 1) }, (_, i) => currentWeek - 1 - i).filter(
+      (w) => !liveWeeks.has(w)
+    );
   const row = (room: ChatRoom) => (
     <RoomRow key={room.roomId} room={room} current={room.roomId === currentRoomId} onSelect={onSelect} />
   );

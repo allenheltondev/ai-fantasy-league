@@ -88,6 +88,7 @@ function fakeApi(realtime: RealtimeInfo = OFF) {
     ]
   ]);
   let rooms = ROOMS.map((r) => ({ ...r }));
+  let pastWeeks: number[] | undefined;
   const api: ChatApi = {
     list: vi.fn(async (_league: string, options: { roomId?: string } = {}) => ({
       messages: [...(byRoom.get(options.roomId ?? 'trash-talk') ?? [])].reverse(),
@@ -102,6 +103,7 @@ function fakeApi(realtime: RealtimeInfo = OFF) {
     teams: vi.fn(async () => TEAMS),
     rooms: vi.fn(async (_league: string, options: { pastWeek?: number } = {}) => ({
       defaultRoomId: 'trash-talk',
+      ...(pastWeeks === undefined ? {} : { pastWeeks }),
       rooms:
         options.pastWeek === undefined
           ? rooms
@@ -124,6 +126,11 @@ function fakeApi(realtime: RealtimeInfo = OFF) {
     api,
     addRoom: (r: ChatRoom) => {
       rooms = [...rooms, r];
+    },
+    /** Week 5 ends: its matchup rooms leave the live list (`last`: and the season with it). */
+    endWeek: (last = false) => {
+      rooms = rooms.filter((r) => r.kind !== 'matchup');
+      pastWeeks = last ? [5, 4, 3, 2, 1] : [4, 3, 2, 1];
     }
   };
 }
@@ -133,7 +140,10 @@ function Where() {
   return <p data-testid="where">{location.search}</p>;
 }
 
-function renderChat(api: ChatApi, options: { connect?: Connect; path?: string } = {}) {
+function renderChat(
+  api: ChatApi,
+  options: { connect?: Connect; path?: string; roomsRefreshMs?: number | null } = {}
+) {
   return render(
     <MemoryRouter initialEntries={[options.path ?? '/leagues/L1/chat']}>
       <Routes>
@@ -145,7 +155,7 @@ function renderChat(api: ChatApi, options: { connect?: Connect; path?: string } 
                 api={api}
                 connect={options.connect ?? vi.fn()}
                 yourTeamId="team-1"
-                roomsRefreshMs={null}
+                roomsRefreshMs={options.roomsRefreshMs ?? null}
               />
               <Where />
             </>
@@ -292,6 +302,42 @@ describe('chat rooms', () => {
     expect(await screen.findByText(/This room is archived/)).toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(api.rooms).toHaveBeenCalledWith('L1', { pastWeek: 3 });
+  });
+
+  it('still lists past weeks once the season is over and no matchup room is live', async () => {
+    const user = userEvent.setup();
+    const { api, endWeek } = fakeApi();
+    endWeek(true);
+    renderChat(api);
+    await within(messages()).findByText('welcome to trash talk');
+    await waitFor(() =>
+      expect(sidebar().getByRole('heading', { name: 'Direct messages' })).toBeInTheDocument()
+    );
+    expect(sidebar().queryByRole('heading', { name: "This week's matchups" })).not.toBeInTheDocument();
+    await user.click(sidebar().getByRole('button', { name: 'Past weeks' }));
+    expect(
+      sidebar()
+        .getAllByRole('button', { name: /^Wk \d$/ })
+        .map((b) => b.textContent)
+    ).toEqual(['Wk 5', 'Wk 4', 'Wk 3', 'Wk 2', 'Wk 1']);
+    await user.click(sidebar().getByRole('button', { name: 'Wk 5' }));
+    expect(
+      await sidebar().findByRole('button', { name: /Wk 5: Allen FC vs Rocket Men/ })
+    ).toBeInTheDocument();
+  });
+
+  it('archives the open matchup room when its week ends', async () => {
+    const user = userEvent.setup();
+    const { api, endWeek } = fakeApi();
+    renderChat(api, { roomsRefreshMs: 50 });
+    await within(messages()).findByText('welcome to trash talk');
+    await user.click(await sidebar().findByRole('button', { name: /Wk 5: Allen FC vs Robo Ballers/ }));
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
+    endWeek();
+    expect(await screen.findByText(/This room is archived/)).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(api.rooms).toHaveBeenCalledWith('L1', { pastWeek: 5 });
+    expect(screen.getByTestId('where')).toHaveTextContent('?room=m-2026-W05-W05-1');
   });
 
   it('switches rooms on a phone from the room sheet', async () => {

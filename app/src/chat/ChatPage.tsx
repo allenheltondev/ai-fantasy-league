@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { apiFetch } from '../api';
 import { useYourTeamId } from '../routes/leagueContext';
@@ -76,6 +76,24 @@ function LeagueChat({
 
   const roomId = params.get('room') ?? rooms.defaultRoomId;
   const room = resolveRoom(roomId, rooms.rooms, picked, teams, yourTeamId);
+  // A matchup room open when its week ends drops off the live list (as does one opened by a link
+  // to a past week): read it from its week's list, so it shows archived, not a stale live copy.
+  const reconciled = useRef<string | null>(null);
+  const listed = rooms.rooms.some((r) => r.roomId === roomId);
+  const week = matchupRoomWeek(roomId);
+  useEffect(() => {
+    if (listed) reconciled.current = null;
+    if (listed || !rooms.loaded || week === null || reconciled.current === roomId) return;
+    if (picked?.roomId === roomId && picked.archived) return;
+    reconciled.current = roomId;
+    api.rooms(leagueId, { pastWeek: week }).then(
+      (data) => {
+        const found = data.rooms.find((r) => r.roomId === roomId);
+        if (found !== undefined) setPicked(found);
+      },
+      () => undefined
+    );
+  }, [listed, rooms.loaded, week, roomId, picked, api, leagueId]);
   const { bump, markRead } = rooms;
   const onOther = useCallback((message: ChatMessage) => bump(message.roomId ?? DEFAULT_ROOM_ID), [bump]);
   const onSeen = useCallback(() => markRead(roomId), [markRead, roomId]);
@@ -97,6 +115,7 @@ function LeagueChat({
         then?.();
       }}
       loadPastWeek={async (week) => (await api.rooms(leagueId, { pastWeek: week })).rooms}
+      pastWeeks={rooms.pastWeeks}
     />
   );
 
@@ -126,6 +145,12 @@ function LeagueChat({
       </div>
     </section>
   );
+}
+
+/** The week of a matchup room id (`m-2026-W05-…`), or null for any other room. */
+export function matchupRoomWeek(roomId: string): number | null {
+  const match = /^m-\d{4}-W(\d{2})-/.exec(roomId);
+  return match === null ? null : Number(match[1]);
 }
 
 const FIXED_TITLES: Readonly<Record<string, string>> = {

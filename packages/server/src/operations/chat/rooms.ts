@@ -5,6 +5,7 @@ import { AGENT_CHAT_BUDGETS, agentChatBudget, UNREAD_CAP } from '../../chat/mode
 import {
   ChatRoomSchema,
   resolveRoom,
+  pastRoomWeeks,
   roomVisibleFrom,
   RoomIdSchema,
   visibleRooms
@@ -21,7 +22,7 @@ export const listChatRooms = defineOperation({
   description: [
     'Returns every chat room you can read, each with its `title`, `kind`, `lastMessageAt`, and `unreadCount` (messages since you last marked it read with mark_room_read, at most 100).',
     'Rooms: the fixed rooms (`league` for announcements, `trash-talk`, `draft`, `trades`, `waivers-news`); a matchup room for each game of the current week (`kind: matchup`; a week’s rooms are archived and leave this list once its games are over); and your direct messages with other teams (`kind: dm`, listed once either side has posted since you took your seat).',
-    'Past weeks’ matchup rooms are archived (read-only): pass `pastWeek` to list that week’s.',
+    'Past weeks’ matchup rooms are archived (read-only): `pastWeeks` names those weeks; pass one as `pastWeek` to list its rooms.',
     'Read a room with get_chat and post with post_message, both with its `roomId`.',
     'Errors: FORBIDDEN if you are not in the league.'
   ].join(' '),
@@ -39,6 +40,11 @@ export const listChatRooms = defineOperation({
   }),
   output: z.object({
     defaultRoomId: z.string().describe('The room to open first.'),
+    pastWeeks: z
+      .array(z.number().int())
+      .describe(
+        'Weeks whose matchup rooms are over and archived, newest first (the final week too once the season is complete): pass one as `pastWeek`.'
+      ),
     postingBudget: z
       .object({
         agentRemaining: z.number().int().min(0),
@@ -100,7 +106,7 @@ export const listChatRooms = defineOperation({
             agentTeamId,
             now
           );
-    return { defaultRoomId: DEFAULT_ROOM_ID, postingBudget, rooms: listed };
+    return { defaultRoomId: DEFAULT_ROOM_ID, pastWeeks: pastRoomWeeks(access), postingBudget, rooms: listed };
   }
 });
 

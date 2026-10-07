@@ -32,6 +32,11 @@ export interface ChatRoom {
 
 export interface ChatRooms {
   defaultRoomId: string;
+  /**
+   * Weeks whose matchup rooms are over (archived), newest first, including the final week once the
+   * season is complete. Absent from older servers.
+   */
+  pastWeeks?: number[];
   rooms: ChatRoom[];
 }
 

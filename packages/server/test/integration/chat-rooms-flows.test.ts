@@ -27,7 +27,7 @@ interface Room {
   lastMessageAt: string | null;
   unreadCount: number;
 }
-type Rooms = { defaultRoomId: string; rooms: Room[] };
+type Rooms = { defaultRoomId: string; pastWeeks: number[]; rooms: Room[] };
 
 const matchup = (week: number, n: number, home: string, away: string): Matchup => ({
   id: `W0${week}-${n}`,
@@ -209,8 +209,9 @@ for (const backend of ['memory', 'dynamo'] as const) {
       const bob = as(h, BOB);
       const room = 'm-2026-W04-W04-1';
       // The league rolled to week 5 when week 4's games ended: week 4 is over, official or not.
-      const rooms = data<Rooms>(await bob.get(`${L}/chat/rooms`)).rooms;
-      expect(rooms.filter((r) => r.kind === 'matchup').map((r) => r.week)).toEqual([5, 5, 5]);
+      const listed = data<Rooms>(await bob.get(`${L}/chat/rooms`));
+      expect(listed.rooms.filter((r) => r.kind === 'matchup').map((r) => r.week)).toEqual([5, 5, 5]);
+      expect(listed.pastWeeks).toEqual([4, 3, 2, 1]);
       const past = data<Rooms>(await bob.get(`${L}/chat/rooms?pastWeek=4`)).rooms.filter((r) => r.week === 4);
       expect(past.map((r) => [r.roomId, r.archived, r.unreadCount])).toEqual([
         [room, true, 0],
@@ -238,9 +239,16 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(errorCode(await bob.post(`${L}/chat/messages`, { roomId: 'm-2026-W05-W05-1', text: 'x' }))).toBe(
         'ROOM_ARCHIVED'
       );
-      expect(data<Rooms>(await bob.get(`${L}/chat/rooms`)).rooms.some((r) => r.kind === 'matchup')).toBe(
-        false
-      );
+      // No live matchup room left, but every week, the final one too, is still listed as past.
+      const finished = data<Rooms>(await bob.get(`${L}/chat/rooms`));
+      expect(finished.rooms.some((r) => r.kind === 'matchup')).toBe(false);
+      expect(finished.pastWeeks).toEqual([5, 4, 3, 2, 1]);
+      const last = data<Rooms>(await bob.get(`${L}/chat/rooms?pastWeek=5`)).rooms.filter((r) => r.week === 5);
+      expect(last.map((r) => [r.roomId, r.archived])).toEqual([
+        ['m-2026-W05-W05-1', true],
+        ['m-2026-W05-W05-2', true],
+        ['m-2026-W05-W05-3', true]
+      ]);
     });
 
     it('keeps a DM between its two teams: others get FORBIDDEN, and the league topic never sees it', async () => {

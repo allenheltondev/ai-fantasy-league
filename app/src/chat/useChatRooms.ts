@@ -4,6 +4,8 @@ import { DEFAULT_ROOM_ID, type ChatApi, type ChatRoom } from './api';
 export interface ChatRoomsState {
   rooms: ChatRoom[];
   defaultRoomId: string;
+  /** Weeks with archived matchup rooms, newest first; null when the server does not say. */
+  pastWeeks: number[] | null;
   loaded: boolean;
   /** Re-reads the room list (unread counts, new DMs). */
   refresh(): Promise<void>;
@@ -20,6 +22,7 @@ export interface ChatRoomsState {
 export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number | null): ChatRoomsState {
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [defaultRoomId, setDefaultRoomId] = useState(DEFAULT_ROOM_ID);
+  const [pastWeeks, setPastWeeks] = useState<number[] | null>(null);
   const [loaded, setLoaded] = useState(false);
   const known = useRef(new Set<string>());
 
@@ -29,6 +32,7 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
       known.current = new Set(data.rooms.map((r) => r.roomId));
       setRooms(data.rooms);
       setDefaultRoomId(data.defaultRoomId);
+      setPastWeeks(data.pastWeeks ?? null);
       setLoaded(true);
     } catch {
       // The next refresh (or live message) tries again; the chat itself still works.
@@ -66,5 +70,5 @@ export function useChatRooms(leagueId: string, api: ChatApi, refreshMs: number |
     [leagueId, api]
   );
 
-  return { rooms, defaultRoomId, loaded, refresh, bump, markRead };
+  return { rooms, defaultRoomId, pastWeeks, loaded, refresh, bump, markRead };
 }

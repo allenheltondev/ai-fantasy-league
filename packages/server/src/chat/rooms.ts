@@ -182,6 +182,17 @@ export function requireOpenRoom(room: ChatRoom): void {
 }
 
 /**
+ * The weeks whose matchup rooms are over, newest first: every week before the current one, and the
+ * current one too once the season is complete. Each can be listed with `pastWeek`.
+ */
+export function pastRoomWeeks(access: LeagueAccess): number[] {
+  const current = access.league.week;
+  if (current === null) return [];
+  const last = access.league.phase === 'complete' ? current : current - 1;
+  return Array.from({ length: Math.max(0, last) }, (_, i) => last - i);
+}
+
+/**
  * Every room the caller can see: the fixed rooms, the current week's matchup rooms while they are
  * live (or, with `pastWeek`, that week's, archived or not), and the caller's DMs that have messages.
  */
