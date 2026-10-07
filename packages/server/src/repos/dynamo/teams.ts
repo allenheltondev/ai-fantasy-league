@@ -7,8 +7,15 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { ApiError } from '../../errors.js';
 import { staleTeam, teamExists } from '../errors.js';
-import type { Team, TeamRepository } from '../types.js';
-import { ENTITY, leaguePk, TeamRecordSchema, teamKey } from './league-records.js';
+import { backfillSeatTenure, needsSeatTenure, type Team, type TeamRepository } from '../types.js';
+import {
+  ENTITY,
+  leaguePk,
+  MemberRecordSchema,
+  memberKey,
+  TeamRecordSchema,
+  teamKey
+} from './league-records.js';
 import { queryAll } from './query.js';
 import { isConditionalCheckFailure, type TableContext } from './table.js';
 
@@ -29,9 +36,25 @@ export class DynamoTeamRepository implements TeamRepository {
       ExpressionAttributeValues: { ':pk': leaguePk(leagueId), ':prefix': 'TEAM#', ':team': ENTITY.team },
       ConsistentRead: true
     });
-    return items
+    const teams = items
       .map((item) => TeamRecordSchema.parse(item))
       .sort((a, b) => a.draftSlot - b.draftSlot || a.id.localeCompare(b.id));
+    if (!teams.some(needsSeatTenure)) return teams;
+    // Teams stored before `occupiedSince`: one more query reads the league's memberships.
+    const members = await queryAll(this.table, {
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      FilterExpression: 'entity = :member',
+      ExpressionAttributeValues: {
+        ':pk': leaguePk(leagueId),
+        ':prefix': 'MEMBER#',
+        ':member': ENTITY.member
+      },
+      ConsistentRead: true
+    });
+    const byUser = new Map(
+      members.map((item) => MemberRecordSchema.parse(item)).map((member) => [member.userId, member])
+    );
+    return teams.map((team) => backfillSeatTenure(team, byUser.get(team.ownerUserId ?? '') ?? null));
   }
 
   async get(leagueId: string, teamId: string): Promise<Team | null> {
@@ -42,7 +65,21 @@ export class DynamoTeamRepository implements TeamRepository {
         ConsistentRead: true
       })
     );
-    return result.Item === undefined ? null : TeamRecordSchema.parse(result.Item);
+    if (result.Item === undefined) return null;
+    const team = TeamRecordSchema.parse(result.Item);
+    return needsSeatTenure(team) ? backfillSeatTenure(team, await this.#member(team)) : team;
+  }
+
+  /** The membership of the person holding the team, for `backfillSeatTenure`. */
+  async #member(team: Team) {
+    const result = await this.table.doc.send(
+      new GetCommand({
+        TableName: this.table.tableName,
+        Key: memberKey(team.leagueId, team.ownerUserId as string),
+        ConsistentRead: true
+      })
+    );
+    return result.Item === undefined ? null : MemberRecordSchema.parse(result.Item);
   }
 
   async create(teams: readonly Team[]): Promise<void> {
