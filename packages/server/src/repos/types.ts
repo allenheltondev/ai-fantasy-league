@@ -215,7 +215,8 @@ export interface Team {
   /**
    * When the seat's current occupant (its owner, or the agent playing it) took it (#144): a new
    * occupant reads none of the team's direct messages from before. Absent on teams stored before
-   * it was recorded, where `seatTenureStart` falls back to `createdAt`.
+   * it was recorded: the repositories fill it in on read from the holder's membership
+   * (`backfillSeatTenure`), and `seatTenureStart` falls back to `createdAt` on a seat nobody holds.
    */
   occupiedSince?: string;
   /**
@@ -243,6 +244,33 @@ export interface TeamRename {
 /** When the team's current occupant took the seat. */
 export function seatTenureStart(team: Pick<Team, 'occupiedSince' | 'createdAt'>): string {
   return team.occupiedSince ?? team.createdAt;
+}
+
+/**
+ * True when a stored team predates `occupiedSince` but a person holds it: their membership says
+ * when they took the seat (`backfillSeatTenure`).
+ */
+export function needsSeatTenure(team: Pick<Team, 'occupiedSince' | 'ownerUserId'>): boolean {
+  return team.occupiedSince === undefined && team.ownerUserId !== null;
+}
+
+/**
+ * Fills in `occupiedSince` on a team stored before it was recorded, from its seat history (#148):
+ * joining is what claims a seat, so the holder's membership (`joinedAt`) is when their tenure
+ * began. A takeover from before the field existed then still hides the earlier occupant's direct
+ * messages and inbox, where the `createdAt` fallback would show them. The repositories apply it on
+ * read, so the next write of the team stores the value. Returns the team unchanged when it already
+ * has the field, nobody holds it, or the membership is missing or for another seat.
+ */
+export function backfillSeatTenure(
+  team: Team,
+  member: Pick<Member, 'userId' | 'teamId' | 'joinedAt'> | null
+): Team {
+  if (!needsSeatTenure(team) || member === null) return team;
+  if (member.userId !== team.ownerUserId || member.teamId !== team.id) return team;
+  // Never before the team existed (the commissioner's own seat is created as they join).
+  const since = Date.parse(member.joinedAt) > Date.parse(team.createdAt) ? member.joinedAt : team.createdAt;
+  return { ...team, occupiedSince: since };
 }
 
 export interface TeamRepository {
