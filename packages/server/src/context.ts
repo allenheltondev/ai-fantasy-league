@@ -62,7 +62,7 @@ export interface Ctx {
   data: DataServices;
   log: Logger;
   limits: Limits;
-  /** Momento Topics for live updates (a no-op when not configured). */
+  /** AppSync Events for live updates (a no-op when not configured). */
   realtime: Realtime;
   /** New record ids (random UUIDs when not set; see `newId`). */
   ids?: IdSource;

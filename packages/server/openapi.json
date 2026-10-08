@@ -24760,9 +24760,9 @@
     },
     "/api/v1/leagues/{leagueId}/realtime": {
       "get": {
-        "operationId": "get_realtime_token",
-        "summary": "Get a short-lived token to subscribe to the league's live updates",
-        "description": "Returns a Momento Topics token that can only subscribe (never publish) to this league's topic, your own team's private topic (your waiver claim results and trade offers), and the global live-scores topic, with the cache and topic names to subscribe to. It expires after about 30 minutes; ask again before `expiresAt`. When realtime is not configured (local development) `enabled` is false and the other fields are null: poll the read operations every `pollIntervalSeconds` instead. People only. Errors: FORBIDDEN if you are not in the league.",
+        "operationId": "get_realtime_config",
+        "summary": "Get the endpoint and channels for the league's live updates",
+        "description": "Returns the AWS AppSync Events endpoint and the channels to subscribe to with your Cognito ID token: this league's channel, your own team's private channel (your waiver claim results, trade offers, direct messages, and inbox), and the global live-scores channel. Each subscribe is checked against your current membership; browsers can never publish. Your team's channel changes when your seat changes hands, so ask again before `refreshAt` and resubscribe. When realtime is not configured (local development) `enabled` is false and the other fields are null: poll the read operations every `pollIntervalSeconds` instead. People only. Errors: FORBIDDEN if you are not in the league.",
         "tags": [
           "realtime"
         ],
@@ -24793,27 +24793,21 @@
                         "enabled": {
                           "type": "boolean"
                         },
-                        "token": {
-                          "description": "Subscribe-only Momento token.",
+                        "httpHost": {
+                          "description": "The Event API HTTP domain: the `host` in the WebSocket and subscribe authorization.",
                           "type": [
                             "string",
                             "null"
                           ]
                         },
-                        "endpoint": {
-                          "description": "Momento endpoint for the token, when known.",
+                        "realtimeHost": {
+                          "description": "The Event API WebSocket domain (wss://<realtimeHost>/event/realtime).",
                           "type": [
                             "string",
                             "null"
                           ]
                         },
-                        "cacheName": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "topics": {
+                        "channels": {
                           "anyOf": [
                             {
                               "type": "object",
@@ -24827,7 +24821,7 @@
                                   "description": "Events not tied to one league, such as live stat updates."
                                 },
                                 "team": {
-                                  "description": "Your team only: your waiver claim results and trade offers. Null without a seat.",
+                                  "description": "Your team only, for your current tenure of the seat: your waiver claim results, trade offers, direct messages, and inbox. Null without a seat.",
                                   "type": [
                                     "string",
                                     "null"
@@ -24846,7 +24840,8 @@
                             }
                           ]
                         },
-                        "expiresAt": {
+                        "refreshAt": {
+                          "description": "Ask again (and resubscribe) before this time.",
                           "type": [
                             "string",
                             "null"
@@ -24860,11 +24855,10 @@
                       },
                       "required": [
                         "enabled",
-                        "token",
-                        "endpoint",
-                        "cacheName",
-                        "topics",
-                        "expiresAt",
+                        "httpHost",
+                        "realtimeHost",
+                        "channels",
+                        "refreshAt",
                         "pollIntervalSeconds"
                       ],
                       "additionalProperties": false

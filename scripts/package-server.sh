@@ -7,7 +7,8 @@
 #   index.mjs         the API (packages/server/src/lambda.ts), Handler: index.handler
 #   jobs.mjs          the data jobs (packages/server/src/jobs/lambda.ts), Handler: jobs.handler
 #   chat-events.mjs   system chat messages (packages/server/src/chat/lambda.ts)
-#   realtime.mjs      the Momento realtime publisher (packages/server/src/realtime/lambda.ts)
+#   realtime.mjs      the realtime publisher (packages/server/src/realtime/lambda.ts)
+#   realtime-authorizer.mjs  the realtime subscribe check (packages/server/src/realtime/authorizer-lambda.ts)
 #   failure-notifier.mjs  failure emails (packages/server/src/failures/lambda.ts)
 #   agent-router.mjs  the agent trigger router (packages/agents/src/lambda/router.ts)
 #   agent-task.mjs    the agent task runner (packages/agents/src/lambda/task.ts)
@@ -68,10 +69,11 @@ if [ "${SERVER_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
   done
 fi
 
-# Chat and realtime handlers (#68, #70) and the failure notifier (#130) share the
+# Chat and realtime handlers (#68, #70, #281) and the failure notifier (#130) share the
 # API's code; bundled when present.
 EXTRA_ENTRIES=()
 for spec in "chat-events:packages/server/src/chat/lambda.ts" "realtime:packages/server/src/realtime/lambda.ts" \
+  "realtime-authorizer:packages/server/src/realtime/authorizer-lambda.ts" \
   "failure-notifier:packages/server/src/failures/lambda.ts"; do
   [ -f "${ROOT}/${spec#*:}" ] && EXTRA_ENTRIES+=("${spec%%:*}=${ROOT}/${spec#*:}")
 done

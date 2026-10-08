@@ -74,29 +74,6 @@ Parameters:
       adds its own app client to that pool; people sign in with their existing
       RSC account.
 
-  SecretsParameterName:
-    Type: String
-    Default: /readysetcloud/secrets
-    Description: >
-      Name of the rsc-core SSM parameter whose value is the ARN of the Secrets
-      Manager secret holding shared API keys (the Momento key is its `momento`
-      field). The API reads the parameter, then the secret.
-
-  SecretsArn:
-    Type: AWS::SSM::Parameter::Value<String>
-    Default: /readysetcloud/secrets
-    Description: >
-      The same parameter, resolved at deploy time, so the API's IAM policy can
-      name the secret exactly. Keep it pointing at SecretsParameterName.
-
-  MomentoCacheParameterName:
-    Type: String
-    Default: /readysetcloud/cache-name
-    Description: >
-      Name of the rsc-core SSM parameter holding the Momento cache that
-      realtime topics (chat, live league events) are published in. Read at
-      runtime, so realtime simply stays off (the app polls) if it is missing.
-
   # --------------------------------------------------------------------------
   # CloudFront-only API (#104)
   # --------------------------------------------------------------------------
@@ -266,12 +243,11 @@ Resources:
           USER_POOL_ID: !Ref AuthUserPoolId
           USER_POOL_CLIENT_ID: !Ref AuthClient
           EVENT_BUS_NAME: default
-          SECRETS_PARAMETER_NAME: !Ref SecretsParameterName
-          # rsc-core's convention for the shared secret (functions read it with
-          # getSecret(process.env.SECRET_ID)).
-          SECRET_ID: !Ref SecretsArn
-          # Realtime (#68): get_realtime_token vends subscribe-only Momento tokens.
-          MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
+          # Realtime (#68, #281): get_realtime_config hands browsers the AppSync
+          # Events endpoint and their channels (no credential: they subscribe
+          # with their Cognito ID token).
+          REALTIME_HTTP_DOMAIN: !GetAtt RealtimeApi.Dns.Http
+          REALTIME_WS_DOMAIN: !GetAtt RealtimeApi.Dns.Realtime
           # Spend guard (#93): league quota per creator, and the agent kill
           # switch state shown to commissioners (get_agent_activity).
           LEAGUE_QUOTA: !Ref LeagueQuota
@@ -305,18 +281,6 @@ Resources:
             - Effect: Allow
               Action: events:PutEvents
               Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:event-bus/default
-            # The Momento API key: the SSM parameter names the secret...
-            - Effect: Allow
-              Action: ssm:GetParameter
-              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SecretsParameterName}
-            # ...and the secret holds the key (AWS-managed KMS key, so no grant).
-            - Effect: Allow
-              Action: secretsmanager:GetSecretValue
-              Resource: !Ref SecretsArn
-            # The Momento cache realtime tokens are scoped to.
-            - Effect: Allow
-              Action: ssm:GetParameter
-              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MomentoCacheParameterName}
             # The agent kill switch, read-only (get_agent_activity shows its state).
             - Effect: Allow
               Action: ssm:GetParameter
@@ -1042,9 +1006,14 @@ Resources:
   # League event --> ChatEventsFunction --> system chat message (+ "Chat
   #   Message Posted", and "Chat Moment" for big moments)
   # League event / "Chat Message Posted" --> RealtimePublisherFunction -->
-  #   Momento Topics (fantasy.league.<id>, fantasy.global)
-  # Both handlers ship in the API zip (scripts/package-server.sh bundles
-  # chat-events.mjs and realtime.mjs next to index.mjs).
+  #   AppSync Events (IAM publish) --> /fantasy/league/<id>,
+  #   /fantasy/team/<id>/<teamId>/<tenureKey>, /fantasy/global
+  # Browser --(Cognito ID token)--> RealtimeApi subscribe --> the fantasy
+  #   namespace's OnSubscribe handler (RealtimeSubscribeFunction) checks
+  #   current membership and seat tenure (docs/adr, ADR 010)
+  # The handlers ship in the API zip (scripts/package-server.sh bundles
+  # chat-events.mjs, realtime.mjs, and realtime-authorizer.mjs next to
+  # index.mjs).
   # ===========================================================================
 
   # Turns league events into system chat messages and notification inbox items
@@ -1149,16 +1118,17 @@ Resources:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 3600
 
-  # Publishes league events and chat messages to Momento Topics
-  # (packages/server/src/realtime/relay.ts). The only function besides the API
-  # that reads the Momento key.
+  # Publishes league events and chat messages to AppSync Events channels
+  # (packages/server/src/realtime/relay.ts), signed with its role (the only
+  # principal allowed to publish). Reads each team's seat tenure for its
+  # channel name.
   RealtimePublisherFunction:
     Type: AWS::Serverless::Function
     Condition: DeployServer
     Metadata:
       SkipBuild: true
     Properties:
-      Description: Pushes league events and chat to Momento Topics
+      Description: Pushes league events and chat to AppSync Events channels
       CodeUri:
         Bucket: !Ref ArtifactBucket
         Key: !Ref ServerArtifactKey
@@ -1171,9 +1141,9 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
-          SECRETS_PARAMETER_NAME: !Ref SecretsParameterName
-          SECRET_ID: !Ref SecretsArn
-          MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName
+          TABLE_NAME: !Ref FantasyTable
+          REALTIME_HTTP_DOMAIN: !GetAtt RealtimeApi.Dns.Http
+          REALTIME_WS_DOMAIN: !GetAtt RealtimeApi.Dns.Realtime
           NODE_OPTIONS: --enable-source-maps
       # An asynchronous invocation (EventBridge rule or schedule) that still
       # fails after Lambda's retries goes to the default bus as "Lambda Function
@@ -1188,14 +1158,15 @@ Resources:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
           Statement:
+            # Publish (HTTP POST /event) to the app's channel namespace.
             - Effect: Allow
-              Action: ssm:GetParameter
-              Resource:
-                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SecretsParameterName}
-                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MomentoCacheParameterName}
+              Action: appsync:EventPublish
+              Resource: !GetAtt RealtimeNamespace.ChannelNamespaceArn
+            # The team's current seat tenure (its team item, and the holder's
+            # membership for a team stored before occupiedSince).
             - Effect: Allow
-              Action: secretsmanager:GetSecretValue
-              Resource: !Ref SecretsArn
+              Action: dynamodb:GetItem
+              Resource: !GetAtt FantasyTable.Arn
       Events:
         RealtimeEvents:
           Type: EventBridgeRule
@@ -1222,21 +1193,140 @@ Resources:
                 - Week Provisionally Final
                 - Week Official Final
                 - Stat Correction Applied
-                # Offers and their answers: relayed only to the two teams' private topics.
+                # Offers and their answers: relayed only to the two teams' private channels.
                 - Trade Proposed
                 - Trade Countered
                 - Trade Rejected
                 - Trade Expired
                 - Trade Withdrawn
-                # A team's new inbox item: relayed only to that team's topic.
+                # A team's new inbox item: relayed only to that team's channel.
                 - Notification Created
-                # A player's status (#200), on the global topic: open lineups
+                # A player's status (#200), on the global channel: open lineups
                 # and matchups show an OUT chip without a reload.
                 - Player Status Changed
             # Live updates are only worth delivering while they are fresh.
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 300
+
+  # The Event API (#281, ADR 010). Browsers connect and subscribe with their
+  # Cognito ID token from the shared pool (this stack's app client only), so
+  # there is no key to store or vend. Only IAM may publish, and only the
+  # relay's role has appsync:EventPublish.
+  RealtimeApi:
+    Type: AWS::AppSync::Api
+    Condition: DeployServer
+    Properties:
+      Name: !Sub ${AWS::StackName}-realtime
+      EventConfig:
+        AuthProviders:
+          - AuthType: AMAZON_COGNITO_USER_POOLS
+            CognitoConfig:
+              UserPoolId: !Ref AuthUserPoolId
+              AwsRegion: !Ref AWS::Region
+              AppIdClientRegex: !Sub ^${AuthClient}$
+          - AuthType: AWS_IAM
+        ConnectionAuthModes:
+          - AuthType: AMAZON_COGNITO_USER_POOLS
+        DefaultSubscribeAuthModes:
+          - AuthType: AMAZON_COGNITO_USER_POOLS
+        DefaultPublishAuthModes:
+          - AuthType: AWS_IAM
+
+  # The app's one channel namespace: /fantasy/league/<leagueId>,
+  # /fantasy/team/<leagueId>/<teamId>/<tenureKey>, and /fantasy/global
+  # (packages/server/src/realtime/realtime.ts). Every subscribe (and so every
+  # reconnect) runs RealtimeSubscribeFunction, which checks it against current
+  # league state: a member for a league, the current owner and tenure for a
+  # team. Browsers cannot publish.
+  RealtimeNamespace:
+    Type: AWS::AppSync::ChannelNamespace
+    Condition: DeployServer
+    DependsOn: RealtimeSubscribeDataSource
+    Properties:
+      ApiId: !GetAtt RealtimeApi.ApiId
+      Name: fantasy
+      SubscribeAuthModes:
+        - AuthType: AMAZON_COGNITO_USER_POOLS
+      PublishAuthModes:
+        - AuthType: AWS_IAM
+      HandlerConfigs:
+        OnSubscribe:
+          Behavior: DIRECT
+          Integration:
+            DataSourceName: RealtimeSubscribeCheck
+            LambdaConfig:
+              InvokeType: REQUEST_RESPONSE
+
+  RealtimeSubscribeDataSource:
+    Type: AWS::AppSync::DataSource
+    Condition: DeployServer
+    Properties:
+      ApiId: !GetAtt RealtimeApi.ApiId
+      Name: RealtimeSubscribeCheck
+      Description: The fantasy namespace's subscribe check
+      Type: AWS_LAMBDA
+      LambdaConfig:
+        LambdaFunctionArn: !GetAtt RealtimeSubscribeFunction.Arn
+      ServiceRoleArn: !GetAtt RealtimeSubscribeDataSourceRole.Arn
+
+  # AppSync assumes this role to invoke the subscribe check.
+  RealtimeSubscribeDataSourceRole:
+    Type: AWS::IAM::Role
+    Condition: DeployServer
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeRealtimeSubscribeCheck
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt RealtimeSubscribeFunction.Arn
+
+  # Decides who may subscribe to which channel
+  # (packages/server/src/realtime/authorizer.ts). Invoked synchronously by
+  # AppSync on every subscribe, so it has no failure destination: an error
+  # refuses the subscribe, and the app falls back to polling.
+  RealtimeSubscribeFunction:
+    Type: AWS::Serverless::Function
+    Condition: DeployServer
+    Metadata:
+      SkipBuild: true
+    Properties:
+      Description: Checks realtime subscribes against current league membership
+      CodeUri:
+        Bucket: !Ref ArtifactBucket
+        Key: !Ref ServerArtifactKey
+      Handler: realtime-authorizer.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Tracing: Active
+      MemorySize: 512
+      Timeout: 10
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FantasyTable
+          NODE_OPTIONS: --enable-source-maps
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            # Read only: the league, its teams, and (for a team stored before
+            # occupiedSince) the holder's membership.
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource: !GetAtt FantasyTable.Arn
 
   # ===========================================================================
   # End of group chat and realtime section

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SYSTEM_MESSAGE_EVENTS } from '../src/chat/system-messages.js';
 import { NOTIFICATION_EVENT_TYPES } from '../src/notifications/consumer.js';
+import { CHANNEL_NAMESPACE } from '../src/realtime/realtime.js';
 import { RELAYED_EVENTS, TEAM_INBOX_EVENTS, TEAM_ONLY_EVENTS } from '../src/realtime/relay.js';
 
 /** infra/template.yaml must route exactly the events the chat and realtime handlers understand. */
@@ -31,16 +32,61 @@ describe('chat and realtime infrastructure', () => {
     );
   });
 
-  it('sends every relayed and team-only event to the realtime publisher, which may read the Momento secret', () => {
-    const realtime = section('  RealtimePublisherFunction:', 'End of group chat and realtime section');
+  it('sends every relayed and team-only event to the realtime publisher, which publishes with IAM', () => {
+    const realtime = section('  RealtimePublisherFunction:', '  RealtimeApi:');
     expect(realtime).toContain('Handler: realtime.handler');
     expect(detailTypes(realtime).sort()).toEqual(
       [...RELAYED_EVENTS, ...TEAM_ONLY_EVENTS, ...TEAM_INBOX_EVENTS].sort()
     );
-    expect(realtime).toContain('Action: secretsmanager:GetSecretValue');
-    expect(realtime).toContain('MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName');
+    expect(realtime).toContain(
+      'Action: appsync:EventPublish\n              Resource: !GetAtt RealtimeNamespace.ChannelNamespaceArn\n'
+    );
+    // It reads each team's seat tenure for the team channel's name.
+    expect(realtime).toContain('TABLE_NAME: !Ref FantasyTable');
+    expect(realtime).toContain(
+      'Action: dynamodb:GetItem\n              Resource: !GetAtt FantasyTable.Arn\n'
+    );
     const api = section('  ApiFunction:', '  DataJobsFunction:');
-    expect(api).toContain('MOMENTO_CACHE_PARAMETER: !Ref MomentoCacheParameterName');
+    for (const fn of [realtime, api]) {
+      expect(fn).toContain('REALTIME_HTTP_DOMAIN: !GetAtt RealtimeApi.Dns.Http');
+      expect(fn).toContain('REALTIME_WS_DOMAIN: !GetAtt RealtimeApi.Dns.Realtime');
+    }
+  });
+
+  it('lets browsers subscribe with their Cognito ID token, checked per subscribe, and only IAM publish (#281)', () => {
+    const api = section('  RealtimeApi:', '  RealtimeNamespace:');
+    expect(api).toContain('Type: AWS::AppSync::Api');
+    expect(api).toContain('UserPoolId: !Ref AuthUserPoolId');
+    expect(api).toContain('AppIdClientRegex: !Sub ^${AuthClient}$');
+    expect(api).toMatch(/ConnectionAuthModes:\n {10}- AuthType: AMAZON_COGNITO_USER_POOLS\n/);
+    expect(api).toMatch(/DefaultSubscribeAuthModes:\n {10}- AuthType: AMAZON_COGNITO_USER_POOLS\n/);
+    expect(api).toMatch(/DefaultPublishAuthModes:\n {10}- AuthType: AWS_IAM\n/);
+    const namespace = section('  RealtimeNamespace:', '  RealtimeSubscribeDataSource:');
+    expect(namespace).toContain(`Name: ${CHANNEL_NAMESPACE}\n`);
+    expect(namespace).toMatch(/PublishAuthModes:\n {8}- AuthType: AWS_IAM\n/);
+    expect(namespace).toMatch(/SubscribeAuthModes:\n {8}- AuthType: AMAZON_COGNITO_USER_POOLS\n/);
+    expect(namespace).toContain(
+      [
+        '        OnSubscribe:',
+        '          Behavior: DIRECT',
+        '          Integration:',
+        '            DataSourceName: RealtimeSubscribeCheck',
+        '            LambdaConfig:',
+        '              InvokeType: REQUEST_RESPONSE\n'
+      ].join('\n')
+    );
+    const source = section('  RealtimeSubscribeDataSource:', '  RealtimeSubscribeDataSourceRole:');
+    expect(source).toContain('Name: RealtimeSubscribeCheck\n');
+    expect(source).toContain('LambdaFunctionArn: !GetAtt RealtimeSubscribeFunction.Arn');
+    const check = section('  RealtimeSubscribeFunction:', 'End of group chat and realtime section');
+    expect(check).toContain('Handler: realtime-authorizer.handler');
+    // Read only.
+    expect([...check.matchAll(/- (dynamodb:\w+)/g)].map((m) => m[1])).toEqual([
+      'dynamodb:GetItem',
+      'dynamodb:Query'
+    ]);
+    // The old realtime service's secret and cache settings are gone.
+    expect(template).not.toMatch(/secretsmanager|SecretsParameterName|cache-name/i);
   });
 });
 
@@ -81,7 +127,10 @@ describe('operations (#130)', () => {
   const all = resources();
   const functions = all.filter((r) => r.type === 'AWS::Serverless::Function');
   const notifier = functions.find((f) => f.id === 'FailureNotifierFunction')?.body ?? '';
-  const asyncFunctions = functions.filter((f) => f.id !== 'FailureNotifierFunction');
+  // AppSync invokes the subscribe check synchronously: its errors refuse the subscribe.
+  const asyncFunctions = functions.filter(
+    (f) => f.id !== 'FailureNotifierFunction' && f.id !== 'RealtimeSubscribeFunction'
+  );
 
   it('uses only resource types the deploy role can create', () => {
     expect(template).not.toMatch(/AWS::(CloudWatch|Logs|SQS|SNS)::/);

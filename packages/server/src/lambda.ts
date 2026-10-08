@@ -40,7 +40,7 @@ export function createLambdaServices(env: Record<string, string | undefined> = p
     log,
     limits: limitsFromEnv(env),
     reference: createDynamoReferenceStore(table),
-    realtime: realtimeFromEnv(env, { clock: systemClock, log }),
+    realtime: realtimeFromEnv(env),
     agentKillSwitch: killSwitchFromParameter(env.AGENT_KILL_SWITCH_PARAM, { clock: systemClock, log })
   });
 }

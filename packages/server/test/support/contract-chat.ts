@@ -112,7 +112,7 @@ export const CHAT_CASES: Record<string, Case[]> = {
     { label: 'no such room', path: `${ROOMS}/general/context`, status: 404 },
     { label: 'outsider', path: `${ROOMS}/league/context`, init: { token: outsider }, status: 403 }
   ],
-  get_realtime_token: [
+  get_realtime_config: [
     { label: 'realtime off', path: '/api/v1/leagues/lg-1/realtime', status: 200 },
     { label: 'outsider', path: '/api/v1/leagues/lg-1/realtime', init: { token: outsider }, status: 403 }
   ]

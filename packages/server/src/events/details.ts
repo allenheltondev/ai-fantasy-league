@@ -225,7 +225,7 @@ export const EVENT_DETAIL_SCHEMAS = {
       .array(WaiverLossSchema)
       .optional()
       .describe(
-        'Claims that failed in this run, with why (#165). Private to each team: the relay keeps them off the league topic.'
+        'Claims that failed in this run, with why (#165). Private to each team: the relay keeps them off the league channel.'
       ),
     failed: z.number().int().min(0),
     pending: z.number().int().min(0)
@@ -294,13 +294,13 @@ export const EVENT_DETAIL_SCHEMAS = {
       .tuple([id, id])
       .nullable()
       .describe(
-        'A DM: the only two teams that may see it (the relay sends it to their team topics alone). Null for rooms the whole league reads.'
+        'A DM: the only two teams that may see it (the relay sends it to their team channels alone). Null for rooms the whole league reads.'
       ),
     message: ChatMessageSchema
   }),
   'Notification Created': z.object({
     leagueId: id,
-    teamId: id.describe('The team whose inbox it is in: the relay sends it to that team topic alone.'),
+    teamId: id.describe('The team whose inbox it is in: the relay sends it to that team channel alone.'),
     notification: NotificationSchema
   }),
   'Scores Updated': z.union([

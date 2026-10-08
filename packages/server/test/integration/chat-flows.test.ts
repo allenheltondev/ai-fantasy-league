@@ -4,7 +4,16 @@ import { agentPrincipal } from '../../src/auth/principal.js';
 import type { ChatMessage } from '../../src/chat/model.js';
 import type { Services } from '../../src/context.js';
 import { registry } from '../../src/operations/index.js';
-import type { Realtime, RealtimeToken } from '../../src/realtime/realtime.js';
+import { authorizeSubscribe } from '../../src/realtime/authorizer.js';
+import {
+  InMemoryRealtime,
+  leagueChannel,
+  seatTenureKey,
+  teamChannel,
+  type Realtime
+} from '../../src/realtime/realtime.js';
+import { relayEvent } from '../../src/realtime/relay.js';
+import { silentLogger } from '../../src/log.js';
 import { invokeTool } from '../../src/registry/invoke.js';
 import { createHarness, type Harness } from '../support/harness.js';
 import { as, data, errorCode } from '../support/league-client.js';
@@ -209,7 +218,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(agent.body).toMatchObject({ error: { code: 'MESSAGE_BLOCKED' } });
     });
 
-    it('gives a commissioner without a seat no mentions and no team topic', async () => {
+    it('gives a commissioner without a seat no mentions and no team channel', async () => {
       await seedLeague(h.repos, {
         id: 'lg-seatless',
         owners: [ALICE, BOB],
@@ -221,16 +230,13 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(
         data<Page>(await carol.get('/leagues/lg-seatless/chat/messages?mentionsMe=true')).messages
       ).toEqual([]);
-      const requests: { teamId: string | null }[] = [];
-      (h.services as { realtime: Realtime }).realtime = {
-        async issueSubscribeToken(request) {
-          requests.push(request);
-          return null;
-        },
-        publish: async () => undefined
-      };
-      await carol.get('/leagues/lg-seatless/realtime');
-      expect(requests[0]?.teamId).toBeNull();
+      (h.services as { realtime: Realtime }).realtime = realtimeOn();
+      expect(data(await carol.get('/leagues/lg-seatless/realtime'))).toMatchObject({
+        enabled: true,
+        channels: { league: '/fantasy/league/lg-seatless', team: null }
+      });
+      // The commissioner may still hear the league.
+      expect(await authorizeSubscribe(h.repos, CAROL.sub, leagueChannel('lg-seatless'))).toBeNull();
     });
 
     it('replays a repeated Idempotency-Key instead of posting twice', async () => {
@@ -418,55 +424,68 @@ for (const backend of ['memory', 'dynamo'] as const) {
       );
     });
 
-    it('vends no realtime token when realtime is off, so the app polls', async () => {
+    it('has no realtime endpoint when realtime is off, so the app polls', async () => {
       expect(data(await as(h, BOB).get(`${L}/realtime`))).toEqual({
         enabled: false,
-        token: null,
-        endpoint: null,
-        cacheName: null,
-        topics: null,
-        expiresAt: null,
+        httpHost: null,
+        realtimeHost: null,
+        channels: null,
+        refreshAt: null,
         pollIntervalSeconds: 5
       });
     });
 
-    it("vends a subscribe-only token for the league and the caller's own team when realtime is on", async () => {
-      const requests: unknown[] = [];
-      const realtime: Realtime = {
-        async issueSubscribeToken(request): Promise<RealtimeToken> {
-          requests.push(request);
-          return {
-            token: 'tok',
-            endpoint: 'cell-1.example',
-            cacheName: 'cache',
-            topics: {
-              league: 'fantasy.league.lg-chat',
-              global: 'fantasy.global',
-              team: 'fantasy.team.lg-chat.team-2'
-            },
-            expiresAt: '2026-09-10T12:30:00.000Z'
-          };
-        },
-        publish: async () => undefined
-      };
-      (h.services as { realtime: Realtime }).realtime = realtime;
+    it("hands out the endpoint, the league channel, and the caller's own team channel when realtime is on", async () => {
+      (h.services as { realtime: Realtime }).realtime = realtimeOn();
+      const bobs = await h.repos.teams.get('lg-chat', 'team-2');
       expect(data(await as(h, BOB).get(`${L}/realtime`))).toEqual({
         enabled: true,
-        token: 'tok',
-        endpoint: 'cell-1.example',
-        cacheName: 'cache',
-        topics: {
-          league: 'fantasy.league.lg-chat',
-          global: 'fantasy.global',
-          team: 'fantasy.team.lg-chat.team-2'
+        httpHost: 'api.example',
+        realtimeHost: 'realtime.example',
+        channels: {
+          league: '/fantasy/league/lg-chat',
+          global: '/fantasy/global',
+          team: teamChannel('lg-chat', 'team-2', seatTenureKey(bobs!))
         },
-        expiresAt: '2026-09-10T12:30:00.000Z',
+        refreshAt: new Date(h.clock.now().getTime() + 30 * 60_000).toISOString(),
         pollIntervalSeconds: 5
       });
-      expect(requests).toEqual([
-        { leagueId: 'lg-chat', teamId: 'team-2', subscriber: 'user#bob', ttlSeconds: 1800 }
-      ]);
-      expect(registry.get('get_realtime_token')?.auth).toBe('user');
+      expect(registry.get('get_realtime_config')?.auth).toBe('user');
+    });
+
+    it('cuts a person who leaves their seat off the team channel at once (#281)', async () => {
+      (h.services as { realtime: Realtime }).realtime = realtimeOn();
+      const before = data<{ channels: { league: string; team: string } }>(
+        await as(h, BOB).get(`${L}/realtime`)
+      ).channels;
+      expect(await authorizeSubscribe(h.repos, BOB.sub, before.team)).toBeNull();
+      expect(await authorizeSubscribe(h.repos, BOB.sub, before.league)).toBeNull();
+      expect(await authorizeSubscribe(h.repos, ALICE.sub, before.team)).toMatch(/do not hold this seat/);
+
+      expect((await as(h, BOB).post(`${L}/leave`, {})).status).toBe(200);
+      // His next subscribe or reconnect is refused, for the team and for the league.
+      expect(await authorizeSubscribe(h.repos, BOB.sub, before.team)).toMatch(/do not hold this seat/);
+      expect(await authorizeSubscribe(h.repos, BOB.sub, before.league)).toMatch(/not a member/);
+      // A socket he still holds hears nothing more: the seat's messages go to a new channel.
+      const realtime = new InMemoryRealtime();
+      const relayed = await relayEvent(
+        realtime,
+        silentLogger,
+        {
+          id: 'evt-after-leave',
+          source: 'fantasy',
+          'detail-type': 'Notification Created',
+          detail: { leagueId: 'lg-chat', teamId: 'team-2', notification: { id: 'n1' } }
+        },
+        h.repos.teams
+      );
+      const now = teamChannel(
+        'lg-chat',
+        'team-2',
+        seatTenureKey((await h.repos.teams.get('lg-chat', 'team-2'))!)
+      );
+      expect(relayed.channels).toEqual([now]);
+      expect(now).not.toBe(before.team);
     });
   });
 }
@@ -515,3 +534,10 @@ describe('system messages and chat in one partition', () => {
     }
   });
 });
+
+function realtimeOn(): Realtime {
+  return {
+    endpoint: () => ({ httpHost: 'api.example', realtimeHost: 'realtime.example' }),
+    publish: async () => undefined
+  };
+}

@@ -15,7 +15,7 @@ import { writePlayerNotifications } from './players.js';
  * The notification inbox consumer (#165): league events become inbox items for the teams they are
  * news to (core `notificationDrafts`), only for teams a person holds (agent-only teams get none).
  * Each new item is announced with `Notification Created`, which the realtime relay pushes to that
- * team's private topic.
+ * team's private channel.
  *
  * Player status changes and news (#200) are league-less: `writePlayerNotifications` finds the
  * teams that roster the player (`players.ts`).
