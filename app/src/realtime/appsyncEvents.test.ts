@@ -213,6 +213,15 @@ describe('subscribeChannels', () => {
     errored.socket.receive({ type: 'error', errors: [] });
     expect(errored.handlers.onError).toHaveBeenCalledOnce();
 
+    // An event AppSync could not deliver.
+    const undelivered = await live();
+    undelivered.socket.receive({
+      type: 'broadcast_error',
+      id: 'sub-1',
+      errors: [{ errorType: 'BroadcastError' }]
+    });
+    expect(undelivered.handlers.onError).toHaveBeenCalledOnce();
+
     vi.useFakeTimers();
     const quiet = connect();
     quiet.socket.open();

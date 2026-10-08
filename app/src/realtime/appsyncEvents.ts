@@ -166,8 +166,11 @@ export function subscribeChannels(
               handlers.onData(typeof event === 'string' ? event : JSON.stringify(event));
           }
           return;
+        // A refused connection or subscribe, an event AppSync could not deliver (polling catches up
+        // on what was missed), or any other server error.
         case 'connection_error':
         case 'subscribe_error':
+        case 'broadcast_error':
         case 'error':
           fail();
           return;
