@@ -63,11 +63,10 @@ function msg(roomId: string, overrides: Partial<ChatMessage> = {}): ChatMessage 
 
 const OFF: RealtimeInfo = {
   enabled: false,
-  token: null,
-  endpoint: null,
-  cacheName: null,
-  topics: null,
-  expiresAt: null,
+  httpHost: null,
+  realtimeHost: null,
+  channels: null,
+  refreshAt: null,
   pollIntervalSeconds: 60
 };
 
@@ -224,13 +223,13 @@ describe('chat rooms', () => {
     const { api, addRoom } = fakeApi({
       ...OFF,
       enabled: true,
-      token: 't',
-      cacheName: 'c',
-      topics: { league: 'l', global: 'g', team: 'tm' }
+      httpHost: 'api.example',
+      realtimeHost: 'realtime.example',
+      channels: { league: 'l', global: 'g', team: 'tm' }
     });
     let push: ((m: ChatMessage) => void) | null = null;
     const connect: Connect = vi.fn(async (target, handlers) => {
-      expect(target.topics).toEqual(['l', 'tm']);
+      expect(target.channels).toEqual(['l', 'tm']);
       push = handlers.onChat;
       return () => undefined;
     });
@@ -418,9 +417,9 @@ describe('chat rooms', () => {
     const { api, addRoom } = fakeApi({
       ...OFF,
       enabled: true,
-      token: 't',
-      cacheName: 'c',
-      topics: { league: 'l', global: 'g', team: 'tm' }
+      httpHost: 'api.example',
+      realtimeHost: 'realtime.example',
+      channels: { league: 'l', global: 'g', team: 'tm' }
     });
     let push: ((m: ChatMessage) => void) | null = null;
     const connect: Connect = vi.fn(async (_target, handlers) => {

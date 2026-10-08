@@ -193,11 +193,10 @@ export function researchApi(page: Page) {
     route.fulfill({
       json: envelope({
         enabled: false,
-        token: null,
-        endpoint: null,
-        cacheName: null,
-        topics: null,
-        expiresAt: null,
+        httpHost: null,
+        realtimeHost: null,
+        channels: null,
+        refreshAt: null,
         pollIntervalSeconds: 3
       })
     })

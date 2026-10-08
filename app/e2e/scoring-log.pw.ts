@@ -4,7 +4,7 @@ import { AUTH_CONFIG } from './support';
 /**
  * The matchup scoring log (#162). The API is a stand-in served with `page.route` (the get_matchup /
  * get_scoring_log contract in packages/server/openapi.json). Realtime is on, with a page script
- * standing in for Momento (the dev server honors `window.__fantasyEvents`), so the test pushes
+ * standing in for AppSync Events (the dev server honors `window.__fantasyEvents`), so the test pushes
  * `Scores Updated` carrying a new log entry, like the relay would, and watches it pop in.
  */
 
@@ -110,11 +110,10 @@ async function stubApi(page: Page) {
   await page.route('**/api/v1/leagues/L1/realtime', (route) =>
     json(route, {
       enabled: true,
-      token: 'e2e-token',
-      endpoint: null,
-      cacheName: 'e2e-cache',
-      topics: { league: 'fantasy.league.L1', global: 'fantasy.global', team: null },
-      expiresAt: null,
+      httpHost: 'api.example',
+      realtimeHost: 'realtime.example',
+      channels: { league: '/fantasy/league/L1', global: '/fantasy/global', team: null },
+      refreshAt: null,
       pollIntervalSeconds: 30
     })
   );
@@ -127,7 +126,7 @@ declare global {
       leagueId: string | null;
       detail?: Record<string, unknown>;
     }) => void;
-    __fantasyTopics?: string[];
+    __fantasyChannels?: string[];
   }
 }
 
@@ -141,7 +140,7 @@ test.beforeEach(async ({ page }) => {
       JSON.stringify({ idToken: token, refreshToken: 'refresh', expiresAt: 4_102_444_800_000 })
     );
     window.__fantasyEvents = async (target, handlers) => {
-      window.__fantasyTopics = target.topics;
+      window.__fantasyChannels = target.channels;
       window.__pushFantasyEvent = handlers.onEvent;
       return () => undefined;
     };
@@ -158,7 +157,7 @@ test('a live touchdown pops into the scoring log, and the filter narrows it', as
   await expect(log.getByRole('img', { name: 'Marcus Hale (The Spreadsheet)' })).toBeVisible();
 
   // The relay pushes Scores Updated with the new entry for this matchup.
-  await expect.poll(() => page.evaluate(() => window.__fantasyTopics)).toContain('fantasy.global');
+  await expect.poll(() => page.evaluate(() => window.__fantasyChannels)).toContain('/fantasy/global');
   await page.evaluate(
     (touchdown) =>
       window.__pushFantasyEvent?.({

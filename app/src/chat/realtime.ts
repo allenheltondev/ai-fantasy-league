@@ -1,16 +1,18 @@
+import { getFreshIdToken } from '@readysetcloud/ui/auth';
 import type { ChatMessage, RealtimeInfo } from './api';
 
 /**
- * Live chat over Momento Topics (@gomomento/sdk-web). The API vends a short-lived, subscribe-only
- * token (get_realtime_token); the SDK is loaded only when realtime is on, so local dev and e2e (where
- * the API reports `enabled: false`) never download it.
+ * Live chat over AWS AppSync Events. The API hands out the endpoint and channels
+ * (get_realtime_config), and the browser subscribes with its own Cognito ID token; the client
+ * (`../realtime/appsyncEvents`) is loaded only when realtime is on, so local dev and e2e (where the
+ * API reports `enabled: false`) never download it.
  */
 
 export interface LiveTarget {
-  token: string;
-  cacheName: string;
-  /** The league topic, and the caller's team topic (where their DMs arrive) when they have a seat. */
-  topics: string[];
+  httpHost: string;
+  realtimeHost: string;
+  /** The league channel, and the caller's team channel (where their DMs arrive) when they have a seat. */
+  channels: string[];
 }
 
 /** Opens a subscription and resolves to a function that closes it. */
@@ -19,18 +21,27 @@ export type Connect = (
   handlers: { onChat(message: ChatMessage): void; onError(): void }
 ) => Promise<() => void>;
 
-/** The subscription target when realtime is on and the token is complete, else null. */
+/** The subscription target when realtime is on and the config is complete, else null. */
 export function liveTarget(info: RealtimeInfo): LiveTarget | null {
-  if (!info.enabled || info.token === null || info.cacheName === null || info.topics === null) return null;
-  const team = info.topics.team ?? null;
+  if (!info.enabled || info.httpHost === null || info.realtimeHost === null || info.channels === null) {
+    return null;
+  }
+  const team = info.channels.team ?? null;
   return {
-    token: info.token,
-    cacheName: info.cacheName,
-    topics: [info.topics.league, ...(team === null ? [] : [team])]
+    httpHost: info.httpHost,
+    realtimeHost: info.realtimeHost,
+    channels: [info.channels.league, ...(team === null ? [] : [team])]
   };
 }
 
-/** The chat message in a topic item, or null for other league events and anything malformed. */
+/** The signed-in person's ID token, which every subscribe carries. */
+export async function subscribeToken(): Promise<string> {
+  const token = await getFreshIdToken();
+  if (token === null) throw new Error('Sign in to get live updates.');
+  return token;
+}
+
+/** The chat message in a channel event, or null for other league events and anything malformed. */
 export function parseChatItem(raw: string): ChatMessage | null {
   try {
     const value = JSON.parse(raw) as { type?: unknown; message?: unknown };
@@ -46,27 +57,14 @@ export function parseChatItem(raw: string): ChatMessage | null {
   }
 }
 
-export const connectMomento: Connect = async (target, handlers) => {
-  const sdk = await import('@gomomento/sdk-web');
-  const client = new sdk.TopicClient({
-    configuration: sdk.TopicConfigurations.Browser.latest(),
-    credentialProvider: sdk.CredentialProvider.fromDisposableToken({ authToken: target.token })
+export const connectLiveChat: Connect = async (target, handlers) => {
+  const token = await subscribeToken();
+  const { subscribeChannels } = await import('../realtime/appsyncEvents');
+  return subscribeChannels(target, token, {
+    onData: (raw) => {
+      const message = parseChatItem(raw);
+      if (message !== null) handlers.onChat(message);
+    },
+    onError: () => handlers.onError()
   });
-  const closers: (() => void)[] = [];
-  const closeAll = () => closers.forEach((close) => close());
-  for (const topic of target.topics) {
-    const subscription = await client.subscribe(target.cacheName, topic, {
-      onItem: (item) => {
-        const message = parseChatItem(item.valueString());
-        if (message !== null) handlers.onChat(message);
-      },
-      onError: () => handlers.onError()
-    });
-    if (!(subscription instanceof sdk.TopicSubscribe.Subscription)) {
-      closeAll();
-      throw new Error('Could not subscribe to live chat.');
-    }
-    closers.push(() => subscription.unsubscribe());
-  }
-  return closeAll;
 };

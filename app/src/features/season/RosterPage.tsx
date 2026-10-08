@@ -8,7 +8,7 @@ import { LoadingSkeleton } from '../../motion/decor';
 import { LineupBoard } from './LineupBoard';
 import { LineupHelp } from './LineupHelp';
 import { nextKickoff, useNow, withLocksAt } from './gameState';
-import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
+import { connectLiveEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
 import { TRADE_EVENTS, TRADES_POLL_MS } from '../../trades/TradesPage';
 import { pendingTrades, TradeCallout, tradingAway } from './TradeCallout';
 import { TeamAchievements } from './TeamAchievements';
@@ -28,7 +28,7 @@ export const LOCK_TICK_MS = 30_000;
  * a picker to open any other team), your lineup with projections, drag and drop, and Optimize, and
  * the achievements your team has earned.
  */
-export function RosterPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
+export function RosterPage({ connect = connectLiveEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
   const api = useLeagueApi();
   const state = useLoad(() => api.getLeagueState(leagueId), leagueId);

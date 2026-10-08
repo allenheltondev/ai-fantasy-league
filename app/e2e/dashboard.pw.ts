@@ -7,7 +7,7 @@ import type { EventConnect, LeagueEvent } from '../src/realtime/leagueEvents';
  * dev user local-season-e2e): the league opens on Home with this week's matchups (yours first and
  * highlighted), the standings (your row highlighted), and the move board. The manager adds a free
  * agent and drops him again; each move shows up on the board when a league event arrives. Realtime
- * is switched on with a stand-in for Momento that the test pushes events through (as
+ * is switched on with a stand-in for AppSync Events that the test pushes events through (as
  * nfl-games.pw.ts does). The roster ends as it started, so the other specs see the same league.
  */
 
@@ -27,11 +27,10 @@ async function liveEvents(context: BrowserContext) {
       json: {
         data: {
           enabled: true,
-          token: 'e2e-token',
-          endpoint: null,
-          cacheName: 'e2e-cache',
-          topics: { league: `fantasy.league.${L}`, global: 'fantasy.global', team: null },
-          expiresAt: '2099-01-01T00:00:00.000Z',
+          httpHost: 'api.example',
+          realtimeHost: 'realtime.example',
+          channels: { league: `/fantasy/league/${L}`, global: '/fantasy/global', team: null },
+          refreshAt: '2099-01-01T00:00:00.000Z',
           pollIntervalSeconds: 30
         },
         league: null,

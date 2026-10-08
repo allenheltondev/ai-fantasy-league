@@ -4,7 +4,7 @@ import { matchup, NOW, signInStubbed, stubLiveMatchup } from './liveMatchup';
 /**
  * The live game-day matchup and lineup locks (#193), against a stubbed API (the get_matchup,
  * get_nfl_games, get_roster, and set_lineup contracts in packages/server/openapi.json) with a page
- * script standing in for Momento, so the test pushes `NFL Games Updated` like the relay would. The
+ * script standing in for AppSync Events, so the test pushes `NFL Games Updated` like the relay would. The
  * page clock is pinned to a Sunday afternoon.
  */
 
@@ -65,7 +65,7 @@ test('a live Sunday: who is playing, how far along, and what is done', async ({ 
   await expect(page.getByTestId('h2h-bench')).toContainText('Patrick Mahomes');
 
   // Chase's game ends: the relay pushes NFL Games Updated, and the matchup re-reads at once.
-  await expect.poll(() => page.evaluate(() => window.__fantasyTopics)).toContain('fantasy.global');
+  await expect.poll(() => page.evaluate(() => window.__fantasyChannels)).toContain('/fantasy/global');
   const before = reads.matchup;
   data = matchup();
   const chase = data.lineups.home.players.find((p) => p.player.id === 'fx-chase');

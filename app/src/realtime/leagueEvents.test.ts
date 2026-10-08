@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RealtimeInfo } from '../chat/api';
 import {
-  connectMomentoEvents,
+  connectLiveEvents,
   eventTarget,
   parseEventItem,
   useLiveEvents,
@@ -10,39 +10,29 @@ import {
   type LeagueEvent
 } from './leagueEvents';
 
-vi.mock('@gomomento/sdk-web', () => {
-  class Subscription {
-    unsubscribe = vi.fn();
+vi.mock('@readysetcloud/ui/auth', () => ({ getFreshIdToken: async () => 'id-token' }));
+
+const events = vi.hoisted(() => ({
+  calls: [] as { target: unknown; token: string; handlers: { onData(raw: string): void; onError(): void } }[],
+  close: vi.fn()
+}));
+vi.mock('./appsyncEvents', () => ({
+  subscribeChannels: async (
+    target: unknown,
+    token: string,
+    handlers: { onData(raw: string): void; onError(): void }
+  ) => {
+    events.calls.push({ target, token, handlers });
+    return events.close;
   }
-  const state: {
-    failTopic: string | null;
-    options: Record<string, { onItem(item: { valueString(): string }): void; onError(): void }>;
-    subs: Subscription[];
-  } = { failTopic: null, options: {}, subs: [] };
-  return {
-    __state: state,
-    TopicConfigurations: { Browser: { latest: () => 'browser' } },
-    CredentialProvider: { fromDisposableToken: (p: unknown) => ({ disposable: p }) },
-    TopicSubscribe: { Subscription },
-    TopicClient: class {
-      async subscribe(_cache: string, topic: string, options: (typeof state.options)[string]) {
-        state.options[topic] = options;
-        if (topic === state.failTopic) return { error: true };
-        const sub = new Subscription();
-        state.subs.push(sub);
-        return sub;
-      }
-    }
-  };
-});
+}));
 
 const INFO: RealtimeInfo = {
   enabled: true,
-  token: 't',
-  endpoint: null,
-  cacheName: 'c',
-  topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-  expiresAt: null,
+  httpHost: 'api.example',
+  realtimeHost: 'realtime.example',
+  channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+  refreshAt: null,
   pollIntervalSeconds: 5
 };
 
@@ -51,22 +41,23 @@ afterEach(() => {
 });
 
 describe('league event helpers', () => {
-  it('builds a target only from a complete token', () => {
-    expect(eventTarget(INFO, false)).toEqual({ token: 't', cacheName: 'c', topics: ['fantasy.league.L1'] });
-    expect(eventTarget(INFO, true)?.topics).toEqual(['fantasy.league.L1', 'fantasy.global']);
-    const withTeam = { ...INFO, topics: { ...INFO.topics!, team: 'fantasy.team.L1.team-1' } };
-    expect(eventTarget(withTeam, true)?.topics).toEqual([
-      'fantasy.league.L1',
-      'fantasy.team.L1.team-1',
-      'fantasy.global'
+  it('builds a target only from a complete config', () => {
+    const endpoint = { httpHost: 'api.example', realtimeHost: 'realtime.example' };
+    expect(eventTarget(INFO, false)).toEqual({ ...endpoint, channels: ['/fantasy/league/L1'] });
+    expect(eventTarget(INFO, true)?.channels).toEqual(['/fantasy/league/L1', '/fantasy/global']);
+    const withTeam = { ...INFO, channels: { ...INFO.channels!, team: '/fantasy/team/L1/team-1/k1' } };
+    expect(eventTarget(withTeam, true)?.channels).toEqual([
+      '/fantasy/league/L1',
+      '/fantasy/team/L1/team-1/k1',
+      '/fantasy/global'
     ]);
-    expect(eventTarget({ ...INFO, topics: { ...INFO.topics!, team: null } }, false)?.topics).toEqual([
-      'fantasy.league.L1'
+    expect(eventTarget({ ...INFO, channels: { ...INFO.channels!, team: null } }, false)?.channels).toEqual([
+      '/fantasy/league/L1'
     ]);
     expect(eventTarget({ ...INFO, enabled: false }, false)).toBeNull();
-    expect(eventTarget({ ...INFO, token: null }, false)).toBeNull();
-    expect(eventTarget({ ...INFO, cacheName: null }, false)).toBeNull();
-    expect(eventTarget({ ...INFO, topics: null }, false)).toBeNull();
+    expect(eventTarget({ ...INFO, httpHost: null }, false)).toBeNull();
+    expect(eventTarget({ ...INFO, realtimeHost: null }, false)).toBeNull();
+    expect(eventTarget({ ...INFO, channels: null }, false)).toBeNull();
   });
 
   it('reads league events and ignores chat and junk', () => {
@@ -84,47 +75,30 @@ describe('league event helpers', () => {
     expect(parseEventItem('nope')).toBeNull();
   });
 
-  it('subscribes to every topic and closes them together', async () => {
-    const sdk = (await import('@gomomento/sdk-web')) as unknown as {
-      __state: {
-        failTopic: string | null;
-        options: Record<string, { onItem(item: { valueString(): string }): void; onError(): void }>;
-        subs: { unsubscribe: () => void }[];
-      };
-    };
+  it('subscribes to every channel on one connection, with the ID token, and closes it', async () => {
     const onEvent = vi.fn();
     const onError = vi.fn();
-    const close = await connectMomentoEvents(
-      { token: 't', cacheName: 'c', topics: ['a', 'b'] },
-      { onEvent, onError }
-    );
-    sdk.__state.options.b!.onItem({
-      valueString: () => JSON.stringify({ type: 'event', detailType: 'Scores Updated' })
-    });
-    sdk.__state.options.a!.onItem({ valueString: () => JSON.stringify({ type: 'chat' }) });
-    sdk.__state.options.a!.onError();
+    const target = { httpHost: 'h', realtimeHost: 'r', channels: ['a', 'b'] };
+    const close = await connectLiveEvents(target, { onEvent, onError });
+    expect(events.calls[0]).toMatchObject({ target, token: 'id-token' });
+    const { handlers } = events.calls[0]!;
+    handlers.onData(JSON.stringify({ type: 'event', detailType: 'Scores Updated' }));
+    handlers.onData('junk');
+    handlers.onError();
     expect(onEvent).toHaveBeenCalledExactlyOnceWith({ detailType: 'Scores Updated', leagueId: null });
     expect(onError).toHaveBeenCalledOnce();
     close();
-    expect(sdk.__state.subs.every((s) => vi.mocked(s.unsubscribe).mock.calls.length === 1)).toBe(true);
-
-    sdk.__state.subs = [];
-    sdk.__state.failTopic = 'b';
-    await expect(
-      connectMomentoEvents({ token: 't', cacheName: 'c', topics: ['a', 'b'] }, { onEvent, onError })
-    ).rejects.toThrow(/Could not subscribe/);
-    // The first topic's subscription is closed when the second fails.
-    expect(sdk.__state.subs[0]?.unsubscribe).toHaveBeenCalled();
+    expect(events.close).toHaveBeenCalledOnce();
   });
 
-  it('lets a dev-build page script stand in for Momento (the e2e suite pushes events this way)', async () => {
+  it('lets a dev-build page script stand in for AppSync Events (the e2e suite pushes events this way)', async () => {
     const close = vi.fn();
     const standIn = vi.fn<EventConnect>(async () => close);
     window.__fantasyEvents = standIn;
     try {
-      const target = { token: 't', cacheName: 'c', topics: ['a'] };
+      const target = { httpHost: 'h', realtimeHost: 'r', channels: ['a'] };
       const handlers = { onEvent: vi.fn(), onError: vi.fn() };
-      expect(await connectMomentoEvents(target, handlers)).toBe(close);
+      expect(await connectLiveEvents(target, handlers)).toBe(close);
       expect(standIn).toHaveBeenCalledWith(target, handlers);
     } finally {
       delete window.__fantasyEvents;
@@ -146,7 +120,7 @@ function fakeConnect() {
 const TYPES = ['Draft Pick Made'];
 
 describe('useLiveEvents', () => {
-  it('polls when realtime is off or the token call fails', async () => {
+  it('polls when realtime is off or the config call fails', async () => {
     const { connect } = fakeConnect();
     const off = renderHook(() =>
       useLiveEvents({
@@ -186,7 +160,7 @@ describe('useLiveEvents', () => {
       })
     );
     await waitFor(() => expect(hook.result.current).toBe('live'));
-    expect(connect.mock.calls[0]?.[0].topics).toEqual(['fantasy.league.L1', 'fantasy.global']);
+    expect(connect.mock.calls[0]?.[0].channels).toEqual(['/fantasy/league/L1', '/fantasy/global']);
     handlers.onEvent!({ detailType: 'Draft Pick Made', leagueId: 'L1' });
     handlers.onEvent!({ detailType: 'Draft Pick Made', leagueId: null });
     handlers.onEvent!({ detailType: 'Draft Pick Made', leagueId: 'L2' });
@@ -209,7 +183,7 @@ describe('useLiveEvents', () => {
     await waitFor(() => expect(hook.result.current).toBe('polling'));
   });
 
-  it('closes a subscription that opens after unmount, and ignores a late token', async () => {
+  it('closes a subscription that opens after unmount, and ignores a late config', async () => {
     const { connect, close } = fakeConnect();
     let resolveInfo: (info: RealtimeInfo) => void = () => undefined;
     const late = renderHook(() =>
@@ -243,12 +217,12 @@ describe('useLiveEvents', () => {
     await waitFor(() => expect(close).toHaveBeenCalledOnce());
   });
 
-  it('renews the token before it expires', async () => {
+  it('asks for the config again before refreshAt', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { connect, close } = fakeConnect();
     const realtime = vi.fn(async () => ({
       ...INFO,
-      expiresAt: new Date(Date.now() + 120_000).toISOString()
+      refreshAt: new Date(Date.now() + 120_000).toISOString()
     }));
     const hook = renderHook(() =>
       useLiveEvents({ leagueId: 'L1', types: TYPES, realtime, connect, onEvent: vi.fn() })

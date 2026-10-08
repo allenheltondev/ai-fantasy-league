@@ -687,7 +687,7 @@ describe('the lineup page on game day (#193)', () => {
   it('reloads the lineup when the NFL games change', async () => {
     let push: (event: LeagueEvent) => void = () => undefined;
     const connect: EventConnect = async (target, handlers) => {
-      expect(target.topics).toContain('fantasy.global');
+      expect(target.channels).toContain('/fantasy/global');
       push = handlers.onEvent;
       return () => undefined;
     };
@@ -696,11 +696,10 @@ describe('the lineup page on game day (#193)', () => {
       getRoster: vi.fn(async () => roster([entry('qb1', 'QB', 'QB'), entry('wr1', 'WR', 'WR')])),
       getRealtime: vi.fn(async () => ({
         enabled: true,
-        token: 't',
-        endpoint: null,
-        cacheName: 'c',
-        topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-        expiresAt: null,
+        httpHost: 'api.example',
+        realtimeHost: 'realtime.example',
+        channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+        refreshAt: null,
         pollIntervalSeconds: 30
       }))
     });
@@ -743,11 +742,10 @@ describe('the lineup page on game day (#193)', () => {
       ),
       getRealtime: vi.fn(async () => ({
         enabled: true,
-        token: 't',
-        endpoint: null,
-        cacheName: 'c',
-        topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-        expiresAt: null,
+        httpHost: 'api.example',
+        realtimeHost: 'realtime.example',
+        channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+        refreshAt: null,
         pollIntervalSeconds: 30
       }))
     });

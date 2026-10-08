@@ -3,7 +3,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 /**
  * Live red-zone highlights and the NFL games strip on the matchup page (#132). The API is a
  * stateful stand-in served with `page.route` (the get_matchup / get_nfl_games contract in
- * packages/server/openapi.json). Realtime is on, with a page script standing in for Momento (the dev
+ * packages/server/openapi.json). Realtime is on, with a page script standing in for AppSync Events (the dev
  * server honors `window.__fantasyEvents`), so the test pushes `NFL Games Updated` like the relay
  * would and watches the page update without polling.
  */
@@ -182,11 +182,10 @@ async function stubApi(page: Page) {
   await page.route('**/api/v1/leagues/L1/realtime', (route) =>
     json(route, {
       enabled: true,
-      token: 'e2e-token',
-      endpoint: null,
-      cacheName: 'e2e-cache',
-      topics: { league: 'fantasy.league.L1', global: 'fantasy.global', team: null },
-      expiresAt: null,
+      httpHost: 'api.example',
+      realtimeHost: 'realtime.example',
+      channels: { league: '/fantasy/league/L1', global: '/fantasy/global', team: null },
+      refreshAt: null,
       pollIntervalSeconds: 30
     })
   );
@@ -200,7 +199,7 @@ declare global {
       leagueId: string | null;
       detail?: Record<string, unknown>;
     }) => void;
-    __fantasyTopics?: string[];
+    __fantasyChannels?: string[];
   }
 }
 
@@ -213,9 +212,9 @@ test.beforeEach(async ({ page }) => {
       'rsc:auth',
       JSON.stringify({ idToken: token, refreshToken: 'refresh', expiresAt: 4_102_444_800_000 })
     );
-    // Stand in for Momento: remember the handler so the test can push relayed events.
+    // Stand in for AppSync Events: remember the handler so the test can push relayed events.
     window.__fantasyEvents = async (target, handlers) => {
-      window.__fantasyTopics = target.topics;
+      window.__fantasyChannels = target.channels;
       window.__pushFantasyEvent = handlers.onEvent;
       return () => undefined;
     };
@@ -253,7 +252,7 @@ test('a red-zone drive highlights my players and the game, and clears on a realt
   await expect(cards.nth(3)).toContainText('Final');
 
   // The drive ends in a touchdown: the relay pushes NFL Games Updated and the page re-reads.
-  await expect.poll(() => page.evaluate(() => window.__fantasyTopics)).toContain('fantasy.global');
+  await expect.poll(() => page.evaluate(() => window.__fantasyChannels)).toContain('/fantasy/global');
   drive.redZone = false;
   const reads = drive.reads;
   await page.evaluate(() => window.__pushFantasyEvent?.({ detailType: 'NFL Games Updated', leagueId: null }));

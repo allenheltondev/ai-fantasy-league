@@ -101,7 +101,7 @@ export interface TradesApi {
   ): Promise<TradeView>;
   withdraw(leagueId: string, tradeId: string): Promise<TradeView>;
   vote(leagueId: string, tradeId: string, decision: 'veto' | 'approve'): Promise<TradeView>;
-  /** get_realtime_token, for live offer updates. */
+  /** get_realtime_config, for live offer updates. */
   realtime(leagueId: string): Promise<RealtimeInfo>;
 }
 

@@ -3,7 +3,7 @@ import type { TeamDetail } from '../api/types';
 
 /**
  * Shapes from the chat operations (get_chat, post_message, list_chat_rooms, mark_room_read,
- * get_realtime_token) in openapi.json.
+ * get_realtime_config) in openapi.json.
  */
 
 /** The room people land in, and where messages from before rooms live. */
@@ -71,14 +71,17 @@ export interface ChatPage {
   nextCursor: string | null;
 }
 
+/** get_realtime_config: where to subscribe, or `enabled: false` to poll instead. */
 export interface RealtimeInfo {
   enabled: boolean;
-  token: string | null;
-  endpoint: string | null;
-  cacheName: string | null;
-  /** `team` is the caller's own private topic (null without a seat). */
-  topics: { league: string; global: string; team?: string | null } | null;
-  expiresAt: string | null;
+  /** The AppSync Events HTTP domain (the `host` in every subscribe authorization). */
+  httpHost: string | null;
+  /** The AppSync Events WebSocket domain. */
+  realtimeHost: string | null;
+  /** `team` is the caller's own private channel for their current seat tenure (null without a seat). */
+  channels: { league: string; global: string; team?: string | null } | null;
+  /** Ask again (and resubscribe) before this: the team channel changes when a seat changes hands. */
+  refreshAt: string | null;
   pollIntervalSeconds: number;
 }
 

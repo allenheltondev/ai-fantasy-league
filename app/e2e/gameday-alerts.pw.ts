@@ -4,8 +4,8 @@ import { signInStubbed, stubLiveMatchup } from './liveMatchup';
 /**
  * Game-day player alerts (#200), against a stubbed API (get_roster, list_notifications,
  * get_notification_summary, and the preferences in packages/server/openapi.json) with a page script
- * standing in for Momento: the test pushes `Player Status Changed` on the global topic and the
- * `Notification Created` that follows it on your team topic, as the relay would. Sunday, 11:30
+ * standing in for AppSync Events: the test pushes `Player Status Changed` on the global channel and the
+ * `Notification Created` that follows it on your team channel, as the relay would. Sunday, 11:30
  * Eastern: the 1pm games have not kicked off, and Christian McCaffrey has just been ruled out.
  */
 

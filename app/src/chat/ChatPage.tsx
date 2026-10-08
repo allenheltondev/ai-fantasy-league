@@ -11,7 +11,7 @@ import {
   type ChatRoom,
   type ChatTeam
 } from './api';
-import { connectMomento, type Connect } from './realtime';
+import { connectLiveChat, type Connect } from './realtime';
 import { RoomChat } from './RoomChat';
 import { RoomList } from './RoomList';
 import { RoomSwitcher } from './RoomSwitcher';
@@ -29,7 +29,7 @@ const ROOMS_REFRESH_MS = 10_000;
 
 export function ChatPage({
   api = defaultApi,
-  connect = connectMomento,
+  connect = connectLiveChat,
   yourTeamId,
   roomsRefreshMs = ROOMS_REFRESH_MS
 }: {

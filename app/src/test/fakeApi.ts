@@ -416,11 +416,10 @@ export function fakeApi(overrides: Partial<LeagueApi> = {}): LeagueApi {
     })),
     getRealtime: vi.fn(async () => ({
       enabled: false,
-      token: null,
-      endpoint: null,
-      cacheName: null,
-      topics: null,
-      expiresAt: null,
+      httpHost: null,
+      realtimeHost: null,
+      channels: null,
+      refreshAt: null,
       pollIntervalSeconds: 5
     })),
     getPlayoffBracket: vi.fn(async () => ({

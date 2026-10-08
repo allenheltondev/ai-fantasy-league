@@ -163,7 +163,7 @@ function draftApi(
     }
     await route.fulfill({ json: envelope(queueView()) });
   });
-  // The league header and the realtime token (off here, so the board polls).
+  // The league header and the realtime config (off here, so the board polls).
   // The header bell's summary (#165): nothing waiting.
   void page.route('**/api/v1/notifications', (route) =>
     route.fulfill({ json: envelope({ unreadCount: 0, leagues: [] }) })
@@ -183,11 +183,10 @@ function draftApi(
     route.fulfill({
       json: envelope({
         enabled: false,
-        token: null,
-        endpoint: null,
-        cacheName: null,
-        topics: null,
-        expiresAt: null,
+        httpHost: null,
+        realtimeHost: null,
+        channels: null,
+        refreshAt: null,
         pollIntervalSeconds: 3
       })
     })
