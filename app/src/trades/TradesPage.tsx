@@ -5,7 +5,7 @@ import { Alert, Button, Card, CardBody, Input, Select, StatusBadge } from '@read
 import { apiFetch } from '../api';
 import { ApiErrorAlert } from '../components/ApiErrorAlert';
 import { useLoad } from '../lib/useLoad';
-import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
+import { connectLiveEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
 import {
   createTradesApi,
   type PlayerRef,
@@ -22,8 +22,8 @@ const defaultApi = createTradesApi(apiFetch);
 
 /**
  * Events that change what this page shows. Offers, counters, rejections, expiries, and withdrawals
- * arrive on the caller's own team topic (only the two teams hear about them); accepted, processed,
- * and vetoed trades on the league topic.
+ * arrive on the caller's own team channel (only the two teams hear about them); accepted, processed,
+ * and vetoed trades on the league channel.
  */
 export const TRADE_EVENTS = [
   'Trade Proposed',
@@ -223,7 +223,7 @@ const EMPTY: Selection = { withTeamId: '', send: [], receive: [], drops: [] };
 export function TradesPage({
   api = defaultApi,
   now = Date.now,
-  connect = connectMomentoEvents
+  connect = connectLiveEvents
 }: {
   api?: TradesApi;
   now?: () => number;

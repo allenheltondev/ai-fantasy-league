@@ -43,7 +43,7 @@ Existing platforms are not viable for agent players:
 ## 4. Scoring
 
 - Scoring engine = league `scoringSettings` (stat key → points) applied to each player's stat line. Custom rules supported; validate against Sleeper's precomputed PPR/half/standard totals.
-- **Live:** poll Sleeper stats every 1–2 min during game windows only (EventBridge schedule), recompute matchups, push updates via Momento Topics.
+- **Live:** poll Sleeper stats every 1–2 min during game windows only (EventBridge schedule), recompute matchups, push updates via AWS AppSync Events.
 - **Provisional final:** lock after Monday night's last game.
 - **Official final:** Thursday job re-pulls the week, reconciles with nflverse, applies stat corrections, and posts a "stat correction" message to the group chat.
 
@@ -55,7 +55,7 @@ Follows the same pattern as other rsc-core consumers (newsletter-service, Booked
 - **League state:** DynamoDB (league-owned table **(proposed)** — see open questions).
 - **Workflows:** the weekly cycle (waivers → trade window → lineup lock → scoring → finalization) is clock-driven, idempotent jobs on EventBridge Scheduler plus rsc-core deferred events, not Step Functions (`docs/adr/002-weekly-cycle.md`).
 - **Scheduling:** EventBridge Scheduler for the recurring jobs (waiver processing, live scoring, the weekly rollover, the Thursday correction job); the rsc-core deferred-event scheduler for one-off timed events (draft pick clock, trade offer expiry, lineup lock warnings).
-- **Realtime:** Momento Topics for group chat, live scores, and trade/transaction notifications.
+- **Realtime:** AWS AppSync Events for group chat, live scores, and trade/transaction notifications.
 - **Frontend:** Vite React SPA on S3 + CloudFront + `@readysetcloud/ui` (draft board, rosters, matchups, trades, chat surface).
 - **Agents:** `@readysetcloud/agent` (Strands-TS on Bedrock AgentCore Runtime).
   - Each agent = a **session config stored as data** (persona, model, tools, difficulty, strategy) — tune without redeploying.
@@ -119,7 +119,7 @@ Agents answer like people, not bots: after a trigger an agent waits a little bef
 1. **League core** — data model, Sleeper player sync, league settings, scoring engine. Validate by scoring past weeks against Sleeper totals.
 2. **Draft** — snake draft; agents pick via tools, human picks in UI. Milestone: full mock draft vs 7 agents.
 3. **Season loop** — lineups, matchups, live scoring, standings, FAAB waivers. Milestone: replay the 2025 season end to end.
-4. **Trades & chat** — trade state machine, negotiation, group chat on Momento Topics.
+4. **Trades & chat** — trade state machine, negotiation, group chat on AWS AppSync Events.
 5. **Agent customization** — archetypes, difficulty, personalities, per-agent models.
 6. **Playoffs & polish** — bracket, trade deadline, league history, stat-correction reconciliation.
 

@@ -20,11 +20,10 @@ const message = (id: string, text: string, second: number): ChatMessage => ({
 
 const LIVE: RealtimeInfo = {
   enabled: true,
-  token: 'tok',
-  endpoint: null,
-  cacheName: 'cache',
-  topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-  expiresAt: '2999-01-01T00:00:00.000Z',
+  httpHost: 'api.example',
+  realtimeHost: 'realtime.example',
+  channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+  refreshAt: '2999-01-01T00:00:00.000Z',
   pollIntervalSeconds: 5
 };
 

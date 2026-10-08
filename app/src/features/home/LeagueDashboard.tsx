@@ -4,7 +4,7 @@ import { useLeagueApi } from '../../api/league';
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import { LoadingSkeleton } from '../../motion/decor';
-import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
+import { connectLiveEvents, useLiveEvents, type EventConnect } from '../../realtime/leagueEvents';
 import { ChampionBanner, DraftCard, MatchupsCard, StandingsCard } from './DashboardCards';
 import { MAX_MOVES, MORE_MOVES, MOVES_PAGE, MoveBoard } from './MoveBoard';
 
@@ -35,7 +35,7 @@ export const DASHBOARD_EVENTS = [
  */
 export function LeagueDashboard({
   leagueId,
-  connect = connectMomentoEvents
+  connect = connectLiveEvents
 }: {
   leagueId: string;
   connect?: EventConnect;

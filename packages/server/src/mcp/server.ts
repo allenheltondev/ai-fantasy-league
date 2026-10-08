@@ -24,9 +24,9 @@ export const MCP_SERVER_INFO = { name: 'fantasy-league', version: '1.0.0' } as c
 
 /**
  * Operations that make no sense as tools for an assistant: the browser's realtime subscription
- * token and the load balancer health check.
+ * settings and the load balancer health check.
  */
-export const MCP_EXCLUDED: ReadonlySet<string> = new Set(['get_realtime_token', 'get_health']);
+export const MCP_EXCLUDED: ReadonlySet<string> = new Set(['get_realtime_config', 'get_health']);
 
 export function mcpEligible(op: AnyOperation): boolean {
   return op.auth !== 'public' && !MCP_EXCLUDED.has(op.name);

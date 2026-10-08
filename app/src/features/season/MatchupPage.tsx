@@ -7,7 +7,7 @@ import type { MatchupData, RedZoneTeam, ScoringLogEntry } from '../../api/types'
 import { ApiErrorAlert } from '../../components/ApiErrorAlert';
 import { useLoad } from '../../lib/useLoad';
 import {
-  connectMomentoEvents,
+  connectLiveEvents,
   useLiveEvents,
   type EventConnect,
   type LeagueEvent
@@ -29,14 +29,14 @@ export const MATCHUP_POLL_MS = 30_000;
 /** While live, a slow safety refresh in case an event is missed. */
 export const MATCHUP_LIVE_POLL_MS = 120_000;
 
-/** The week's NFL games changed (scores, possession, the red zone); on the global topic (#132). */
+/** The week's NFL games changed (scores, possession, the red zone); on the global channel (#132). */
 export const NFL_GAMES_EVENT = 'NFL Games Updated';
-/** A player ruled out on game day (#200), on the global topic: the OUT chip shows without a reload. */
+/** A player ruled out on game day (#200), on the global channel: the OUT chip shows without a reload. */
 export const PLAYER_STATUS_EVENT = 'Player Status Changed';
 
 /**
  * Events that change the matchup. `Scores Updated` and `NFL Games Updated` come from the live jobs
- * on the global topic (they name no league); the rest on the league topic.
+ * on the global channel (they name no league); the rest on the league channel.
  */
 export const MATCHUP_EVENTS = [
   NFL_GAMES_EVENT,
@@ -51,7 +51,7 @@ export const MATCHUP_EVENTS = [
  * The Matchup section (#58, #193): a sticky score bar with the win probability, the two lineups head to head by slot with
  * each player's game, then your lineup advice, the scoring log, and the week's NFL games.
  */
-export function MatchupPage({ connect = connectMomentoEvents }: { connect?: EventConnect }) {
+export function MatchupPage({ connect = connectLiveEvents }: { connect?: EventConnect }) {
   const { leagueId = '' } = useParams();
   // `?team=` opens another team's matchup (tapped on the league dashboard, #166).
   const [params] = useSearchParams();

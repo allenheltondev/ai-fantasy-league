@@ -100,11 +100,10 @@ function renderMatchup(
     getScoringLog: vi.fn(getScoringLog),
     getRealtime: vi.fn(async () => ({
       enabled: true,
-      token: 't',
-      endpoint: null,
-      cacheName: 'c',
-      topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-      expiresAt: null,
+      httpHost: 'api.example',
+      realtimeHost: 'realtime.example',
+      channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+      refreshAt: null,
       pollIntervalSeconds: 30
     }))
   });

@@ -39,21 +39,19 @@ function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
 
 const OFF: RealtimeInfo = {
   enabled: false,
-  token: null,
-  endpoint: null,
-  cacheName: null,
-  topics: null,
-  expiresAt: null,
+  httpHost: null,
+  realtimeHost: null,
+  channels: null,
+  refreshAt: null,
   pollIntervalSeconds: 0.05
 };
 
 const LIVE: RealtimeInfo = {
   enabled: true,
-  token: 'tok',
-  endpoint: null,
-  cacheName: 'cache',
-  topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-  expiresAt: '2999-01-01T00:00:00.000Z',
+  httpHost: 'api.example',
+  realtimeHost: 'realtime.example',
+  channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+  refreshAt: '2999-01-01T00:00:00.000Z',
   pollIntervalSeconds: 0.05
 };
 
@@ -207,12 +205,16 @@ describe('ChatPage', () => {
     expect(await screen.findByText('posted elsewhere')).toBeInTheDocument();
   });
 
-  it('goes live over the realtime token and falls back to polling on errors', async () => {
+  it('goes live over AppSync Events and falls back to polling on errors', async () => {
     const { api } = fakeApi({ realtime: LIVE });
     let handlers: Parameters<Connect>[1] | null = null;
     const unsubscribe = vi.fn();
     const connect: Connect = vi.fn(async (target, h) => {
-      expect(target).toEqual({ token: 'tok', cacheName: 'cache', topics: ['fantasy.league.L1'] });
+      expect(target).toEqual({
+        httpHost: 'api.example',
+        realtimeHost: 'realtime.example',
+        channels: ['/fantasy/league/L1']
+      });
       handlers = h;
       return unsubscribe;
     });
@@ -231,9 +233,9 @@ describe('ChatPage', () => {
     view.unmount();
   });
 
-  it('renews the token before it expires and unsubscribes on unmount', async () => {
+  it('asks for the realtime config again before refreshAt and unsubscribes on unmount', async () => {
     const { api } = fakeApi({
-      realtime: { ...LIVE, expiresAt: new Date(Date.now() + 60_500).toISOString() }
+      realtime: { ...LIVE, refreshAt: new Date(Date.now() + 60_500).toISOString() }
     });
     const unsubscribe = vi.fn();
     const connect: Connect = vi.fn(async () => unsubscribe);
@@ -244,7 +246,7 @@ describe('ChatPage', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
 
-  it('polls when subscribing fails or the token request fails', async () => {
+  it('polls when subscribing fails or the config request fails', async () => {
     const failing = fakeApi({ realtime: LIVE });
     const view = renderChat(
       failing.api,
@@ -282,9 +284,9 @@ describe('ChatPage', () => {
     expect(await screen.findByText('eventually')).toBeInTheDocument();
   });
 
-  it('stays live without renewing when the token has no usable expiry', async () => {
-    for (const expiresAt of [null, 'garbage']) {
-      const { api } = fakeApi({ realtime: { ...LIVE, expiresAt } });
+  it('stays live without renewing when the config has no usable refresh time', async () => {
+    for (const refreshAt of [null, 'garbage']) {
+      const { api } = fakeApi({ realtime: { ...LIVE, refreshAt } });
       const connect: Connect = vi.fn(async () => () => undefined);
       const view = renderChat(api, connect);
       expect(await screen.findByText('Live')).toBeInTheDocument();
@@ -295,7 +297,7 @@ describe('ChatPage', () => {
   });
 
   it('does nothing once unmounted, whatever finishes late', async () => {
-    // The token request finishes after unmount.
+    // The config request finishes after unmount.
     let answer: (info: RealtimeInfo) => void = () => undefined;
     const slow = fakeApi();
     slow.api.realtime = vi.fn(() => new Promise<RealtimeInfo>((r) => (answer = r)));

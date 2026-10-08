@@ -1,35 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createChatApi, dmRoomId, mergeMessages, type ChatMessage, type RealtimeInfo } from './api';
-import { connectMomento, liveTarget, parseChatItem } from './realtime';
+import { connectLiveChat, liveTarget, parseChatItem, subscribeToken } from './realtime';
 
-vi.mock('@gomomento/sdk-web', () => {
-  class Subscription {
-    unsubscribe = vi.fn();
+const auth = vi.hoisted(() => ({ token: 'id-token' as string | null }));
+vi.mock('@readysetcloud/ui/auth', () => ({ getFreshIdToken: async () => auth.token }));
+
+const events = vi.hoisted(() => ({
+  calls: [] as { target: unknown; token: string; handlers: { onData(raw: string): void; onError(): void } }[],
+  close: vi.fn()
+}));
+vi.mock('../realtime/appsyncEvents', () => ({
+  subscribeChannels: async (
+    target: unknown,
+    token: string,
+    handlers: { onData(raw: string): void; onError(): void }
+  ) => {
+    events.calls.push({ target, token, handlers });
+    return events.close;
   }
-  let mode: 'ok' | 'fail' = 'ok';
-  const state: {
-    options?: { onItem(item: { valueString(): string }): void; onError(): void };
-    last?: Subscription;
-  } = {};
-  return {
-    __state: state,
-    __mode: (m: 'ok' | 'fail') => {
-      mode = m;
-    },
-    TopicConfigurations: { Browser: { latest: () => 'browser' } },
-    CredentialProvider: { fromDisposableToken: (p: unknown) => ({ disposable: p }) },
-    TopicSubscribe: { Subscription },
-    TopicClient: class {
-      constructor(readonly props: unknown) {}
-      async subscribe(_cache: string, _topic: string, options: NonNullable<typeof state.options>) {
-        state.options = options;
-        if (mode === 'fail') return { error: true };
-        state.last = new Subscription();
-        return state.last;
-      }
-    }
-  };
-});
+}));
 
 const message: ChatMessage = {
   id: 'm1',
@@ -51,58 +40,57 @@ describe('realtime helpers', () => {
     expect(parseChatItem('not json')).toBeNull();
   });
 
-  it('needs a complete token to go live', () => {
+  it('needs a complete config to go live', () => {
     const info: RealtimeInfo = {
       enabled: true,
-      token: 't',
-      endpoint: null,
-      cacheName: 'c',
-      topics: { league: 'l', global: 'g' },
-      expiresAt: null,
+      httpHost: 'api.example',
+      realtimeHost: 'realtime.example',
+      channels: { league: 'l', global: 'g' },
+      refreshAt: null,
       pollIntervalSeconds: 5
     };
-    expect(liveTarget(info)).toEqual({ token: 't', cacheName: 'c', topics: ['l'] });
-    expect(liveTarget({ ...info, topics: { league: 'l', global: 'g', team: 'tm' } })).toEqual({
-      token: 't',
-      cacheName: 'c',
-      topics: ['l', 'tm']
+    const endpoint = { httpHost: 'api.example', realtimeHost: 'realtime.example' };
+    expect(liveTarget(info)).toEqual({ ...endpoint, channels: ['l'] });
+    expect(liveTarget({ ...info, channels: { league: 'l', global: 'g', team: 'tm' } })).toEqual({
+      ...endpoint,
+      channels: ['l', 'tm']
     });
     expect(liveTarget({ ...info, enabled: false })).toBeNull();
-    expect(liveTarget({ ...info, token: null })).toBeNull();
-    expect(liveTarget({ ...info, cacheName: null })).toBeNull();
-    expect(liveTarget({ ...info, topics: null })).toBeNull();
+    expect(liveTarget({ ...info, httpHost: null })).toBeNull();
+    expect(liveTarget({ ...info, realtimeHost: null })).toBeNull();
+    expect(liveTarget({ ...info, channels: null })).toBeNull();
   });
 
-  it('subscribes with the Momento web SDK', async () => {
-    const sdk = (await import('@gomomento/sdk-web')) as unknown as {
-      __state: {
-        options: { onItem(item: { valueString(): string }): void; onError(): void };
-        last: { unsubscribe: () => void };
-      };
-      __mode(m: 'ok' | 'fail'): void;
-    };
+  it('subscribes over AppSync Events with the ID token, passing on chat messages only', async () => {
     const onChat = vi.fn();
     const onError = vi.fn();
-    const close = await connectMomento({ token: 't', cacheName: 'c', topics: ['l'] }, { onChat, onError });
-    sdk.__state.options.onItem({ valueString: () => JSON.stringify({ type: 'chat', message }) });
-    sdk.__state.options.onItem({ valueString: () => '{}' });
-    sdk.__state.options.onError();
+    const target = { httpHost: 'api.example', realtimeHost: 'realtime.example', channels: ['l', 'tm'] };
+    const close = await connectLiveChat(target, { onChat, onError });
+    expect(events.calls[0]).toMatchObject({ target, token: 'id-token' });
+    const { handlers } = events.calls[0]!;
+    handlers.onData(JSON.stringify({ type: 'chat', message }));
+    handlers.onData(JSON.stringify({ type: 'event', detailType: 'Draft Pick Made' }));
+    handlers.onError();
     expect(onChat).toHaveBeenCalledExactlyOnceWith(message);
     expect(onError).toHaveBeenCalledOnce();
     close();
-    expect(sdk.__state.last.unsubscribe).toHaveBeenCalled();
-    sdk.__mode('fail');
-    await expect(
-      connectMomento({ token: 't', cacheName: 'c', topics: ['l', 'tm'] }, { onChat, onError })
-    ).rejects.toThrow(/Could not subscribe/);
-    sdk.__mode('ok');
-    // Two topics: one close unsubscribes both.
-    const both = await connectMomento(
-      { token: 't', cacheName: 'c', topics: ['l', 'tm'] },
-      { onChat, onError }
-    );
-    both();
-    expect(sdk.__state.last.unsubscribe).toHaveBeenCalled();
+    expect(events.close).toHaveBeenCalledOnce();
+  });
+
+  it('needs a signed-in person to subscribe', async () => {
+    expect(await subscribeToken()).toBe('id-token');
+    auth.token = null;
+    try {
+      await expect(subscribeToken()).rejects.toThrow(/Sign in/);
+      await expect(
+        connectLiveChat(
+          { httpHost: 'h', realtimeHost: 'r', channels: ['l'] },
+          { onChat: vi.fn(), onError: vi.fn() }
+        )
+      ).rejects.toThrow(/Sign in/);
+    } finally {
+      auth.token = 'id-token';
+    }
   });
 });
 

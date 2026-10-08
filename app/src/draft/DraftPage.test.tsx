@@ -130,11 +130,10 @@ function fakeChat() {
     closeDm: vi.fn(async () => undefined),
     realtime: vi.fn(async () => ({
       enabled: false,
-      token: null,
-      endpoint: null,
-      cacheName: null,
-      topics: null,
-      expiresAt: null,
+      httpHost: null,
+      realtimeHost: null,
+      channels: null,
+      refreshAt: null,
       pollIntervalSeconds: 5
     })),
     teams: vi.fn(async () => [
@@ -283,11 +282,10 @@ function lobbyView(overrides: Record<string, unknown> = {}) {
 
 const LIVE_INFO = {
   enabled: true,
-  token: 't',
-  endpoint: null,
-  cacheName: 'c',
-  topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-  expiresAt: null,
+  httpHost: 'api.example',
+  realtimeHost: 'realtime.example',
+  channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+  refreshAt: null,
   pollIntervalSeconds: 5
 };
 
@@ -660,7 +658,7 @@ describe('DraftPage', () => {
     const user = userEvent.setup();
     let onEvent: (event: LeagueEvent) => void = () => undefined;
     const connect: EventConnect = async (target, handlers) => {
-      expect(target.topics).toEqual(['fantasy.league.L1']);
+      expect(target.channels).toEqual(['/fantasy/league/L1']);
       onEvent = handlers.onEvent;
       return () => undefined;
     };

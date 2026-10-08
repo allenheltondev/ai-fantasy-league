@@ -3,7 +3,7 @@ import type { BusEvent } from '../../src/events/bus.js';
 import { silentLogger } from '../../src/log.js';
 import { writeNotifications } from '../../src/notifications/consumer.js';
 import { registry } from '../../src/operations/index.js';
-import { InMemoryRealtime } from '../../src/realtime/realtime.js';
+import { InMemoryRealtime, seatTenureKey, teamChannel } from '../../src/realtime/realtime.js';
 import { relayEvent } from '../../src/realtime/relay.js';
 import { createHarness, START, type Harness } from '../support/harness.js';
 import { as, data, errorCode, type Caller } from '../support/league-client.js';
@@ -14,7 +14,7 @@ import { seedSeasonLeague } from '../support/waivers.js';
  * The notification inbox (#165) end to end over the REST adapter and DynamoDB Local: a trade offer
  * becomes an item in the other person's inbox (never an AI manager's), the summary shows it and the
  * offer waiting, a redelivered event stores nothing, the relay pushes the new item to that team's
- * topic alone, and marking delivered, read one by one, and read all move the counts.
+ * channel alone, and marking delivered, read one by one, and read all move the counts.
  */
 
 const L = '/leagues/lg-n';
@@ -76,7 +76,7 @@ describe('notification inbox', () => {
   let offerId = '';
   let itemId = '';
 
-  it('puts a trade offer in the other person’s inbox, once, and pushes it to their team topic', async () => {
+  it('puts a trade offer in the other person’s inbox, once, and pushes it to their team channel', async () => {
     const res = await alice.post(`${L}/trades`, {
       withTeamId: 'team-2',
       send: ['fx-cmc'],
@@ -101,15 +101,22 @@ describe('notification inbox', () => {
     });
     expect(h.events.events.filter((e) => e.detailType === 'Notification Created')).toHaveLength(1);
 
-    // The relay sends the new item to Bob's team topic only.
+    // The relay sends the new item to Bob's team channel only (for his tenure of the seat).
     const realtime = new InMemoryRealtime();
-    const relayed = await relayEvent(realtime, silentLogger, {
-      id: 'evt-relay',
-      'detail-type': 'Notification Created',
-      source: 'fantasy',
-      detail: JSON.parse(JSON.stringify(created[0]?.detail)) as unknown
-    });
-    expect(relayed.topics).toEqual(['fantasy.team.lg-n.team-2']);
+    const relayed = await relayEvent(
+      realtime,
+      silentLogger,
+      {
+        id: 'evt-relay',
+        'detail-type': 'Notification Created',
+        source: 'fantasy',
+        detail: JSON.parse(JSON.stringify(created[0]?.detail)) as unknown
+      },
+      h.repos.teams
+    );
+    expect(relayed.channels).toEqual([
+      teamChannel('lg-n', 'team-2', seatTenureKey((await h.repos.teams.get('lg-n', 'team-2'))!))
+    ]);
 
     const bobs = await inbox(bob);
     expect(bobs).toMatchObject({ teamId: 'team-2', unreadCount: 1, nextCursor: null });

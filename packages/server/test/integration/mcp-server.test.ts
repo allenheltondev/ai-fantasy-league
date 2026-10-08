@@ -93,7 +93,7 @@ describe('league MCP server', () => {
     });
     expect(envelope(invalid).error?.code).toBe('INVALID_INPUT');
 
-    const unknown = await client.callTool({ name: 'get_realtime_token', arguments: { leagueId: 'lg-mcp' } });
+    const unknown = await client.callTool({ name: 'get_realtime_config', arguments: { leagueId: 'lg-mcp' } });
     expect(envelope(unknown).error?.code).toBe('NOT_FOUND');
     await client.close();
   });

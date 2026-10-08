@@ -213,18 +213,17 @@ describe('parseTopicItem', () => {
 describe('LeagueNotifications', () => {
   const LIVE = {
     enabled: true,
-    token: 't',
-    endpoint: null,
-    cacheName: 'c',
-    topics: { league: 'fantasy.league.L1', global: 'fantasy.global', team: 'fantasy.team.L1.team-1' },
-    expiresAt: null,
+    httpHost: 'api.example',
+    realtimeHost: 'realtime.example',
+    channels: { league: '/fantasy/league/L1', global: '/fantasy/global', team: '/fantasy/team/L1/team-1/k1' },
+    refreshAt: null,
     pollIntervalSeconds: 30
   };
 
   function mount(path = '/leagues/L1/matchup') {
     let push: ((event: LeagueEvent) => void) | null = null;
     const connect: EventConnect = async (target, handlers) => {
-      expect(target.topics).toEqual(['fantasy.league.L1', 'fantasy.team.L1.team-1']);
+      expect(target.channels).toEqual(['/fantasy/league/L1', '/fantasy/team/L1/team-1/k1']);
       push = handlers.onEvent;
       return () => undefined;
     };

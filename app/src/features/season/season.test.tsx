@@ -215,11 +215,11 @@ describe('MatchupPage', () => {
     await waitFor(() => expect(screen.getByTestId('score-team-1')).toHaveTextContent('24.50'));
   });
 
-  it('refreshes scores on live Scores Updated events from the global topic', async () => {
+  it('refreshes scores on live Scores Updated events from the global channel', async () => {
     let score = 10;
     let onEvent: (event: LeagueEvent) => void = () => undefined;
     const connect: EventConnect = async (target, handlers) => {
-      expect(target.topics).toEqual(['fantasy.league.L1', 'fantasy.global']);
+      expect(target.channels).toEqual(['/fantasy/league/L1', '/fantasy/global']);
       onEvent = handlers.onEvent;
       return () => undefined;
     };
@@ -227,11 +227,10 @@ describe('MatchupPage', () => {
       getMatchup: vi.fn(async () => matchupData('in_progress', score)),
       getRealtime: vi.fn(async () => ({
         enabled: true,
-        token: 't',
-        endpoint: null,
-        cacheName: 'c',
-        topics: { league: 'fantasy.league.L1', global: 'fantasy.global' },
-        expiresAt: null,
+        httpHost: 'api.example',
+        realtimeHost: 'realtime.example',
+        channels: { league: '/fantasy/league/L1', global: '/fantasy/global' },
+        refreshAt: null,
         pollIntervalSeconds: 30
       }))
     });

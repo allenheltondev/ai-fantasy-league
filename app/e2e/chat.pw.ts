@@ -5,7 +5,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
  * others post arrive through the polling fallback (realtime is off, as in local dev).
  *
  * The chat API is served by an in-memory stub that follows the get_chat / post_message /
- * get_realtime_token contract in packages/server/openapi.json.
+ * get_realtime_config contract in packages/server/openapi.json.
  */
 
 const AUTH_CONFIG = { region: 'us-east-1', userPoolId: 'us-east-1_e2e', clientId: 'e2e-client' };
@@ -103,11 +103,10 @@ function stubChatApi(page: Page) {
       await page.route('**/api/v1/leagues/L1/realtime', (route) =>
         json(route, {
           enabled: false,
-          token: null,
-          endpoint: null,
-          cacheName: null,
-          topics: null,
-          expiresAt: null,
+          httpHost: null,
+          realtimeHost: null,
+          channels: null,
+          refreshAt: null,
           pollIntervalSeconds: 1
         })
       );

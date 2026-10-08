@@ -1,24 +1,51 @@
+import { createHash } from 'node:crypto';
+import { seatTenureStart, type Team } from '../repos/types.js';
+
 /**
- * Realtime (issue #68): league updates pushed to browsers over Momento Topics.
+ * Realtime (issue #68, ADR 010 in docs/adr): league updates pushed to browsers over AWS AppSync Events.
  *
- * The server publishes to one topic per league, one per team (results only that team may see), and
- * one global topic for events that are not tied to a league, such as live stat updates. Browsers never see the Momento API key: `get_realtime_token`
- * vends a short-lived token that can only subscribe to those topics. When realtime is not configured
- * (local dev, tests, CI) the no-op implementation is used and the app polls instead.
+ * The server publishes to channels in one namespace (`fantasy`): one per league, one per team seat
+ * tenure (results only that team's current occupant may see), and one global channel for events
+ * that are not tied to a league, such as live stat updates. Browsers subscribe with their Cognito ID
+ * token, and the namespace's subscribe handler (`authorizer.ts`) checks current league state on every
+ * subscribe; only the server publishes (IAM). When realtime is not configured (local dev, tests, CI)
+ * the no-op implementation is used and the app polls instead.
  */
 
-export const GLOBAL_TOPIC = 'fantasy.global';
+/** The AppSync Events channel namespace every channel lives in. */
+export const CHANNEL_NAMESPACE = 'fantasy';
 
-export function leagueTopic(leagueId: string): string {
-  return `fantasy.league.${leagueId}`;
+export const GLOBAL_CHANNEL = `/${CHANNEL_NAMESPACE}/global`;
+
+export function leagueChannel(leagueId: string): string {
+  return `/${CHANNEL_NAMESPACE}/league/${leagueId}`;
 }
 
 /**
- * One team's private topic: results only that team should see (its waiver claim outcomes, trade
- * offers it sent or received). Only the team's owner gets a token for it.
+ * One team's private channel for its current occupant: results only that team should see (its
+ * waiver claim outcomes, trade offers it sent or received, its DMs and inbox items).
+ *
+ * The last segment is the seat's tenure key (`seatTenureKey`). AppSync Events cannot close a
+ * subscription that is already open, so when the seat changes hands the relay starts publishing to
+ * a new channel: the person who left keeps a socket on a channel nobody publishes to any more, and
+ * the subscribe check refuses them the new one.
  */
-export function teamTopic(leagueId: string, teamId: string): string {
-  return `fantasy.team.${leagueId}.${teamId}`;
+export function teamChannel(leagueId: string, teamId: string, tenureKey: string): string {
+  return `/${CHANNEL_NAMESPACE}/team/${leagueId}/${teamId}/${tenureKey}`;
+}
+
+/**
+ * A short, opaque key for the team's current seat tenure: who holds the seat and since when. It
+ * changes whenever the seat changes hands (`claimSeat`, `vacateSeat`, `set_seat_type` all move
+ * `occupiedSince`), and is the same for every reader of the team in between.
+ */
+export function seatTenureKey(
+  team: Pick<Team, 'leagueId' | 'id' | 'ownerUserId' | 'occupiedSince' | 'createdAt'>
+): string {
+  return createHash('sha256')
+    .update([team.leagueId, team.id, team.ownerUserId ?? '', seatTenureStart(team)].join('\n'))
+    .digest('hex')
+    .slice(0, 16);
 }
 
 /** What subscribers receive, as JSON. */
@@ -33,40 +60,30 @@ export type RealtimeMessage =
       detail: Record<string, unknown>;
     };
 
-export interface RealtimeTokenRequest {
-  leagueId: string;
-  /** The caller's own team, whose private topic the token also covers; null for a seatless commissioner. */
-  teamId: string | null;
-  /** Who the token is for (`user#<sub>`); Momento reports it as the token id. */
-  subscriber: string;
-  ttlSeconds: number;
-}
-
-export interface RealtimeToken {
-  token: string;
-  /** The Momento endpoint the token is for, when the SDK reports one. */
-  endpoint: string | null;
-  cacheName: string;
-  topics: { league: string; global: string; team: string | null };
-  expiresAt: string;
+/** Where browsers connect: the AppSync Events API's DNS names. */
+export interface RealtimeEndpoint {
+  /** The HTTP domain: browsers name it as `host` in their subscribe authorization. */
+  httpHost: string;
+  /** The WebSocket domain (`wss://<realtimeHost>/event/realtime`). */
+  realtimeHost: string;
 }
 
 export interface Realtime {
-  /** A subscribe-only token for the league's topics, or null when realtime is not configured. */
-  issueSubscribeToken(request: RealtimeTokenRequest): Promise<RealtimeToken | null>;
-  /** Publishes to a topic. A no-op when realtime is not configured. */
-  publish(topic: string, message: RealtimeMessage): Promise<void>;
+  /** Where browsers subscribe, or null when realtime is not configured (the app polls). */
+  endpoint(): RealtimeEndpoint | null;
+  /** Publishes to a channel. A no-op when realtime is not configured. */
+  publish(channel: string, message: RealtimeMessage): Promise<void>;
 }
 
-/** Realtime is off: no tokens, and publishes are recorded (for tests) but go nowhere. */
+/** Realtime is off: no endpoint, and publishes are recorded (for tests) but go nowhere. */
 export class InMemoryRealtime implements Realtime {
-  readonly published: { topic: string; message: RealtimeMessage }[] = [];
+  readonly published: { channel: string; message: RealtimeMessage }[] = [];
 
-  async issueSubscribeToken(): Promise<RealtimeToken | null> {
+  endpoint(): RealtimeEndpoint | null {
     return null;
   }
 
-  async publish(topic: string, message: RealtimeMessage): Promise<void> {
-    this.published.push({ topic, message: structuredClone(message) });
+  async publish(channel: string, message: RealtimeMessage): Promise<void> {
+    this.published.push({ channel, message: structuredClone(message) });
   }
 }

@@ -4,7 +4,7 @@ import { agentPrincipal } from '../../src/auth/principal.js';
 import { AGENT_CHAT_BUDGETS, type ChatMessage } from '../../src/chat/model.js';
 import { silentLogger } from '../../src/log.js';
 import { registry } from '../../src/operations/index.js';
-import { InMemoryRealtime, leagueTopic, teamTopic } from '../../src/realtime/realtime.js';
+import { InMemoryRealtime, leagueChannel, seatTenureKey, teamChannel } from '../../src/realtime/realtime.js';
 import { relayEvent } from '../../src/realtime/relay.js';
 import type { TableContext } from '../../src/repos/dynamo/table.js';
 import type { Matchup } from '../../src/repos/types.js';
@@ -287,7 +287,7 @@ for (const backend of ['memory', 'dynamo'] as const) {
       expect(errorCode(await as(h, ALICE).post(`${L}/chat/rooms/${room}/close`))).toBe('FORBIDDEN');
     });
 
-    it('keeps a DM between its two teams: others get FORBIDDEN, and the league topic never sees it', async () => {
+    it('keeps a DM between its two teams: others get FORBIDDEN, and the league channel never sees it', async () => {
       const bob = as(h, BOB);
       const res = await bob.post(`${L}/chat/messages`, {
         roomId: DM,
@@ -368,28 +368,24 @@ for (const backend of ['memory', 'dynamo'] as const) {
       const agentRooms = ((await tool('team-3', 'list_chat_rooms', {})).body as { data: Rooms }).data;
       expect(agentRooms.rooms.find((r) => r.kind === 'dm')?.title).toBe("Bob's Team");
 
-      // Relay every event: DM content reaches only the two team topics.
+      // Relay every event: DM content reaches only the two teams' current channels.
       const realtime = new InMemoryRealtime();
       for (const [i, e] of h.events.events.entries()) {
-        await relayEvent(realtime, silentLogger, {
-          id: `e${i}`,
-          source: 'fantasy',
-          'detail-type': e.detailType,
-          detail: e.detail
-        });
+        await relayEvent(
+          realtime,
+          silentLogger,
+          { id: `e${i}`, source: 'fantasy', 'detail-type': e.detailType, detail: e.detail },
+          h.repos.teams
+        );
       }
-      expect(realtime.published.filter((p) => p.topic === leagueTopic(LG))).toEqual([]);
-      expect([...new Set(realtime.published.map((p) => p.topic))].sort()).toEqual([
-        teamTopic(LG, 'team-2'),
-        teamTopic(LG, 'team-3')
-      ]);
-      expect(
-        JSON.stringify(
-          realtime.published.filter(
-            (p) => p.topic !== teamTopic(LG, 'team-2') && p.topic !== teamTopic(LG, 'team-3')
-          )
-        )
-      ).not.toContain('psst');
+      const channelOf = async (teamId: string) =>
+        teamChannel(LG, teamId, seatTenureKey((await h.repos.teams.get(LG, teamId))!));
+      const dmChannels = [await channelOf('team-2'), await channelOf('team-3')];
+      expect(realtime.published.filter((p) => p.channel === leagueChannel(LG))).toEqual([]);
+      expect([...new Set(realtime.published.map((p) => p.channel))].sort()).toEqual(dmChannels.sort());
+      expect(JSON.stringify(realtime.published.filter((p) => !dmChannels.includes(p.channel)))).not.toContain(
+        'psst'
+      );
     });
 
     it('holds AI managers to daily chat budgets counted across every room', async () => {

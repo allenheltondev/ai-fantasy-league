@@ -25,14 +25,14 @@ export interface LeagueChat {
   send(text: string): Promise<void>;
 }
 
-/** Refresh the live token this long before it expires. */
+/** Ask for the realtime config again this long before `refreshAt`. */
 const RENEW_EARLY_MS = 60_000;
 const PAGE = 50;
 const DEFAULT_POLL_SECONDS = 5;
 const MAX_TIMER_MS = 2_147_483_647;
 
 /**
- * Loads one chat room and keeps it current: live through Momento when the API vends a token,
+ * Loads one chat room and keeps it current: live through AppSync Events when realtime is on,
  * otherwise (local dev, e2e, or a failed subscription) by polling get_chat. Live messages for other
  * rooms go to `onOther` (to bump their unread counts). `api` and `connect` must be stable (memoize
  * them), or the chat reloads on every render; key the component by league and room so a switch
@@ -113,7 +113,7 @@ export function useLeagueChat(
       if (info === null || target === null) return poll(info?.pollIntervalSeconds ?? DEFAULT_POLL_SECONDS);
       try {
         const unsubscribe = await connect(target, {
-          // The topics carry every room; this view shows one.
+          // The channels carry every room; this view shows one.
           onChat: (message) => {
             if ((message.roomId ?? DEFAULT_ROOM_ID) === roomId) {
               if (!historyRead) liveFirst.add(message.id);
@@ -130,9 +130,9 @@ export function useLeagueChat(
         setStatus('live');
         // Catch anything posted while we were connecting.
         await refresh().catch(() => undefined);
-        const expiresAt = Date.parse(info.expiresAt ?? '');
-        if (!Number.isNaN(expiresAt)) {
-          const renewIn = expiresAt - Date.now() - RENEW_EARLY_MS;
+        const refreshAt = Date.parse(info.refreshAt ?? '');
+        if (!Number.isNaN(refreshAt)) {
+          const renewIn = refreshAt - Date.now() - RENEW_EARLY_MS;
           // setTimeout fires at once for delays past 2^31 - 1 ms, so cap it.
           later(Math.min(Math.max(1000, renewIn), MAX_TIMER_MS), () => {
             disconnect();

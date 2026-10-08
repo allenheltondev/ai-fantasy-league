@@ -21,7 +21,7 @@ export function createServices(options: {
   limits?: Limits;
   /** Reference data (stats, projections, news, ...). Defaults to an in-memory store. */
   reference?: ReferenceStore;
-  /** Live updates. Defaults to the no-op implementation (no Momento credentials needed). */
+  /** Live updates. Defaults to the no-op implementation (no realtime service needed). */
   realtime?: Realtime;
   /** New record ids. Defaults to random UUIDs. */
   ids?: IdSource;

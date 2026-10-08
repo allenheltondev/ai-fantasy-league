@@ -89,20 +89,18 @@ function fakeApi(trades: TradeView[], overrides: Partial<TradesApi> = {}): Trade
 
 const OFF: RealtimeInfo = {
   enabled: false,
-  token: null,
-  endpoint: null,
-  cacheName: null,
-  topics: null,
-  expiresAt: null,
+  httpHost: null,
+  realtimeHost: null,
+  channels: null,
+  refreshAt: null,
   pollIntervalSeconds: 60
 };
 const LIVE: RealtimeInfo = {
   enabled: true,
-  token: 'tok',
-  endpoint: 'https://momento',
-  cacheName: 'cache',
-  topics: { league: 'fantasy.league.L1', global: 'fantasy.global', team: 'fantasy.team.L1.team-1' },
-  expiresAt: null,
+  httpHost: 'api.example',
+  realtimeHost: 'realtime.example',
+  channels: { league: '/fantasy/league/L1', global: '/fantasy/global', team: '/fantasy/team/L1/team-1/k1' },
+  refreshAt: null,
   pollIntervalSeconds: 60
 };
 const fixedNow = () => NOW;
@@ -382,7 +380,7 @@ describe('TradesPage', () => {
     expect(await screen.findByText('Search again.')).toBeInTheDocument();
   });
 
-  it('ticks the expiry countdown and reloads when a trade event arrives on the team topic', async () => {
+  it('ticks the expiry countdown and reloads when a trade event arrives on the team channel', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       let clock = NOW;
@@ -405,7 +403,10 @@ describe('TradesPage', () => {
       expect(await within(inbox).findByText(/Expires in 1d 0h/)).toBeInTheDocument();
 
       await waitFor(() => expect(connect).toHaveBeenCalled());
-      expect(connect.mock.calls[0]?.[0].topics).toEqual(['fantasy.league.L1', 'fantasy.team.L1.team-1']);
+      expect(connect.mock.calls[0]?.[0].channels).toEqual([
+        '/fantasy/league/L1',
+        '/fantasy/team/L1/team-1/k1'
+      ]);
       const loads = vi.mocked(api.list).mock.calls.length;
       act(() => emit?.({ detailType: 'Trade Proposed', leagueId: 'L1' }));
       await waitFor(() => expect(api.list).toHaveBeenCalledTimes(loads + 1));

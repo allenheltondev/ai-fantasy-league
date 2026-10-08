@@ -2,6 +2,7 @@ import { recordLeagueMemory } from '../../src/memory.js';
 import {
   EVENT_DETAIL_SCHEMAS,
   InMemoryRealtime,
+  seatTenureKey,
   JOBS,
   agentPrincipal,
   createContext,
@@ -99,8 +100,19 @@ interface Consumed {
   event: BusEvent;
   chat: SystemMessageOutcome;
   notifications: NotificationOutcome;
-  relay: { topics: string[]; published: InMemoryRealtime['published'] };
+  /** Team channels end in `current` once checked against the team's current seat tenure. */
+  relay: { channels: string[]; published: InMemoryRealtime['published'] };
   routed: RouteDecision[];
+}
+
+/** A team channel, checked to be for the team's current tenure, as `/fantasy/team/<league>/<team>/current`. */
+async function currentTeamChannel(services: Services, channel: string): Promise<string> {
+  const match = /^\/fantasy\/team\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(channel);
+  if (match === null) return channel;
+  const [, leagueId, teamId, key] = match as unknown as [string, string, string, string];
+  const team = await services.repos.teams.get(leagueId, teamId);
+  expect(team === null ? null : seatTenureKey(team), channel).toBe(key);
+  return `/fantasy/team/${leagueId}/${teamId}/current`;
 }
 
 /** Checks the detail against the contract, then runs every consumer on it. */
@@ -115,7 +127,7 @@ async function consume(services: Services, event: BusEvent): Promise<Consumed> {
   const realtime = new InMemoryRealtime();
   const chat = await postSystemMessage(services, event);
   const notifications = await writeNotifications(services, event);
-  const relay = await relayEvent(realtime, silentLogger, event);
+  const relay = await relayEvent(realtime, silentLogger, event, services.repos.teams);
   const routed = await routeEvent(
     { services, kinds: allKinds, rosterIndex: leagueRosterIndex(services) },
     event
@@ -124,7 +136,10 @@ async function consume(services: Services, event: BusEvent): Promise<Consumed> {
     event,
     chat,
     notifications,
-    relay: { topics: relay.topics, published: realtime.published },
+    relay: {
+      channels: await Promise.all(relay.channels.map((c) => currentTeamChannel(services, c))),
+      published: realtime.published
+    },
     routed
   };
 }
@@ -237,9 +252,9 @@ describe('event contract: waivers', () => {
     expect(message.roomId).toBe('waivers-news');
     expect(message.players).toEqual([wr9]);
     expect(processed.chat).toMatchObject({ moment: true });
-    expect(processed.relay.topics).toEqual([
-      `fantasy.league.${LEAGUE_ID}`,
-      `fantasy.team.${LEAGUE_ID}.team-1`
+    expect(processed.relay.channels).toEqual([
+      `/fantasy/league/${LEAGUE_ID}`,
+      `/fantasy/team/${LEAGUE_ID}/team-1/current`
     ]);
     expect(processed.relay.published[1]?.message).toMatchObject({
       detail: { teamId: 'team-1', awarded: [{ player: wr9 }] }
@@ -263,7 +278,7 @@ describe('event contract: waivers', () => {
     ]);
     const chatPosted = await consume(s.services, delivered(last(s.events.events, 'Chat Message Posted')));
     expect(chatPosted.relay.published).toEqual([
-      { topic: `fantasy.league.${LEAGUE_ID}`, message: { type: 'chat', leagueId: LEAGUE_ID, message } }
+      { channel: `/fantasy/league/${LEAGUE_ID}`, message: { type: 'chat', leagueId: LEAGUE_ID, message } }
     ]);
   });
 
@@ -277,7 +292,7 @@ describe('event contract: waivers', () => {
       ['team-4', 'waivers', 'requested']
     ]);
     expect(opened.chat).toEqual({ status: 'skipped', reason: 'no_template' });
-    expect(opened.relay.topics).toEqual([]);
+    expect(opened.relay.channels).toEqual([]);
 
     const empty = await consume(s.services, delivered(last(s.events.events, 'Waivers Processed')));
     expect(empty.chat).toEqual({ status: 'skipped', reason: 'nothing_to_say' });
@@ -301,7 +316,7 @@ describe('event contract: manager check-ins', () => {
       ['team-4', 'check_in', 'requested']
     ]);
     expect(checkIn.chat).toEqual({ status: 'skipped', reason: 'no_template' });
-    expect(checkIn.relay.topics).toEqual([]);
+    expect(checkIn.relay.channels).toEqual([]);
     // A retried job run is the same check-in.
     await JOBS.managerCheckIns(jobDeps(s), s.clock);
     const retried = await consume(s.services, delivered(last(s.events.events, 'Manager Check-In')));
@@ -341,17 +356,17 @@ describe('event contract: the weekly cycle', () => {
     return s;
   }
 
-  it('Scores Updated goes to the league topic only', async () => {
+  it('Scores Updated goes to the league channel only', async () => {
     const s = await scoredWeek();
     s.clock.set('2026-10-04T21:00:00.000Z');
     await JOBS.scoreLiveWeek(jobDeps(s), s.clock);
     const scores = await consume(s.services, delivered(last(s.events.events, 'Scores Updated')));
-    expect(scores.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(scores.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
     expect(scores.chat).toEqual({ status: 'skipped', reason: 'no_template' });
     expect(scores.routed).toEqual([]);
   });
 
-  it('NFL Games Updated (from live scoring) goes to the global topic only', async () => {
+  it('NFL Games Updated (from live scoring) goes to the global channel only', async () => {
     const s = await scoredWeek();
     s.clock.set('2026-10-04T21:00:00.000Z');
     // ESPN's read of the week: SF driving at the LAR 7.
@@ -384,7 +399,7 @@ describe('event contract: the weekly cycle', () => {
       week: 5,
       redZone: [{ team: 'SF', downDistance: '2nd & 4 at LAR 7', fieldPosition: 'LAR 7' }]
     });
-    expect(games.relay.topics).toEqual(['fantasy.global']);
+    expect(games.relay.channels).toEqual(['/fantasy/global']);
     expect(games.chat).toEqual({ status: 'skipped', reason: 'no_template' });
     expect(games.routed).toEqual([]);
   });
@@ -402,7 +417,7 @@ describe('event contract: the weekly cycle', () => {
       `Week 5 is in the books (provisional). Top score: ${team2} with ${detail.topScore}. Biggest blowout: ${team2} beat Allen's Team by ${detail.blowout.margin}.`
     );
     expect(final.chat).toMatchObject({ moment: true });
-    expect(final.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(final.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
     // One line in each matchup room, too.
     expect(final.chat.status === 'posted' && final.chat.matchupMessages.map((m) => m.roomId)).toEqual([
       'm-2026-W05-W05-M1',
@@ -414,7 +429,7 @@ describe('event contract: the weekly cycle', () => {
     expect(roomLines).toHaveLength(2);
     for (const line of roomLines) {
       const relayed = await consume(s.services, delivered(line));
-      expect(relayed.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+      expect(relayed.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
     }
     const moments = s.events.events.filter((e) => e.detailType === 'Chat Moment');
     const leagueMoment = await consume(
@@ -435,7 +450,7 @@ describe('event contract: the weekly cycle', () => {
       ['team-4', 'team_identity', 'requested']
     ]);
     expect(rolled.chat).toEqual({ status: 'skipped', reason: 'no_template' });
-    expect(rolled.relay.topics).toEqual([]);
+    expect(rolled.relay.channels).toEqual([]);
   });
 
   it('Agent Budget Exceeded (from the task runner) is announced in chat once per week', async () => {
@@ -465,7 +480,7 @@ describe('event contract: the weekly cycle', () => {
       'The AI managers have used this week’s model budget ($5 of $0.25). Until next week they play on autopilot: optimizer lineups, autopicks, no waiver claims, and they turn down trade offers.'
     );
     expect(notice.routed).toEqual([]);
-    expect(notice.relay.topics).toEqual([]);
+    expect(notice.relay.channels).toEqual([]);
   });
 
   it('Model Power Rankings posts the weekly standings by model at the rollover', async () => {
@@ -483,7 +498,7 @@ describe('event contract: the weekly cycle', () => {
     expect(detail.lines).toHaveLength(detail.rankings.length);
     expect(posted(rankings).text).toBe(`Model power rankings after week 5: ${detail.lines.join(', ')}.`);
     expect(rankings.chat).toMatchObject({ moment: false });
-    expect(rankings.relay.topics).toEqual([]);
+    expect(rankings.relay.channels).toEqual([]);
     expect(rankings.routed).toEqual([]);
   });
 
@@ -502,7 +517,7 @@ describe('event contract: the weekly cycle', () => {
       ['team-4', 'lineup', 'requested']
     ]);
     expect(lock.chat).toEqual({ status: 'skipped', reason: 'no_template' });
-    expect(lock.relay.topics).toEqual([]);
+    expect(lock.relay.channels).toEqual([]);
   });
 });
 
@@ -574,14 +589,14 @@ describe('event contract: the official final and the season finale', () => {
     expect(posted(correction).text).toBe(
       `Stat correction flips week 5: Allen's Team now beats ${await announcedAs(s.services, 'team-2', 'Team 2')}, ${winnerScore} to ${loserScore}.`
     );
-    expect(correction.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(correction.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
     expect(correction.routed).toEqual([]);
 
     const official = await consume(s.services, delivered(last(s.events.events, 'Week Official Final')));
     expect(posted(official).text).toBe(
       'Week 5 is official. Recap: Stat corrections changed 1 matchup(s), and 1 result(s) flipped.'
     );
-    expect(official.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(official.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
     expect(official.routed).toEqual([]);
 
     const earned = await consume(s.services, delivered(last(s.events.events, 'Achievement Earned')));
@@ -589,7 +604,7 @@ describe('event contract: the official final and the season finale', () => {
     expect(posted(earned).text).toBe(
       `Allen's Team earned Top Score of the Week: ${winnerScore} points, the most in week 5.`
     );
-    expect(earned.relay.topics).toEqual([]);
+    expect(earned.relay.channels).toEqual([]);
     expect(earned.routed).toEqual([]);
 
     // Allen is a person, so the badge chest hears about it (rsc-core matches on the detail type).
@@ -665,7 +680,7 @@ describe('event contract: the official final and the season finale', () => {
       `${await name(champion)} won the 2026 championship, beating ${await name(runnerUp)} in the final!`
     );
     expect(done.chat).toMatchObject({ moment: true });
-    expect(done.relay.topics).toEqual([]);
+    expect(done.relay.channels).toEqual([]);
     expect(done.routed).toEqual([]);
   });
 });
@@ -695,7 +710,7 @@ describe('event contract: player news', () => {
       ['team-3', 'lineup', 'requested']
     ]);
     expect(alert.chat.status).toBe('skipped');
-    expect(alert.relay.topics).toEqual([]);
+    expect(alert.relay.channels).toEqual([]);
   });
 
   it('Player Status Changed reaches the agents rostering the player, labelled as a status change', async () => {
@@ -717,7 +732,7 @@ describe('event contract: player news', () => {
     expect(request.detail).toMatchObject({ payload: { reason: 'status', playerId: 'rb3' } });
   });
 
-  it('a game-day status from ESPN (#200) routes like a Sleeper one, and goes to the global topic', async () => {
+  it('a game-day status from ESPN (#200) routes like a Sleeper one, and goes to the global channel', async () => {
     const s = await inSeason();
     const player = (await s.repos.players.get('rb3')) as Player;
     const changed = await consume(
@@ -737,12 +752,12 @@ describe('event contract: player news', () => {
     expect(last(s.events.events, 'Agent Action Requested').detail).toMatchObject({
       payload: { reason: 'status', playerId: 'rb3' }
     });
-    expect(changed.relay.topics).toEqual(['fantasy.global']);
+    expect(changed.relay.channels).toEqual(['/fantasy/global']);
   });
 });
 
 describe('event contract: chat', () => {
-  it('Chat Message Posted goes to the league topic and Chat Mention to the mentioned agent', async () => {
+  it('Chat Message Posted goes to the league channel and Chat Mention to the mentioned agent', async () => {
     const s = await inSeason();
     await run(
       s,
@@ -755,14 +770,14 @@ describe('event contract: chat', () => {
       type: 'chat',
       message: { text: '@team-2 your bench is a crime scene', roomId: 'trash-talk' }
     });
-    expect(message.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(message.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
     expect(message.chat).toEqual({ status: 'skipped', reason: 'no_template' });
     const mention = await consume(s.services, delivered(last(s.events.events, 'Chat Mention')));
     expect(decisions(mention)).toEqual([['team-2', 'chat_reply', 'requested']]);
-    expect(mention.relay.topics).toEqual([]);
+    expect(mention.relay.channels).toEqual([]);
   });
 
-  it('a DM (Chat Message Posted with its two teams) reaches only their team topics; the other team is addressed', async () => {
+  it('a DM (Chat Message Posted with its two teams) reaches only their team channels; the other team is addressed', async () => {
     const s = await inSeason();
     await run(
       s,
@@ -772,7 +787,10 @@ describe('event contract: chat', () => {
     );
     const dm = await consume(s.services, delivered(last(s.events.events, 'Chat Message Posted')));
     expect(dm.event.detail).toMatchObject({ roomId: 'dm-team-1-team-2', teamIds: ['team-1', 'team-2'] });
-    expect(dm.relay.topics).toEqual([`fantasy.team.${LEAGUE_ID}.team-1`, `fantasy.team.${LEAGUE_ID}.team-2`]);
+    expect(dm.relay.channels).toEqual([
+      `/fantasy/team/${LEAGUE_ID}/team-1/current`,
+      `/fantasy/team/${LEAGUE_ID}/team-2/current`
+    ]);
     expect(dm.relay.published[0]?.message).toMatchObject({
       type: 'chat',
       message: { text: 'Want my backup QB?' }
@@ -786,7 +804,7 @@ describe('event contract: chat', () => {
       kind: 'chat_reply',
       payload: { roomId: 'dm-team-1-team-2' }
     });
-    expect(mention.relay.topics).toEqual([]);
+    expect(mention.relay.channels).toEqual([]);
   });
 
   it('an agent’s jab can reach another agent, and the retorts go back and forth until the depth cap', async () => {
@@ -862,7 +880,7 @@ describe('event contract: league setup and the draft', () => {
     expect(EVENT_DETAIL_SCHEMAS['League Created'].safeParse(created.detail).success).toBe(true);
 
     const turn = await consume(d.services, delivered(last(d.events.events, 'Draft Turn Started')));
-    expect(turn.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+    expect(turn.relay.channels).toEqual([`/fantasy/league/${d.leagueId}`]);
     const onTheClock = (turn.event.detail as { teamId: string }).teamId;
     expect(turn.routed.map((r) => [r.teamId, r.kind])).toEqual(
       onTheClock === 'team-1' ? [] : [[onTheClock, 'draft_pick']]
@@ -878,19 +896,19 @@ describe('event contract: league setup and the draft', () => {
         const player = (made.event.detail as { player: { name: string } }).player;
         expect(posted(made).text).toMatch(new RegExp(` drafted ${player.name} \\(round 1, pick 1\\)\\.$`));
         expect(posted(made).players).toEqual([(made.event.detail as { player: unknown }).player]);
-        expect(made.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+        expect(made.relay.channels).toEqual([`/fantasy/league/${d.leagueId}`]);
 
         // The commissioner pauses and resumes the clock: both are pushed to boards and announced.
         await d.run('pause_draft', { leagueId: d.leagueId });
         const paused = await consume(d.services, delivered(last(d.events.events, 'Draft Paused')));
         expect(EVENT_DETAIL_SCHEMAS['Draft Paused'].safeParse(paused.event.detail).success).toBe(true);
-        expect(paused.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+        expect(paused.relay.channels).toEqual([`/fantasy/league/${d.leagueId}`]);
         expect(posted(paused).text).toBe('The commissioner paused the draft at pick 2.');
         expect(paused.routed).toEqual([]);
         await d.run('resume_draft', { leagueId: d.leagueId });
         const resumed = await consume(d.services, delivered(last(d.events.events, 'Draft Resumed')));
         expect(EVENT_DETAIL_SCHEMAS['Draft Resumed'].safeParse(resumed.event.detail).success).toBe(true);
-        expect(resumed.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+        expect(resumed.relay.channels).toEqual([`/fantasy/league/${d.leagueId}`]);
         expect(posted(resumed).text).toBe('The draft is back on: pick 2 is on the clock.');
       }
       if (pick > 100) throw new Error('the draft did not finish');
@@ -901,7 +919,7 @@ describe('event contract: league setup and the draft', () => {
       /^The draft is complete\. Good luck this season! Draft recap: \d+ picks\./
     );
     expect(completed.chat).toMatchObject({ moment: true });
-    expect(completed.relay.topics).toEqual([`fantasy.league.${d.leagueId}`]);
+    expect(completed.relay.channels).toEqual([`/fantasy/league/${d.leagueId}`]);
 
     // After the draft, a commissioner's change to an AI seat is announced to the league.
     const seat = { leagueId: d.leagueId, teamId: 'team-3', personalityId: 'hype-man', archetype: 'win_now' };
@@ -921,7 +939,7 @@ describe('event contract: league setup and the draft', () => {
     expect(changed.routed.map((r) => [r.teamId, r.kind, r.decision])).toEqual([
       ['team-3', 'team_identity', 'requested']
     ]);
-    expect(changed.relay.topics).toEqual([]);
+    expect(changed.relay.channels).toEqual([]);
 
     // A rename by the commissioner gets a league line; nothing routes or relays (#194).
     await d.run('rename_team', { leagueId: d.leagueId, teamId: 'team-3', name: 'Robo Ballers' });
@@ -931,7 +949,7 @@ describe('event contract: league setup and the draft', () => {
       `The commissioner renamed Team 3 to ${await announcedAs(d.services, 'team-3', 'Robo Ballers', d.leagueId)}.`
     );
     expect(renamed.routed).toEqual([]);
-    expect(renamed.relay.topics).toEqual([]);
+    expect(renamed.relay.channels).toEqual([]);
   });
 });
 
@@ -957,7 +975,7 @@ describe('event contract: the scheduled draft', () => {
         for (const type of ['Draft Start Scheduled', 'Draft Reminder Due']) {
           const consumed = await consume(base.services, delivered(timer(type)));
           expect(consumed.chat).toEqual({ status: 'skipped', reason: 'no_template' });
-          expect(consumed.relay.topics).toEqual([]);
+          expect(consumed.relay.channels).toEqual([]);
           expect(consumed.routed).toEqual([]);
         }
 
@@ -989,20 +1007,20 @@ describe('event contract: the scheduled draft', () => {
     expect(outcomes.soonPosted!.event.detail).toMatchObject({ roomId: 'draft', teamIds: null });
     expect(outcomes.soonPosted!.relay.published).toEqual([
       {
-        topic: expect.stringMatching(/^fantasy\.league\./),
+        channel: expect.stringMatching(/^\/fantasy\/league\//),
         message: expect.objectContaining({
           type: 'chat',
           message: expect.objectContaining({ roomId: 'draft' })
         })
       }
     ]);
-    expect(soon.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
+    expect(soon.relay.channels).toEqual([expect.stringMatching(/^\/fantasy\/league\//)]);
     expect(soon.routed).toEqual([]);
     const blocked = outcomes.blocked!;
     expect(posted(blocked).text).toMatch(
       /^The draft could not start at its scheduled time\. 1 human seat\(s\) are still open: .+ Commissioner: Invite people/
     );
-    expect(blocked.relay.topics).toEqual([expect.stringMatching(/^fantasy\.league\./)]);
+    expect(blocked.relay.channels).toEqual([expect.stringMatching(/^\/fantasy\/league\//)]);
     expect(blocked.routed).toEqual([]);
     expect(posted(blocked).roomId).toBe('draft');
   });
@@ -1026,7 +1044,7 @@ describe('event contract: trades', () => {
     return s;
   }
   const agent2 = agentPrincipal({ agentId: `${LEAGUE_ID}.team-2`, teamId: 'team-2', leagueId: LEAGUE_ID });
-  const teamTopics = (...teams: string[]) => teams.map((t) => `fantasy.team.${LEAGUE_ID}.${t}`);
+  const teamChannels = (...teams: string[]) => teams.map((t) => `/fantasy/team/${LEAGUE_ID}/${t}/current`);
   const offerOf = (data: unknown) => (data as { trade: { id: string; reviewEndsAt: string | null } }).trade;
 
   it('pending offers reach only the two teams; the team that must answer is triggered', async () => {
@@ -1041,7 +1059,7 @@ describe('event contract: trades', () => {
     );
     const proposed = await consume(s.services, delivered(last(s.events.events, 'Trade Proposed')));
     expect(proposed.chat).toEqual({ status: 'skipped', reason: 'no_template' });
-    expect(proposed.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(proposed.relay.channels).toEqual(teamChannels('team-1', 'team-2'));
     expect(decisions(proposed)).toEqual([['team-2', 'trade_response', 'requested']]);
     // The offer is to an AI manager: nobody's inbox.
     expect(proposed.notifications).toEqual({ status: 'skipped', reason: 'nobody' });
@@ -1062,9 +1080,9 @@ describe('event contract: trades', () => {
     });
     const counter = offerOf((countered.body as { data: unknown }).data);
     const counterEvent = await consume(s.services, delivered(last(s.events.events, 'Trade Countered')));
-    expect(counterEvent.relay.topics).toEqual(teamTopics('team-2', 'team-1'));
+    expect(counterEvent.relay.channels).toEqual(teamChannels('team-2', 'team-1'));
     expect(counterEvent.routed).toEqual([]);
-    // The counter lands in the person's inbox, and its announcement reaches only their team topic.
+    // The counter lands in the person's inbox, and its announcement reaches only their team channel.
     expect(counterEvent.notifications).toMatchObject({
       status: 'written',
       notifications: [
@@ -1072,7 +1090,7 @@ describe('event contract: trades', () => {
       ]
     });
     const inboxItem = await consume(s.services, delivered(last(s.events.events, 'Notification Created')));
-    expect(inboxItem.relay.topics).toEqual([`fantasy.team.${LEAGUE_ID}.team-1`]);
+    expect(inboxItem.relay.channels).toEqual([`/fantasy/team/${LEAGUE_ID}/team-1/current`]);
     expect(inboxItem.chat).toMatchObject({ status: 'skipped' });
     expect(inboxItem.notifications).toMatchObject({ status: 'skipped', reason: 'not_notifiable' });
     expect(inboxItem.routed).toEqual([]);
@@ -1084,7 +1102,7 @@ describe('event contract: trades', () => {
       ALLEN_IN_SEASON
     );
     const rejected = await consume(s.services, delivered(last(s.events.events, 'Trade Rejected')));
-    expect(rejected.relay.topics).toEqual(teamTopics('team-2', 'team-1'));
+    expect(rejected.relay.channels).toEqual(teamChannels('team-2', 'team-1'));
     expect(rejected.chat).toMatchObject({ status: 'skipped' });
 
     const lapsing = offerOf(
@@ -1100,12 +1118,12 @@ describe('event contract: trades', () => {
       detail: EventDetail;
     };
     const deadline = await consume(s.services, delivered(timer));
-    expect(deadline.relay.topics).toEqual([]);
+    expect(deadline.relay.channels).toEqual([]);
     s.clock.set((timer.detail as { expiresAt: string }).expiresAt);
     expect(await handleTradeTimer(s.services, timer.detailType, deadline.event.detail)).toBe('expired');
     const expired = await consume(s.services, delivered(last(s.events.events, 'Trade Expired')));
     expect((expired.event.detail as { tradeId: string }).tradeId).toBe(lapsing.id);
-    expect(expired.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(expired.relay.channels).toEqual(teamChannels('team-1', 'team-2'));
   });
 
   it('withdrawn offers, and offers voided when a player moves, reach only the two teams', async () => {
@@ -1115,7 +1133,7 @@ describe('event contract: trades', () => {
     await run(s, 'withdraw_trade', { leagueId: LEAGUE_ID, tradeId: taken.id }, ALLEN_IN_SEASON);
     const withdrawn = await consume(s.services, delivered(last(s.events.events, 'Trade Withdrawn')));
     expect(withdrawn.event.detail).toMatchObject({ tradeId: taken.id, status: 'withdrawn' });
-    expect(withdrawn.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(withdrawn.relay.channels).toEqual(teamChannels('team-1', 'team-2'));
     expect(withdrawn.chat).toEqual({ status: 'skipped', reason: 'no_template' });
     expect(withdrawn.routed).toEqual([]);
 
@@ -1128,7 +1146,7 @@ describe('event contract: trades', () => {
       voided: true,
       reasonCode: 'PLAYER_MOVED'
     });
-    expect(voided.relay.topics).toEqual(teamTopics('team-1', 'team-2'));
+    expect(voided.relay.channels).toEqual(teamChannels('team-1', 'team-2'));
     expect(voided.routed).toEqual([]);
   });
 
@@ -1155,7 +1173,7 @@ describe('event contract: trades', () => {
     expect(posted(accepted).text).toMatch(
       /accepted a trade with Allen's Team: RB3 for RB4\. It is under review\.$/
     );
-    expect(accepted.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(accepted.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
     // League-vote review: every agent team outside the trade reviews it.
     expect(decisions(accepted)).toEqual([
       ['team-3', 'trade_vote', 'requested'],
@@ -1165,7 +1183,7 @@ describe('event contract: trades', () => {
       detailType: string;
       detail: EventDetail;
     };
-    expect((await consume(s.services, delivered(review))).relay.topics).toEqual([]);
+    expect((await consume(s.services, delivered(review))).relay.channels).toEqual([]);
 
     for (const teamId of ['team-3', 'team-4']) {
       await invokeTool({
@@ -1179,7 +1197,7 @@ describe('event contract: trades', () => {
     const veto = await consume(s.services, delivered(last(s.events.events, 'Trade Vetoed')));
     expect(posted(veto).text).toMatch(/^The league vetoed the trade between Allen's Team and /);
     expect(veto.chat).toMatchObject({ moment: true });
-    expect(veto.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(veto.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
 
     const done = offerOf(
       await run(
@@ -1203,7 +1221,7 @@ describe('event contract: trades', () => {
     const processed = await consume(s.services, delivered(last(s.events.events, 'Trade Processed')));
     expect(posted(processed).text).toMatch(/^Trade complete: Allen's Team sends RB3 to .* for RB4\.$/);
     expect(processed.chat).toMatchObject({ moment: true });
-    expect(processed.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
+    expect(processed.relay.channels).toEqual([`/fantasy/league/${LEAGUE_ID}`]);
   });
 
   it('Trade Deadline Passed (a deferred event) posts a chat moment', async () => {
@@ -1231,7 +1249,7 @@ describe('event contract: trades', () => {
       'The trade deadline has passed. Rosters change only through waivers from here on.'
     );
     expect(passed.chat).toMatchObject({ moment: true });
-    expect(passed.relay.topics).toEqual([]);
+    expect(passed.relay.channels).toEqual([]);
   });
 });
 

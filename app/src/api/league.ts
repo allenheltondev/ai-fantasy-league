@@ -169,7 +169,7 @@ export function createLeagueApi(api: ApiFetch) {
     getDataStatus: (id: string) => call<DataStatus>(`${league(id)}/data-status`),
     /** list_trades, for the lineup's pending-trade callout (the trades page has its own client). */
     listTrades: (id: string) => call<{ trades: TradeView[] }>(`${league(id)}/trades`).then((d) => d.trades),
-    /** get_realtime_token: a subscribe-only token for live league events, or `enabled: false`. */
+    /** get_realtime_config: the AppSync Events endpoint and channels for live league events, or `enabled: false`. */
     getRealtime: (id: string) => call<RealtimeInfo>(`${league(id)}/realtime`),
     /** list_chat_rooms, for the league nav's unread badge (the chat page has its own client). */
     listChatRooms: (id: string) =>

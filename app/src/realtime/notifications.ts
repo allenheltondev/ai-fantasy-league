@@ -71,7 +71,7 @@ function mention(detail: Record<string, unknown>, you: string): Notification | n
   if (message === undefined || message.author?.teamId === you) return null;
   const roomId = message.roomId ?? 'trash-talk';
   const who = message.author?.name ?? 'Someone';
-  // A DM reaches only its two teams' topics: any DM you receive is addressed to you.
+  // A DM reaches only its two teams' channels: any DM you receive is addressed to you.
   if (roomId.startsWith('dm-')) {
     return { message: `${who} sent you a message: “${clip(message.text)}”`, variant: 'info', roomId };
   }

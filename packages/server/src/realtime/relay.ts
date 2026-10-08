@@ -1,29 +1,42 @@
 import { EVENT_SOURCE, type FantasyEventType } from '../events/publisher.js';
 import { eventDetail, eventLeagueIds, type BusEvent } from '../events/bus.js';
 import type { Logger } from '../log.js';
-import { GLOBAL_TOPIC, leagueTopic, teamTopic, type Realtime, type RealtimeMessage } from './realtime.js';
+import type { TeamRepository } from '../repos/types.js';
+import {
+  GLOBAL_CHANNEL,
+  leagueChannel,
+  seatTenureKey,
+  teamChannel,
+  type Realtime,
+  type RealtimeMessage
+} from './realtime.js';
 
 /**
- * The realtime publisher (issue #68): league events from the bus, pushed to Momento Topics so open
- * browsers update without polling. The event detail passes through untouched, so the streams that
- * emit these events own their shape. Events about a league go to that league's topic; events with
- * no league (the live-stats job's `Scores Updated`, and `NFL Games Updated`) go to the global topic.
+ * The realtime publisher (issue #68): league events from the bus, pushed to AppSync Events channels
+ * so open browsers update without polling. The event detail passes through untouched, so the streams
+ * that emit these events own their shape. Events about a league go to that league's channel; events
+ * with no league (the live-stats job's `Scores Updated`, and `NFL Games Updated`) go to the global
+ * channel.
  *
- * Only trade events the whole league may see go to the league topic: an accepted trade (which the
+ * Only trade events the whole league may see go to the league channel: an accepted trade (which the
  * league then reviews), and its processing or veto. Offers, counters, rejections, expiries, and
  * withdrawals stay between the two teams (Yahoo shows pending offers only to them): they go only to
- * those two teams' private topics (`teamTopic`), never to the league topic, which reaches every
- * member.
+ * those two teams' private channels, never to the league channel, which reaches every member.
  *
  * Direct messages (chat rooms `dm-...`, #144) are the same: a `Chat Message Posted` in a DM goes to
- * its two teams' topics (`detail.teamIds`) and never to the league topic. A DM message without its
- * two teams is dropped rather than risk the league topic.
+ * its two teams' channels (`detail.teamIds`) and never to the league channel. A DM message without
+ * its two teams is dropped rather than risk the league channel.
  *
- * Per-team results also go to the team's own topic: each team's waiver awards and failed claims
- * from `Waivers Processed` (the league topic gets the run's awards, which everyone may see, but
+ * Per-team results also go to the team's own channel: each team's waiver awards and failed claims
+ * from `Waivers Processed` (the league channel gets the run's awards, which everyone may see, but
  * never the failed claims).
  *
- * A team's new inbox item (`Notification Created`, #165) goes only to that team's topic.
+ * A team's new inbox item (`Notification Created`, #165) goes only to that team's channel.
+ *
+ * A team's channel is keyed by its current seat tenure (`teamChannel`), read from the table as each
+ * event is relayed: after a seat changes hands, its messages go to a channel the previous occupant
+ * never subscribed to (and the subscribe check refuses them). A team that no longer exists gets
+ * nothing.
  */
 export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Chat Message Posted',
@@ -43,11 +56,11 @@ export const RELAYED_EVENTS: readonly FantasyEventType[] = [
   'Week Provisionally Final',
   'Week Official Final',
   'Stat Correction Applied',
-  // League-less, so on the global topic (#200): open lineups and matchups re-read the status.
+  // League-less, so on the global channel (#200): open lineups and matchups re-read the status.
   'Player Status Changed'
 ];
 
-/** Events only the two teams in a trade may see: relayed to their private topics alone. */
+/** Events only the two teams in a trade may see: relayed to their private channels alone. */
 export const TEAM_ONLY_EVENTS: readonly FantasyEventType[] = [
   'Trade Proposed',
   'Trade Countered',
@@ -60,10 +73,18 @@ export const TEAM_ONLY_EVENTS: readonly FantasyEventType[] = [
 export const TEAM_INBOX_EVENTS: readonly FantasyEventType[] = ['Notification Created'];
 
 export interface RelayResult {
-  topics: string[];
+  channels: string[];
 }
 
-export async function relayEvent(realtime: Realtime, log: Logger, event: BusEvent): Promise<RelayResult> {
+/** Where a message goes: a channel, or a team whose current channel is looked up when relaying. */
+type Target = string | { leagueId: string; teamId: string };
+
+export async function relayEvent(
+  realtime: Realtime,
+  log: Logger,
+  event: BusEvent,
+  teams: Pick<TeamRepository, 'get'>
+): Promise<RelayResult> {
   const detailType = event['detail-type'];
   const inbox = TEAM_INBOX_EVENTS.includes(detailType as FantasyEventType);
   const teamOnly = inbox || TEAM_ONLY_EVENTS.includes(detailType as FantasyEventType);
@@ -72,11 +93,11 @@ export async function relayEvent(realtime: Realtime, log: Logger, event: BusEven
     (!teamOnly && !RELAYED_EVENTS.includes(detailType as FantasyEventType))
   ) {
     log.info('realtime relay ignored event', { detailType, source: event.source });
-    return { topics: [] };
+    return { channels: [] };
   }
   const detail = eventDetail(event);
   const leagueIds = eventLeagueIds(detail);
-  const deliveries: { topic: string; message: RealtimeMessage }[] = [];
+  const deliveries: { target: Target; message: RealtimeMessage }[] = [];
   if (detailType === 'Chat Message Posted') {
     const message = detail.message;
     if (leagueIds.length === 1 && message !== null && typeof message === 'object') {
@@ -86,10 +107,10 @@ export async function relayEvent(realtime: Realtime, log: Logger, event: BusEven
       if (roomId?.startsWith('dm-') === true) {
         const teams = Array.isArray(detail.teamIds) ? [...new Set(detail.teamIds.filter(isId))] : [];
         if (teams.length === 2) {
-          for (const teamId of teams) deliveries.push({ topic: teamTopic(leagueId, teamId), message: chat });
+          for (const teamId of teams) deliveries.push({ target: { leagueId, teamId }, message: chat });
         }
       } else {
-        deliveries.push({ topic: leagueTopic(leagueId), message: chat });
+        deliveries.push({ target: leagueChannel(leagueId), message: chat });
       }
     }
   } else if (teamOnly) {
@@ -100,37 +121,62 @@ export async function relayEvent(realtime: Realtime, log: Logger, event: BusEven
     if (leagueIds.length === 1) {
       const leagueId = leagueIds[0] as string;
       for (const teamId of teams) {
-        deliveries.push({ topic: teamTopic(leagueId, teamId), message: { ...base, leagueId } });
+        deliveries.push({ target: { leagueId, teamId }, message: { ...base, leagueId } });
       }
     }
   } else {
     const base = { type: 'event' as const, detailType, eventId: event.id, time: event.time ?? null, detail };
-    // Failed waiver claims are private to each team: the league topic never carries them.
+    // Failed waiver claims are private to each team: the league channel never carries them.
     const { lost, ...shared } = detail;
     const everyone = detailType === 'Waivers Processed' ? { ...base, detail: shared } : base;
     if (leagueIds.length === 0)
-      deliveries.push({ topic: GLOBAL_TOPIC, message: { ...everyone, leagueId: null } });
+      deliveries.push({ target: GLOBAL_CHANNEL, message: { ...everyone, leagueId: null } });
     for (const leagueId of leagueIds) {
-      deliveries.push({ topic: leagueTopic(leagueId), message: { ...everyone, leagueId } });
+      deliveries.push({ target: leagueChannel(leagueId), message: { ...everyone, leagueId } });
     }
     if (detailType === 'Waivers Processed' && leagueIds.length === 1) {
       deliveries.push(...teamWaiverDeliveries(leagueIds[0] as string, everyone, lost));
     }
   }
-  for (const delivery of deliveries) await realtime.publish(delivery.topic, delivery.message);
-  const topics = deliveries.map((d) => d.topic);
-  log.info('realtime relay published', { detailType, eventId: event.id, topics });
-  return { topics };
+  const channelOf = teamChannels(teams);
+  const channels: string[] = [];
+  for (const { target, message } of deliveries) {
+    const channel = typeof target === 'string' ? target : await channelOf(target.leagueId, target.teamId);
+    if (channel === null) {
+      log.warn('realtime relay skipped a team that does not exist', { detailType, target });
+      continue;
+    }
+    await realtime.publish(channel, message);
+    channels.push(channel);
+  }
+  log.info('realtime relay published', { detailType, eventId: event.id, channels });
+  return { channels };
+}
+
+/** Each team's current channel, read once per relayed event. */
+function teamChannels(teams: Pick<TeamRepository, 'get'>) {
+  const read = new Map<string, Promise<string | null>>();
+  return (leagueId: string, teamId: string): Promise<string | null> => {
+    const key = `${leagueId}/${teamId}`;
+    let channel = read.get(key);
+    if (channel === undefined) {
+      channel = teams
+        .get(leagueId, teamId)
+        .then((team) => (team === null ? null : teamChannel(leagueId, teamId, seatTenureKey(team))));
+      read.set(key, channel);
+    }
+    return channel;
+  };
 }
 
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
-/** Each team's own waiver awards and failed claims, on its private topic. */
+/** Each team's own waiver awards and failed claims, on its private channel. */
 function teamWaiverDeliveries(
   leagueId: string,
   base: Omit<Extract<RealtimeMessage, { type: 'event' }>, 'leagueId'>,
   lost: unknown
-): { topic: string; message: RealtimeMessage }[] {
+): { target: Target; message: RealtimeMessage }[] {
   const byTeam = new Map<string, { awarded: unknown[]; lost: unknown[] }>();
   const add = (items: unknown, key: 'awarded' | 'lost') => {
     for (const item of Array.isArray(items) ? items : []) {
@@ -144,7 +190,7 @@ function teamWaiverDeliveries(
   add(base.detail.awarded, 'awarded');
   add(lost, 'lost');
   return [...byTeam].map(([teamId, mine]) => ({
-    topic: teamTopic(leagueId, teamId),
+    target: { leagueId, teamId },
     message: {
       ...base,
       leagueId,

@@ -14,12 +14,12 @@ import { Alert, Card, CardBody, CardHeader, CardTitle, ErrorState } from '@ready
 import { ApiError, apiFetch, type ApiFetch } from '../api';
 import { createChatApi, type ChatApi, type RealtimeInfo } from '../chat/api';
 import { resolveRoom } from '../chat/ChatPage';
-import { connectMomento, type Connect } from '../chat/realtime';
+import { connectLiveChat, type Connect } from '../chat/realtime';
 import { RoomChat } from '../chat/RoomChat';
 import { Confetti } from '../motion/Confetti';
 import { useTitleBadge } from '../motion/decor';
 import { useArrivals } from '../motion/useArrivals';
-import { connectMomentoEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
+import { connectLiveEvents, useLiveEvents, type EventConnect } from '../realtime/leagueEvents';
 import { BestAvailableTable } from './BestAvailableTable';
 import { BoardGrid, PickTicker } from './BoardViews';
 import { DepthChart } from './DepthChart';
@@ -248,10 +248,10 @@ export function DraftPage({
   api = apiFetch,
   pollMs = 3000,
   livePollMs = 30_000,
-  connect = connectMomentoEvents,
+  connect = connectLiveEvents,
   now = Date.now,
   chatApi,
-  chatConnect = connectMomento,
+  chatConnect = connectLiveChat,
   chime = playChime
 }: DraftPageProps) {
   const { leagueId = '' } = useParams();

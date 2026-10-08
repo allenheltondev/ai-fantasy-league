@@ -3,10 +3,10 @@ import { useLocation, useNavigate } from 'react-router';
 import { useToast } from '@readysetcloud/ui';
 import { useLeagueApi } from '../api/league';
 import { useNotifications } from '../notifications/NotificationsContext';
-import { CHAT_EVENT, connectMomentoEvents, useLiveEvents, type EventConnect } from './leagueEvents';
+import { CHAT_EVENT, connectLiveEvents, useLiveEvents, type EventConnect } from './leagueEvents';
 import { NOTIFICATION_EVENT, NOTIFY_EVENTS, notificationFor } from './notifications';
 
-/** How many event ids to remember for de-duplication (an award arrives on two topics). */
+/** How many event ids to remember for de-duplication (an award arrives on two channels). */
 const SEEN_LIMIT = 100;
 
 /**
@@ -20,7 +20,7 @@ const SEEN_LIMIT = 100;
 export function LeagueNotifications({
   leagueId,
   yourTeamId,
-  connect = connectMomentoEvents
+  connect = connectLiveEvents
 }: {
   leagueId: string;
   yourTeamId: string | null;

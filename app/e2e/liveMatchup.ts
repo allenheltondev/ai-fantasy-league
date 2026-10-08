@@ -507,11 +507,10 @@ export async function stubLiveMatchup(page: Page, overrides: { matchup?: () => u
   await page.route('**/api/v1/leagues/L1/realtime', (route) =>
     json(route, {
       enabled: true,
-      token: 'e2e-token',
-      endpoint: null,
-      cacheName: 'e2e-cache',
-      topics: { league: 'fantasy.league.L1', global: 'fantasy.global', team: null },
-      expiresAt: null,
+      httpHost: 'api.example',
+      realtimeHost: 'realtime.example',
+      channels: { league: '/fantasy/league/L1', global: '/fantasy/global', team: null },
+      refreshAt: null,
       pollIntervalSeconds: 30
     })
   );
@@ -525,13 +524,13 @@ declare global {
       leagueId: string | null;
       detail?: Record<string, unknown>;
     }) => void;
-    __fantasyTopics?: string[];
+    __fantasyChannels?: string[];
   }
 }
 
 /**
  * Signs in with a stand-in session (the API is stubbed, so no dev user is needed) and stands in for
- * Momento: the test pushes relayed events with `window.__pushFantasyEvent`.
+ * AppSync Events: the test pushes relayed events with `window.__pushFantasyEvent`.
  */
 export async function signInStubbed(page: Page) {
   const b64 = (value: string) => Buffer.from(value).toString('base64url');
@@ -553,7 +552,7 @@ export async function signInStubbed(page: Page) {
       JSON.stringify({ idToken, refreshToken: 'refresh', expiresAt: 4_102_444_800_000 })
     );
     window.__fantasyEvents = async (target, handlers) => {
-      window.__fantasyTopics = target.topics;
+      window.__fantasyChannels = target.channels;
       window.__pushFantasyEvent = handlers.onEvent;
       return () => undefined;
     };
