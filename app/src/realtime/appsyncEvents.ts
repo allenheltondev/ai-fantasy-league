@@ -10,7 +10,8 @@
  * - Subscribe to each channel (`subscribe` with an `id`, the `channel`, and the same
  *   `authorization`); each answers `subscribe_success` or `subscribe_error`. The server checks every
  *   subscribe against current league membership, so a refusal is final for this socket.
- * - `data` messages carry the published event (a JSON string) for a subscription `id`.
+ * - `data` messages carry the published events for a subscription `id`: `event` is an array of
+ *   JSON strings, one per published event (a lone string or object is accepted too).
  * - Closing sends `unsubscribe` for each subscription, then closes the socket.
  *
  * Any failure before every subscription is in place rejects; any failure after (a dropped
@@ -160,9 +161,9 @@ export function subscribeChannels(
           return;
         case 'data':
           if (state === 'live' && typeof message.id === 'string' && ids.has(message.id)) {
-            handlers.onData(
-              typeof message.event === 'string' ? message.event : JSON.stringify(message.event)
-            );
+            const events = Array.isArray(message.event) ? message.event : [message.event];
+            for (const event of events)
+              handlers.onData(typeof event === 'string' ? event : JSON.stringify(event));
           }
           return;
         case 'connection_error':

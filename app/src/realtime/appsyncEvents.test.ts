@@ -121,8 +121,19 @@ describe('subscribeChannels', () => {
 
   it('passes on published events for its subscriptions, and ignores everything else', async () => {
     const { socket, handlers } = await live();
-    socket.receive({ type: 'data', id: 'sub-1', event: '{"type":"event","detailType":"Draft Pick Made"}' });
-    socket.receive({ type: 'data', id: 'sub-2', event: { type: 'chat' } });
+    // AWS sends `event` as an array of the published event strings.
+    socket.receive({
+      type: 'data',
+      id: 'sub-1',
+      event: [
+        '{"type":"event","detailType":"Draft Pick Made"}',
+        '{"type":"event","detailType":"Draft Turn Started"}'
+      ]
+    });
+    socket.receive({ type: 'data', id: 'sub-2', event: ['{"type":"chat"}'] });
+    // A lone string or object is unwrapped the same way.
+    socket.receive({ type: 'data', id: 'sub-2', event: '{"type":"chat","n":2}' });
+    socket.receive({ type: 'data', id: 'sub-2', event: { type: 'chat', n: 3 } });
     socket.receive({ type: 'data', id: 'someone-else', event: '{}' });
     socket.receive({ type: 'data', event: '{}' });
     socket.receive({ type: 'ka' });
@@ -130,7 +141,10 @@ describe('subscribeChannels', () => {
     socket.receive('not json');
     expect(handlers.onData.mock.calls).toEqual([
       ['{"type":"event","detailType":"Draft Pick Made"}'],
-      ['{"type":"chat"}']
+      ['{"type":"event","detailType":"Draft Turn Started"}'],
+      ['{"type":"chat"}'],
+      ['{"type":"chat","n":2}'],
+      ['{"type":"chat","n":3}']
     ]);
     expect(handlers.onError).not.toHaveBeenCalled();
   });
