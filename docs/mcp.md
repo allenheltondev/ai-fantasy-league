@@ -18,7 +18,7 @@ SPEC §10 rules out bring-your-own-agent: the AI managers in a league are ours, 
 
 ## Tools
 
-Every registry operation is a tool with the same snake_case name, and its description is written for a model. Two are left out: `get_realtime_token` (the browser's live-update subscription) and `get_health`, along with public operations that don't need sign-in.
+Every registry operation is a tool with the same snake_case name, and its description is written for a model. Two are left out: `get_realtime_config` (the browser's live-update subscription) and `get_health`, along with public operations that don't need sign-in.
 
 - **Results.** A tool result is the REST envelope: `{ data, league, warnings }`, or `{ error: { code, message, fix } }` with `isError: true`. It is sent both as `structuredContent` and as JSON text. `league.allowedActions` says what you can do right now.
 - **Mutations.** A tool that changes anything requires an `idempotencyKey` argument, a new UUID for each action. Retrying with the same key returns the original result instead of acting twice. The keys share their scope with REST's `Idempotency-Key` for the same person.
