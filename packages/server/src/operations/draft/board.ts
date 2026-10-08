@@ -1,5 +1,6 @@
 import {
   currentPick,
+  draftTendency,
   likelyGoneBeforeYourPick,
   OFFENSE_POSITIONS,
   pickSlot,
@@ -8,6 +9,7 @@ import {
   rosterLayout,
   teamPicks,
   unfilledStarterSlots,
+  type DraftTendencies,
   type LeagueSettings,
   type RecapEntry
 } from '@fantasy/core';
@@ -166,7 +168,7 @@ export const DraftBoardSchema = z.object({
     .array(PlayerRefSchema)
     .optional()
     .describe(
-      'Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots. A hint: real drafters reach. Empty with no team or no pick left.'
+      "Players the other teams will likely take before your next pick, by consensus rank and their empty starting slots; a team run by a person leans toward the position its own picks favour, as far ahead of consensus as it has been reaching. Built from the public draft history only: other teams' queues stay private. A hint: real drafters reach. Empty with no team or no pick left."
     ),
   scarcity: z
     .array(
@@ -275,7 +277,12 @@ export async function buildBoard(
     .map((p) => availableEntry(p, research, byeOf(p.id)));
 
   const undrafted = pool.filter((p: Player) => !drafted.has(p.id));
-  const gone = yourTeamId === null ? [] : likelyGone(state, yourTeamId, undrafted, input.settings);
+  // People draft by their own lights: model each one from the picks the league has seen them make.
+  const tendencies: DraftTendencies = Object.fromEntries(
+    teams.filter((t) => t.seatType === 'human').map((t) => [t.id, draftTendency(state.picks, t.id)])
+  );
+  const gone =
+    yourTeamId === null ? [] : likelyGone(state, yourTeamId, undrafted, input.settings, tendencies);
   const away = yourTeamId === null ? null : picksUntilTurn(state, yourTeamId);
   const next = away === null ? null : pickSlot(state, state.picks.length + 1 + away);
   return {
@@ -340,7 +347,8 @@ function likelyGone(
   state: DraftRecord['state'],
   teamId: string,
   undrafted: readonly Player[],
-  settings: LeagueSettings
+  settings: LeagueSettings,
+  tendencies: DraftTendencies
 ): string[] {
   const deep = undrafted.slice(0, LIKELY_POOL);
   const seen = new Set(deep.map((p) => p.id));
@@ -354,7 +362,8 @@ function likelyGone(
     teamId,
     candidates.map(draftable),
     undrafted.map((p) => p.id),
-    settings
+    settings,
+    tendencies
   );
 }
 

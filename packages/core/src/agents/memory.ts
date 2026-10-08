@@ -26,6 +26,11 @@ import { z } from 'zod';
  * - `relationships`: a short line per other team about how the two get along ("rivalry with Big
  *   Tuna after the week 3 trade"), written after a league-room exchange (never from a DM) and shown
  *   only to chat tasks for the teams in the conversation.
+ * - `remarks`: what someone said in chat about a player (#280), as a record of a stored message: who
+ *   said it (the author's team), in which room, when, the players it named, and its words. Written
+ *   from messages the agent read in rooms it may read, never from the model; each carries the
+ *   room's visibility (a DM's remark is the two teams' alone), so a callback to it is filtered like
+ *   any private record.
  * - `seen`: ids of the league events already applied, so a redelivered event (EventBridge delivers
  *   at least once) never counts a result or a trade step twice.
  *
@@ -58,6 +63,10 @@ export const MEMORY_LIMITS = {
   seen: 64,
   /** Player names kept per side of a remembered trade. */
   tradePlayers: 6,
+  /** Chat remarks about players (#280; the newest win). */
+  remarks: 12,
+  /** Players kept per remark. */
+  remarkPlayers: 3,
   /** Characters kept from any one text field. */
   text: 280
 } as const;
@@ -186,6 +195,25 @@ export const RelationshipSchema = z.object({
 export type Relationship = z.infer<typeof RelationshipSchema>;
 
 /**
+ * A chat remark about a player (#280): a record of a stored message, not a belief. `authorTeamId`
+ * and `author` say who said it, `roomId` and `at` where and when, `players` which players (on the
+ * agent's roster) it named, and `text` its words, so a callback can quote them exactly or
+ * paraphrase them, never invent them. `visibility` is the room's: `public` for a room the league
+ * reads, sealed to the other team for good in a DM.
+ */
+export const RemarkMemorySchema = z.object({
+  messageId: z.string(),
+  roomId: z.string(),
+  authorTeamId: z.string(),
+  author: Text,
+  players: z.array(Text).min(1).max(MEMORY_LIMITS.remarkPlayers),
+  text: Text,
+  at: z.string(),
+  visibility: MemoryVisibilitySchema
+});
+export type RemarkMemory = z.infer<typeof RemarkMemorySchema>;
+
+/**
  * Stored memory. Items written before rooms (#153) have a single `chat` snapshot with no room: it is
  * dropped on read (unknown keys are stripped), since nobody can say which room it belongs to.
  */
@@ -198,6 +226,7 @@ export const AgentLeagueMemorySchema = z.object({
   decisions: z.array(DecisionMemorySchema).default([]),
   chatRooms: z.array(ChatRoomMemorySchema).default([]),
   relationships: z.array(RelationshipSchema).default([]),
+  remarks: z.array(RemarkMemorySchema).default([]),
   seen: z.array(z.string()).default([])
 });
 export type AgentLeagueMemory = z.infer<typeof AgentLeagueMemorySchema>;
@@ -211,6 +240,7 @@ export function emptyMemory(): AgentLeagueMemory {
     decisions: [],
     chatRooms: [],
     relationships: [],
+    remarks: [],
     seen: []
   };
 }
@@ -252,7 +282,9 @@ export type MemoryEvent =
       value?: number;
     }
   | { type: 'chat'; roomId: string; at: string; messages: readonly ChatMemory[] }
-  | { type: 'relationship'; teamId: string; note: string; at: string };
+  | { type: 'relationship'; teamId: string; note: string; at: string }
+  /** A chat remark about a player (#280): one per message, so a second read changes nothing. */
+  | ({ type: 'remark' } & RemarkMemory);
 
 /** One line, no fence markers (memory is quoted into prompts), at most `max` characters. */
 function clipTo(text: string, max: number): string {
@@ -372,6 +404,22 @@ export function rememberEvent(memory: AgentLeagueMemory, event: MemoryEvent): Ag
         chatRooms: [...memory.chatRooms.filter((r) => r.roomId !== event.roomId), room].slice(
           -MEMORY_LIMITS.chatRooms
         )
+      };
+    }
+    case 'remark': {
+      const { type: _type, ...remark } = event;
+      const entry: RemarkMemory = {
+        ...remark,
+        author: clip(remark.author),
+        players: remark.players.slice(0, MEMORY_LIMITS.remarkPlayers).map(clip),
+        text: clip(remark.text)
+      };
+      if (entry.players.length === 0 || entry.text.length === 0) return memory;
+      return {
+        ...memory,
+        remarks: [...memory.remarks.filter((r) => r.messageId !== entry.messageId), entry]
+          .sort((a, b) => a.at.localeCompare(b.at))
+          .slice(-MEMORY_LIMITS.remarks)
       };
     }
     case 'relationship': {
@@ -536,7 +584,8 @@ export interface AudienceMemory {
  * The memory a prompt with this audience may see (#206): public memories, released ones, and
  * sealed ones every reader already knows. A rivalry whose reason is withheld is left out whole (its
  * grudge would give the offer away), and so is a private trade: the relationships computed from what
- * is left (`relationshipsFrom`) never hint at it. Results are public. Chat snapshots and relationship notes are not filtered here:
+ * is left (`relationshipsFrom`) never hint at it. Results are public. Chat remarks (#280) keep their
+ * room's visibility. Chat snapshots and relationship notes are not filtered here:
  * they are untrusted chat, scoped by room (`memoryForPrompt` in the runtime).
  */
 export function memoryForAudience(
@@ -556,7 +605,9 @@ export function memoryForAudience(
       notes: memory.notes.filter((n) => keep(noteVisibility(n))),
       decisions: memory.decisions.filter((d) => keep(decisionVisibility(d))),
       trades: memory.trades.filter((t) => keep(tradeVisibility(t))),
-      rivals: memory.rivals.filter((r) => keep(rivalVisibility(r)))
+      rivals: memory.rivals.filter((r) => keep(rivalVisibility(r))),
+      // A remark from a DM is the two teams' alone (#280): never in a public or another team's prompt.
+      remarks: memory.remarks.filter((r) => keep(r.visibility))
     },
     seals
   };
@@ -568,6 +619,7 @@ export function memorySeals(memory: AgentLeagueMemory): MemorySeal[] {
     ...memory.notes.map(noteVisibility),
     ...memory.decisions.map(decisionVisibility),
     ...memory.trades.map(tradeVisibility),
-    ...memory.rivals.map(rivalVisibility)
+    ...memory.rivals.map(rivalVisibility),
+    ...memory.remarks.map((r) => r.visibility)
   ].filter((v): v is MemorySeal => v !== 'public');
 }

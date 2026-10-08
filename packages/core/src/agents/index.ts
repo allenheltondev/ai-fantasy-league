@@ -19,3 +19,4 @@ export * from './situation.js';
 export * from './attachments.js';
 export * from './commitments.js';
 export * from './social-acts.js';
+export * from './post-check.js';

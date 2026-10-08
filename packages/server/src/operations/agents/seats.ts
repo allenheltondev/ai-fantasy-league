@@ -4,7 +4,8 @@ import {
   getModel,
   randomizeAgentSeats,
   resolveAgentConfig,
-  type AgentSeatConfig
+  type AgentSeatConfig,
+  type ManagerIdentity
 } from '@fantasy/core';
 import { z } from 'zod';
 import { principalKey } from '../../auth/principal.js';
@@ -12,7 +13,7 @@ import type { Ctx } from '../../context.js';
 import { ApiError } from '../../errors.js';
 import { agentIdFor, type AgentSeatRecord } from '../../repos/agents.js';
 import type { LeagueAccess } from '../../league/access.js';
-import { isAgentPlayed, leagueManagers } from '../../league/managers.js';
+import { isAgentPlayed, leagueManagers, seatIdentities, seatManager } from '../../league/managers.js';
 import type { League } from '../../repos/types.js';
 import { defineOperation } from '../../registry/operation.js';
 import {
@@ -28,13 +29,31 @@ import {
   requireCommissioner
 } from './shared.js';
 
-type SeatChange = { field: 'difficulty' | 'archetype' | 'model' | 'personality'; from: string; to: string };
+type SeatChange = {
+  field: 'name' | 'avatar' | 'difficulty' | 'archetype' | 'model' | 'personality';
+  from: string;
+  to: string;
+};
 
-/** What a player of the league would notice changing about an agent, by display name. */
-export function seatChanges(before: AgentSeatConfig, after: AgentSeatConfig): SeatChange[] {
+/**
+ * What a player of the league would notice changing about an agent, by display name. `managers`
+ * are the manager's name and avatar before and after (a seat with none stored shows a default);
+ * left out, only the settings are compared.
+ */
+export function seatChanges(
+  before: AgentSeatConfig,
+  after: AgentSeatConfig,
+  managers?: { before: ManagerIdentity; after: ManagerIdentity }
+): SeatChange[] {
   const a = resolveAgentConfig(before);
   const b = resolveAgentConfig(after);
   const pairs: [SeatChange['field'], string, string][] = [
+    ...(managers === undefined
+      ? []
+      : ([
+          ['name', managers.before.name, managers.after.name],
+          ['avatar', managers.before.avatarSeed, managers.after.avatarSeed]
+        ] as [SeatChange['field'], string, string][])),
     ['difficulty', a.difficulty.displayName, b.difficulty.displayName],
     ['archetype', a.archetype.displayName, b.archetype.displayName],
     [
@@ -72,11 +91,16 @@ async function writeSeat(
     updatedAt: ctx.clock.now().toISOString(),
     updatedBy: principalKey(ctx.principal)
   };
-  await ctx.repos.agents.putSeat(record);
   // After the draft, changes are announced (event + chat line): the commissioner usually plays too,
   // and must not be able to quietly weaken the AI teams they face.
-  if (league.phase !== 'setup' && current !== null) {
-    const changes = seatChanges(current.config, config);
+  const announce = league.phase !== 'setup' && current !== null;
+  // The name and avatar the seat showed before (its stored ones, or its default in this league).
+  const before = announce ? ((await seatManager(ctx, leagueId, teamId)) as ManagerIdentity) : null;
+  await ctx.repos.agents.putSeat(record);
+  if (current !== null && before !== null) {
+    // A name or avatar left out of the new config keeps the one the seat showed before.
+    const after = { name: config.name ?? before.name, avatarSeed: config.avatarSeed ?? before.avatarSeed };
+    const changes = seatChanges(current.config, config, { before, after });
     if (changes.length > 0) {
       await ctx.events.publish('Agent Seat Changed', {
         leagueId,
@@ -111,7 +135,7 @@ export const configureAgentSeat = defineOperation({
   path: '/leagues/{leagueId}/agents/{teamId}',
   summary: "Set an agent seat's manager name, avatar, personality, difficulty, and strategy",
   description: [
-    "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (difficulty, strategy, model, personality) is announced in the league chat.",
+    "Commissioner only, any time until the season is complete. A change takes effect on the agent's next trigger; nothing is redeployed. After the draft, every change the league would notice (manager name, avatar, difficulty, strategy, model, personality) is announced in the league chat.",
     'Sets which agent plays a team: a personality preset, a difficulty tier, and a strategy archetype, plus optional Advanced settings (a model override from the catalog, individual difficulty levers, and up to 280 characters of extra flavor).',
     "`name` (1-40 characters on one line, unique in the league) is what the manager calls itself in chat; `avatarSeed` picks its avatar picture. Leave either out to keep the seat's current one.",
     '`namesTeam` (on by default) lets the manager name its team: it replaces a placeholder like "Team 3" in character and may rebrand now and then. Turned off, it never renames, and a name you give the team (rename_team) is locked. Leave it out to keep the current setting.',
@@ -168,7 +192,8 @@ export const configureAgentSeat = defineOperation({
       },
       expectedVersion
     );
-    return { seat: commissionerSeat(record, access.league.settings.ai) };
+    const manager = (await seatManager(ctx, access.league.id, teamId)) as ManagerIdentity;
+    return { seat: commissionerSeat(record, manager, access.league.settings.ai) };
   }
 });
 
@@ -211,11 +236,14 @@ export const randomizeAgentSeatsOperation = defineOperation({
     const seed = input.seed ?? `${league.id}:${ctx.clock.now().toISOString()}`;
     const taken = await namesInUse(ctx, access, new Set(input.teamIds));
     const configs = randomizeAgentSeats(input.teamIds.length, seed, taken);
-    const seats = [];
+    const records = [];
     for (const [i, teamId] of input.teamIds.entries()) {
-      const record = await writeSeat(ctx, league, teamId, configs[i] as AgentSeatConfig, undefined);
-      seats.push(commissionerSeat(record, league.settings.ai));
+      records.push(await writeSeat(ctx, league, teamId, configs[i] as AgentSeatConfig, undefined));
     }
+    const managers = seatIdentities(league.id, await ctx.repos.agents.listSeats(league.id));
+    const seats = records.map((r) =>
+      commissionerSeat(r, managers.get(r.teamId) as ManagerIdentity, league.settings.ai)
+    );
     return { seed, seats };
   }
 });
@@ -249,12 +277,13 @@ export const getAgentSeat = defineOperation({
         fix: 'The commissioner sets one with configure_agent_seat or randomize_agent_seats.'
       });
     }
-    if (!isCommissioner(access)) return { seat: publicSeat(record), commissioner: null };
+    const manager = (await seatManager(ctx, league.id, input.teamId)) as ManagerIdentity;
+    if (!isCommissioner(access)) return { seat: publicSeat(record, manager), commissioner: null };
     const history = await ctx.repos.agents.seatHistory(league.id, input.teamId);
     return {
-      seat: publicSeat(record),
+      seat: publicSeat(record, manager),
       commissioner: {
-        current: commissionerSeat(record, league.settings.ai),
+        current: commissionerSeat(record, manager, league.settings.ai),
         history: history.map((h) => ({
           version: h.version,
           updatedAt: h.updatedAt,

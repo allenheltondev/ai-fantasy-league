@@ -143,6 +143,13 @@ export interface League {
   /** The commissioner's user id (Cognito `sub`). Always a human who holds a seat. */
   commissionerId: string;
   commissionerName: string;
+  /**
+   * The commissioner's email from their ID token, for the emails the league sends them (a blocked
+   * scheduled draft start, #134). Never shown to anyone. Stored at create_league and refreshed
+   * whenever the commissioner uses the league (`requireMember`), so a league stored before it was
+   * kept, or handed to a new commissioner, gets it on their next visit. Null or absent until known.
+   */
+  commissionerEmail?: string | null;
   /** Who created the league; counts toward that user's league quota. */
   createdBy: string;
   /** Seed for the regular-season schedule, so it can always be regenerated identically. */
@@ -165,6 +172,12 @@ export interface LeagueRepository {
   create(league: League): Promise<void>;
   /** Writes `league` with `version + 1` if the stored version equals `league.version`; else CONFLICT. */
   update(league: League): Promise<League>;
+  /**
+   * Stores the commissioner's email if `commissionerId` is still the commissioner. It leaves the
+   * version alone (it is not a change anyone needs to see), so an `update` from an older read can
+   * drop it again; the next `requireMember` by the commissioner puts it back.
+   */
+  setCommissionerEmail(leagueId: string, commissionerId: string, email: string): Promise<void>;
   /** Every league this user created (GSI1 `CREATOR#<sub>`), oldest first. */
   listByCreator(userId: string): Promise<League[]>;
   /** Every league in a phase (GSI2 `LEAGUEPHASE#<phase>`), for scheduled jobs such as waiver processing. */
@@ -215,7 +228,8 @@ export interface Team {
   /**
    * When the seat's current occupant (its owner, or the agent playing it) took it (#144): a new
    * occupant reads none of the team's direct messages from before. Absent on teams stored before
-   * it was recorded, where `seatTenureStart` falls back to `createdAt`.
+   * it was recorded: the repositories fill it in on read from the holder's membership
+   * (`backfillSeatTenure`), and `seatTenureStart` falls back to `createdAt` on a seat nobody holds.
    */
   occupiedSince?: string;
   /**
@@ -243,6 +257,33 @@ export interface TeamRename {
 /** When the team's current occupant took the seat. */
 export function seatTenureStart(team: Pick<Team, 'occupiedSince' | 'createdAt'>): string {
   return team.occupiedSince ?? team.createdAt;
+}
+
+/**
+ * True when a stored team predates `occupiedSince` but a person holds it: their membership says
+ * when they took the seat (`backfillSeatTenure`).
+ */
+export function needsSeatTenure(team: Pick<Team, 'occupiedSince' | 'ownerUserId'>): boolean {
+  return team.occupiedSince === undefined && team.ownerUserId !== null;
+}
+
+/**
+ * Fills in `occupiedSince` on a team stored before it was recorded, from its seat history (#148):
+ * joining is what claims a seat, so the holder's membership (`joinedAt`) is when their tenure
+ * began. A takeover from before the field existed then still hides the earlier occupant's direct
+ * messages and inbox, where the `createdAt` fallback would show them. The repositories apply it on
+ * read, so the next write of the team stores the value. Returns the team unchanged when it already
+ * has the field, nobody holds it, or the membership is missing or for another seat.
+ */
+export function backfillSeatTenure(
+  team: Team,
+  member: Pick<Member, 'userId' | 'teamId' | 'joinedAt'> | null
+): Team {
+  if (!needsSeatTenure(team) || member === null) return team;
+  if (member.userId !== team.ownerUserId || member.teamId !== team.id) return team;
+  // Never before the team existed (the commissioner's own seat is created as they join).
+  const since = Date.parse(member.joinedAt) > Date.parse(team.createdAt) ? member.joinedAt : team.createdAt;
+  return { ...team, occupiedSince: since };
 }
 
 export interface TeamRepository {

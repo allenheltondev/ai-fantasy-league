@@ -114,8 +114,16 @@ async function setup() {
   };
   await repos.leagues.create(league);
   await repos.teams.create(
+    // team-1: Alice's; team-2: an agent seat.
     [1, 2].map((slot) =>
-      newTeam({ leagueId: 'lg-1', id: `team-${slot}`, draftSlot: slot, settings, now: new Date(START) })
+      newTeam({
+        leagueId: 'lg-1',
+        id: `team-${slot}`,
+        draftSlot: slot,
+        settings,
+        now: new Date(START),
+        ...(slot === 1 ? { owner: { userId: 'u1', name: 'Alice', teamName: 'Team 1' } } : {})
+      })
     )
   );
   const events = new InMemoryEventPublisher();
@@ -133,7 +141,16 @@ const bus = (detailType: string, detail: unknown, extra: Record<string, unknown>
 
 describe('postSystemMessage', () => {
   it('announces big moments to agents as Chat Moment', async () => {
-    const { services, events } = await setup();
+    const { services, events, repos } = await setup();
+    await repos.agents.putSeat({
+      leagueId: 'lg-1',
+      teamId: 'team-2',
+      agentId: 'lg-1.team-2',
+      config: { personalityId: 'hype-man', difficulty: 'pro', archetype: 'balanced', name: 'Ruth Carter' },
+      version: 1,
+      updatedAt: START,
+      updatedBy: 'user#u1'
+    });
     const outcome = await postSystemMessage(
       services,
       bus(
@@ -152,7 +169,8 @@ describe('postSystemMessage', () => {
     expect(events.events[1]?.detail).toEqual({
       leagueId: 'lg-1',
       roomId: 'trades',
-      moment: 'Trade complete between Team 1 and Team 2.',
+      // The agent team carries its AI manager's name; Alice's team does not (#151).
+      moment: 'Trade complete between Team 1 and Team 2 (Ruth Carter).',
       messageId: 'sys-evt-9',
       sourceEventType: 'Trade Processed',
       sourceEventId: 'evt-9',

@@ -42,14 +42,19 @@ const DM_3 = 'dm-team-2-team-3';
 let seq = 0;
 
 /** An event id whose check-in rolls for these teams come out as asked (board; never matchup or DM). */
-function rolled(config: AgentSeatConfig, board: boolean, teams: readonly string[] = [AGENT_TEAM]): string {
+function rolled(
+  config: AgentSeatConfig,
+  board: boolean,
+  teams: readonly string[] = [AGENT_TEAM],
+  matchup = false
+): string {
   const c = resolveAgentConfig(config).personality.chattiness;
   for (let i = 0; i < 50_000; i++) {
     const id = `evt-acts-${i}`;
     const ok = teams.every(
       (t) =>
         ambientTurn(c, `${id}:${t}:board`) === board &&
-        !socialRoll(matchupTalkChance(c), `${id}:${t}:matchup`)
+        socialRoll(matchupTalkChance(c), `${id}:${t}:matchup`) === matchup
     );
     if (ok) return id;
   }
@@ -522,5 +527,176 @@ describe('a multi-day transcript', () => {
       [MATCHUP, 'posted'],
       [DM_3, 'posted']
     ]);
+  });
+});
+
+describe('a player callback from a stored chat remark (#280)', () => {
+  /** A message from `teamId`'s manager in `roomId`, naming whatever it names. */
+  async function remark(s: Setup, roomId: string, text: string, teamId = 'team-3') {
+    const message: ChatMessage = {
+      id: `r-${++seq}`,
+      leagueId: LEAGUE_ID,
+      roomId,
+      kind: 'user',
+      author: { teamId, teamName: teamId, name: teamId === 'team-3' ? 'Zed' : 'Allen' },
+      text,
+      mentionedTeamIds: [],
+      event: null,
+      createdAt: ago(2)
+    };
+    const dm = roomId.startsWith('dm-') ? ([teamId, AGENT_TEAM].sort() as [string, string]) : null;
+    await s.repos.chat.put(message, dm === null ? {} : { dmTeamIds: dm });
+    return message;
+  }
+  const memoryOf = (s: Setup) => s.repos.agents.getMemory(LEAGUE_ID, agentId(AGENT_TEAM));
+  const everywhere = async (s: Setup) =>
+    (await Promise.all(['trash-talk', MATCHUP, DM, DM_3].map((r) => agentPosts(s, r)))).flat();
+
+  it('stores what the opponent said about its player and calls it back accurately where it was heard', async () => {
+    const s = await league();
+    const said = await remark(s, 'trash-talk', 'Nice pickup on WR1. Enjoy the bench.');
+    const model = new ScriptedModelClient();
+    const record = await run(s, checkIn(rolled(LOUD, true)), model);
+    // The record: who said it, in which room, when, about whom, and the words.
+    expect((await memoryOf(s)).remarks).toEqual([
+      {
+        messageId: said.id,
+        roomId: 'trash-talk',
+        authorTeamId: 'team-3',
+        author: 'Zed',
+        players: ['WR1'],
+        text: said.text,
+        at: said.createdAt,
+        visibility: 'public'
+      }
+    ]);
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    expect(prompt).toContain('A social moment worth a word in your matchup room');
+    expect(prompt).toContain(
+      `[remark:${said.id}] On ${said.createdAt.slice(0, 10)} in #trash-talk, Zed of Team 3 wrote about WR1: "Nice pickup on WR1. Enjoy the bench."`
+    );
+    expect(prompt).toContain(
+      '[starter:w5:team-2:wr1] WR1 is in your starting lineup against Team 3 this week.'
+    );
+    // One model call and one post, in the board post's place: the budgets are unchanged.
+    expect(model.transcript).toHaveLength(1);
+    expect(record.reasoningSummary).toContain('Posted a callback in my matchup room.');
+    expect((await everywhere(s)).map((m) => [m.roomId, m.text])).toEqual([
+      [MATCHUP, expect.stringContaining('"Nice pickup on WR1. Enjoy the bench."')]
+    ]);
+    expect(await acts(s)).toMatchObject([
+      {
+        act: 'callback',
+        reason: 'player_remark',
+        roomId: MATCHUP,
+        topic: `callback:team-3:remark:${said.id}`,
+        // What the posted line cited (the scripted wording rests on the remark alone).
+        evidence: [`remark:${said.id}`],
+        outcome: 'posted'
+      }
+    ]);
+  });
+
+  it('rejects a draft that puts words in their mouth', async () => {
+    const s = await league();
+    const said = await remark(s, 'trash-talk', 'Nice pickup on WR1. Enjoy the bench.');
+    const record = await run(
+      s,
+      checkIn(rolled(LOUD, true)),
+      scripted([
+        {
+          type: 'social_act',
+          message: 'You laughed and said "WR1 is a bust" and now he starts against you.',
+          evidence: [`remark:${said.id}`]
+        }
+      ])
+    );
+    expect(record.reasoningSummary).toContain('Dropped a callback: it did not check out.');
+    expect(await everywhere(s)).toEqual([]);
+    expect(await acts(s)).toMatchObject([
+      { reason: 'player_remark', outcome: 'rejected', detail: 'invented_quote' }
+    ]);
+  });
+
+  it('keeps a remark from their DM to that DM, and one from another team’s DM out of every prompt', async () => {
+    const s = await league();
+    const theirs = await remark(s, DM_3, 'WR1 is washed, just saying.');
+    const allens = await remark(s, DM, 'WR1 cannot catch a cold.', 'team-1');
+    const model = new ScriptedModelClient();
+    await run(s, checkIn(rolled(LOUD, true)), model);
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    // Their DM's remark goes back to their DM, never to the matchup room or the board.
+    expect(prompt).toContain('A social moment worth a word in your direct message with them');
+    expect(prompt).toContain(`[remark:${theirs.id}]`);
+    expect(prompt).not.toContain(allens.text);
+    expect((await everywhere(s)).map((m) => m.roomId)).toEqual([DM_3]);
+    expect(await acts(s)).toMatchObject([{ reason: 'player_remark', roomId: DM_3, outcome: 'posted' }]);
+    // Both are stored, each sealed to its own DM.
+    expect(
+      (await memoryOf(s)).remarks
+        .map((r) => [r.messageId, r.visibility])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    ).toEqual([
+      [theirs.id, { teams: ['team-3'], trades: [], waiverClaims: [] }],
+      [allens.id, { teams: ['team-1'], trades: [], waiverClaims: [] }]
+    ]);
+    // Allen's remark is said nowhere, now or at a later check-in.
+    s.clock.advance(HOUR);
+    await say(s, 'Fair.', {
+      roomId: DM_3,
+      author: { teamId: 'team-3', teamName: 'team-3', name: 'Zed' },
+      createdAt: s.clock.now().toISOString()
+    });
+    const later = new ScriptedModelClient();
+    await run(s, checkIn(rolled(LOUD, true).replace('evt', 'later')), later);
+    expect(later.transcript.map((t) => t.systemPrompt).join('\n')).not.toContain(allens.text);
+    expect((await everywhere(s)).some((m) => m.text.includes('cold'))).toBe(false);
+  });
+
+  it('carries on without the record when storing a remark fails', async () => {
+    const s = await league();
+    await remark(s, 'trash-talk', 'Nice pickup on WR1. Enjoy the bench.');
+    vi.spyOn(s.repos.agents, 'updateMemory').mockRejectedValueOnce(new Error('throttled'));
+    const record = await run(s, checkIn(rolled(LOUD, false)));
+    expect(record.status).not.toBe('failed');
+    expect(s.logs.some((l) => l.includes('chat remarks not recorded'))).toBe(true);
+    expect((await memoryOf(s)).remarks).toEqual([]);
+  });
+
+  it('offers no matchup talk beside a DM act, so its facts never meet a public post (#263)', async () => {
+    // Their starter is out: an angle for matchup talk.
+    const withAngle = async () => {
+      const s = await league();
+      const back = await s.repos.players.get('team-3-rb1');
+      await s.repos.players.putMany([{ ...back!, injuryStatus: 'Out' }]);
+      return s;
+    };
+    const quiet = await withAngle();
+    const control = new ScriptedModelClient();
+    await run(quiet, checkIn(rolled(LOUD, true, [AGENT_TEAM], true)), control);
+    // With nothing for a DM, the matchup roll offers matchup talk.
+    expect(control.transcript[0]?.systemPrompt).toContain('matchup_post');
+
+    const s = await withAngle();
+    const theirs = await remark(s, DM_3, 'WR1 is washed, just saying.');
+    const model = new ScriptedModelClient();
+    await run(s, checkIn(rolled(LOUD, true, [AGENT_TEAM], true)), model);
+    const prompt = model.transcript[0]?.systemPrompt ?? '';
+    expect(prompt).toContain(`[remark:${theirs.id}]`);
+    expect(prompt).not.toContain('matchup_post');
+    expect((await everywhere(s)).map((m) => m.roomId)).toEqual([DM_3]);
+  });
+
+  it('makes no callback from a remark gone stale', async () => {
+    const s = await league();
+    await remark(s, 'trash-talk', 'Nice pickup on WR1. Enjoy the bench.');
+    // Read and stored at a check-in that says nothing of its own.
+    await run(s, checkIn(rolled(LOUD, false)));
+    expect((await memoryOf(s)).remarks).toHaveLength(1);
+    s.clock.advance(15 * DAY);
+    const model = new ScriptedModelClient();
+    await run(s, checkIn(rolled(LOUD, true).replace('evt', 'stale')), model);
+    expect(model.transcript.map((t) => t.systemPrompt).join('\n')).not.toContain('[remark:');
+    expect((await acts(s)).some((a) => a.reason === 'player_remark')).toBe(false);
   });
 });

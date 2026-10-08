@@ -15,6 +15,13 @@ export interface LeagueChat {
   history: ReadonlySet<string> | null;
   /** Seconds between refreshes while polling. */
   pollSeconds: number;
+  /** The room has messages older than the ones loaded (#144). */
+  hasEarlier: boolean;
+  loadingEarlier: boolean;
+  /** How many of `messages` came from paging back: they are never new. */
+  earlierCount: number;
+  /** Loads the next page of older messages; rejects when the read fails. */
+  loadEarlier(): Promise<void>;
   send(text: string): Promise<void>;
 }
 
@@ -47,6 +54,15 @@ export function useLeagueChat(
   const [status, setStatus] = useState<ChatStatus>('loading');
   const [history, setHistory] = useState<ReadonlySet<string> | null>(null);
   const [pollSeconds, setPollSeconds] = useState(DEFAULT_POLL_SECONDS);
+  // Where paging back continues: set by the first successful read, then by each older page. A
+  // refresh reads the newest page again and leaves it alone.
+  const [earlierCursor, setEarlierCursor] = useState<string | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [earlierCount, setEarlierCount] = useState(0);
+  const loaded = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    loaded.current = messages;
+  }, [messages]);
   const add = useCallback(
     (incoming: readonly ChatMessage[]) => setMessages((current) => mergeMessages(current, incoming)),
     []
@@ -63,10 +79,11 @@ export function useLeagueChat(
     let historyRead = false;
     const liveFirst = new Set<string>();
     const refresh = async () => {
-      const page = (await chat.list(leagueId, { limit: PAGE, roomId })).messages;
+      const { messages: page, nextCursor } = await chat.list(leagueId, { limit: PAGE, roomId });
       add(page);
       if (!historyRead) {
         historyRead = true;
+        setEarlierCursor(nextCursor);
         setHistory(new Set(page.filter((m) => !liveFirst.has(m.id)).map((m) => m.id)));
       }
     };
@@ -149,5 +166,30 @@ export function useLeagueChat(
     [leagueId, roomId, api, add]
   );
 
-  return { messages, teams, status, history, pollSeconds, send };
+  const loadEarlier = useCallback(async () => {
+    if (earlierCursor === null || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const page = await api.list(leagueId, { limit: PAGE, roomId, after: earlierCursor });
+      const known = new Set(loaded.current.map((m) => m.id));
+      setEarlierCount((n) => n + page.messages.filter((m) => !known.has(m.id)).length);
+      add(page.messages);
+      setEarlierCursor(page.nextCursor);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, [leagueId, roomId, api, add, earlierCursor, loadingEarlier]);
+
+  return {
+    messages,
+    teams,
+    status,
+    history,
+    pollSeconds,
+    hasEarlier: earlierCursor !== null,
+    loadingEarlier,
+    earlierCount,
+    loadEarlier,
+    send
+  };
 }

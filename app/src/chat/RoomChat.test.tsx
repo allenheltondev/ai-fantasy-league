@@ -1,4 +1,5 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import type { ChatApi, ChatMessage, RealtimeInfo } from './api';
 import { resolveRoom } from './ChatPage';
@@ -73,4 +74,81 @@ it('counts a live message that beats the first good history read, even when that
   await act(async () => catchUp({ messages: [...history, fresh], nextCursor: null }));
   expect(await screen.findByText('Old news')).toBeInTheDocument();
   expect(onUnreadChange).toHaveBeenLastCalledWith(1);
+});
+
+/** A room whose newest page continues at `c1`, with one older page behind it. */
+function pagedRoom(older: () => Promise<{ messages: ChatMessage[]; nextCursor: string | null }>) {
+  const list = vi.fn<ChatApi['list']>(async (_leagueId, options = {}) =>
+    options.after === 'c1'
+      ? older()
+      : { messages: [message('m4', 'Fourth', 4), message('m3', 'Third', 3)], nextCursor: 'c1' }
+  );
+  const api: ChatApi = {
+    list,
+    post: vi.fn(),
+    rooms: vi.fn(),
+    markRead: vi.fn(),
+    realtime: vi.fn(async () => LIVE),
+    teams: vi.fn(async () => []),
+    closeDm: vi.fn()
+  };
+  const onUnreadChange = vi.fn();
+  render(
+    <RoomChat
+      leagueId="L1"
+      room={resolveRoom('draft', [], null, [], null)}
+      api={api}
+      connect={async () => () => undefined}
+      onOther={() => undefined}
+      onSeen={() => undefined}
+      onUnreadChange={onUnreadChange}
+    />
+  );
+  return { list, onUnreadChange };
+}
+
+const OLDER = { messages: [message('m2', 'Second', 2), message('m1', 'First', 1)], nextCursor: null };
+const texts = () =>
+  within(screen.getByRole('list', { name: 'Chat messages' }))
+    .queryAllByRole('paragraph')
+    .map((p) => p.textContent);
+
+it('pages back through older messages until the room runs out (#144)', async () => {
+  const { list, onUnreadChange } = pagedRoom(async () => OLDER);
+  await screen.findByText('Third');
+  await userEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+  expect(list).toHaveBeenCalledWith('L1', { limit: 50, roomId: 'draft', after: 'c1' });
+  await waitFor(() => expect(texts()).toEqual(['First', 'Second', 'Third', 'Fourth']));
+  // The last page: nothing older to load, and the older messages are not unread.
+  expect(screen.queryByRole('button', { name: 'Load earlier messages' })).not.toBeInTheDocument();
+  expect(onUnreadChange).toHaveBeenLastCalledWith(0);
+});
+
+it('pages back on reaching the top, keeping the messages being read in place (#144)', async () => {
+  pagedRoom(async () => OLDER);
+  await screen.findByText('Third');
+  const list = screen.getByRole('list', { name: 'Chat messages' });
+  // jsdom has no layout: each row is 100px tall in a 150px window.
+  let top = 0;
+  Object.defineProperty(list, 'scrollHeight', { get: () => list.children.length * 100 });
+  Object.defineProperty(list, 'clientHeight', { get: () => 150 });
+  Object.defineProperty(list, 'scrollTop', { get: () => top, set: (v: number) => (top = v) });
+  top = 5;
+  fireEvent.scroll(list);
+  await waitFor(() => expect(texts()).toEqual(['First', 'Second', 'Third', 'Fourth']));
+  // Three rows (the button and two messages) became four: Third stays where it was, 100px lower.
+  expect(top).toBe(105);
+});
+
+it('offers a retry when an older page fails to load (#144)', async () => {
+  const older = vi
+    .fn<() => Promise<typeof OLDER>>()
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce(OLDER);
+  pagedRoom(older);
+  await screen.findByText('Third');
+  await userEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load earlier messages.');
+  await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await waitFor(() => expect(texts()).toEqual(['First', 'Second', 'Third', 'Fourth']));
 });

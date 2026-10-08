@@ -16,7 +16,7 @@
   },
   "scripts": {
     "dev": "npm run build -w @fantasy/core && node --env-file=../../scripts/local.env --import tsx src/local.ts",
-    "openapi": "tsx --conditions=types --tsconfig tsconfig.json scripts/generate-openapi.ts",
+    "openapi": "npm run build -w @fantasy/core -w @fantasy/data && tsx --tsconfig tsconfig.json scripts/generate-openapi.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"

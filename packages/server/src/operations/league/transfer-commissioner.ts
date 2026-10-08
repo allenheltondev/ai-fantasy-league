@@ -45,6 +45,8 @@ export const transferCommissioner = defineOperation({
             ...access.league,
             commissionerId: input.userId,
             commissionerName: name,
+            // Their email is not ours to know until they next use the league (`requireMember`).
+            commissionerEmail: null,
             updatedAt: now.toISOString()
           });
     return {

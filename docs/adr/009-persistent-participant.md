@@ -20,6 +20,7 @@ A persistent participant is a durable identity that observes a shared environmen
   - Every task kind (`TaskKind`: lineup, waivers, trade proposal, response, and vote, chat reply and moment, check-in, commitment reply, draft, and more) has the same steps: `prepare` reads through the same tools a person's UI uses, the model decides or words, `apply` commits through operations, and a deterministic `fallback` stands in whenever the model is missing, fails, or is over budget.
   - Follow-ups are durable tasks. #207's outbox reserves them together with their gates.
   - Their results are recorded before any conversation says they happened. #215's commitments close with one line; #246 recovers that line after a crash or a refused post.
+  - A check-in's free-form posts are written in the same answer as its moves, before any is made. The prompt says so, and core `checkPost` cuts a sentence claiming a trade status the record does not support (#264): an offer this turn did not send, or one the latest trade with that team never reached.
 - **Memory and state.**
   - Memory: #210's provenance-aware memory, where every item carries a #206 visibility.
   - Agenda: operational goals.
@@ -41,6 +42,7 @@ These hold in the fantasy runtime, and the second-domain tests check them again:
    - Memory reaches a prompt only through `memoryForAudience` for that prompt's audience.
    - Social acts filter evidence by the destination's readers before the pack is built.
    - DM content never leaves the DM.
+   - A check-in's one prompt serves several destinations, so it never pairs a DM act with a public post: a check-in that offers a DM-only act offers no board post or matchup talk beside it. Its own private options (pickups, trade ideas, open offers) still sit next to the public rooms' facts, so its free-form public posts are checked before they go out (core `checkPost`, #263): a player in one of those options that the post's facts do not state, or talk of an offer that is not public, holds the post back. A player from an offer that has closed (turned down, expired, withdrawn) may be named again; the offer itself may not. A DM to the other team is not held to that.
 4. **Deterministic fallback remains available.** Every task kind has a fallback that decides without a model. A model failure, a refused budget, or the kill switch never leaves a decision unmade.
 
 ## Decisions versus explanations

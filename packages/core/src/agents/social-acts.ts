@@ -4,16 +4,19 @@ import type { AgendaGoal } from './agenda.js';
 import { ATTACHMENT_POLICY, type PlayerAttachments } from './attachments.js';
 import { isOpenCommitment, type CommitmentBook } from './commitments.js';
 import {
+  MEMORY_LIMITS,
   mayHear,
   tradeVisibility,
   type AgentLeagueMemory,
   type MemoryAudience,
+  type MemoryEvent,
   type MemoryVisibility,
+  type RemarkMemory,
   type SealCheck
 } from './memory.js';
 import { answeredBefore, asksSomething } from '../chat/continuation.js';
 import { relationshipWith } from './relationships.js';
-import { checkInChatChance, socialRoll } from './social.js';
+import { checkInChatChance, looksLikeInstructions, socialRoll } from './social.js';
 
 /**
  * Grounded social acts (#218): what an AI manager says on its own at a check-in, chosen by a
@@ -22,15 +25,16 @@ import { checkInChatChance, socialRoll } from './social.js';
  * - Candidates: `answer_question` (a person's question to it, still unanswered), `congratulate`,
  *   `acknowledge_mistake` (only from a stored record: a #216 attachment its results revised
  *   down), `callback` (a shared record with this week's opponent, including a player it traded
- *   them who starts against it), `react_to_result`, `ask_relevant_question` (a question in a
+ *   them who starts against it, or a stored chat remark of theirs about a player who starts in the
+ *   game: `player_remark`, #280), `react_to_result`, `ask_relevant_question` (a question in a
  *   person's DM whose answer can move an active goal or a declined pitch: `askOpportunities`), and
  *   `stay_quiet`. Each carries a reason code, its counterpart, the evidence ids it rests on, the
  *   audience of the room it would go to, when it stops being fresh, and the commitment (#215) or
  *   agenda goal it relates to.
- * - Evidence: records only (results, trades, attachments, the league's own standings), each with
- *   a #206 visibility. A candidate whose evidence its destination may not hear, or that cites an id
- *   outside the supplied set, is never chosen: a private or unobserved event cannot become a
- *   callback in a public room.
+ * - Evidence: records only (results, trades, attachments, the league's own standings, chat remarks
+ *   stored with their room's audience by `playerRemarks`), each with a #206 visibility. A candidate
+ *   whose evidence its destination may not hear, or that cites an id outside the supplied set, is
+ *   never chosen: a private or unobserved event cannot become a callback in a public room.
  * - Selection (`selectSocialAct`): a person's question first (the oldest); otherwise at most one
  *   ambient act, only when the personality's own board-post roll passes (quiet managers stay quiet
  *   most check-ins), when the day's posts leave `humanReserve` for people, and when it scores at
@@ -38,7 +42,7 @@ import { checkInChatChance, socialRoll } from './social.js';
  *   commentary is dropped, never queued.
  * - Expression: the check-in model gets a compact pack (`socialActPack`) and may word the act or
  *   pass; `checkSocialAct` rejects a draft that cites no supplied evidence, cites an unknown id,
- *   states a number the facts do not, or names something private.
+ *   states a number the facts do not, quotes words no fact holds, or names something private.
  * - History (`SocialActBook`): a bounded, tenure-scoped record of the acts chosen, keyed by topic,
  *   event and room, so a callback is not repeated and one event draws one reaction per room.
  * - Destinations: ambient acts go to the board room; a callback goes to this week's matchup room
@@ -89,6 +93,10 @@ export const SOCIAL_ACT_LIMITS = {
   admissionFreshMs: 7 * DAY_MS,
   /** A callback tied to this week's matchup is looked for again at each check-in: never queued. */
   callbackFreshMs: 12 * HOUR_MS,
+  /** A chat remark about a player can be called back this long after it was said (#280). */
+  remarkFreshMs: 14 * DAY_MS,
+  /** Characters of a remark's words a fact quotes. */
+  remarkQuote: 120,
   /** Per-agent cooldown on one topic, by act. */
   topicCooldownMs: {
     answer_question: 0,
@@ -190,6 +198,7 @@ export type SocialReason =
   | 'win_streak'
   | 'fell_short'
   | 'former_player'
+  | 'player_remark'
   | 'need_partner'
   | 'declined_offer';
 
@@ -298,6 +307,80 @@ export function pendingQuestions(
             at: m.createdAt
           }
         ];
+  });
+}
+
+/** A room the agent read, for the remarks in it (#280). */
+export interface RemarkRoom {
+  roomId: string;
+  dm: boolean;
+  /** A DM's two teams. */
+  teamIds: readonly string[];
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const namedIn = (text: string, name: string) =>
+  name.trim() !== '' &&
+  new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(name)}($|[^\\p{L}\\p{N}])`, 'iu').test(text);
+
+/**
+ * The players among `players` (names on the agent's roster) a message names: by full name, or by a
+ * last name of four letters or more that no other of them shares.
+ */
+export function playersNamed(text: string, players: readonly string[]): string[] {
+  const last = (name: string) => name.trim().split(/\s+/).at(-1) ?? '';
+  const counts = new Map<string, number>();
+  for (const p of players) {
+    const key = last(p).toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return players.filter((p) => {
+    if (namedIn(text, p)) return true;
+    const l = last(p);
+    return l.length >= 4 && counts.get(l.toLowerCase()) === 1 && l !== p.trim() && namedIn(text, l);
+  });
+}
+
+/**
+ * Chat remarks about the agent's players (#280), as memory records: a message from another team (a
+ * person or an AI manager, never the league, never the agent itself) that names one of `players`.
+ * Each keeps who said it, the room, when, the players named, and the words, with the room's
+ * visibility: `public` for a room the league reads, sealed for good to the other team in a DM.
+ * Only rooms the agent may read reach here, so another team's DM is never a source.
+ *
+ * A remark that reads like orders (`looksLikeInstructions`) is not kept: a callback quotes the
+ * stored words into the check-in's decision prompt, and a message written to steer the model has
+ * no place there.
+ */
+export function playerRemarks(
+  newestFirst: readonly QuestionMessage[],
+  room: RemarkRoom,
+  self: string,
+  players: readonly string[]
+): Extract<MemoryEvent, { type: 'remark' }>[] {
+  const other = room.teamIds.find((t) => t !== self);
+  if (room.dm && (other === undefined || !room.teamIds.includes(self))) return [];
+  const visibility: MemoryVisibility =
+    room.dm && other !== undefined ? { teams: [other], trades: [], waiverClaims: [] } : 'public';
+  return newestFirst.flatMap((m) => {
+    const author = m.author.teamId;
+    if (m.kind === 'system' || author === null || author === self) return [];
+    if (looksLikeInstructions(m.text)) return [];
+    const named = playersNamed(m.text, players);
+    if (named.length === 0) return [];
+    return [
+      {
+        type: 'remark' as const,
+        messageId: m.id,
+        roomId: room.roomId,
+        authorTeamId: author,
+        author: m.author.name,
+        players: named.slice(0, MEMORY_LIMITS.remarkPlayers),
+        text: m.text,
+        at: m.createdAt,
+        visibility
+      }
+    ];
   });
 }
 
@@ -563,6 +646,8 @@ export interface AmbientInput {
   matchupRoom?: { roomId: string; audience: MemoryAudience } | null | undefined;
   /** The opponent's starters this week, by name (the matchup room's public pack). */
   opponentStarters?: readonly string[] | undefined;
+  /** The agent's own starters this week, by name (the same pack). */
+  ownStarters?: readonly string[] | undefined;
   /**
    * The memory as the two teams' DM may hear it, and that DM (#218): a shared record private to
    * them (an offer between them that did not go through) is a callback there, never in public.
@@ -795,6 +880,67 @@ export function ambientOpportunities(input: AmbientInput): SocialOpportunities {
         relevance: 0.9
       });
     }
+    // A chat remark of theirs about a player who starts in this game (#280): stored with the room
+    // it was said in, and called back only where that room's readers could hear it. The public
+    // memory holds public remarks only; one from their DM is in the DM's memory alone.
+    const lineups = new Map<string, { name: string; teamId: string }>([
+      ...(input.opponentStarters ?? []).map((n) => [n.toLowerCase(), { name: n, teamId: opp }] as const),
+      ...(input.ownStarters ?? []).map((n) => [n.toLowerCase(), { name: n, teamId: self }] as const)
+    ]);
+    const remarked = (remarks: readonly RemarkMemory[], dmOnly: boolean) =>
+      [...remarks]
+        .filter(
+          (r) =>
+            r.authorTeamId === opp &&
+            (!dmOnly || r.visibility !== 'public') &&
+            Date.parse(now) - Date.parse(r.at) <= SOCIAL_ACT_LIMITS.remarkFreshMs &&
+            Date.parse(r.at) <= Date.parse(now)
+        )
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .flatMap((r) => r.players.filter((p) => lineups.has(p.toLowerCase())).map((p) => ({ r, p })))[0];
+    const remarkCallback = (
+      found: { r: RemarkMemory; p: string },
+      where: { roomId: string; audience: MemoryAudience }
+    ) => {
+      const { r, p } = found;
+      const starter = lineups.get(p.toLowerCase()) as { name: string; teamId: string };
+      const words = r.text.replace(/\s+/g, ' ').trim();
+      const quoted =
+        words.length > SOCIAL_ACT_LIMITS.remarkQuote
+          ? `${words.slice(0, SOCIAL_ACT_LIMITS.remarkQuote - 1)}…`
+          : words;
+      const said = evidence({
+        id: `remark:${r.messageId}`,
+        line: `On ${r.at.slice(0, 10)} in ${placeWords(r.roomId)}, ${r.author} of ${name(opp)} wrote about ${p}: "${quoted}"`,
+        at: r.at,
+        visibility: r.visibility
+      });
+      const start = evidence({
+        id: `starter:w${current}:${starter.teamId}:${p.toLowerCase()}`,
+        line:
+          starter.teamId === self
+            ? `${starter.name} is in your starting lineup against ${name(opp)} this week.`
+            : `${starter.name} is in ${name(opp)}'s starting lineup against you this week.`,
+        at: now,
+        visibility: 'public'
+      });
+      out.candidates.push({
+        ...callback,
+        ...where,
+        reason: 'player_remark',
+        subject: `what ${name(opp)} said about ${p}, who starts in your game this week`,
+        topic: `callback:${opp}:remark:${r.messageId}`,
+        evidence: [said, start],
+        at: r.at,
+        relevance: 0.9
+      });
+    };
+    const remark = remarked(memory.remarks, false);
+    if (remark !== undefined) remarkCallback(remark, place);
+    const dmRemark =
+      input.dm === null || input.dm === undefined ? undefined : remarked(input.dm.memory.remarks, true);
+    if (dmRemark !== undefined && input.dm !== null && input.dm !== undefined)
+      remarkCallback(dmRemark, { roomId: input.dm.roomId, audience: { teams: [opp] } });
     // A shared record private to the two teams goes to their DM, never to a public room.
     const talks =
       input.dm === null || input.dm === undefined
@@ -862,6 +1008,13 @@ export function ambientOpportunities(input: AmbientInput): SocialOpportunities {
     });
   }
   return out;
+}
+
+/** Where a room is, in a fact's words. */
+function placeWords(roomId: string): string {
+  if (roomId.startsWith('dm-')) return 'your direct messages with them';
+  if (roomId.startsWith('m-')) return 'a matchup room';
+  return `#${roomId}`;
 }
 
 /** Whether the personality's roll lets it speak on its own this check-in (the board-post roll). */
@@ -1053,14 +1206,27 @@ export type SocialActCheck =
   | { ok: true; message: string; evidence: string[] }
   | {
       ok: false;
-      reason: 'empty' | 'no_evidence' | 'unknown_evidence' | 'unsupported_number' | 'private_detail';
+      reason:
+        | 'empty'
+        | 'no_evidence'
+        | 'unknown_evidence'
+        | 'unsupported_number'
+        | 'invented_quote'
+        | 'private_detail';
     };
 
 const numbers = (text: string) => text.match(/\d+(?:\.\d+)?/g) ?? [];
+/** The words a draft puts in double quotes, normalized (case, spacing, end punctuation). */
+const flat = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
+const quotes = (text: string) =>
+  [...text.matchAll(/["“”]([^"“”]+)["“”]/g)]
+    .map((m) => flat(m[1] ?? '').replace(/^[\s.,!?;:…'-]+|[\s.,!?;:…'-]+$/g, ''))
+    .filter((q) => /[\p{L}\p{N}]/u.test(q));
 
 /**
  * Checks a drafted act against its pack before it is posted: it must say something, cite at least
- * one supplied fact and nothing else, state no number the facts and context do not, and name none
+ * one supplied fact and nothing else, state no number the facts and context do not, put in quotes
+ * only words a fact holds (#280: a stored remark is quoted exactly or paraphrased), and name none
  * of `privateTerms` (players in private offers or claims) unless a fact already does. Evidence ids
  * prove where it came from, not that the sentence is faithful; this narrows what it can get wrong.
  */
@@ -1078,6 +1244,8 @@ export function checkSocialAct(
   const known = [...pack.facts.map((f) => f.line), ...pack.context];
   const allowed = new Set(known.flatMap(numbers));
   if (numbers(message).some((n) => !allowed.has(n))) return { ok: false, reason: 'unsupported_number' };
+  const source = flat(known.join(' '));
+  if (quotes(message).some((q) => !source.includes(q))) return { ok: false, reason: 'invented_quote' };
   const said = message.toLowerCase();
   const facts = known.join(' ').toLowerCase();
   if (

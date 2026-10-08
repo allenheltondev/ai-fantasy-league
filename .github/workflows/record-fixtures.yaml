@@ -1,8 +1,9 @@
 name: Record fixtures
 
-# Records real Sleeper responses where api.sleeper.app is reachable, and checks
-# which news RSS feeds respond. Dev sandboxes cannot reach either, so this is how
-# fixtures and the feed list get refreshed.
+# Records real Sleeper (and, on demand, ESPN) responses where api.sleeper.app and
+# site.api.espn.com are reachable, and checks which news RSS feeds respond. Dev
+# sandboxes cannot reach them, so this is how fixtures and the feed list get
+# refreshed.
 #
 # By default only the scoring validation sets (fixtures/sleeper/scoring/) are
 # recorded. The curated fixtures the unit tests pin (players, state, stats,
@@ -45,13 +46,26 @@ on:
         required: false
         type: string
         default: ''
+      espn_scoreboard:
+        description: Also record one week of ESPN's scoreboard as "<season> <week>", e.g. "2026 5", committed with the Sleeper fixtures (best during a game window, for live situations; optional)
+        required: false
+        type: string
+        default: ''
+      espn_scoreboard_season_type:
+        description: The ESPN scoreboard's season type
+        required: false
+        type: choice
+        options:
+          - regular
+          - post
+        default: regular
       espn_injuries:
         description: Also record ESPN's league-wide injury report (#200; best on a game day, about 90 minutes before a kickoff; uploaded only)
         required: false
         type: boolean
         default: false
       push_branch:
-        description: Commit the recorded Sleeper fixtures to a fixtures/run-<run id> branch
+        description: Commit the recorded Sleeper fixtures (and ESPN scoreboards) to a fixtures/run-<run id> branch
         required: false
         type: boolean
         default: true
@@ -65,7 +79,7 @@ env:
 
 jobs:
   record:
-    name: Record Sleeper fixtures and check news feeds
+    name: Record Sleeper and ESPN fixtures and check news feeds
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -113,6 +127,18 @@ jobs:
         env:
           ESPN_EVENT: ${{ inputs.espn_event }}
         run: node scripts/record-fixtures.mjs --espn-summary "$ESPN_EVENT" --out recorded/fixtures
+      - name: Record an ESPN scoreboard week
+        # One week of the live-situation feed, as returned (minus the season calendar), to
+        # fixtures/espn/scoreboard_<type>_<season>_<week>.json; the unit tests pin the hand-authored
+        # week in fixtures/espn/hand-authored/, and espn/recorded.test.ts checks every recording.
+        if: ${{ inputs.espn_scoreboard != '' }}
+        continue-on-error: true
+        env:
+          ESPN_SCOREBOARD: ${{ inputs.espn_scoreboard }}
+          SEASON_TYPE: ${{ inputs.espn_scoreboard_season_type }}
+        run: |
+          read -r SEASON WEEK <<< "$ESPN_SCOREBOARD"
+          node scripts/record-fixtures.mjs --espn-scoreboard "$SEASON" "$WEEK" --season-type "$SEASON_TYPE" --out recorded/fixtures
       - name: Record ESPN's injury report
         # The game-day injuries fixture (#200), hand-written until a live payload is recorded:
         # commit recorded/fixtures/espn/injuries.json beside the hand-authored one.
@@ -141,18 +167,23 @@ jobs:
           WEEKS: ${{ inputs.weeks }}
           SCORING_WEEKS: ${{ inputs.scoring_weeks }}
           CURATED: ${{ inputs.curated }}
+          ESPN_SCOREBOARD: ${{ inputs.espn_scoreboard }}
         run: |
           rm -rf packages/data/fixtures/sleeper
           cp -R recorded/fixtures/sleeper packages/data/fixtures/sleeper
-          if git diff --quiet -- packages/data/fixtures/sleeper && [ -z "$(git ls-files --others --exclude-standard packages/data/fixtures/sleeper)" ]; then
+          # Recorded ESPN scoreboards too (game summaries and injuries stay upload-only).
+          find recorded/fixtures/espn -maxdepth 1 -name 'scoreboard_*.json' -exec cp {} packages/data/fixtures/espn/ \;
+          PATHS="packages/data/fixtures/sleeper packages/data/fixtures/espn"
+          if git diff --quiet -- $PATHS && [ -z "$(git ls-files --others --exclude-standard $PATHS)" ]; then
             echo "Recorded fixtures match the committed ones; nothing to push."
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$BRANCH"
-          git add packages/data/fixtures/sleeper
+          git add $PATHS
           if [ "$CURATED" = "true" ]; then WHAT="weeks $WEEKS, scoring weeks $SCORING_WEEKS"; else WHAT="scoring weeks $SCORING_WEEKS"; fi
+          if [ -n "$ESPN_SCOREBOARD" ]; then WHAT="$WHAT, ESPN scoreboard $ESPN_SCOREBOARD"; fi
           git commit -m "Record Sleeper fixtures (season $SEASON, $WHAT)"
           git push origin "$BRANCH"
           echo "Pushed $BRANCH: open a PR from it into main." >> "$GITHUB_STEP_SUMMARY"

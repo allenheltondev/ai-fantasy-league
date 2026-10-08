@@ -76,20 +76,39 @@ export function RoomChat({
   // a read that works rather than for the loading status to end.
   const history = chat.history;
   const historyCount = history === null ? null : chat.messages.filter((m) => history.has(m.id)).length;
+  // Older pages the reader asked for are never new, so they are left out of the count.
+  const count = chat.messages.length - chat.earlierCount;
   const baselined = useRef(false);
   useEffect(() => {
     if (visible && following) {
       const list = listRef.current as HTMLOListElement;
       list.scrollTop = list.scrollHeight;
-      lastSeenCount.current = chat.messages.length;
+      lastSeenCount.current = count;
       seen.current();
     }
     if (!baselined.current && historyCount !== null) {
       baselined.current = true;
       lastSeenCount.current = Math.max(lastSeenCount.current, historyCount);
     }
-    unread.current?.(Math.max(0, chat.messages.length - lastSeenCount.current));
-  }, [chat.messages.length, visible, following, historyCount]);
+    unread.current?.(Math.max(0, count - lastSeenCount.current));
+  }, [count, visible, following, historyCount]);
+
+  // Paging back (#144) adds messages above the ones being read: keep those where they were.
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const [earlierError, setEarlierError] = useState(false);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (anchor.current === null || list === null) return;
+    list.scrollTop = anchor.current.top + (list.scrollHeight - anchor.current.height);
+    anchor.current = null;
+  }, [chat.earlierCount]);
+  const loadEarlier = () => {
+    if (!chat.hasEarlier || chat.loadingEarlier) return;
+    const list = listRef.current as HTMLOListElement;
+    anchor.current = { height: list.scrollHeight, top: list.scrollTop };
+    setEarlierError(false);
+    chat.loadEarlier().catch(() => setEarlierError(true));
+  };
 
   // In a DM only the other team can be mentioned.
   const mentionable = roomMembers(chat.teams, room, yourTeamId);
@@ -123,6 +142,8 @@ export function RoomChat({
         onScroll={(event) => {
           const list = event.currentTarget;
           setFollowing(list.scrollHeight - list.scrollTop - list.clientHeight < 48);
+          // Reaching the top of a scrolled conversation pages back on its own.
+          if (list.scrollTop < 16 && list.scrollHeight > list.clientHeight && !earlierError) loadEarlier();
         }}
         aria-label="Chat messages"
         className={`flex flex-col gap-2 overflow-y-auto rounded-md border border-border p-3 ${
@@ -134,6 +155,27 @@ export function RoomChat({
             {room.kind === 'dm'
               ? 'No messages yet. Only your two teams can read this conversation.'
               : 'No messages yet. Say hi, or talk some trash.'}
+          </li>
+        ) : null}
+        {chat.hasEarlier ? (
+          <li className="flex flex-col items-center gap-1 text-sm">
+            {earlierError ? (
+              <p role="alert" className="text-red-600">
+                Couldn’t load earlier messages.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              className="min-h-11 font-medium text-primary-800 disabled:text-muted-foreground md:min-h-8"
+              disabled={chat.loadingEarlier}
+              onClick={loadEarlier}
+            >
+              {chat.loadingEarlier
+                ? 'Loading earlier messages…'
+                : earlierError
+                  ? 'Try again'
+                  : 'Load earlier messages'}
+            </button>
           </li>
         ) : null}
         {chat.messages.map((m) => (

@@ -174,6 +174,7 @@ describe('check-in pre-check', () => {
       waivers: { open: false, faabRemaining: 0, pickups: [], holes: [] },
       trade: { shopping: true, offersLeft: 1, prep: null },
       offers: [],
+      trades: [],
       social: NO_SOCIAL
     };
     expect(checkInReasons(look)).toEqual([]);

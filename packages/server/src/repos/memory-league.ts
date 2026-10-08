@@ -26,6 +26,7 @@ import type {
   Team,
   TeamRepository
 } from './types.js';
+import { backfillSeatTenure } from './types.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
 
@@ -107,6 +108,11 @@ export class InMemoryLeagueRepository implements LeagueRepository {
     return clone(partition.league);
   }
 
+  async setCommissionerEmail(leagueId: string, commissionerId: string, email: string): Promise<void> {
+    const league = this.store.partition(leagueId).league;
+    if (league?.commissionerId === commissionerId) league.commissionerEmail = email;
+  }
+
   async listByCreator(userId: string): Promise<League[]> {
     return this.store
       .partitions()
@@ -136,12 +142,18 @@ export class InMemoryTeamRepository implements TeamRepository {
   async list(leagueId: string): Promise<Team[]> {
     return [...this.store.partition(leagueId).teams.values()]
       .sort((a, b) => a.draftSlot - b.draftSlot || a.id.localeCompare(b.id))
-      .map(clone);
+      .map((team) => this.#read(team));
   }
 
   async get(leagueId: string, teamId: string): Promise<Team | null> {
     const team = this.store.partition(leagueId).teams.get(teamId);
-    return team === undefined ? null : clone(team);
+    return team === undefined ? null : this.#read(team);
+  }
+
+  /** A copy, with the seat tenure of a team stored before it was recorded (`backfillSeatTenure`). */
+  #read(team: Team): Team {
+    const members = this.store.partition(team.leagueId).members;
+    return clone(backfillSeatTenure(team, members.get(team.ownerUserId ?? '') ?? null));
   }
 
   async create(teams: readonly Team[]): Promise<void> {

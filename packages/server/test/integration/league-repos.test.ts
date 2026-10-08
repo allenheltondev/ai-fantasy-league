@@ -70,6 +70,23 @@ function matchup(leagueId: string, week: number, n: number): Matchup {
 }
 
 describe.each(backends)('%s league repositories', (_name, make) => {
+  it("stores the commissioner's email without a new version, only for the current commissioner", async () => {
+    const { leagues } = make();
+    const stored = league({ id: unique('lg') });
+    await leagues.create(stored);
+    expect((await leagues.get(stored.id))?.commissionerEmail).toBeUndefined();
+    await leagues.setCommissionerEmail(stored.id, 'someone-else', 'x@example.com');
+    expect((await leagues.get(stored.id))?.commissionerEmail).toBeUndefined();
+    await leagues.setCommissionerEmail(stored.id, stored.commissionerId, 'c@example.com');
+    expect(await leagues.get(stored.id)).toMatchObject({ commissionerEmail: 'c@example.com', version: 1 });
+    // A league that is gone stores nothing (and is not created).
+    const missing = unique('missing');
+    await leagues.setCommissionerEmail(missing, stored.commissionerId, 'c@example.com');
+    expect(await leagues.get(missing)).toBeNull();
+    const updated = await leagues.update({ ...stored, commissionerEmail: null });
+    expect(await leagues.get(stored.id)).toMatchObject({ commissionerEmail: null, version: updated.version });
+  });
+
   it('stores leagues with settings, finds them by creator, and fetches several at once', async () => {
     const { leagues } = make();
     const creator = unique('creator');
@@ -115,6 +132,24 @@ describe.each(backends)('%s league repositories', (_name, make) => {
     expect(await teams.deleteUnowned(leagueId, 'team-2')).toBe(true);
     expect(await teams.deleteUnowned(leagueId, 'team-2')).toBe(true);
     expect((await teams.list(leagueId)).map((t) => t.id)).toEqual(['team-1']);
+  });
+
+  it("backfills a legacy team's seat tenure from its holder's membership (#148)", async () => {
+    const { teams, members } = make();
+    const leagueId = unique('lg');
+    const joinedAt = '2026-09-12T08:30:00.000Z';
+    // Stored before `occupiedSince` existed: an AI seat a person took over after the league began.
+    const { occupiedSince: _taken, ...taken } = team(leagueId, 'team-2', 2, 'u2');
+    const { occupiedSince: _open, ...open } = team(leagueId, 'team-3', 3);
+    await teams.create([taken, open]);
+    await members.add({ leagueId, userId: 'u2', teamId: 'team-2', joinedAt });
+    expect((await teams.get(leagueId, 'team-2'))?.occupiedSince).toBe(joinedAt);
+    expect((await teams.get(leagueId, 'team-3'))?.occupiedSince).toBeUndefined();
+    expect((await teams.list(leagueId)).map((t) => t.occupiedSince)).toEqual([joinedAt, undefined]);
+    // The next write stores it, so it outlives the membership.
+    await teams.update({ ...(await teams.get(leagueId, 'team-2'))!, name: 'Renamed' });
+    await members.remove(leagueId, 'u2');
+    expect((await teams.get(leagueId, 'team-2'))?.occupiedSince).toBe(joinedAt);
   });
 
   it('records one membership per person per league and lists a person leagues', async () => {

@@ -60,7 +60,7 @@ import { TABLE_KEYS, epochSeconds, isConditionalCheckFailure, type TableContext 
  * Key layout:
  * - Seat (current):   pk LEAGUE#<leagueId>  sk AGENTSEAT#<teamId>
  * - Seat history:     pk LEAGUE#<leagueId>  sk AGENTSEATV#<teamId>#<version, 6 digits>
- * - Agent memory:     pk LEAGUE#<leagueId>  sk AGENTMEM#<agentId>  (notes, rivals, trades, decisions, chat; rev)
+ * - Agent memory:     pk LEAGUE#<leagueId>  sk AGENTMEM#<agentId>  (notes, rivals, trades, decisions, chat, remarks; rev)
  * - Attachments:      pk LEAGUE#<leagueId>  sk AGENTATTACH#<agentId>#<tenure>  (#216; rev)
  * - Social acts:      pk LEAGUE#<leagueId>  sk AGENTSOCIAL#<agentId>#<tenure>  (#218; rev)
  * - Trigger state:    pk LEAGUE#<leagueId>  sk AGENTSTATE#<agentId>

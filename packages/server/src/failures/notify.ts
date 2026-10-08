@@ -1,5 +1,6 @@
 import { PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import type { PutEventsSender } from '../events/eventbridge.js';
+import { SEND_EMAIL, type SendEmailDetail } from '../events/publisher.js';
 import type { Logger } from '../log.js';
 
 /**
@@ -31,13 +32,6 @@ export interface InvocationFailureEvent {
   };
 }
 
-export interface SendEmailDetail {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}
-
 export interface FailureNotifierDeps {
   events: PutEventsSender;
   busName: string;
@@ -50,7 +44,7 @@ export interface FailureNotifierDeps {
 export type NotifyResult = { status: 'sent'; functionName: string } | { status: 'ignored'; reason: string };
 
 export const SEND_EMAIL_SOURCE = 'fantasy.failures';
-export const SEND_EMAIL = 'Send Email';
+export { SEND_EMAIL, type SendEmailDetail };
 
 /** Subjects stay short enough for a mail client's list view. */
 export const MAX_SUBJECT = 200;
@@ -61,7 +55,7 @@ function truncate(value: string, max: number, marker = '...'): string {
   return value.length > max ? `${value.slice(0, max - marker.length)}${marker}` : value;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')

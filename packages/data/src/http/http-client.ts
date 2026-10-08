@@ -72,14 +72,23 @@ export class HttpClient {
     this.#headers = { accept: 'application/json, text/csv;q=0.9, */*;q=0.5', ...options.headers };
   }
 
-  async getText(url: string, options: RequestOptions = {}): Promise<string> {
+  getText(url: string, options: RequestOptions = {}): Promise<string> {
+    return this.#get(url, options, (res) => res.text());
+  }
+
+  /** The raw body, for binary files (such as a gzipped CSV). */
+  async getBytes(url: string, options: RequestOptions = {}): Promise<Uint8Array> {
+    return new Uint8Array(await this.#get(url, options, (res) => res.arrayBuffer()));
+  }
+
+  async #get<T>(url: string, options: RequestOptions, read: (res: Response) => Promise<T>): Promise<T> {
     const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
     for (let attempt = 0; ; attempt++) {
       const canRetry = attempt < this.#retry.maxRetries;
       if (this.#limiter) await this.#limiter.acquire();
-      let outcome: { ok: true; body: string } | { ok: false; status: number; retryAfter: string | null };
+      let outcome: { ok: true; body: T } | { ok: false; status: number; retryAfter: string | null };
       try {
-        outcome = await this.#attempt(url, timeoutMs);
+        outcome = await this.#attempt(url, timeoutMs, read);
       } catch (error) {
         if (!canRetry) throw error;
         await this.#sleep(backoffDelay(attempt, this.#retry, this.#random));
@@ -105,10 +114,11 @@ export class HttpClient {
     }
   }
 
-  async #attempt(
+  async #attempt<T>(
     url: string,
-    timeoutMs: number
-  ): Promise<{ ok: true; body: string } | { ok: false; status: number; retryAfter: string | null }> {
+    timeoutMs: number,
+    read: (res: Response) => Promise<T>
+  ): Promise<{ ok: true; body: T } | { ok: false; status: number; retryAfter: string | null }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -117,7 +127,7 @@ export class HttpClient {
         await res.body?.cancel().catch(() => undefined);
         return { ok: false, status: res.status, retryAfter: res.headers.get('retry-after') };
       }
-      return { ok: true, body: await res.text() };
+      return { ok: true, body: await read(res) };
     } catch (error) {
       if (controller.signal.aborted) throw new RequestTimeoutError(url, timeoutMs);
       throw new DataSourceError(`GET ${url} failed: ${String(error)}`, { cause: error });

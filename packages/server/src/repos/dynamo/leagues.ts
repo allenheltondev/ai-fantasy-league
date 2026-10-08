@@ -1,4 +1,4 @@
-import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { leagueExists, staleLeague } from '../errors.js';
 import type { League, LeagueRepository } from '../types.js';
 import { ENTITY, LeagueRecordSchema, leagueKey, leaguePk } from './league-records.js';
@@ -66,6 +66,23 @@ export class DynamoLeagueRepository implements LeagueRepository {
       throw error;
     }
     return next;
+  }
+
+  async setCommissionerEmail(leagueId: string, commissionerId: string, email: string): Promise<void> {
+    try {
+      await this.table.doc.send(
+        new UpdateCommand({
+          TableName: this.table.tableName,
+          Key: leagueKey(leagueId),
+          UpdateExpression: 'SET commissionerEmail = :email',
+          ConditionExpression: 'commissionerId = :commissioner',
+          ExpressionAttributeValues: { ':email': email, ':commissioner': commissionerId }
+        })
+      );
+    } catch (error) {
+      // The league is gone, or has a new commissioner: nothing to store.
+      if (!isConditionalCheckFailure(error)) throw error;
+    }
   }
 
   async listByCreator(userId: string): Promise<League[]> {

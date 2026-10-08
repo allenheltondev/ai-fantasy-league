@@ -11,6 +11,7 @@ import {
   handleLeagueEvent,
   handleTradeTimer,
   invokeTool,
+  leagueManagers,
   newsAlertDetail,
   postSystemMessage,
   registry,
@@ -143,6 +144,18 @@ const posted = (c: Consumed): ChatMessage => {
   return c.chat.message;
 };
 const decisions = (c: Consumed) => c.routed.map((d) => [d.teamId, d.kind, d.decision]);
+
+/** How an announcement names a team: an agent team's name carries its AI manager's (#151). */
+async function announcedAs(
+  services: Services,
+  teamId: string,
+  name: string,
+  leagueId = LEAGUE_ID
+): Promise<string> {
+  const teams = await services.repos.teams.list(leagueId);
+  const manager = (await leagueManagers(services, leagueId, teams)).get(teamId);
+  return manager === undefined ? name : `${name} (${manager.name})`;
+}
 
 function jobDeps(s: Setup): JobDeps {
   return {
@@ -384,8 +397,9 @@ describe('event contract: the weekly cycle', () => {
     const detail = final.event.detail as { topScore: number; blowout: { margin: number } };
     expect(final.event.detail).toMatchObject({ topTeamId: 'team-2', blowout: { winnerTeamId: 'team-2' } });
     expect(detail.topScore).toBeGreaterThan(0);
+    const team2 = await announcedAs(s.services, 'team-2', 'Team 2');
     expect(posted(final).text).toBe(
-      `Week 5 is in the books (provisional). Top score: Team 2 with ${detail.topScore}. Biggest blowout: Team 2 beat Allen's Team by ${detail.blowout.margin}.`
+      `Week 5 is in the books (provisional). Top score: ${team2} with ${detail.topScore}. Biggest blowout: ${team2} beat Allen's Team by ${detail.blowout.margin}.`
     );
     expect(final.chat).toMatchObject({ moment: true });
     expect(final.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
@@ -558,7 +572,7 @@ describe('event contract: the official final and the season finale', () => {
       loserScore: number;
     };
     expect(posted(correction).text).toBe(
-      `Stat correction flips week 5: Allen's Team now beats Team 2, ${winnerScore} to ${loserScore}.`
+      `Stat correction flips week 5: Allen's Team now beats ${await announcedAs(s.services, 'team-2', 'Team 2')}, ${winnerScore} to ${loserScore}.`
     );
     expect(correction.relay.topics).toEqual([`fantasy.league.${LEAGUE_ID}`]);
     expect(correction.routed).toEqual([]);
@@ -644,10 +658,11 @@ describe('event contract: the official final and the season finale', () => {
     // Nobody scored in the final: the tie goes to the better seed, who is home.
     const champion = final.home.teamId as string;
     const runnerUp = final.away.teamId as string;
-    const name = (teamId: string) => (teamId === 'team-1' ? "Allen's Team" : `Team ${teamId.slice(5)}`);
+    const name = (teamId: string) =>
+      announcedAs(s.services, teamId, teamId === 'team-1' ? "Allen's Team" : `Team ${teamId.slice(5)}`);
     expect(done.event.detail).toMatchObject({ championTeamId: champion, runnerUpTeamId: runnerUp });
     expect(posted(done).text).toBe(
-      `${name(champion)} won the 2026 championship, beating ${name(runnerUp)} in the final!`
+      `${await name(champion)} won the 2026 championship, beating ${await name(runnerUp)} in the final!`
     );
     expect(done.chat).toMatchObject({ moment: true });
     expect(done.relay.topics).toEqual([]);
@@ -900,7 +915,7 @@ describe('event contract: league setup and the draft', () => {
     const changed = await consume(d.services, delivered(last(d.events.events, 'Agent Seat Changed')));
     expect(EVENT_DETAIL_SCHEMAS['Agent Seat Changed'].safeParse(changed.event.detail).success).toBe(true);
     expect(posted(changed).text).toMatch(
-      /^The commissioner changed .+'s AI difficulty from All-Pro to Rookie, AI decision model from Claude Sonnet 5 to Amazon Nova Micro\.$/
+      /^The commissioner updated the AI manager of .+ \(.+\): AI difficulty from All-Pro to Rookie, AI decision model from Claude Sonnet 5 to Amazon Nova Micro\.$/
     );
     // The changed seat still has its placeholder name (no kickoff ran here): its manager names it.
     expect(changed.routed.map((r) => [r.teamId, r.kind, r.decision])).toEqual([
@@ -912,7 +927,9 @@ describe('event contract: league setup and the draft', () => {
     await d.run('rename_team', { leagueId: d.leagueId, teamId: 'team-3', name: 'Robo Ballers' });
     const renamed = await consume(d.services, delivered(last(d.events.events, 'Team Renamed')));
     expect(EVENT_DETAIL_SCHEMAS['Team Renamed'].safeParse(renamed.event.detail).success).toBe(true);
-    expect(posted(renamed).text).toBe('The commissioner renamed Team 3 to Robo Ballers.');
+    expect(posted(renamed).text).toBe(
+      `The commissioner renamed Team 3 to ${await announcedAs(d.services, 'team-3', 'Robo Ballers', d.leagueId)}.`
+    );
     expect(renamed.routed).toEqual([]);
     expect(renamed.relay.topics).toEqual([]);
   });

@@ -161,6 +161,8 @@ describe('asking at a check-in', () => {
     expect(prompt).toContain('your direct message with them');
     expect(prompt).toContain('[roster:team-1:xrb1] Big Tuna rosters XRB1 (RB).');
     expect(prompt).toContain('nothing about what you need or would pay');
+    // A DM's facts are marked as the two teams' alone: never for the public posts beside them (#263).
+    expect(prompt).toContain('These facts are private to your two teams');
     // An agent-run team and an open seat are never asked.
     const run = newRun();
     const look = {
