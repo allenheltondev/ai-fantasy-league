@@ -104,6 +104,18 @@ describe('create_league', () => {
     expect((await h.repos.leagues.get('lg-old'))?.commissionerEmail).toBe('alice@new.example');
   });
 
+  it('still answers the commissioner when storing their email fails, and stores it on a later request', async () => {
+    await seedLeague(h.repos, { id: 'lg-old', owners: [ALICE, BOB] });
+    const store = vi
+      .spyOn(h.repos.leagues, 'setCommissionerEmail')
+      .mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+    expect((await alice.get('/leagues/lg-old')).status).toBe(200);
+    expect((await h.repos.leagues.get('lg-old'))?.commissionerEmail).toBeUndefined();
+    expect((await alice.get('/leagues/lg-old')).status).toBe(200);
+    expect(store).toHaveBeenCalledTimes(2);
+    expect((await h.repos.leagues.get('lg-old'))?.commissionerEmail).toBe('alice@example.com');
+  });
+
   it('takes a preset, team count, team name, and overrides', async () => {
     const league = data<Record<string, unknown>>(
       await alice.post('/leagues', {
